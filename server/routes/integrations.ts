@@ -29,7 +29,7 @@ router.get("/", requireAuth, (req: Request, res: Response, next: NextFunction) =
 });
 
 // Create integration connector
-router.post("/", requirePermission("settings:edit"), (req: Request, res: Response, next: NextFunction) => {
+router.post("/", requirePermission("integrations:manage"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const data = req.body as any;
     
@@ -64,7 +64,7 @@ router.post("/", requirePermission("settings:edit"), (req: Request, res: Respons
 });
 
 // Update integration connector
-router.put("/:id", requirePermission("settings:edit"), (req: Request, res: Response, next: NextFunction) => {
+router.put("/:id", requirePermission("integrations:manage"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const updates = req.body as any;
 
@@ -99,7 +99,7 @@ router.put("/:id", requirePermission("settings:edit"), (req: Request, res: Respo
 });
 
 // Delete integration
-router.delete("/:id", requirePermission("settings:edit"), (req: Request, res: Response, next: NextFunction) => {
+router.delete("/:id", requirePermission("integrations:manage"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const deleted = dbStore.deleteIntegration(req.params.id);
     if (!deleted) {
@@ -124,7 +124,7 @@ router.delete("/:id", requirePermission("settings:edit"), (req: Request, res: Re
 });
 
 // Test integration (decrypts key internally to run test)
-router.post("/:id/test", requirePermission("settings:edit"), (req: Request, res: Response, next: NextFunction) => {
+router.post("/:id/test", requirePermission("integrations:manage"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const conn = dbStore.getIntegrations().find(c => c.id === req.params.id) as any;
     if (!conn) {

@@ -163,7 +163,7 @@ router.delete("/documents/:id", requirePermission("document:delete"), async (req
 });
 
 // Reclassify document manually
-router.post("/documents/:id/reclassify", requirePermission("document:edit"), (req: Request, res: Response, next: NextFunction) => {
+router.post("/documents/:id/reclassify", requirePermission("document:upload"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const { document_type } = req.body;
     const doc = dbStore.getData().documents.find(d => d.id === req.params.id);

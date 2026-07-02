@@ -146,7 +146,7 @@ function getGeminiClient(): GoogleGenAI {
 }
 
 // GET latest analysis result
-router.get("/projects/:projectId/analysis-result", requirePermission("project:view"), (req: Request, res: Response, next: NextFunction) => {
+router.get("/projects/:projectId/analysis-result", requirePermission("analysis:read"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const result = dbStore.getAnalysisResult(req.params.projectId);
     if (!result) {
@@ -159,7 +159,7 @@ router.get("/projects/:projectId/analysis-result", requirePermission("project:vi
 });
 
 // UPDATE or SAVE analysis result manually (human-in-the-loop edits)
-router.post("/projects/:projectId/analysis-result", requirePermission("project:edit"), (req: Request, res: Response, next: NextFunction) => {
+router.post("/projects/:projectId/analysis-result", requirePermission("analysis:edit"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const result = req.body;
     result.project_id = req.params.projectId;
@@ -186,7 +186,7 @@ router.post("/projects/:projectId/analysis-result", requirePermission("project:e
 });
 
 // TRIGGER AI analysis using Gemini with real extracted content
-router.post("/projects/:projectId/analyze", requirePermission("project:edit"), async (req: Request, res: Response, next: NextFunction) => {
+router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), async (req: Request, res: Response, next: NextFunction) => {
   const correlationId = (req.headers["x-correlation-id"] as string) || "corr-ai";
   const startTime = Date.now();
   const projectId = req.params.projectId;
@@ -464,7 +464,7 @@ Write all generated content fields strictly in ${project.proposal_language}. Mai
 });
 
 // GET persistent job history
-router.get("/projects/:projectId/jobs", requirePermission("project:view"), (req: Request, res: Response, next: NextFunction) => {
+router.get("/projects/:projectId/jobs", requirePermission("analysis:read"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const jobs = dbStore.getJobs().filter(j => j.project_id === req.params.projectId);
     res.json(jobs);

@@ -12,7 +12,7 @@ router.get("/approval-workflows", requireAuth, (req: Request, res: Response, nex
   }
 });
 
-router.post("/proposals/:proposalId/approval/submit", requirePermission("proposal:submit"), (req: Request, res: Response, next: NextFunction) => {
+router.post("/proposals/:proposalId/approval/submit", requirePermission("approval:manage"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const proposal = dbStore.getProposal(req.params.proposalId);
     if (!proposal) {

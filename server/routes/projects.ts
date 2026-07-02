@@ -74,7 +74,7 @@ router.post("/", requirePermission("project:create"), (req: Request, res: Respon
   }
 });
 
-router.put("/:id", requirePermission("project:edit"), (req: Request, res: Response, next: NextFunction) => {
+router.put("/:id", requirePermission("project:update"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const validated = ProjectSchema.partial().parse(req.body);
     const project = dbStore.updateProject(req.params.id, validated);

@@ -12,7 +12,7 @@ router.get("/proposals", requireAuth, (req: Request, res: Response, next: NextFu
   }
 });
 
-router.post("/proposals/:id/validate", requirePermission("template:edit"), (req: Request, res: Response, next: NextFunction) => {
+router.post("/proposals/:id/validate", requirePermission("template:manage"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const tpl = dbStore.getProposalTemplates().find(t => t.id === req.params.id);
     if (!tpl) {
@@ -25,7 +25,7 @@ router.post("/proposals/:id/validate", requirePermission("template:edit"), (req:
   }
 });
 
-router.post("/proposals/:id/set-default", requirePermission("template:edit"), (req: Request, res: Response, next: NextFunction) => {
+router.post("/proposals/:id/set-default", requirePermission("template:manage"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const templates = dbStore.getProposalTemplates();
     const tpl = templates.find(t => t.id === req.params.id);

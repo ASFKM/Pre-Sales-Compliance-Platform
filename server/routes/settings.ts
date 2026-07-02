@@ -12,7 +12,7 @@ router.get("/settings", requireAuth, (req: Request, res: Response, next: NextFun
   }
 });
 
-router.post("/settings/storage", requirePermission("settings:edit"), (req: Request, res: Response, next: NextFunction) => {
+router.post("/settings/storage", requirePermission("storage:manage"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const updates = req.body;
     const settings = dbStore.updateSettings(updates);
@@ -42,7 +42,7 @@ router.get("/settings/prompts", requireAuth, (req: Request, res: Response, next:
   }
 });
 
-router.put("/settings/prompts/:id", requirePermission("settings:edit"), (req: Request, res: Response, next: NextFunction) => {
+router.put("/settings/prompts/:id", requirePermission("ai:settings"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const updates = req.body;
     const prompt = dbStore.updatePrompt(req.params.id, updates);
