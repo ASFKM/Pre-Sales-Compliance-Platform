@@ -5,22 +5,36 @@ import { encryptSecret, maskSecret, decryptSecret } from "../utils/security";
 
 const router = express.Router();
 
+function safeConnectorForResponse(conn: any) {
+  const cloned = { ...conn } as any;
+
+  if (cloned.api_key) {
+    try {
+      cloned.api_key = maskSecret(decryptSecret(cloned.api_key));
+    } catch {
+      cloned.api_key = "********";
+    }
+  }
+
+  if (cloned.webhook_secret) {
+    try {
+      cloned.webhook_secret = maskSecret(decryptSecret(cloned.webhook_secret));
+    } catch {
+      cloned.webhook_secret = "********";
+    }
+  }
+
+  return cloned;
+}
+
+
 // Retrieve all integration connectors with masked credentials
 router.get("/", requireAuth, (req: Request, res: Response, next: NextFunction) => {
   try {
     const integrations = dbStore.getIntegrations();
     
     // Mask tokens/keys before sending them to the client-side browser
-    const safeIntegrations = integrations.map(conn => {
-      const cloned = { ...conn } as any;
-      if (cloned.api_key) {
-        cloned.api_key = maskSecret(cloned.api_key);
-      }
-      if (cloned.webhook_secret) {
-        cloned.webhook_secret = maskSecret(cloned.webhook_secret);
-      }
-      return cloned;
-    });
+    const safeIntegrations = integrations.map(safeConnectorForResponse);
 
     res.json(safeIntegrations);
   } catch (err) {
@@ -57,7 +71,7 @@ router.post("/", requirePermission("integrations:manage"), (req: Request, res: R
       metadata: JSON.stringify({ name: newConn.name, provider: newConn.provider || newConn.type })
     });
 
-    res.status(211).json(newConn);
+    res.status(201).json(safeConnectorForResponse(newConn));
   } catch (err) {
     next(err);
   }
@@ -92,7 +106,7 @@ router.put("/:id", requirePermission("integrations:manage"), (req: Request, res:
       metadata: JSON.stringify({ name: conn.name })
     });
 
-    res.json(conn);
+    res.json(safeConnectorForResponse(conn));
   } catch (err) {
     next(err);
   }

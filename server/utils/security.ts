@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { isProductionRuntime } from "../config/runtime";
 
 const PASSWORD_HASH_ALGORITHM = "scrypt";
 const PASSWORD_HASH_KEY_LENGTH = 64;
@@ -114,36 +115,62 @@ export function verifySessionMfa(token: string): boolean {
 }
 
 // Encrypt and mask sensitive keys
-const SECRET_ENCRYPTION_KEY = process.env.SECRET_ENCRYPTION_KEY || "commercial-assistant-secret-key-32";
+const DEFAULT_SECRET_ENCRYPTION_KEY = "commercial-assistant-secret-key-32";
+
+function getSecretEncryptionKey(): Buffer {
+  const raw = process.env.SECRET_ENCRYPTION_KEY;
+
+  if (isProductionRuntime() && (!raw || raw === DEFAULT_SECRET_ENCRYPTION_KEY || raw.length < 32)) {
+    throw new Error("SECRET_ENCRYPTION_KEY must be configured with a strong value in production runtime.");
+  }
+
+  const effective = raw || DEFAULT_SECRET_ENCRYPTION_KEY;
+  return crypto.createHash("sha256").update(effective).digest();
+}
 
 export function encryptSecret(plainText: string): string {
-  try {
-    const iv = crypto.randomBytes(16);
-    // Create a 32 byte key from the secret key using sha256
-    const key = crypto.createHash("sha256").update(SECRET_ENCRYPTION_KEY).digest();
-    const cipher = crypto.createCipheriv("aes-256-cbc", key, iv);
-    let encrypted = cipher.update(plainText, "utf8", "hex");
-    encrypted += cipher.final("hex");
-    return `${iv.toString("hex")}:${encrypted}`;
-  } catch (err) {
-    console.error("Encryption failed:", err);
-    return plainText; // Fallback to plain if it fails (not recommended but for safety)
-  }
+  const iv = crypto.randomBytes(12);
+  const key = getSecretEncryptionKey();
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+
+  let encrypted = cipher.update(plainText, "utf8", "hex");
+  encrypted += cipher.final("hex");
+
+  const authTag = cipher.getAuthTag().toString("hex");
+  return `v2:${iv.toString("hex")}:${authTag}:${encrypted}`;
 }
 
 export function decryptSecret(encryptedText: string): string {
-  try {
-    if (!encryptedText.includes(":")) return encryptedText;
-    const [ivHex, encryptedHex] = encryptedText.split(":");
-    const iv = Buffer.from(ivHex, "hex");
-    const key = crypto.createHash("sha256").update(SECRET_ENCRYPTION_KEY).digest();
-    const decipher = crypto.createDecipheriv("aes-256-cbc", key, iv);
+  if (!encryptedText) return "";
+
+  if (encryptedText.startsWith("v2:")) {
+    const [, ivHex, authTagHex, encryptedHex] = encryptedText.split(":");
+
+    if (!ivHex || !authTagHex || !encryptedHex) {
+      throw new Error("Invalid encrypted secret format.");
+    }
+
+    const key = getSecretEncryptionKey();
+    const decipher = crypto.createDecipheriv("aes-256-gcm", key, Buffer.from(ivHex, "hex"));
+    decipher.setAuthTag(Buffer.from(authTagHex, "hex"));
+
     let decrypted = decipher.update(encryptedHex, "hex", "utf8");
     decrypted += decipher.final("utf8");
     return decrypted;
-  } catch (err) {
-    return encryptedText; // Fallback
   }
+
+  if (!encryptedText.includes(":")) {
+    return encryptedText;
+  }
+
+  // Legacy AES-CBC compatibility for secrets saved before authenticated encryption.
+  const [ivHex, encryptedHex] = encryptedText.split(":");
+  const key = getSecretEncryptionKey();
+  const decipher = crypto.createDecipheriv("aes-256-cbc", key, Buffer.from(ivHex, "hex"));
+
+  let decrypted = decipher.update(encryptedHex, "hex", "utf8");
+  decrypted += decipher.final("utf8");
+  return decrypted;
 }
 
 export function maskSecret(secret: string): string {
