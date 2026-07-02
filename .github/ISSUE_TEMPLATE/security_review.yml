@@ -1,0 +1,46 @@
+name: Security review
+description: Track security hardening, threat modeling, or vulnerability remediation
+title: "security: "
+labels: []
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Security concern
+      description: Describe the concern without including secrets or exploit payloads.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Authentication
+        - Authorization / RBAC
+        - Secrets management
+        - File upload / storage
+        - AI prompt/document handling
+        - Audit logs
+        - Debug logs / diagnostics
+        - Deployment
+        - Dependencies
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - low
+        - medium
+        - high
+        - critical
+    validations:
+      required: true
+  - type: textarea
+    id: recommendation
+    attributes:
+      label: Recommended remediation
+    validations:
+      required: true
