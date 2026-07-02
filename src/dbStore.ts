@@ -1316,6 +1316,47 @@ class DBStore {
     return this.data.approvalWorkflows[idx];
   }
 
+  // Roles CRUD
+  public getRoles(): Role[] {
+    return this.data.roles;
+  }
+
+  public createRole(role: Omit<Role, "id">): Role {
+    const newRole: Role = {
+      ...role,
+      id: "r_" + Math.random().toString(36).substr(2, 9),
+    };
+    this.data.roles.push(newRole);
+    this.save();
+    return newRole;
+  }
+
+  public updateRole(id: string, updates: Partial<Role>): Role | undefined {
+    const idx = this.data.roles.findIndex((r) => r.id === id);
+    if (idx === -1) return undefined;
+
+    this.data.roles[idx] = {
+      ...this.data.roles[idx],
+      ...updates,
+    };
+
+    this.save();
+    return this.data.roles[idx];
+  }
+
+  public deleteRole(id: string): boolean {
+    const protectedRoles = ["r1", "r2", "r3"];
+    if (protectedRoles.includes(id)) return false;
+
+    const isInUse = this.data.users.some((u) => u.role_id === id);
+    if (isInUse) return false;
+
+    const originalLength = this.data.roles.length;
+    this.data.roles = this.data.roles.filter((r) => r.id !== id);
+    this.save();
+    return this.data.roles.length < originalLength;
+  }
+
   // Tasks CRUD
   public getTasks(projectId?: string): Task[] {
     if (projectId) {

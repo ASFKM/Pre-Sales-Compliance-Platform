@@ -4004,18 +4004,13 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                 {activeAdminSection === "users" && (
                   <div className="w-full space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                      {[
-                        { id: "r1", name: tx("Administrator", "Administrador"), desc: locale === "pt" ? "Acesso total ao sistema." : "Full system access.", modules: ["workspace", "proposals", "templates", "approval", "admin", "integrations", "branding", "audit"] },
-                        { id: "r2", name: tx("Sales Manager", "Gerente Comercial"), desc: locale === "pt" ? "Gestão comercial e propostas." : "Commercial and proposal management.", modules: ["workspace", "proposals", "templates", "approval"] },
-                        { id: "r3", name: tx("Pre-Sales Engineer", "Engenheiro de Pré-Vendas"), desc: locale === "pt" ? "Análise técnica e documentos." : "Technical analysis and documents.", modules: ["workspace", "proposals"] },
-                        ...customAdminRoles
-                      ].map(role => (
+                      {roles.map(role => (
                         <div key={role.id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
                           <h3 className="text-sm font-bold text-slate-900">{role.name}</h3>
-                          <p className="text-xs text-slate-500 mt-1 min-h-8">{role.desc || role.description}</p>
-                          <p className="text-[10px] uppercase font-mono text-slate-400 mt-3 mb-2">{locale === "pt" ? "Módulos com acesso" : "Accessible modules"}</p>
+                          <p className="text-xs text-slate-500 mt-1 min-h-8">{role.description}</p>
+                          <p className="text-[10px] uppercase font-mono text-slate-400 mt-3 mb-2">{locale === "pt" ? "Permissões do perfil" : "Role permissions"}</p>
                           <div className="flex flex-wrap gap-1.5">
-                            {(role.modules || []).map(mod => (
+                            {(role.permissions || []).map(mod => (
                               <span key={mod} className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100 font-bold">
                                 {mod}
                               </span>
@@ -4048,15 +4043,51 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                         ))}
                       </div>
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           if (!newRoleName.trim()) {
                             alert(locale === "pt" ? "Informe o nome do perfil." : "Enter the role name.");
                             return;
                           }
-                          setCustomAdminRoles([...customAdminRoles, { id: `custom-${Date.now()}`, name: newRoleName.trim(), description: newRoleDescription.trim(), modules: newRoleModules }]);
-                          setNewRoleName("");
-                          setNewRoleDescription("");
-                          setNewRoleModules(["workspace"]);
+
+                          const modulePermissionMap: Record<string, string[]> = {
+                            workspace: ["project:create", "project:read", "project:update", "document:upload", "document:read", "document:delete", "analysis:run", "analysis:read", "analysis:edit"],
+                            proposals: ["proposal:generate", "proposal:read", "proposal:approve"],
+                            templates: ["template:manage"],
+                            approval: ["approval:manage"],
+                            admin: ["admin:users", "admin:roles", "admin:settings"],
+                            integrations: ["integrations:manage"],
+                            branding: ["branding:manage"],
+                            audit: ["admin:audit", "admin:debug", "admin:diagnostics"],
+                          };
+
+                          const permissions = Array.from(new Set(newRoleModules.flatMap((mod) => modulePermissionMap[mod] || [])));
+
+                          try {
+                            const res = await fetch("/api/roles", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                name: newRoleName.trim(),
+                                description: newRoleDescription.trim(),
+                                permissions,
+                              }),
+                            });
+
+                            if (!res.ok) {
+                              const err = await res.json().catch(() => ({}));
+                              alert(err.message || (locale === "pt" ? "Não foi possível criar o perfil." : "Could not create role."));
+                              return;
+                            }
+
+                            await fetchGlobalConfigs();
+                            setNewRoleName("");
+                            setNewRoleDescription("");
+                            setNewRoleModules(["workspace"]);
+                            alert(locale === "pt" ? "Perfil criado com sucesso." : "Role created successfully.");
+                          } catch (err) {
+                            console.error(err);
+                            alert(locale === "pt" ? "Erro ao criar perfil." : "Error creating role.");
+                          }
                         }}
                         className="bg-slate-900 text-white text-xs font-bold px-4 py-2 rounded"
                       >
@@ -4087,7 +4118,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                             <tr key={u.id} className="hover:bg-slate-50">
                               <td className="p-3 font-sans font-semibold text-slate-800">{u.name}</td>
                               <td className="p-3 font-semibold text-slate-500">{u.email}</td>
-                              <td className="p-3 font-semibold uppercase text-slate-600">{u.role_id === "r1" ? tx("Administrator", "Administrador") : (u.role_id === "r2" ? tx("Sales Manager", "Gerente Comercial") : tx("Pre-Sales Engineer", "Engenheiro de Pré-Vendas"))}</td>
+                              <td className="p-3 font-semibold uppercase text-slate-600">{roles.find((r) => r.id === u.role_id)?.name || u.role_id}</td>
                               <td className="p-3 text-center">{u.mfa_enabled ? tx("✅ Active", "✅ Ativo") : tx("❌ Disabled", "❌ Desativado")}</td>
                               <td className="p-3"><span className="text-emerald-700 bg-emerald-50 px-2 rounded-full font-bold">{tx("ACTIVE", "ATIVO")}</span></td>
                               <td className="p-3 text-slate-500 leading-none">{new Date(u.last_login_at || u.created_at).toLocaleString()}</td>
