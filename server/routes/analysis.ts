@@ -133,7 +133,12 @@ let aiClient: GoogleGenAI | null = null;
 let aiClientFingerprint = "";
 
 function getConfiguredGeminiApiKey(): string {
-  const envKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+  const envKey = [
+    process.env.GEMINI_API_KEY,
+    process.env.GOOGLE_API_KEY,
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY
+  ].find((key) => typeof key === "string" && key.trim().length > 0)?.trim();
+
   if (envKey) return envKey;
 
   const encryptedKey = (dbStore.getSettings() as any).ai_api_key_encrypted;

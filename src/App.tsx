@@ -493,6 +493,7 @@ export default function App() {
   // UI Controls & Lists
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [analysisError, setAnalysisError] = useState<string>("");
   const [showNewProjectModal, setShowNewProjectModal] = useState<boolean>(false);
   const [showDocumentTypeModal, setShowDocumentTypeModal] = useState<Document | null>(null);
 
@@ -1028,23 +1029,56 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
   // Execute Pre-Sales AI Analysis
   const handleRunAnalysis = async () => {
     if (!selectedProjectId) return;
+
+    setAnalysisError("");
     setIsAnalyzing(true);
+
     try {
       const res = await fetch(`/api/projects/${selectedProjectId}/analyze`, {
         method: "POST"
       });
-      if (res.ok) {
-        const data = await res.json();
-        setAnalysisResult(data.result);
-        fetchProjectDetails(selectedProjectId);
-        fetchGlobalConfigs();
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        const message = data.message || (locale === "pt"
+          ? "Não foi possível executar a análise de IA."
+          : "Could not run AI analysis.");
+
+        const isMissingAiKey = message.includes("Gemini API key is not configured");
+        const isInvalidAiKey = message.includes("API key not valid") || message.includes("API_KEY_INVALID") || message.includes("INVALID_ARGUMENT");
+
+        let friendlyMessage = message;
+
+        if (isMissingAiKey) {
+          friendlyMessage = locale === "pt"
+            ? "A chave da API Gemini ainda não está configurada. Acesse Admin > IA, Prompts e Custos e salve a chave antes de executar a análise."
+            : "Gemini API key is not configured yet. Go to Admin > AI, Prompts & Costs and save the key before running analysis.";
+        } else if (isInvalidAiKey) {
+          friendlyMessage = locale === "pt"
+            ? "A chave da API Gemini configurada está inválida ou expirada. Acesse Admin > IA, Prompts e Custos, remova a chave atual e salve uma chave válida."
+            : "The configured Gemini API key is invalid or expired. Go to Admin > AI, Prompts & Costs, remove the current key, and save a valid key.";
+        }
+
+        setAnalysisError(friendlyMessage);
+        setSubTab("summary");
+        return;
       }
+
+      setAnalysisResult(data.result);
+      setAnalysisError("");
+      fetchProjectDetails(selectedProjectId);
+      fetchGlobalConfigs();
     } catch (e) {
       console.error(e);
+      setAnalysisError(locale === "pt"
+        ? "Erro inesperado ao executar a análise. Verifique os logs de diagnóstico."
+        : "Unexpected error while running analysis. Check diagnostic logs.");
     } finally {
       setIsAnalyzing(false);
     }
   };
+
 
   // Update requirement compliance notes
   const handleUpdateRequirement = async (reqId: string, status: any, notes: string) => {
@@ -2760,6 +2794,24 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                         <div className="w-full bg-blue-200 h-1 mt-2 rounded-full"><div className="bg-blue-600 h-1 w-full rounded-full"></div></div>
                       </div>
                     </div>
+
+                    {analysisError && (
+                      <div className="mb-4 p-4 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 text-sm shadow-sm">
+                        <div className="font-bold mb-1">
+                          {locale === "pt" ? "Análise não executada" : "Analysis not executed"}
+                        </div>
+                        <p className="leading-relaxed">{analysisError}</p>
+                        <button
+                          onClick={() => {
+                            setActiveTab("admin");
+                            setActiveAdminSection("ai");
+                          }}
+                          className="mt-3 bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider"
+                        >
+                          {locale === "pt" ? "Abrir Configurações de IA" : "Open AI Settings"}
+                        </button>
+                      </div>
+                    )}
 
                     {!analysisResult ? (
                       <div className="bg-slate-50 border border-slate-200 rounded-xl p-8 text-center flex flex-col items-center justify-center py-16">
