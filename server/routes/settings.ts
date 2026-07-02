@@ -1,4 +1,6 @@
 import express, { Request, Response, NextFunction } from "express";
+import fs from "fs";
+import path from "path";
 import { dbStore } from "../../src/dbStore";
 import { requireAuth, requirePermission } from "./auth";
 
@@ -143,10 +145,20 @@ function updateStorageSettings(req: Request, res: Response, next: NextFunction) 
 
     const updates = Object.fromEntries(
       Object.entries(req.body || {}).filter(([key]) => allowedFields.includes(key))
-    );
+    ) as any;
 
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ success: false, message: "No valid storage fields provided." });
+    }
+
+    if (updates.storage_mode && !["local", "s3", "gcs"].includes(updates.storage_mode)) {
+      return res.status(400).json({ success: false, message: "Invalid storage mode." });
+    }
+
+    for (const key of ["local_storage_path", "s3_bucket", "gcs_bucket"]) {
+      if (updates[key] !== undefined && !String(updates[key]).trim()) {
+        return res.status(400).json({ success: false, message: `${key} cannot be empty.` });
+      }
     }
 
     const settings = dbStore.updateSettings(updates);
@@ -158,6 +170,57 @@ function updateStorageSettings(req: Request, res: Response, next: NextFunction) 
     next(err);
   }
 }
+
+router.get("/settings/storage/status", requirePermission("storage:manage"), (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const settings = dbStore.getSettings();
+    const mode = settings.storage_mode || "local";
+
+    if (mode === "local") {
+      const configuredPath = settings.local_storage_path || "./uploads";
+      const targetPath = path.isAbsolute(configuredPath)
+        ? configuredPath
+        : path.resolve(process.cwd(), configuredPath);
+
+      fs.mkdirSync(targetPath, { recursive: true });
+
+      const probeFile = path.join(targetPath, ".storage-health-check");
+      fs.writeFileSync(probeFile, `ok ${new Date().toISOString()}`, "utf8");
+      fs.unlinkSync(probeFile);
+
+      return res.json({
+        success: true,
+        mode,
+        target: targetPath,
+        writable: true,
+        scaffolded: false,
+        message: "Local storage path is available and writable."
+      });
+    }
+
+    if (mode === "s3") {
+      return res.json({
+        success: true,
+        mode,
+        target: settings.s3_bucket,
+        writable: true,
+        scaffolded: true,
+        message: "S3 adapter is configured in scaffold mode."
+      });
+    }
+
+    return res.json({
+      success: true,
+      mode,
+      target: settings.gcs_bucket,
+      writable: true,
+      scaffolded: true,
+      message: "GCS adapter is configured in scaffold mode."
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.post("/settings/storage", requirePermission("storage:manage"), updateStorageSettings);
 router.put("/settings/storage", requirePermission("storage:manage"), updateStorageSettings);

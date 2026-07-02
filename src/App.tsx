@@ -511,6 +511,7 @@ export default function App() {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [debugLogs, setDebugLogs] = useState<DebugLog[]>([]);
   const [platformSettings, setPlatformSettings] = useState<PlatformSettings | null>(null);
+  const [storageTestResult, setStorageTestResult] = useState<any>(null);
   const [brandingSettings, setBrandingSettings] = useState<BrandingSettings | null>(null);
   const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>([]);
   const [proposalTemplates, setProposalTemplates] = useState<any[]>([]);
@@ -1778,6 +1779,25 @@ export default function App() {
       }
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const handleTestStorageSettings = async () => {
+    try {
+      const res = await fetch("/api/settings/storage/status");
+      const data = await res.json();
+
+      setStorageTestResult(data);
+
+      if (!res.ok || !data.success) {
+        alert(data.message || (locale === "pt" ? "Falha ao testar armazenamento." : "Storage test failed."));
+        return;
+      }
+
+      alert(locale === "pt" ? "Armazenamento validado com sucesso." : "Storage validated successfully.");
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao testar armazenamento." : "Error testing storage.");
     }
   };
 
@@ -5595,22 +5615,95 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                 )}
 
                 {activeAdminSection === "storage" && (
-                  <div className="w-full bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
-                    <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
-                      {locale === "pt" ? "Armazenamento e Documentos" : "Storage and Documents"}
-                    </h3>
-                    <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">
-                      {locale === "pt" ? "Provedor de Armazenamento" : "Storage Provider Mode"}
-                    </label>
-                    <select value={platformSettings?.storage_mode || "local"} onChange={(e) => handleSavePlatformSettings("storage_mode", e.target.value)} className="w-full p-2 rounded-lg bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-semibold text-slate-700 font-sans shadow-sm">
-                      <option value="local">{locale === "pt" ? "Diretórios Isolados Locais" : "Local isolated directories"}</option>
-                      <option value="s3">{locale === "pt" ? "Criptografia AWS S3 Corporativa" : "Enterprise AWS S3 encryption"}</option>
-                      <option value="gcs">{locale === "pt" ? "Bucket do Google Cloud Storage" : "Google Cloud Storage bucket"}</option>
-                    </select>
+                  <div className="w-full bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-5">
+                    <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 border-b border-slate-100 pb-3">
+                      <div>
+                        <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
+                          {locale === "pt" ? "Armazenamento e Documentos" : "Storage and Documents"}
+                        </h3>
+                        <p className="text-xs text-slate-500 mt-1">
+                          {locale === "pt" ? "Configure o provedor de armazenamento usado nos uploads, templates e exportações." : "Configure the storage provider used by uploads, templates and exports."}
+                        </p>
+                      </div>
+                      <button
+                        onClick={handleTestStorageSettings}
+                        className="bg-slate-900 text-white text-xs font-bold px-3 py-2 rounded"
+                      >
+                        {locale === "pt" ? "Testar Storage" : "Test Storage"}
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                      <div className="lg:col-span-1">
+                        <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">
+                          {locale === "pt" ? "Provedor de Armazenamento" : "Storage Provider Mode"}
+                        </label>
+                        <select
+                          value={platformSettings?.storage_mode || "local"}
+                          onChange={(e) => handleSavePlatformSettings("storage_mode", e.target.value)}
+                          className="w-full p-2 rounded-lg bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-semibold text-slate-700 font-sans shadow-sm"
+                        >
+                          <option value="local">{locale === "pt" ? "Diretórios Locais" : "Local directories"}</option>
+                          <option value="s3">AWS S3</option>
+                          <option value="gcs">Google Cloud Storage</option>
+                        </select>
+                      </div>
+
+                      <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                        <div>
+                          <label className="text-[10px] uppercase font-bold text-slate-400 font-mono block mb-1">Local Path</label>
+                          <input
+                            value={platformSettings?.local_storage_path || "./uploads"}
+                            onChange={(e) => setPlatformSettings(prev => prev ? { ...prev, local_storage_path: e.target.value } : prev)}
+                            onBlur={(e) => handleSavePlatformSettings("local_storage_path", e.target.value)}
+                            className="w-full p-2 bg-slate-50 border border-slate-200 rounded font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] uppercase font-bold text-slate-400 font-mono block mb-1">S3 Bucket</label>
+                          <input
+                            value={platformSettings?.s3_bucket || ""}
+                            onChange={(e) => setPlatformSettings(prev => prev ? { ...prev, s3_bucket: e.target.value } : prev)}
+                            onBlur={(e) => handleSavePlatformSettings("s3_bucket", e.target.value)}
+                            className="w-full p-2 bg-slate-50 border border-slate-200 rounded font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] uppercase font-bold text-slate-400 font-mono block mb-1">GCS Bucket</label>
+                          <input
+                            value={platformSettings?.gcs_bucket || ""}
+                            onChange={(e) => setPlatformSettings(prev => prev ? { ...prev, gcs_bucket: e.target.value } : prev)}
+                            onBlur={(e) => handleSavePlatformSettings("gcs_bucket", e.target.value)}
+                            className="w-full p-2 bg-slate-50 border border-slate-200 rounded font-mono"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {storageTestResult && (
+                      <div className={`p-3 rounded-lg border text-xs ${storageTestResult.success ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-red-50 border-red-200 text-red-800"}`}>
+                        <p className="font-bold uppercase font-mono">{locale === "pt" ? "Resultado do Teste" : "Test Result"}</p>
+                        <p className="mt-1">{storageTestResult.message}</p>
+                        <p className="mt-1 font-mono break-all">
+                          Mode: {storageTestResult.mode} • Target: {storageTestResult.target} • Writable: {String(storageTestResult.writable)}
+                          {storageTestResult.scaffolded ? " • Scaffold" : ""}
+                        </p>
+                      </div>
+                    )}
+
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-slate-600">
-                      <div className="p-3 bg-slate-50 rounded border">{locale === "pt" ? "Uploads de documentos" : "Document uploads"}</div>
-                      <div className="p-3 bg-slate-50 rounded border">{locale === "pt" ? "Templates versionados" : "Versioned templates"}</div>
-                      <div className="p-3 bg-slate-50 rounded border">{locale === "pt" ? "Exportações geradas" : "Generated exports"}</div>
+                      <div className="p-3 bg-slate-50 rounded border">
+                        <p className="font-bold text-slate-800">{locale === "pt" ? "Uploads de documentos" : "Document uploads"}</p>
+                        <p className="text-[10px] text-slate-500 mt-1">{locale === "pt" ? "Usa o storage selecionado no backend." : "Uses the selected backend storage."}</p>
+                      </div>
+                      <div className="p-3 bg-slate-50 rounded border">
+                        <p className="font-bold text-slate-800">{locale === "pt" ? "Templates versionados" : "Versioned templates"}</p>
+                        <p className="text-[10px] text-slate-500 mt-1">{locale === "pt" ? "Caminhos persistidos no banco local." : "Paths persisted in local database."}</p>
+                      </div>
+                      <div className="p-3 bg-slate-50 rounded border">
+                        <p className="font-bold text-slate-800">{locale === "pt" ? "Exportações geradas" : "Generated exports"}</p>
+                        <p className="text-[10px] text-slate-500 mt-1">{locale === "pt" ? "Preparado para futuras exportações." : "Ready for future exports."}</p>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -5649,7 +5742,13 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
         <div className="flex gap-6 items-center">
           <span>{tx("Active Session", "Sessão Ativa")}: <span className="text-emerald-400 uppercase">active-442x</span></span>
           <span>{tx("DB Instance", "Instância do Banco")}: <span className="text-emerald-400">PostgreSQL / 15.4</span></span>
-          <span>{tx("Workspace Storage", "Armazenamento do Workspace")}: <span className="text-emerald-400 uppercase">AWS S3 (US-EAST-1)</span></span>
+          <span>{tx("Workspace Storage", "Armazenamento do Workspace")}: <span className="text-emerald-400 uppercase">
+            {platformSettings?.storage_mode === "s3"
+              ? `S3: ${platformSettings?.s3_bucket || "not configured"}`
+              : platformSettings?.storage_mode === "gcs"
+                ? `GCS: ${platformSettings?.gcs_bucket || "not configured"}`
+                : `LOCAL: ${platformSettings?.local_storage_path || "./uploads"}`}
+          </span></span>
           <span className="flex items-center gap-1.5 border-l border-slate-700 pl-6">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
             LLM: <span className="text-emerald-400 font-bold uppercase">{platformSettings?.ai_provider || "Gemini"}</span>

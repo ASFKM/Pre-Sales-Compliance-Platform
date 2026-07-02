@@ -2,7 +2,7 @@ import express, { Request, Response, NextFunction } from "express";
 import multer from "multer";
 import { dbStore } from "../../src/dbStore";
 import { requireAuth, requirePermission } from "./auth";
-import { LocalStorageAdapter, validateUploadedFile } from "../utils/storage";
+import { createStorageAdapter, validateUploadedFile } from "../utils/storage";
 import { extractTextFromDocument } from "../utils/extraction";
 import { logDebugMessage } from "../middleware/security";
 
@@ -14,7 +14,6 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
 });
 
-const storageAdapter = new LocalStorageAdapter();
 
 // Get documents for a project
 router.get("/projects/:projectId/documents", requireAuth, (req: Request, res: Response, next: NextFunction) => {
@@ -56,7 +55,9 @@ router.post(
         return res.status(400).json({ success: false, message: validation.error });
       }
 
-      // 2. Store via Storage Adapter (local implementation)
+      // 2. Store via selected Storage Adapter
+      const platformSettings = dbStore.getSettings();
+      const storageAdapter = createStorageAdapter(platformSettings);
       const storagePath = await storageAdapter.uploadFile(
         projectId,
         file.buffer,
@@ -75,7 +76,7 @@ router.post(
         original_filename: file.originalname,
         mime_type: file.mimetype,
         file_size: file.size,
-        storage_provider: "local",
+        storage_provider: platformSettings.storage_mode,
         storage_path: storagePath,
         detected_document_type: file.mimetype.includes("pdf") ? "RFP / Bid Document" : "Contract/SLA",
         manual_document_type: undefined,
@@ -132,7 +133,11 @@ router.delete("/documents/:id", requirePermission("document:delete"), async (req
       return res.status(404).json({ success: false, message: "Document not found." });
     }
 
-    // Remove from physical storage
+    // Remove from physical storage using the provider recorded on the document
+    const storageAdapter = createStorageAdapter({
+      ...dbStore.getSettings(),
+      storage_mode: doc.storage_provider
+    });
     await storageAdapter.deleteFile(doc.storage_path);
 
     // Remove from DB
