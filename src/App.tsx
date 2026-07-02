@@ -285,6 +285,8 @@ export default function App() {
     return (dict as any)[key] || key;
   };
 
+  const tx = (en: string, pt: string) => locale === "pt" ? pt : en;
+
   // Admin authentication state for debug/export access
   const [isAdminUnlocked, setIsAdminUnlocked] = useState(false);
   const [adminPasswordInput, setAdminPasswordInput] = useState("");
@@ -878,7 +880,7 @@ export default function App() {
 
   // Handle Document Delete
   const handleDeleteDocument = async (id: string) => {
-    if (!confirm("Are you sure you want to discard this specification?")) return;
+    if (!confirm(locale === "pt" ? "Tem certeza que deseja descartar esta especificação?" : "Are you sure you want to discard this specification?")) return;
     try {
       const res = await fetch(`/api/documents/${id}`, { method: "DELETE" });
       if (res.ok) {
@@ -1323,7 +1325,7 @@ export default function App() {
     return (
       <div id="app-loading-screen" className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
         <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-slate-400 font-mono text-xs">COMMERCIAL ASSISTANT AI - SECURE PORTAL BOOTING...</p>
+        <p className="text-slate-400 font-mono text-xs">{tx("COMMERCIAL ASSISTANT AI - SECURE PORTAL BOOTING...", "COMMERCIAL ASSISTANT AI - INICIANDO PORTAL SEGURO...")}</p>
       </div>
     );
   }
@@ -1345,7 +1347,7 @@ export default function App() {
             <span className="font-semibold tracking-tight text-lg italic leading-none">
               Commercial Assistant <span className="text-emerald-400 font-mono">AI</span>
             </span>
-            <span className="text-[10px] text-slate-400 font-mono">Pre-Sales Compliance Platform</span>
+            <span className="text-[10px] text-slate-400 font-mono">{tx("Pre-Sales Compliance Platform", "Plataforma de Compliance de Pré-Vendas")}</span>
           </div>
         </div>
 
@@ -1978,7 +1980,7 @@ export default function App() {
                         <th className="p-3.5 font-bold">{locale === "pt" ? "Projeto / Cliente" : "Project / Client"}</th>
                         <th className="p-3.5 font-bold">{locale === "pt" ? "Setor" : "Vertical"}</th>
                         <th className="p-3.5 font-bold">{locale === "pt" ? "Prazo Final" : "Submission Deadline"}</th>
-                        <th className="p-3.5 font-bold">Status</th>
+                        <th className="p-3.5 font-bold">{tx("Status", "Status")}</th>
                         <th className="p-3.5 font-bold text-right">{locale === "pt" ? "Ações" : "Actions"}</th>
                       </tr>
                     </thead>
@@ -2112,7 +2114,7 @@ export default function App() {
                     {!analysisResult ? (
                       <div className="bg-slate-50 border border-slate-200 rounded-xl p-8 text-center flex flex-col items-center justify-center py-16">
                         <AlertTriangle className="text-amber-500 mb-2" size={32} />
-                        <h4 className="text-sm font-bold text-slate-800 uppercase font-mono">Specifications Awaiting Analysis</h4>
+                        <h4 className="text-sm font-bold text-slate-800 uppercase font-mono">{tx("Specifications Awaiting Analysis", "Especificações Aguardando Análise")}</h4>
                         <p className="text-xs text-slate-500 max-w-md mt-1 leading-relaxed">
                           Please upload your customer tender documentation files or specification guidelines inside the sidebar and click <strong>'RUN AI ANALYSIS'</strong>. Google Gemini will extract structured requirements, analyze potential tender risks, design a standard BOM list and compile compliance layouts automatically.
                         </p>
@@ -2122,7 +2124,7 @@ export default function App() {
                         <div>
                           <div className="flex items-center gap-2 mb-3">
                             <h2 className="text-lg font-light text-slate-900">{locale === "en" ? "Executive Summary" : "Resumo Executivo"}</h2>
-                            <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-bold font-mono">AI COMPLIANCE DIGEST</span>
+                            <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-bold font-mono">{tx("AI COMPLIANCE DIGEST", "RESUMO DE COMPLIANCE IA")}</span>
                           </div>
                           
                           <div className="prose prose-sm text-slate-600 space-y-4">
@@ -2230,24 +2232,24 @@ export default function App() {
                 {subTab === "requirements" && (
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
-                      <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">Tender Requirements Datagrid</h3>
-                      <span className="text-xs text-slate-400">Updates sync in real-time with the central model</span>
+                      <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">{tx("Tender Requirements Datagrid", "Grade de Requisitos da Licitação")}</h3>
+                      <span className="text-xs text-slate-400">{tx("Updates sync in real-time with the central model", "Atualizações sincronizadas em tempo real com o modelo central")}</span>
                     </div>
 
                     {!analysisResult ? (
-                      <div className="text-center py-12 text-slate-400 italic">No analysis conducted yet. Run analysis to populate requirements grid.</div>
+                      <div className="text-center py-12 text-slate-400 italic">{tx("No analysis conducted yet. Run analysis to populate requirements grid.", "Nenhuma análise realizada ainda. Execute a análise para preencher a grade de requisitos.")}</div>
                     ) : (
                       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
                         <table className="w-full text-left text-xs border-collapse">
                           <thead className="bg-slate-100 border-b border-slate-200 font-mono text-[10px] uppercase text-slate-500">
                             <tr>
-                              <th className="p-3">Ref</th>
-                              <th className="p-3 w-1/3">Requirement Description</th>
-                              <th className="p-3">Source Ref</th>
-                              <th className="p-3">Category</th>
-                              <th className="p-3">Priority</th>
-                              <th className="p-3">Compliance Status</th>
-                              <th className="p-3">Engineering Notes</th>
+                              <th className="p-3">{tx("Ref", "Ref.")}</th>
+                              <th className="p-3 w-1/3">{tx("Requirement Description", "Descrição do Requisito")}</th>
+                              <th className="p-3">{tx("Source Ref", "Fonte")}</th>
+                              <th className="p-3">{tx("Category", "Categoria")}</th>
+                              <th className="p-3">{tx("Priority", "Prioridade")}</th>
+                              <th className="p-3">{tx("Compliance Status", "Status de Conformidade")}</th>
+                              <th className="p-3">{tx("Engineering Notes", "Notas de Engenharia")}</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-200">
@@ -2286,17 +2288,17 @@ export default function App() {
                                       "text-red-700 bg-red-50 border-red-200"
                                     }`}
                                   >
-                                    <option value="compliant">Compliant</option>
-                                    <option value="partially_compliant">Partially</option>
-                                    <option value="non_compliant">Non-Compliant</option>
-                                    <option value="not_enough_information">Needs Info</option>
+                                    <option value="compliant">{tx("Compliant", "Conforme")}</option>
+                                    <option value="partially_compliant">{tx("Partially", "Parcial")}</option>
+                                    <option value="non_compliant">{tx("Non-Compliant", "Não Conforme")}</option>
+                                    <option value="not_enough_information">{tx("Needs Info", "Precisa de Informação")}</option>
                                   </select>
                                 </td>
                                 <td className="p-3">
                                   <input 
                                     type="text" 
                                     value={req.notes || ""} 
-                                    placeholder="Add engineering compliance remarks..."
+                                    placeholder={tx("Add engineering compliance remarks...", "Adicionar observações técnicas de conformidade...")}
                                     onChange={(e) => handleUpdateRequirement(req.requirement_id, req.compliance_status, e.target.value)}
                                     className="border border-slate-200 px-2 py-1 rounded text-xs w-full focus:outline-none focus:ring-1 focus:ring-emerald-500"
                                   />
@@ -2317,24 +2319,24 @@ export default function App() {
                     {/* Tender Risks Grid */}
                     <div className="space-y-3">
                       <div className="flex justify-between items-center">
-                        <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">Tender Threats & Material Risks</h3>
-                        <span className="text-xs text-slate-400">Risk rating matrix extracted via compliance analysis</span>
+                        <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">{tx("Tender Threats & Material Risks", "Riscos Materiais da Licitação")}</h3>
+                        <span className="text-xs text-slate-400">{tx("Risk rating matrix extracted via compliance analysis", "Matriz de riscos extraída pela análise de conformidade")}</span>
                       </div>
 
                       {!analysisResult ? (
-                        <div className="text-center py-12 text-slate-400 italic">No analysis conducted yet. Run analysis to display risks.</div>
+                        <div className="text-center py-12 text-slate-400 italic">{tx("No analysis conducted yet. Run analysis to display risks.", "Nenhuma análise realizada ainda. Execute a análise para exibir os riscos.")}</div>
                       ) : (
                         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
                           <table className="w-full text-left text-xs border-collapse">
                             <thead className="bg-slate-100 border-b border-slate-200 font-mono text-[10px] uppercase text-slate-500">
                               <tr>
-                                <th className="p-3">Ref</th>
-                                <th className="p-3">Risk Title & Impact</th>
-                                <th className="p-3">Severity</th>
-                                <th className="p-3">Probability</th>
-                                <th className="p-3">Source Ref</th>
-                                <th className="p-3">Mitigation Design</th>
-                                <th className="p-3">Clarification</th>
+                                <th className="p-3">{tx("Ref", "Ref.")}</th>
+                                <th className="p-3">{tx("Risk Title & Impact", "Risco e Impacto")}</th>
+                                <th className="p-3">{tx("Severity", "Severidade")}</th>
+                                <th className="p-3">{tx("Probability", "Probabilidade")}</th>
+                                <th className="p-3">{tx("Source Ref", "Fonte")}</th>
+                                <th className="p-3">{tx("Mitigation Design", "Plano de Mitigação")}</th>
+                                <th className="p-3">{tx("Clarification", "Esclarecimento")}</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-200">
@@ -2361,7 +2363,7 @@ export default function App() {
                                   <td className="p-3 w-1/4">
                                     <textarea 
                                       value={risk.mitigation || ""} 
-                                      placeholder="Detail pre-sales engineering countermeasure..."
+                                      placeholder={tx("Detail pre-sales engineering countermeasure...", "Detalhar contramedida técnica de pré-vendas...")}
                                       onChange={(e) => handleUpdateRisk(risk.risk_id, e.target.value, risk.requires_customer_clarification)}
                                       className="border border-slate-200 p-2.5 rounded text-xs w-full h-16 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                                     />
@@ -2387,23 +2389,23 @@ export default function App() {
                     {/* Up-Sell Opportunities Grid */}
                     <div className="space-y-3 pt-4 border-t border-slate-200">
                       <div className="flex justify-between items-center">
-                        <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">Pre-Sales Up-Sell & SLA Opportunities</h3>
-                        <span className="text-xs text-slate-400">Value added propositions parsed from specifications</span>
+                        <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">{tx("Pre-Sales Up-Sell & SLA Opportunities", "Oportunidades de Pré-Vendas, Upsell e SLA")}</h3>
+                        <span className="text-xs text-slate-400">{tx("Value added propositions parsed from specifications", "Propostas de valor extraídas das especificações")}</span>
                       </div>
 
                       {!analysisResult ? (
-                        <div className="text-center py-12 text-slate-400 italic">No analysis conducted.</div>
+                        <div className="text-center py-12 text-slate-400 italic">{tx("No analysis conducted.", "Nenhuma análise realizada.")}</div>
                       ) : (
                         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
                           <table className="w-full text-left text-xs border-collapse">
                             <thead className="bg-slate-100 border-b border-slate-200 font-mono text-[10px] uppercase text-slate-500">
                               <tr>
-                                <th className="p-3">Ref</th>
-                                <th className="p-3">Opportunity Proposition</th>
-                                <th className="p-3">Estimated Business Value</th>
-                                <th className="p-3">Suggested Solution Upgrade</th>
-                                <th className="p-3">Sales / Account Strategy</th>
-                                <th className="p-3">Priority</th>
+                                <th className="p-3">{tx("Ref", "Ref.")}</th>
+                                <th className="p-3">{tx("Opportunity Proposition", "Proposta de Oportunidade")}</th>
+                                <th className="p-3">{tx("Estimated Business Value", "Valor Comercial Estimado")}</th>
+                                <th className="p-3">{tx("Suggested Solution Upgrade", "Upgrade de Solução Sugerido")}</th>
+                                <th className="p-3">{tx("Sales / Account Strategy", "Estratégia Comercial / Conta")}</th>
+                                <th className="p-3">{tx("Priority", "Prioridade")}</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-200">
@@ -2440,8 +2442,8 @@ export default function App() {
                     <div className="space-y-3">
                       <div className="flex justify-between items-center">
                         <div className="flex flex-col">
-                          <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">Specifications Bill of Materials (B.O.M.)</h3>
-                          <span className="text-xs text-slate-400">Aligned with active design parameters e.g. standard vendor compatibility</span>
+                          <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">{tx("Specifications Bill of Materials (B.O.M.)", "Lista de Materiais das Especificações (B.O.M.)")}</h3>
+                          <span className="text-xs text-slate-400">{tx("Aligned with active design parameters e.g. standard vendor compatibility", "Alinhado aos parâmetros ativos do projeto, como compatibilidade com fornecedor padrão")}</span>
                         </div>
                         <button 
                           onClick={() => {
@@ -2476,21 +2478,21 @@ export default function App() {
                       </div>
 
                       {!analysisResult ? (
-                        <div className="text-center py-12 text-slate-400 italic">No analysis conducted.</div>
+                        <div className="text-center py-12 text-slate-400 italic">{tx("No analysis conducted.", "Nenhuma análise realizada.")}</div>
                       ) : (
                         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
                           <table className="w-full text-left text-xs border-collapse">
                             <thead className="bg-slate-100 border-b border-slate-200 font-mono text-[10px] uppercase text-slate-500">
                               <tr>
-                                <th className="p-3">Ref</th>
-                                <th className="p-3">Product / Service Code</th>
-                                <th className="p-3 w-1/4">Detailed Specifications</th>
-                                <th className="p-3">Qty</th>
-                                <th className="p-3">Unit</th>
-                                <th className="p-3">Suggested Brand</th>
-                                <th className="p-3">Inclusion Rationale</th>
-                                <th className="p-3">Tender Compliance</th>
-                                <th className="p-3">Actions</th>
+                                <th className="p-3">{tx("Ref", "Ref.")}</th>
+                                <th className="p-3">{tx("Product / Service Code", "Código do Produto / Serviço")}</th>
+                                <th className="p-3 w-1/4">{tx("Detailed Specifications", "Especificações Detalhadas")}</th>
+                                <th className="p-3">{tx("Qty", "Qtd.")}</th>
+                                <th className="p-3">{tx("Unit", "Unidade")}</th>
+                                <th className="p-3">{tx("Suggested Brand", "Marca Sugerida")}</th>
+                                <th className="p-3">{tx("Inclusion Rationale", "Justificativa de Inclusão")}</th>
+                                <th className="p-3">{tx("Tender Compliance", "Conformidade com a Licitação")}</th>
+                                <th className="p-3">{tx("Actions", "Ações")}</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-200">
@@ -2570,17 +2572,17 @@ export default function App() {
                     {/* Point to Point Compliance Table */}
                     {analysisResult && analysisResult.point_to_point_table && (
                       <div className="space-y-3 pt-4 border-t border-slate-200">
-                        <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">Point-to-Point Compliance Traceability Matrix</h3>
+                        <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">{tx("Point-to-Point Compliance Traceability Matrix", "Matriz de Rastreabilidade Ponto a Ponto")}</h3>
                         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
                           <table className="w-full text-left text-xs border-collapse">
                             <thead className="bg-slate-100 border-b border-slate-200 font-mono text-[10px] uppercase text-slate-500">
                               <tr>
-                                <th className="p-3">Ref</th>
-                                <th className="p-3 w-1/3">Customer Specification Clause</th>
-                                <th className="p-3">Our Proposed Technical Solution</th>
-                                <th className="p-3">Compliance Rating</th>
-                                <th className="p-3">Traceability Reference</th>
-                                <th className="p-3">Engineering Justification Comments</th>
+                                <th className="p-3">{tx("Ref", "Ref.")}</th>
+                                <th className="p-3 w-1/3">{tx("Customer Specification Clause", "Cláusula de Especificação do Cliente")}</th>
+                                <th className="p-3">{tx("Our Proposed Technical Solution", "Nossa Solução Técnica Proposta")}</th>
+                                <th className="p-3">{tx("Compliance Rating", "Classificação de Conformidade")}</th>
+                                <th className="p-3">{tx("Traceability Reference", "Referência de Rastreabilidade")}</th>
+                                <th className="p-3">{tx("Engineering Justification Comments", "Comentários de Justificativa Técnica")}</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-200">
@@ -2612,8 +2614,8 @@ export default function App() {
                 {subTab === "proposal_builder" && (
                   <div className="space-y-6">
                     <div className="flex justify-between items-center">
-                      <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">Proposal Studio Generation</h3>
-                      <span className="text-xs text-slate-400">Generate fully compliant documents from templates</span>
+                      <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">{tx("Proposal Studio Generation", "Geração no Estúdio de Propostas")}</h3>
+                      <span className="text-xs text-slate-400">{tx("Generate fully compliant documents from templates", "Gere documentos totalmente conformes a partir de modelos")}</span>
                     </div>
 
                     <div className="grid grid-cols-2 gap-6">
@@ -2623,12 +2625,12 @@ export default function App() {
                         <div className="w-10 h-10 bg-emerald-500/10 text-emerald-700 rounded-lg flex items-center justify-center">
                           <FileCode size={20} />
                         </div>
-                        <h4 className="text-sm font-bold text-slate-800 uppercase font-mono leading-none">Technical Proposal Document</h4>
+                        <h4 className="text-sm font-bold text-slate-800 uppercase font-mono leading-none">{tx("Technical Proposal Document", "Documento de Proposta Técnica")}</h4>
                         <p className="text-xs text-slate-500 leading-relaxed">
                           Compiles detailed executive summaries, full specs compliance tables, proposed engineering schedule phases, and points traceability matrices into a unified engineering bid.
                         </p>
                         <div className="mt-2 pt-2 border-t border-slate-200">
-                          <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Select Document Template</label>
+                          <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{tx("Select Document Template", "Selecionar Modelo de Documento")}</label>
                           <select className="text-xs p-1.5 rounded border border-slate-300 w-full focus:outline-none focus:ring-1 focus:ring-emerald-500">
                             {proposalTemplates.filter(t => t.template_type === "technical").map(t => (
                               <option key={t.id} value={t.id}>{t.name} ({t.version})</option>
@@ -2649,12 +2651,12 @@ export default function App() {
                         <div className="w-10 h-10 bg-emerald-500/10 text-emerald-700 rounded-lg flex items-center justify-center">
                           <DollarSign size={20} />
                         </div>
-                        <h4 className="text-sm font-bold text-slate-800 uppercase font-mono leading-none">Commercial Proposal Document</h4>
+                        <h4 className="text-sm font-bold text-slate-800 uppercase font-mono leading-none">{tx("Commercial Proposal Document", "Documento de Proposta Comercial")}</h4>
                         <p className="text-xs text-slate-500 leading-relaxed">
                           Designs beautifully structured commercial pricing tables, custom discount allocations, delivery timetables, assumptions and legal liability exclusion paragraphs.
                         </p>
                         <div className="mt-2 pt-2 border-t border-slate-200">
-                          <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Select Document Template</label>
+                          <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{tx("Select Document Template", "Selecionar Modelo de Documento")}</label>
                           <select className="text-xs p-1.5 rounded border border-slate-300 w-full focus:outline-none focus:ring-1 focus:ring-emerald-500">
                             {proposalTemplates.filter(t => t.template_type === "commercial").map(t => (
                               <option key={t.id} value={t.id}>{t.name} ({t.version})</option>
@@ -3319,7 +3321,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                 <div className="flex-1 flex flex-col min-h-0 bg-white rounded-lg border border-slate-200 shadow-sm p-3">
                   <div className="flex items-center gap-2 border-b border-slate-100 pb-2 mb-2">
                     <MessageSquare size={16} className="text-emerald-600" />
-                    <span className="text-xs font-bold uppercase tracking-wider font-mono text-slate-700">Pre-Sales Spec Copilot</span>
+                    <span className="text-xs font-bold uppercase tracking-wider font-mono text-slate-700">{tx("Pre-Sales Spec Copilot", "Copiloto de Especificações de Pré-Vendas")}</span>
                   </div>
 
                   {/* Messages Feed */}
@@ -3344,7 +3346,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                       type="text" 
                       value={chatMessage} 
                       onChange={(e) => setChatMessage(e.target.value)}
-                      placeholder="Ask about cabinet temperature, ALPR accuracy, fiber conduits..."
+                      placeholder={tx("Ask about cabinet temperature, ALPR accuracy, fiber conduits...", "Pergunte sobre temperatura de gabinete, precisão ALPR, dutos de fibra...")}
                       className="flex-1 text-xs px-3 py-1.5 border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-slate-50"
                     />
                     <button 
@@ -3651,11 +3653,11 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                                           matchedDecision.decision === "approved" ? "text-emerald-700 bg-emerald-50" : "text-red-700 bg-red-50"
                                         }`}>{matchedDecision.decision}</span>
                                       ) : (
-                                        <span className="text-[9px] font-bold bg-slate-200 text-slate-500 px-1.5 py-0.5 rounded uppercase">PENDING</span>
+                                        <span className="text-[9px] font-bold bg-slate-200 text-slate-500 px-1.5 py-0.5 rounded uppercase">{tx("PENDING", "PENDENTE")}</span>
                                       )}
                                     </div>
                                     <h5 className="text-xs font-bold text-slate-800 uppercase leading-none font-mono mb-1">{stage.name}</h5>
-                                    <p className="text-[11px] text-slate-500 leading-snug">Approver Target: <span className="font-semibold">{stage.approver_type === "role" ? "Pre-Sales Engineering Leads" : "Admins"}</span></p>
+                                    <p className="text-[11px] text-slate-500 leading-snug">{tx("Approver Target", "Aprovador Alvo")}: <span className="font-semibold">{stage.approver_type === "role" ? tx("Pre-Sales Engineering Leads", "Líderes de Engenharia de Pré-Vendas") : tx("Admins", "Administradores")}</span></p>
 
                                     {/* Action inside timeline stage */}
                                     {!matchedDecision && prop.status === "submitted" && (
@@ -3903,7 +3905,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                             <option value="SuiteCRM">SuiteCRM (Open-Source)</option>
                             <option value="Odoo">Odoo CRM/ERP (Open-Source)</option>
                             <option value="vTiger">vTiger CRM (Open-Source)</option>
-                            <option value="Custom">Custom / Outros</option>
+                            <option value="Custom">{tx("Custom / Other", "Customizado / Outros")}</option>
                           </select>
                         </div>
                         <div className="col-span-2">
@@ -3972,7 +3974,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                             <div>
                               <h4 className="text-xs font-bold text-slate-800 uppercase font-mono">{conn.name}</h4>
                               <p className="text-[10px] text-slate-400 font-mono">
-                                Sync Status: <span className="font-bold text-slate-600">{conn.last_sync_status}</span> 
+                                {tx("Sync Status", "Status de Sincronização")}: <span className="font-bold text-slate-600">{conn.last_sync_status}</span> 
                                 {conn.last_sync_date && ` • ${new Date(conn.last_sync_date).toLocaleString(locale === "pt" ? "pt-BR" : "en-US")}`}
                               </p>
                             </div>
@@ -4093,7 +4095,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-[10px] font-mono text-slate-400">
                         <span>{locale === "pt" ? "Validade: " : "Valid until: "} <strong className="text-slate-600">{licenseExpiry}</strong></span>
-                        <span className="text-right">{locale === "pt" ? "Limite de usuários: " : "User cap: "} <strong className="text-slate-600">30 / Unlimited</strong></span>
+                        <span className="text-right">{locale === "pt" ? "Limite de usuários: " : "User cap: "} <strong className="text-slate-600">{locale === "pt" ? "30 / Ilimitado" : "30 / Unlimited"}</strong></span>
                       </div>
                     </div>
 
@@ -4183,7 +4185,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                       </span>
                       <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <label className="text-[8px] font-mono block text-slate-400">INPUT TOKENS</label>
+                          <label className="text-[8px] font-mono block text-slate-400">{tx("INPUT TOKENS", "TOKENS DE ENTRADA")}</label>
                           <input 
                             type="number"
                             value={inputTokens}
@@ -4197,7 +4199,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                           />
                         </div>
                         <div>
-                          <label className="text-[8px] font-mono block text-slate-400">OUTPUT TOKENS</label>
+                          <label className="text-[8px] font-mono block text-slate-400">{tx("OUTPUT TOKENS", "TOKENS DE SAÍDA")}</label>
                           <input 
                             type="number"
                             value={outputTokens}
@@ -4219,16 +4221,16 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
 
               {/* Prompt engineering console */}
               <div className="space-y-4 pt-4 border-t border-slate-200">
-                <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">Pre-Sales AI Instructions Prompts Templates</h3>
+                <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">{tx("Pre-Sales AI Instructions Prompts Templates", "Modelos de Prompts e Instruções IA de Pré-Vendas")}</h3>
                 <div className="space-y-4">
                   {promptTemplates.map(prm => (
                     <div key={prm.id} className="p-4 bg-white border border-slate-200 rounded-lg shadow-sm space-y-3">
                       <div className="flex justify-between items-center">
                         <div>
                           <h4 className="text-xs font-bold text-slate-800 uppercase font-mono">{prm.name} ({prm.version})</h4>
-                          <span className="text-[10px] text-slate-400 uppercase font-mono">Language Target: {prm.language}</span>
+                          <span className="text-[10px] text-slate-400 uppercase font-mono">{tx("Language Target", "Idioma Alvo")}: {prm.language}</span>
                         </div>
-                        <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-bold uppercase font-mono">ACTIVE INSTRUCTION</span>
+                        <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-bold uppercase font-mono">{tx("ACTIVE INSTRUCTION", "INSTRUÇÃO ATIVA")}</span>
                       </div>
                       
                       {/* Text area to edit prompt */}
@@ -4255,17 +4257,17 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
 
               {/* User roles directory */}
               <div className="space-y-4 pt-4 border-t border-slate-200">
-                <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">User Access Directory</h3>
+                <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">{tx("User Access Directory", "Diretório de Acesso de Usuários")}</h3>
                 <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
                   <table className="w-full text-left text-xs border-collapse">
                     <thead className="bg-slate-100 border-b border-slate-200 font-mono text-[10px] uppercase text-slate-500">
                       <tr>
-                        <th className="p-3">User</th>
-                        <th className="p-3">Email</th>
-                        <th className="p-3">Role Designation</th>
-                        <th className="p-3">MFA Setup</th>
-                        <th className="p-3">Access Security Status</th>
-                        <th className="p-3">Last Login Action</th>
+                        <th className="p-3">{tx("User", "Usuário")}</th>
+                        <th className="p-3">{tx("Email", "E-mail")}</th>
+                        <th className="p-3">{tx("Role Designation", "Perfil / Função")}</th>
+                        <th className="p-3">{tx("MFA Setup", "Configuração MFA")}</th>
+                        <th className="p-3">{tx("Access Security Status", "Status de Segurança do Acesso")}</th>
+                        <th className="p-3">{tx("Last Login Action", "Última Ação de Login")}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 text-slate-700 font-mono">
@@ -4273,10 +4275,10 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                         <tr key={u.id} className="hover:bg-slate-50">
                           <td className="p-3 font-sans font-semibold text-slate-800">{u.name}</td>
                           <td className="p-3 font-semibold text-slate-500">{u.email}</td>
-                          <td className="p-3 font-semibold uppercase text-slate-600">{u.role_id === "r1" ? "Administrator" : (u.role_id === "r2" ? "Sales Manager" : "Pre-Sales Engineer")}</td>
-                          <td className="p-3 text-center">{u.mfa_enabled ? "✅ Active" : "❌ Disabled"}</td>
+                          <td className="p-3 font-semibold uppercase text-slate-600">{u.role_id === "r1" ? tx("Administrator", "Administrador") : (u.role_id === "r2" ? tx("Sales Manager", "Gerente Comercial") : tx("Pre-Sales Engineer", "Engenheiro de Pré-Vendas"))}</td>
+                          <td className="p-3 text-center">{u.mfa_enabled ? tx("✅ Active", "✅ Ativo") : tx("❌ Disabled", "❌ Desativado")}</td>
                           <td className="p-3">
-                            <span className="text-emerald-700 bg-emerald-50 px-2 rounded-full font-bold">ACTIVE</span>
+                            <span className="text-emerald-700 bg-emerald-50 px-2 rounded-full font-bold">{tx("ACTIVE", "ATIVO")}</span>
                           </td>
                           <td className="p-3 text-slate-500 leading-none">{new Date(u.last_login_at || u.created_at).toLocaleString()}</td>
                         </tr>
@@ -4295,9 +4297,9 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
       {/* 4. DIAGNOSTIC SYSTEM FOOTER */}
       <footer className="h-8 bg-slate-900 border-t border-slate-800 px-6 flex items-center justify-between text-[10px] font-mono text-slate-400 shrink-0 shadow-lg">
         <div className="flex gap-6 items-center">
-          <span>Active Session: <span className="text-emerald-400 uppercase">active-442x</span></span>
-          <span>DB Instance: <span className="text-emerald-400">PostgreSQL / 15.4</span></span>
-          <span>Workspace Storage: <span className="text-emerald-400 uppercase">AWS S3 (US-EAST-1)</span></span>
+          <span>{tx("Active Session", "Sessão Ativa")}: <span className="text-emerald-400 uppercase">active-442x</span></span>
+          <span>{tx("DB Instance", "Instância do Banco")}: <span className="text-emerald-400">PostgreSQL / 15.4</span></span>
+          <span>{tx("Workspace Storage", "Armazenamento do Workspace")}: <span className="text-emerald-400 uppercase">AWS S3 (US-EAST-1)</span></span>
           <span className="flex items-center gap-1.5 border-l border-slate-700 pl-6">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
             LLM: <span className="text-emerald-400 font-bold uppercase">{platformSettings?.ai_provider || "Gemini"}</span>
@@ -4535,11 +4537,11 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl border border-slate-200 w-[400px] overflow-hidden shadow-2xl">
             <div className="bg-slate-950 text-white p-4 flex justify-between items-center">
-              <h3 className="text-sm font-bold uppercase font-mono tracking-wider">Override Classification</h3>
+              <h3 className="text-sm font-bold uppercase font-mono tracking-wider">{tx("Override Classification", "Sobrescrever Classificação")}</h3>
               <button onClick={() => setShowDocumentTypeModal(null)} className="text-slate-400 hover:text-white cursor-pointer"><X size={16} /></button>
             </div>
             <div className="p-6 space-y-4 text-xs text-slate-700">
-              <p className="font-semibold">Modify manual document category metadata for <span className="font-mono bg-slate-100 px-1 rounded">{showDocumentTypeModal.original_filename}</span>:</p>
+              <p className="font-semibold">{tx("Modify manual document category metadata for", "Modificar manualmente a categoria do documento para")} <span className="font-mono bg-slate-100 px-1 rounded">{showDocumentTypeModal.original_filename}</span>:</p>
               
               <div className="space-y-2">
                 <button 
@@ -4573,13 +4575,13 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
             <div className="bg-slate-950 text-white p-4 flex justify-between items-center shrink-0">
               <div className="flex items-center gap-2">
                 <ShieldAlert size={16} className="text-emerald-500" />
-                <h3 className="text-sm font-bold uppercase font-mono tracking-wider">Enterprise Compliance Audit Log Ledger</h3>
+                <h3 className="text-sm font-bold uppercase font-mono tracking-wider">{tx("Enterprise Compliance Audit Log Ledger", "Livro de Auditoria de Compliance Empresarial")}</h3>
               </div>
               <button onClick={() => setShowAuditModal(false)} className="text-slate-400 hover:text-white cursor-pointer"><X size={16} /></button>
             </div>
             
             <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center shrink-0">
-              <span className="text-xs text-slate-500 font-mono">Filter: All Pre-Sales Operations Logs</span>
+              <span className="text-xs text-slate-500 font-mono">{tx("Filter: All Pre-Sales Operations Logs", "Filtro: Todos os Logs de Operações de Pré-Vendas")}</span>
               <button 
                 onClick={handleExportCSV}
                 className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold px-3 py-1.5 rounded shadow-sm transition-all cursor-pointer"
@@ -4683,8 +4685,8 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
               <>
                 <div className="p-4 bg-slate-900 border-b border-slate-800 flex justify-between items-center shrink-0">
                   <div className="flex gap-4 text-xs font-mono text-slate-400">
-                    <span>Active Channels: <span className="text-emerald-400 font-bold">3</span></span>
-                    <span>Diagnostics: <span className="text-emerald-400 font-bold">Fully Decrypted</span></span>
+                    <span>{tx("Active Channels", "Canais Ativos")}: <span className="text-emerald-400 font-bold">3</span></span>
+                    <span>{tx("Diagnostics", "Diagnóstico")}: <span className="text-emerald-400 font-bold">{tx("Fully Decrypted", "Totalmente Descriptografado")}</span></span>
                   </div>
                   <button 
                     onClick={() => {
@@ -4713,10 +4715,10 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                       </div>
                       <p className="text-slate-200 font-semibold">{dbg.operation} - {dbg.message}</p>
                       <div className="grid grid-cols-4 gap-2 text-[10px] text-slate-500 mt-1">
-                        <span><strong>Module:</strong> {dbg.module_name}</span>
-                        <span><strong>Service:</strong> {dbg.service_name}</span>
-                        <span><strong>Latency:</strong> {dbg.duration_ms}ms</span>
-                        <span><strong>Status:</strong> {dbg.status}</span>
+                        <span><strong>{tx("Module", "Módulo")}:</strong> {dbg.module_name}</span>
+                        <span><strong>{tx("Service", "Serviço")}:</strong> {dbg.service_name}</span>
+                        <span><strong>{tx("Latency", "Latência")}:</strong> {dbg.duration_ms}ms</span>
+                        <span><strong>{tx("Status", "Status")}:</strong> {dbg.status}</span>
                       </div>
                     </div>
                   ))}

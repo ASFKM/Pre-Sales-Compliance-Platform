@@ -200,7 +200,7 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
                 disabled={loading}
                 className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
               >
-                {loading ? "Authenticating..." : dict.loginBtn}
+                {loading ? (dict.loginBtn === "Entrar com Segurança" ? "Autenticando..." : "Authenticating...") : dict.loginBtn}
                 <ArrowRight className="w-4 h-4" />
               </button>
 
@@ -285,7 +285,7 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
                 disabled={loading}
                 className="w-full py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
               >
-                {loading ? "Verifying..." : dict.mfaBtn}
+                {loading ? (dict.mfaBtn === "Verificar e Autenticar" ? "Verificando..." : "Verifying...") : dict.mfaBtn}
                 <ArrowRight className="w-4 h-4" />
               </button>
 

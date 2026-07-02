@@ -87,8 +87,8 @@ const initialData: DBData = {
   roles: [
     {
       id: "r1",
-      name: "Administrator",
-      description: "Full administrative access to all workspace settings, configurations, logs, and users.",
+      name: "Administrador",
+      description: "Acesso administrativo completo a configurações do workspace, logs e usuários.",
       permissions: [
         "project:create", "project:read", "project:update", "project:delete",
         "document:upload", "document:read", "document:delete",
@@ -101,8 +101,8 @@ const initialData: DBData = {
     },
     {
       id: "r2",
-      name: "Sales Manager",
-      description: "Manage pre-sales pipelines, commercial proposals, and customer pricing sheets.",
+      name: "Gerente Comercial",
+      description: "Gerencia pipelines de pré-vendas, propostas comerciais e planilhas de precificação.",
       permissions: [
         "project:create", "project:read", "project:update",
         "document:upload", "document:read",
@@ -113,8 +113,8 @@ const initialData: DBData = {
     },
     {
       id: "r3",
-      name: "Pre-Sales Engineer",
-      description: "Perform technical specifications analysis, design solutions, create BOM layouts, and draft technical components.",
+      name: "Engenheiro de Pré-Vendas",
+      description: "Analisa especificações técnicas, desenha soluções, cria BOMs e redige componentes técnicos.",
       permissions: [
         "project:create", "project:read", "project:update",
         "document:upload", "document:read", "document:delete",
@@ -126,11 +126,11 @@ const initialData: DBData = {
   projects: [
     {
       id: "p1",
-      name: "Highway ITS Modernization",
-      customer_name: "Metropolitan Transit Authority",
+      name: "Modernização ITS Rodoviária",
+      customer_name: "Autoridade Metropolitana de Trânsito",
       opportunity_name: "ITS-MTA-2026",
-      vertical: "Infrastructure",
-      description: "Comprehensive highway modernization including smart speed detection, automatic incident cameras, and fiber optic telemetry networks.",
+      vertical: "Infraestrutura",
+      description: "Modernização rodoviária abrangente incluindo detecção inteligente de velocidade, câmeras automáticas de incidentes e redes de telemetria em fibra óptica.",
       status: "waiting_internal",
       deadline: "2026-08-15",
       proposal_validity_date: "2026-11-15",
@@ -145,11 +145,11 @@ const initialData: DBData = {
     },
     {
       id: "p2",
-      name: "Smart Parking Expansion",
-      customer_name: "City of Madrid",
+      name: "Expansão de Estacionamento Inteligente",
+      customer_name: "Cidade de Madrid",
       opportunity_name: "MAD-PARK-09",
-      vertical: "Smart Cities",
-      description: "Intelligent parking network integration covering 12,000 street-level IoT occupancy sensors, billing gateway link, and mobile guidance apps.",
+      vertical: "Cidades Inteligentes",
+      description: "Integração de rede de estacionamento inteligente cobrindo 12.000 sensores IoT de ocupação em via pública, gateway de cobrança e aplicativos móveis de orientação.",
       status: "draft",
       deadline: "2026-07-20",
       proposal_validity_date: "2026-10-20",
@@ -164,11 +164,11 @@ const initialData: DBData = {
     },
     {
       id: "p3",
-      name: "Airport Terminal Security",
-      customer_name: "Schengen Air Hub Authority",
+      name: "Segurança de Terminal Aeroportuário",
+      customer_name: "Autoridade Aeroportuária Schengen",
       opportunity_name: "SHG-SEC-T3",
-      vertical: "Critical Infrastructure",
-      description: "Biometric e-gates implementation, automatic baggage threat scan engine, and secure border-auth facial verification modules.",
+      vertical: "Infraestrutura Crítica",
+      description: "Implantação de e-gates biométricos, motor automático de inspeção de ameaças em bagagens e módulos seguros de verificação facial de fronteira.",
       status: "analysis_in_progress",
       deadline: "2026-09-01",
       proposal_validity_date: "2026-12-01",
@@ -271,7 +271,7 @@ const initialData: DBData = {
         {
           requirement_id: "req1",
           category: "technical",
-          description: "High-speed license plate recognition (ALPR) functioning at speeds up to 180 km/h with a minimum 95% detection accuracy in night conditions.",
+          description: "Reconhecimento de placas em alta velocidade (ALPR) funcionando até 180 km/h com precisão mínima de 95% em condições noturnas.",
           source_document: "MTA_ITS_Technical_Specs_v1.2.pdf",
           source_page_or_section: "Section 4.2 - Vehicle Analytics",
           source_snippet: "Cameras must capture and process license plate formats of five neighboring states under high speed (up to 180 km/h) and low ambient light.",
@@ -285,7 +285,7 @@ const initialData: DBData = {
         {
           requirement_id: "req2",
           category: "operational",
-          description: "Roadside equipment must withstand external operating temperatures up to 55°C without active refrigeration.",
+          description: "Equipamentos de via devem suportar temperatura externa de operação de até 55°C sem refrigeração ativa.",
           source_document: "MTA_ITS_Technical_Specs_v1.2.pdf",
           source_page_or_section: "Section 7.1 - Environmental Constraints",
           source_snippet: "Roadside controller cabinets and all housing accessories shall operate natively from -10C to +55C ambient environment.",
@@ -299,7 +299,7 @@ const initialData: DBData = {
         {
           requirement_id: "req3",
           category: "integration",
-          description: "System must support real-time data sync with MTA's legacy Oracle-based dispatch system (Centurion Dispatch v5.4) within 500ms latency.",
+          description: "O sistema deve suportar sincronização de dados em tempo real com o sistema legado de despacho Oracle da MTA (Centurion Dispatch v5.4) com latência de até 500 ms.",
           source_document: "MTA_ITS_Technical_Specs_v1.2.pdf",
           source_page_or_section: "Section 9.5 - Legacy Integrations",
           source_snippet: "The incident management platform shall publish REST/JSON event vectors to the Centurion Oracle API within 500ms of validation.",
@@ -314,8 +314,8 @@ const initialData: DBData = {
       risks: [
         {
           risk_id: "risk1",
-          title: "Roadside Cabinet Heat Saturation",
-          description: "The lack of active cooling in 55°C peak weather could trigger intermittent thermal shutdowns in roadside telemetry switches.",
+          title: "Saturação Térmica de Gabinete Rodoviário",
+          description: "A falta de refrigeração ativa em picos de 55°C pode causar desligamentos térmicos intermitentes nos switches de telemetria em campo.",
           severity: "high",
           probability: "medium",
           impact: "Disruption of real-time camera streams causing temporary data gaps and SLA penalties.",
@@ -330,8 +330,8 @@ const initialData: DBData = {
         },
         {
           risk_id: "risk2",
-          title: "Freeway Fiber Access Limitations",
-          description: "MTA restricts physical conduit work to weekend night windows (01:00 to 05:00) to prevent morning commuter traffic disruptions.",
+          title: "Limitações de Acesso à Fibra na Rodovia",
+          description: "A MTA restringe trabalhos físicos em dutos a janelas noturnas de fim de semana (01:00 a 05:00) para evitar impacto no tráfego matinal.",
           severity: "critical",
           probability: "high",
           impact: "Massive schedule expansion, inflating technician overtime costs by 45%.",
@@ -348,26 +348,26 @@ const initialData: DBData = {
       opportunities: [
         {
           opportunity_id: "opp1",
-          title: "Edge AI Traffic Counting Analytics",
-          description: "The requested camera hardware contains spare processing cores capable of running secondary counts for vehicle class classification and congestion queues.",
-          business_value: "Allows MTA to obtain real-time smart city statistics without buying secondary radar systems, positioning us as an innovative technology partner.",
+          title: "Analytics de Contagem de Tráfego com IA de Borda",
+          description: "O hardware de câmera solicitado possui núcleos de processamento disponíveis capazes de executar contagens secundárias por classe de veículo e filas de congestionamento.",
+          business_value: "Permite que a MTA obtenha estatísticas de cidade inteligente em tempo real sem adquirir radares secundários, posicionando-nos como parceiro tecnológico inovador.",
           source_document: "MTA_ITS_Technical_Specs_v1.2.pdf",
           source_page_or_section: "Section 4.2",
-          suggested_solution: "License our AI-TRAFFIC module for a 20% bundle discount, increasing our recurring license revenue.",
-          sales_strategy: "Present this as an optional value-added module in the commercial proposal.",
+          suggested_solution: "Licenciar o módulo AI-TRAFFIC com desconto de 20% em pacote, aumentando receita recorrente de licenças.",
+          sales_strategy: "Apresentar como módulo opcional de valor agregado na proposta comercial.",
           priority: "medium",
           evidence_type: "inferred_from_documents",
           confidence: 0.91
         },
         {
           opportunity_id: "opp2",
-          title: "Ruggedized Fiber Node Maintenance SLA",
-          description: "MTA lacks in-house technicians trained in splicing high-capacity ruggedized single-mode fiber cables.",
-          business_value: "Ensures recurring high-margin service revenue over 36 months.",
+          title: "SLA de Manutenção para Nó de Fibra Ruggedizado",
+          description: "A MTA não possui técnicos internos treinados em fusão de fibras monomodo ruggedizadas de alta capacidade.",
+          business_value: "Garante receita recorrente de serviço com alta margem por 36 meses.",
           source_document: "MTA_Highway_Tender_Rules.docx",
           source_page_or_section: "Section 12 - Maintenance",
-          suggested_solution: "Add a 3-Year Platinum On-site Splicing and Diagnostics SLA SLA-MTA-PLAT.",
-          sales_strategy: "Make this the premium maintenance option.",
+          suggested_solution: "Adicionar SLA Platinum de 3 anos para fusão e diagnóstico em campo, SLA-MTA-PLAT.",
+          sales_strategy: "Posicionar como opção premium de manutenção.",
           priority: "high",
           evidence_type: "directly_supported",
           confidence: 0.95
@@ -377,12 +377,12 @@ const initialData: DBData = {
         {
           item_id: "bom1",
           product_or_service: "CAM-ALPR-10X",
-          description: "High-speed outdoor edge-AI ALPR camera with 4K global shutter sensor, infrared night illuminator (850nm), and IP67 enclosure.",
+          description: "Câmera ALPR outdoor de alta velocidade com IA de borda, sensor 4K global shutter, iluminador infravermelho 850 nm e invólucro IP67.",
           quantity: 45,
           unit: "units",
           category: "Hardware",
           mandatory_or_optional: "mandatory",
-          reason_for_inclusion: "Directly matches high-speed night vehicle identification specs.",
+          reason_for_inclusion: "Atende diretamente às especificações de identificação noturna de veículos em alta velocidade.",
           suggested_manufacturer: "Open-Standards Optics Corp",
           alternatives: "Axis Q1700-LE, Hikvision IDS-2CD7A45G0",
           assumptions: "Cameras will be mounted on pre-installed concrete poles.",
@@ -398,7 +398,7 @@ const initialData: DBData = {
           unit: "units",
           category: "Networking",
           mandatory_or_optional: "mandatory",
-          reason_for_inclusion: "Provides hardened roadside networking and PoE power to cameras.",
+          reason_for_inclusion: "Fornece rede ruggedizada em campo e alimentação PoE para as câmeras.",
           suggested_manufacturer: "RuggedCOM Technologies",
           alternatives: "Cisco IE-2000-8TC, Moxa EDS-G508",
           assumptions: "Housed in roadside pole cabinets.",
@@ -409,12 +409,12 @@ const initialData: DBData = {
         {
           item_id: "bom3",
           product_or_service: "AI-TRAFFIC-LICENSE",
-          description: "Edge AI traffic flow and vehicle classification license. Upgrades camera firmware to provide real-time congestion classification.",
+          description: "Licença de fluxo de tráfego e classificação veicular com IA de borda. Atualiza o firmware da câmera para fornecer classificação de congestionamento em tempo real.",
           quantity: 45,
           unit: "licenses",
           category: "Software",
           mandatory_or_optional: "optional",
-          reason_for_inclusion: "Upsell opportunity to provide MTA with smart-city congestion metrics without extra hardware.",
+          reason_for_inclusion: "Oportunidade de upsell para fornecer métricas de congestionamento de cidade inteligente sem hardware adicional.",
           suggested_manufacturer: "AI Pre-Sales Solutions LLC",
           alternatives: "None - proprietary module.",
           assumptions: "Runs natively on CAM-ALPR-10X hardware.",
@@ -426,30 +426,30 @@ const initialData: DBData = {
       point_to_point_table: [
         {
           item_id: "ptp1",
-          customer_requirement: "Roadside equipment must work stably under 55°C heat.",
-          proposed_solution: "RuggedCOM Switch-Hardened-8G switch rated up to +75°C.",
+          customer_requirement: "Equipamentos de via devem operar de forma estável sob calor de 55°C.",
+          proposed_solution: "Switch RuggedCOM Switch-Hardened-8G classificado para até +75°C.",
           compliance: "compliant",
-          comments: "Exceeds customer requirements by +20°C safety margin. No active ventilation required.",
+          comments: "Excede os requisitos do cliente com margem de segurança de +20°C. Não requer ventilação ativa.",
           source_reference: "Specs Section 7.1",
           evidence_type: "directly_supported",
           confidence: 0.99
         },
         {
           item_id: "ptp2",
-          customer_requirement: "Automatic recognition of vehicles traveling up to 180 km/h.",
-          proposed_solution: "CAM-ALPR-10X with ultra-high-speed global shutter.",
+          customer_requirement: "Reconhecimento automático de veículos trafegando até 180 km/h.",
+          proposed_solution: "CAM-ALPR-10X com global shutter de altíssima velocidade.",
           compliance: "compliant",
-          comments: "Independently certified for license plate processing up to 200 km/h.",
+          comments: "Certificado de forma independente para processamento de placas até 200 km/h.",
           source_reference: "Specs Section 4.2",
           evidence_type: "directly_supported",
           confidence: 0.98
         },
         {
           item_id: "ptp3",
-          customer_requirement: "Sub-500ms latency rest dispatch update integration.",
-          proposed_solution: "Pre-Sales Gateway Connector with custom Oracle adapter.",
+          customer_requirement: "Integração REST de atualização de despacho com latência inferior a 500 ms.",
+          proposed_solution: "Conector Pre-Sales Gateway com adaptador Oracle customizado.",
           compliance: "partially_compliant",
-          comments: "Requires low-latency tunnel connection on the customer's database node. Pending validation on Oracle database tuning.",
+          comments: "Requer conexão de túnel de baixa latência no nó de banco de dados do cliente. Pendente de validação de tuning no Oracle.",
           source_reference: "Specs Section 9.5",
           evidence_type: "inferred_from_documents",
           confidence: 0.85
@@ -458,7 +458,7 @@ const initialData: DBData = {
       preliminary_schedule: [
         {
           phase_id: "ph1",
-          phase_name: "Site Survey & Engineering Design",
+          phase_name: "Survey de Campo e Projeto de Engenharia",
           activities: ["Validate power pole integrity", "Map existing dark fiber splice nodes", "Generate cabinet thermal calculation sheets"],
           estimated_duration: "3 weeks",
           dependencies: ["Project sign-off"],
@@ -468,7 +468,7 @@ const initialData: DBData = {
         },
         {
           phase_id: "ph2",
-          phase_name: "Roadside Hardware Mounting & Fiber Splice",
+          phase_name: "Instalação de Hardware em Campo e Fusão de Fibra",
           activities: ["Mount CAM-ALPR-10X units", "Install RuggedCOM cabinets", "Perform single-mode fiber splicing during weekend night windows"],
           estimated_duration: "6 weeks",
           dependencies: ["Site Survey completed", "Hardware delivery"],
@@ -543,7 +543,7 @@ const initialData: DBData = {
       project_id: "p1",
       ip_address: "192.168.10.45",
       user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
-      metadata: JSON.stringify({ name: "Highway ITS Modernization", vertical: "Infrastructure" }),
+      metadata: JSON.stringify({ name: "Modernização ITS Rodoviária", vertical: "Infraestrutura" }),
       created_at: "2026-06-10T11:00:00Z"
     },
     {
@@ -649,7 +649,7 @@ const initialData: DBData = {
   promptTemplates: [
     {
       id: "prm1",
-      name: "Document Classification Prompt",
+      name: "Prompt de Classificação de Documentos",
       type: "classification",
       content: "Analyze the attached document metadata, filename, and text snippet, then classify the document type into one of the permitted categories: Public tender / edital, Technical specification, Customer requirements, etc. Return output as structured JSON containing classification, confidence, and relevant sections.",
       language: "English",
@@ -661,7 +661,7 @@ const initialData: DBData = {
     },
     {
       id: "prm2",
-      name: "Pre-Sales Technical Specification Analyser",
+      name: "Analisador Técnico de Especificações de Pré-Vendas",
       type: "analysis",
       content: "You are a senior pre-sales engineer. Act in a conservative, evidence-based, and highly rigorous manner. Extract requirements, risks, opportunities, proposed BOM configurations, and preliminary schedules with exact page and section source references. Avoid hallucinations. If info is missing, mark it as 'requires_customer_confirmation' or 'missing_information'.",
       language: "English",
@@ -675,8 +675,8 @@ const initialData: DBData = {
   proposalTemplates: [
     {
       id: "t1",
-      name: "Standard Swiss Modern Technical Template",
-      description: "Clean, high-contrast display typography designed for engineering bids and public infrastructure proposals.",
+      name: "Modelo Técnico Moderno Padrão",
+      description: "Tipografia limpa e de alto contraste para propostas de engenharia e infraestrutura pública.",
       template_type: "technical",
       language: "English",
       file_type: "docx",
@@ -691,8 +691,8 @@ const initialData: DBData = {
     },
     {
       id: "t2",
-      name: "Corporate Commercial Template",
-      description: "Includes standard legal definitions, payment structures, validities, and a beautifully structured pricing matrix.",
+      name: "Modelo Comercial Corporativo",
+      description: "Inclui definições jurídicas padrão, estruturas de pagamento, validade e matriz de preços estruturada.",
       template_type: "commercial",
       language: "English",
       file_type: "docx",
@@ -707,7 +707,7 @@ const initialData: DBData = {
     },
     {
       id: "t3",
-      name: "Smart Cities Spanish Technical Template",
+      name: "Modelo Técnico de Cidades Inteligentes",
       description: "Especificaciones técnicas adaptadas para licitaciones públicas de municipios en España.",
       template_type: "technical",
       language: "Spanish",
@@ -797,15 +797,15 @@ const initialData: DBData = {
   approvalWorkflows: [
     {
       id: "w1",
-      name: "High-Value Infrastructure Approval Workflow",
-      description: "Rigorous 3-stage validation required for public tenders, infrastructure vertical bids, or any proposal valued over USD 50,000.",
+      name: "Fluxo de Aprovação para Infraestrutura de Alto Valor",
+      description: "Validação rigorosa em 3 etapas para licitações públicas, propostas de infraestrutura ou propostas acima de USD 50.000.",
       active: true,
       applies_to: "all",
       stages: [
         {
           id: "w1-s1",
           workflow_id: "w1",
-          name: "Pre-Sales Technical Verification",
+          name: "Verificação Técnica de Pré-Vendas",
           order: 1,
           approver_type: "role",
           approver_role_id: "r3", // Pre-Sales Engineer
@@ -817,7 +817,7 @@ const initialData: DBData = {
         {
           id: "w1-s2",
           workflow_id: "w1",
-          name: "Commercial & Margin Validation",
+          name: "Validação Comercial e de Margem",
           order: 2,
           approver_type: "role",
           approver_role_id: "r2", // Sales Manager
@@ -829,7 +829,7 @@ const initialData: DBData = {
         {
           id: "w1-s3",
           workflow_id: "w1",
-          name: "Executive & Director Sign-off",
+          name: "Aprovação Executiva / Diretoria",
           order: 3,
           approver_type: "role",
           approver_role_id: "r1", // Admin
@@ -844,15 +844,15 @@ const initialData: DBData = {
     },
     {
       id: "w2",
-      name: "Standard Smart City Bid Flow",
-      description: "Fast-tracked 2-stage verification for smart city vertical contracts.",
+      name: "Fluxo Padrão para Propostas de Cidades Inteligentes",
+      description: "Verificação acelerada em 2 etapas para contratos da vertical de cidades inteligentes.",
       active: true,
       applies_to: "Smart Cities",
       stages: [
         {
           id: "w2-s1",
           workflow_id: "w2",
-          name: "Technical Specification Verification",
+          name: "Verificação de Especificação Técnica",
           order: 1,
           approver_type: "role",
           approver_role_id: "r3",
@@ -864,7 +864,7 @@ const initialData: DBData = {
         {
           id: "w2-s2",
           workflow_id: "w2",
-          name: "Commercial Approvals",
+          name: "Aprovações Comerciais",
           order: 2,
           approver_type: "role",
           approver_role_id: "r2",
@@ -885,7 +885,7 @@ const initialData: DBData = {
       stage_id: "w1-s1",
       approver_user_id: "u3", // Elena (Technical)
       decision: "approved",
-      comments: "Technical specification parameters fully align with vehicle analytics expectations.",
+      comments: "Os parâmetros de especificação técnica estão totalmente alinhados às expectativas de analytics veicular.",
       created_at: "2026-06-18T15:00:00Z"
     },
     {
@@ -894,7 +894,7 @@ const initialData: DBData = {
       stage_id: "w1-s2",
       approver_user_id: "u2", // Marcus (Commercial)
       decision: "approved",
-      comments: "Hardened switch margins have been reviewed. Pricing matches core parameters.",
+      comments: "As margens do switch ruggedizado foram revisadas. A precificação está alinhada aos parâmetros principais.",
       created_at: "2026-06-19T10:30:00Z"
     },
     {
@@ -903,7 +903,7 @@ const initialData: DBData = {
       stage_id: "w1-s3",
       approver_user_id: "u1", // Alex (Admin/Director)
       decision: "approved",
-      comments: "Released for public submission.",
+      comments: "Liberado para submissão pública.",
       created_at: "2026-06-20T14:15:00Z"
     }
   ],
@@ -911,8 +911,8 @@ const initialData: DBData = {
     {
       id: "t_its1",
       project_id: "p1",
-      title: "Confirm concrete poles loading ratings",
-      description: "Ask MTA engineering if concrete poles can support the 14kg weight of the dual camera enclosure.",
+      title: "Confirmar capacidade de carga dos postes de concreto",
+      description: "Perguntar à engenharia da MTA se os postes de concreto suportam o peso de 14 kg do gabinete duplo de câmeras.",
       owner_user_id: "u3",
       due_date: "2026-07-15",
       status: "open",
@@ -925,8 +925,8 @@ const initialData: DBData = {
     {
       id: "t_its2",
       project_id: "p1",
-      title: "Check fiber conduit dark allocation",
-      description: "Confirm splicing slots layout inside Junction Cabinet 4B with transit engineers.",
+      title: "Verificar alocação de dutos/fibra apagada",
+      description: "Confirmar com a engenharia a distribuição dos pontos de fusão dentro do Gabinete de Junção 4B.",
       owner_user_id: "u3",
       due_date: "2026-07-20",
       status: "in_progress",
@@ -939,7 +939,7 @@ const initialData: DBData = {
   ],
   brandingSettings: {
     id: "branding-global",
-    company_name: "Assistant AI Corp",
+    company_name: "Assistant AI Brasil",
     company_logo_path: "",
     login_logo_path: "",
     sidebar_logo_path: "",
