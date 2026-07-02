@@ -321,8 +321,12 @@ export default function App() {
   const [brandPrimaryColor, setBrandPrimaryColor] = useState<string>(() => localStorage.getItem("ca_brand_primary_color") || "#059669");
   const [brandAccentColor, setBrandAccentColor] = useState<string>(() => localStorage.getItem("ca_brand_accent_color") || "#10b981");
   const [templateUploadFileName, setTemplateUploadFileName] = useState<string>("");
+  const [templateUploadName, setTemplateUploadName] = useState<string>("");
+  const [templateUploadDescription, setTemplateUploadDescription] = useState<string>("");
   const [templateUploadVersion, setTemplateUploadVersion] = useState<string>("v1.0");
   const [templateUploadType, setTemplateUploadType] = useState<"technical" | "commercial">("technical");
+  const [templateUploadLanguage, setTemplateUploadLanguage] = useState<"Portuguese" | "English" | "Spanish">("Portuguese");
+  const [templateUploadVariables, setTemplateUploadVariables] = useState<string>("{{project.name}}, {{customer.name}}, {{analysis.executive_summary}}, {{analysis.bom}}");
   const [newRoleName, setNewRoleName] = useState<string>("");
   const [newRoleDescription, setNewRoleDescription] = useState<string>("");
   const [newRoleModules, setNewRoleModules] = useState<string[]>(["workspace"]);
@@ -1425,6 +1429,138 @@ export default function App() {
   };
 
   // Set default prompt template
+  const handleCreateProposalTemplate = async () => {
+    if (!templateUploadFileName.trim()) {
+      alert(locale === "pt" ? "Selecione um arquivo de template." : "Select a template file.");
+      return;
+    }
+
+    const extension = (templateUploadFileName.split(".").pop() || "docx").toLowerCase();
+    const fileType = extension === "doc" ? "doc" : extension === "pdf" ? "pdf" : "docx";
+    const safeName = templateUploadName.trim() || templateUploadFileName.replace(/\.[^.]+$/, "");
+    const variables = templateUploadVariables
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean);
+
+    try {
+      const res = await fetch("/api/templates/proposals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: safeName,
+          description: templateUploadDescription.trim() || (locale === "pt" ? "Template enviado pela área administrativa." : "Template uploaded from the admin console."),
+          template_type: templateUploadType,
+          language: templateUploadLanguage,
+          file_type: fileType,
+          file_path: `/templates/${templateUploadFileName}`,
+          variables_schema: JSON.stringify(variables),
+          version: templateUploadVersion || "v1.0",
+          active: true,
+          default_template: false,
+          uploaded_by: currentSessionUser.name || "Admin"
+        })
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.message || (locale === "pt" ? "Não foi possível criar o template." : "Could not create template."));
+        return;
+      }
+
+      setTemplateUploadFileName("");
+      setTemplateUploadName("");
+      setTemplateUploadDescription("");
+      setTemplateUploadVersion("v1.0");
+      setTemplateUploadType("technical");
+      setTemplateUploadLanguage("Portuguese");
+      setTemplateUploadVariables("{{project.name}}, {{customer.name}}, {{analysis.executive_summary}}, {{analysis.bom}}");
+      await fetchGlobalConfigs();
+      alert(locale === "pt" ? "Template criado com sucesso." : "Template created successfully.");
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao criar template." : "Error creating template.");
+    }
+  };
+
+  const handleValidateProposalTemplate = async (id: string) => {
+    try {
+      const res = await fetch(`/api/templates/proposals/${id}/validate`, { method: "POST" });
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Template inválido." : "Template invalid."));
+        return;
+      }
+
+      alert(locale === "pt"
+        ? `Template validado. Variáveis: ${(data.variables || []).join(", ") || "nenhuma"}`
+        : `Template validated. Variables: ${(data.variables || []).join(", ") || "none"}`);
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao validar template." : "Error validating template.");
+    }
+  };
+
+  const handleSetDefaultProposalTemplate = async (id: string) => {
+    try {
+      const res = await fetch(`/api/templates/proposals/${id}/set-default`, { method: "POST" });
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível tornar padrão." : "Could not set default."));
+        return;
+      }
+
+      await fetchGlobalConfigs();
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao tornar template padrão." : "Error setting template as default.");
+    }
+  };
+
+  const handleUpdateProposalTemplate = async (id: string, updates: any) => {
+    try {
+      const res = await fetch(`/api/templates/proposals/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates)
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.message || (locale === "pt" ? "Não foi possível atualizar template." : "Could not update template."));
+        return;
+      }
+
+      await fetchGlobalConfigs();
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao atualizar template." : "Error updating template.");
+    }
+  };
+
+  const handleDeleteProposalTemplate = async (id: string) => {
+    const tpl = proposalTemplates.find((t) => t.id === id);
+    if (!confirm(locale === "pt" ? `Apagar template "${tpl?.name || id}"?` : `Delete template "${tpl?.name || id}"?`)) return;
+
+    try {
+      const res = await fetch(`/api/templates/proposals/${id}`, { method: "DELETE" });
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível apagar template." : "Could not delete template."));
+        return;
+      }
+
+      await fetchGlobalConfigs();
+      alert(locale === "pt" ? "Template apagado com sucesso." : "Template deleted successfully.");
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao apagar template." : "Error deleting template.");
+    }
+  };
+
   const handleUpdatePromptTemplate = async (id: string, content: string) => {
     try {
       const res = await fetch(`/api/settings/prompts/${id}`, {
@@ -3933,8 +4069,169 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                       {activeAdminSection === "overview" && (locale === "pt" ? "Visão Geral do Sistema" : "System Overview")}
                       {activeAdminSection === "users" && (locale === "pt" ? "Usuários e Acessos" : "Users & Access")}
                       {activeAdminSection === "ai" && (locale === "pt" ? "IA, Prompts e Custos" : "AI, Prompts & Costs")}
-                      {activeAdminSection === "templates" && (locale === "pt" ? "Templates de Propostas" : "Proposal Templates")}
-                      {activeAdminSection === "approval_flow" && (locale === "pt" ? "Fluxo de Aprovação de Propostas" : "Proposal Approval Workflow")}
+                      {activeAdminSection === "templates" && (
+                  <div className="w-full grid grid-cols-1 xl:grid-cols-3 gap-6">
+                    <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
+                      <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
+                        {locale === "pt" ? "Enviar Template" : "Upload Template"}
+                      </h3>
+
+                      <div className="p-4 border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 text-center space-y-3">
+                        <input
+                          type="file"
+                          accept=".doc,.docx,.pdf"
+                          onChange={(e) => {
+                            const fileName = e.target.files?.[0]?.name || "";
+                            setTemplateUploadFileName(fileName);
+                            if (fileName && !templateUploadName) {
+                              setTemplateUploadName(fileName.replace(/\.[^.]+$/, ""));
+                            }
+                          }}
+                          className="text-xs w-full"
+                        />
+                        <p className="text-[11px] text-slate-500">
+                          {locale === "pt" ? "Formatos: DOCX, DOC ou PDF. Recomendado: DOCX com variáveis {{cliente}}, {{escopo}}, {{bom}}, {{preco}}." : "Formats: DOCX, DOC or PDF."}
+                        </p>
+                      </div>
+
+                      <div className="space-y-3 text-xs">
+                        <div>
+                          <label className="text-[10px] uppercase font-bold text-slate-400 font-mono block mb-1">{locale === "pt" ? "Nome do Template" : "Template Name"}</label>
+                          <input
+                            value={templateUploadName}
+                            onChange={(e) => setTemplateUploadName(e.target.value)}
+                            placeholder={locale === "pt" ? "Ex.: Proposta Técnica ITS" : "E.g. ITS Technical Proposal"}
+                            className="w-full p-2 bg-slate-50 border border-slate-200 rounded"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-[10px] uppercase font-bold text-slate-400 font-mono block mb-1">{locale === "pt" ? "Descrição" : "Description"}</label>
+                          <textarea
+                            value={templateUploadDescription}
+                            onChange={(e) => setTemplateUploadDescription(e.target.value)}
+                            rows={3}
+                            placeholder={locale === "pt" ? "Descrição curta do uso do template" : "Short description of template usage"}
+                            className="w-full p-2 bg-slate-50 border border-slate-200 rounded"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                        <div>
+                          <label className="text-[10px] uppercase font-bold text-slate-400 font-mono block mb-1">{locale === "pt" ? "Tipo" : "Type"}</label>
+                          <select value={templateUploadType} onChange={(e) => setTemplateUploadType(e.target.value as any)} className="w-full p-2 bg-slate-50 border border-slate-200 rounded">
+                            <option value="technical">{locale === "pt" ? "Técnico" : "Technical"}</option>
+                            <option value="commercial">{locale === "pt" ? "Comercial" : "Commercial"}</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[10px] uppercase font-bold text-slate-400 font-mono block mb-1">{locale === "pt" ? "Idioma" : "Language"}</label>
+                          <select value={templateUploadLanguage} onChange={(e) => setTemplateUploadLanguage(e.target.value as any)} className="w-full p-2 bg-slate-50 border border-slate-200 rounded">
+                            <option value="Portuguese">Português</option>
+                            <option value="English">English</option>
+                            <option value="Spanish">Español</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[10px] uppercase font-bold text-slate-400 font-mono block mb-1">{locale === "pt" ? "Versão" : "Version"}</label>
+                          <input value={templateUploadVersion} onChange={(e) => setTemplateUploadVersion(e.target.value)} className="w-full p-2 bg-slate-50 border border-slate-200 rounded font-mono" />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] uppercase font-bold text-slate-400 font-mono block mb-1">{locale === "pt" ? "Variáveis declaradas" : "Declared Variables"}</label>
+                        <textarea
+                          value={templateUploadVariables}
+                          onChange={(e) => setTemplateUploadVariables(e.target.value)}
+                          rows={3}
+                          className="w-full p-2 bg-slate-50 border border-slate-200 rounded text-xs font-mono"
+                        />
+                        <p className="text-[10px] text-slate-500 mt-1">
+                          {locale === "pt" ? "Separe as variáveis por vírgula." : "Separate variables with commas."}
+                        </p>
+                      </div>
+
+                      <div className="p-3 bg-slate-900 text-slate-300 rounded font-mono text-[11px] min-h-20">
+                        {templateUploadFileName ? (
+                          <>
+                            <p>{locale === "pt" ? "Arquivo selecionado" : "Selected file"}: <strong>{templateUploadFileName}</strong></p>
+                            <p>{locale === "pt" ? "Tipo" : "Type"}: {templateUploadType}</p>
+                            <p>{locale === "pt" ? "Versão" : "Version"}: {templateUploadVersion}</p>
+                          </>
+                        ) : (
+                          <p>{locale === "pt" ? "Nenhum arquivo selecionado para pré-visualização." : "No file selected for preview."}</p>
+                        )}
+                      </div>
+
+                      <button
+                        onClick={handleCreateProposalTemplate}
+                        className="w-full bg-slate-900 hover:bg-slate-800 text-white rounded py-2 text-xs font-bold"
+                      >
+                        {locale === "pt" ? "Salvar Template Versionado" : "Save Versioned Template"}
+                      </button>
+                    </div>
+
+                    <div className="xl:col-span-2 bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
+                      <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
+                        {locale === "pt" ? "Biblioteca e Versionamento" : "Library and Versioning"}
+                      </h3>
+
+                      <div className="space-y-3">
+                        {proposalTemplates.map(tpl => (
+                          <div key={tpl.id} className="p-4 bg-slate-50 border border-slate-200 rounded-lg">
+                            <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-3">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <h4 className="text-xs font-bold text-slate-800 uppercase font-mono">{tpl.name}</h4>
+                                  <span className="text-[10px] bg-white border border-slate-200 px-1.5 rounded-full font-bold uppercase">{tpl.file_type}</span>
+                                  {tpl.default_template && (
+                                    <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-100 px-1.5 rounded-full font-bold">{locale === "pt" ? "PADRÃO" : "DEFAULT"}</span>
+                                  )}
+                                  {!tpl.active && (
+                                    <span className="text-[10px] bg-red-50 text-red-700 border border-red-100 px-1.5 rounded-full font-bold">{locale === "pt" ? "INATIVO" : "INACTIVE"}</span>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-slate-500 mt-1">{tpl.description}</p>
+                                <p className="text-[10px] text-slate-400 font-mono mt-2">
+                                  {locale === "pt" ? "Tipo" : "Type"}: {tpl.template_type} • {locale === "pt" ? "Versão" : "Version"}: {tpl.version} • {locale === "pt" ? "Idioma" : "Language"}: {tpl.language}
+                                </p>
+                                <p className="text-[10px] text-slate-400 font-mono truncate mt-1">{tpl.file_path}</p>
+                              </div>
+
+                              <div className="flex flex-wrap gap-2">
+                                <button onClick={() => handleValidateProposalTemplate(tpl.id)} className="px-2 py-1 rounded bg-white border text-[10px] font-bold">
+                                  {locale === "pt" ? "Validar" : "Validate"}
+                                </button>
+                                {!tpl.default_template && (
+                                  <button onClick={() => handleSetDefaultProposalTemplate(tpl.id)} className="px-2 py-1 rounded bg-emerald-600 text-white text-[10px] font-bold">
+                                    {locale === "pt" ? "Tornar Padrão" : "Set Default"}
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => handleUpdateProposalTemplate(tpl.id, { active: !tpl.active })}
+                                  className="px-2 py-1 rounded bg-slate-900 text-white text-[10px] font-bold"
+                                >
+                                  {tpl.active ? (locale === "pt" ? "Inativar" : "Deactivate") : (locale === "pt" ? "Ativar" : "Activate")}
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteProposalTemplate(tpl.id)}
+                                  className="px-2 py-1 rounded bg-red-50 text-red-700 hover:bg-red-600 hover:text-white text-[10px] font-bold"
+                                >
+                                  {locale === "pt" ? "Apagar" : "Delete"}
+                                </button>
+                              </div>
+                            </div>
+
+                            <pre className="mt-3 p-3 bg-white border border-slate-200 rounded text-[10px] text-slate-500 overflow-x-auto">{tpl.variables_schema}</pre>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeAdminSection === "approval_flow" && (locale === "pt" ? "Fluxo de Aprovação de Propostas" : "Proposal Approval Workflow")}
                       {activeAdminSection === "subscription" && (locale === "pt" ? "Subscrição e Licença" : "Subscription & License")}
                       {activeAdminSection === "branding" && (locale === "pt" ? "Personalização e Identidade Visual" : "Branding & Visual Identity")}
                       {activeAdminSection === "integrations" && (locale === "pt" ? "Integrações, CRMs, ERPs e APIs" : "Integrations, CRMs, ERPs and APIs")}

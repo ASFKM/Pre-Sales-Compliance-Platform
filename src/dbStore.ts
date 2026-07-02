@@ -1299,6 +1299,47 @@ class DBStore {
     return this.data.proposalTemplates[idx];
   }
 
+  public setDefaultProposalTemplate(id: string): ProposalTemplate | undefined {
+    const target = this.data.proposalTemplates.find((t) => t.id === id);
+    if (!target) return undefined;
+
+    const now = new Date().toISOString();
+
+    this.data.proposalTemplates = this.data.proposalTemplates.map((tpl) => ({
+      ...tpl,
+      active: tpl.id === id ? true : tpl.active,
+      default_template: tpl.template_type === target.template_type ? tpl.id === id : tpl.default_template,
+      updated_at: tpl.template_type === target.template_type ? now : tpl.updated_at,
+    }));
+
+    this.save();
+    return this.data.proposalTemplates.find((t) => t.id === id);
+  }
+
+  public deleteProposalTemplate(id: string): boolean {
+    const target = this.data.proposalTemplates.find((t) => t.id === id);
+    if (!target) return false;
+
+    const isInUse = this.data.proposals.some((p) => p.template_id === id);
+    if (isInUse) return false;
+
+    const wasDefault = target.default_template;
+    const targetType = target.template_type;
+
+    this.data.proposalTemplates = this.data.proposalTemplates.filter((t) => t.id !== id);
+
+    if (wasDefault) {
+      const replacement = this.data.proposalTemplates.find((t) => t.template_type === targetType && t.active);
+      if (replacement) {
+        replacement.default_template = true;
+        replacement.updated_at = new Date().toISOString();
+      }
+    }
+
+    this.save();
+    return true;
+  }
+
   // Approval workflows CRUD
   public getApprovalWorkflows(): ApprovalWorkflow[] {
     return this.data.approvalWorkflows;
