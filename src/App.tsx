@@ -715,7 +715,8 @@ export default function App() {
   };
 
   // active project object (translated dynamically if locale is PT)
-  const activeProject = getTranslatedProject(projects.find(p => p.id === selectedProjectId) || projects[0]);
+  const safeProjects = Array.isArray(projects) ? projects : [];
+  const activeProject = getTranslatedProject(safeProjects.find(p => p.id === selectedProjectId) || safeProjects[0]);
   const displayAnalysisResult = getTranslatedAnalysisResult(analysisResult);
 
   // Fetch initial system settings & logs
@@ -723,36 +724,36 @@ export default function App() {
     try {
       const sRes = await fetch("/api/settings");
       const sData = await sRes.json();
-      setPlatformSettings(sData.platform);
-      setBrandingSettings(sData.branding);
+      setPlatformSettings(sData.platform ?? sData ?? null);
+      setBrandingSettings(sData.branding ?? null);
 
       const uRes = await fetch("/api/users");
       const uData = await uRes.json();
-      setUsers(uData);
+      setUsers(Array.isArray(uData) ? uData : []);
 
       const rRes = await fetch("/api/roles");
       const rData = await rRes.json();
-      setRoles(rData);
+      setRoles(Array.isArray(rData) ? rData : []);
 
       const pRes = await fetch("/api/settings/prompts");
       const pData = await pRes.json();
-      setPromptTemplates(pData);
+      setPromptTemplates(Array.isArray(pData) ? pData : []);
 
       const tRes = await fetch("/api/templates/proposals");
       const tData = await tRes.json();
-      setProposalTemplates(tData);
+      setProposalTemplates(Array.isArray(tData) ? tData : []);
 
       const workflowRes = await fetch("/api/approval-workflows");
       const workflowData = await workflowRes.json();
-      setApprovalWorkflows(workflowData);
+      setApprovalWorkflows(Array.isArray(workflowData) ? workflowData : []);
 
       const decisionRes = await fetch("/api/approval-decisions");
       const decisionData = await decisionRes.json();
-      setApprovalDecisions(decisionData);
+      setApprovalDecisions(Array.isArray(decisionData) ? decisionData : []);
 
       const iRes = await fetch("/api/integrations");
       const iData = await iRes.json();
-      setIntegrations(iData);
+      setIntegrations(Array.isArray(iData) ? iData : []);
 
       const hRes = await fetch("/api/admin/system/status");
       const hData = await hRes.json();
@@ -760,11 +761,11 @@ export default function App() {
 
       const debugRes = await fetch("/api/admin/logs/debug");
       const debugData = await debugRes.json();
-      setDebugLogs(debugData);
+      setDebugLogs(Array.isArray(debugData) ? debugData : []);
 
       const auditRes = await fetch("/api/audit-logs");
       const auditData = await auditRes.json();
-      setAuditLogs(auditData);
+      setAuditLogs(Array.isArray(auditData) ? auditData : []);
     } catch (e) {
       console.error("Error loading administration parameters", e);
     }
@@ -776,9 +777,10 @@ export default function App() {
       setIsLoading(true);
       const res = await fetch("/api/projects");
       const data = await res.json();
-      setProjects(data);
-      if (data.length > 0 && !selectedProjectId) {
-        setSelectedProjectId(data[0].id);
+      const projectList = Array.isArray(data) ? data : [];
+      setProjects(projectList);
+      if (projectList.length > 0 && !selectedProjectId) {
+        setSelectedProjectId(projectList[0].id);
       }
     } catch (e) {
       console.error("Error loading project list", e);
@@ -794,7 +796,7 @@ export default function App() {
       // Documents
       const dRes = await fetch(`/api/projects/${projId}/documents`);
       const dData = await dRes.json();
-      setDocuments(dData);
+      setDocuments(Array.isArray(dData) ? dData : []);
 
       // Analysis Result
       const arRes = await fetch(`/api/projects/${projId}/analysis-result`);
@@ -808,7 +810,7 @@ export default function App() {
       // Proposals
       const pRes = await fetch(`/api/projects/${projId}/proposals`);
       const pData = await pRes.json();
-      setProposals(pData);
+      setProposals(Array.isArray(pData) ? pData : []);
     } catch (e) {
       console.error("Error fetching project specifications detail", e);
     }
@@ -1123,7 +1125,7 @@ export default function App() {
 
   // Update Commercial Proposal rows directly
   const handleUpdateProposalCommercial = async (propId: string, rowId: string, field: string, value: any) => {
-    const prop = proposals.find(p => p.id === propId);
+    const prop = (Array.isArray(proposals) ? proposals : []).find(p => p.id === propId);
     if (!prop || !prop.manual_pricing_table) return;
 
     const updatedTable = prop.manual_pricing_table.map(row => {
@@ -3609,7 +3611,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
               ) : (
                 <div className="space-y-6">
                   {proposals.map(prop => {
-                    const workflow = approvalWorkflows.find(w => w.id === prop.approval_workflow_id);
+                    const workflow = (Array.isArray(approvalWorkflows) ? approvalWorkflows : []).find(w => w.id === prop.approval_workflow_id);
                     return (
                       <div key={prop.id} className="bg-white border border-slate-200 rounded-lg p-5 shadow-sm flex flex-col gap-4">
                         <div className="flex justify-between items-center border-b border-slate-100 pb-3">
@@ -3637,7 +3639,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                             
                             <div className="grid grid-cols-3 gap-4">
                               {workflow.stages.map((stage) => {
-                                const matchedDecision = approvalDecisions.find(d => d.proposal_id === prop.id && d.stage_id === stage.id);
+                                const matchedDecision = (Array.isArray(approvalDecisions) ? approvalDecisions : []).find(d => d.proposal_id === prop.id && d.stage_id === stage.id);
                                 return (
                                   <div key={stage.id} className={`p-4 rounded-lg border ${
                                     matchedDecision ? (matchedDecision.decision === "approved" ? "bg-emerald-50/50 border-emerald-200" : "bg-red-50/50 border-red-200") : "bg-slate-50 border-slate-200"

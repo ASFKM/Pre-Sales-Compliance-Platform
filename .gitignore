@@ -1,8 +1,36 @@
+# Dependencies
 node_modules/
-build/
+
+# Builds
 dist/
-coverage/
+.vite/
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+
+# Runtime local state
+db_state.json
+uploads/
+exports/
+templates/
+logs/
+
+# Local backups
+*.bak.*
+*.backup
+*.tmp
+
+# OS/editor
 .DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
 *.log
-.env*
-!.env.example
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*

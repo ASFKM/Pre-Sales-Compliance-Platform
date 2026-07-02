@@ -4,7 +4,7 @@ import { requirePermission } from "./auth";
 
 const router = express.Router();
 
-router.get("/audit-logs", requirePermission("audit:view"), (req: Request, res: Response, next: NextFunction) => {
+router.get("/audit-logs", requirePermission("admin:audit"), (req: Request, res: Response, next: NextFunction) => {
   try {
     res.json(dbStore.getAuditLogs());
   } catch (err) {
@@ -13,7 +13,7 @@ router.get("/audit-logs", requirePermission("audit:view"), (req: Request, res: R
 });
 
 // CSV Export Endpoint for audit logs
-router.get("/audit-logs/export/csv", requirePermission("audit:view"), (req: Request, res: Response, next: NextFunction) => {
+router.get("/audit-logs/export/csv", requirePermission("admin:audit"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const logs = dbStore.getAuditLogs();
     
