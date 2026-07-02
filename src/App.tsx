@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from "react";
+import ApiClient from "./lib/api";
+import Login from "./components/Login";
 import { 
   FileText, 
   Plus, 
@@ -183,17 +185,100 @@ function HelpTooltip({ content }: { content: string }) {
   return null;
 }
 
+// Global window fetch interceptor to inject Authorization header
+if (typeof window !== "undefined") {
+  const originalFetch = window.fetch;
+  window.fetch = function (url, options: any = {}) {
+    const token = localStorage.getItem("ca_session_token");
+    if (token) {
+      if (!options.headers) {
+        options.headers = {};
+      }
+      if (options.headers instanceof Headers) {
+        options.headers.set("Authorization", `Bearer ${token}`);
+      } else if (Array.isArray(options.headers)) {
+        options.headers.push(["Authorization", `Bearer ${token}`]);
+      } else {
+        options.headers["Authorization"] = `Bearer ${token}`;
+      }
+    }
+    return originalFetch(url, options);
+  };
+}
+
 export default function App() {
   // Locale State (Defaults to Portuguese "pt")
   const [locale, setLocale] = useState<"en" | "pt">("pt");
 
-  // Dynamic session user for switching roles between Administrator and Engineer
+  // Real authentication & session states
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [authChecking, setAuthChecking] = useState<boolean>(true);
   const [currentSessionUser, setCurrentSessionUser] = useState({
-    id: "u1",
-    name: "Sarah Jenkins",
-    email: "sarah.j@enterprise.ai",
-    role: "Senior Pre-Sales Engineer"
+    id: "",
+    name: "",
+    email: "",
+    role: ""
   });
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      const token = localStorage.getItem("ca_session_token");
+      if (token) {
+        try {
+          const res: any = await ApiClient.get("/api/auth/me");
+          if (res.success && res.user) {
+            setCurrentSessionUser(res.user);
+            setIsAuthenticated(true);
+          } else {
+            localStorage.removeItem("ca_session_token");
+            localStorage.removeItem("ca_user");
+            setIsAuthenticated(false);
+          }
+        } catch (e) {
+          localStorage.removeItem("ca_session_token");
+          localStorage.removeItem("ca_user");
+          setIsAuthenticated(false);
+        }
+      } else {
+        setIsAuthenticated(false);
+      }
+      setAuthChecking(false);
+    };
+
+    checkAuth();
+
+    const handleUnauthorized = () => {
+      setIsAuthenticated(false);
+    };
+    window.addEventListener("unauthorized", handleUnauthorized);
+    return () => {
+      window.removeEventListener("unauthorized", handleUnauthorized);
+    };
+  }, []);
+
+  const handleLoginSuccess = (user: any, token: string) => {
+    localStorage.setItem("ca_session_token", token);
+    localStorage.setItem("ca_user", JSON.stringify(user));
+    setCurrentSessionUser(user);
+    setIsAuthenticated(true);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await ApiClient.post("/api/auth/logout", {});
+    } catch (e) {
+      // ignore
+    }
+    localStorage.removeItem("ca_session_token");
+    localStorage.removeItem("ca_user");
+    setIsAuthenticated(false);
+    setCurrentSessionUser({
+      id: "",
+      name: "",
+      email: "",
+      role: ""
+    });
+  };
 
   const t = (key: string): string => {
     const dict = translations[locale] || translations["pt"];
@@ -1232,6 +1317,19 @@ export default function App() {
   const risksCount = analysisResult?.risks.length || 0;
   const oppsCount = analysisResult?.opportunities.length || 0;
 
+  if (authChecking) {
+    return (
+      <div id="app-loading-screen" className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
+        <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4" />
+        <p className="text-slate-400 font-mono text-xs">COMMERCIAL ASSISTANT AI - SECURE PORTAL BOOTING...</p>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Login locale={locale} onLoginSuccess={handleLoginSuccess} />;
+  }
+
   return (
     <div className="flex flex-col h-screen w-full bg-[#f8fafc] text-slate-900 font-sans overflow-hidden">
       
@@ -1379,36 +1477,26 @@ export default function App() {
             </button>
           </div>
 
-          <div 
-            onClick={() => {
-              if (currentSessionUser.role === "Administrator") {
-                setCurrentSessionUser({
-                  id: "u1",
-                  name: "Sarah Jenkins",
-                  email: "sarah.j@enterprise.ai",
-                  role: "Senior Pre-Sales Engineer"
-                });
-                alert(locale === "pt" ? "Função alterada para Engenheiro de Pré-Vendas!" : "Switched to Pre-Sales Engineer!");
-              } else {
-                setCurrentSessionUser({
-                  id: "admin-user",
-                  name: "Administrator",
-                  email: "admin@enterprise.ai",
-                  role: "Administrator"
-                });
-                alert(locale === "pt" ? "Função alterada para Administrador do Sistema!" : "Switched to System Administrator!");
-              }
-            }}
-            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 p-1.5 rounded-lg border border-slate-700 transition-colors cursor-pointer"
-            title={locale === "pt" ? "Clique para alternar papel de usuário" : "Click to toggle user role"}
-          >
-            <div className="w-7 h-7 rounded-md bg-emerald-600 flex items-center justify-center text-xs font-bold text-white uppercase">
-              {currentSessionUser.name.split(" ").map(n => n[0]).join("")}
+          <div className="flex items-center gap-3">
+            <div 
+              className="flex items-center gap-2 bg-slate-800 p-1.5 rounded-lg border border-slate-700/80 transition-colors"
+            >
+              <div className="w-7 h-7 rounded-md bg-emerald-600 flex items-center justify-center text-xs font-bold text-white uppercase font-sans">
+                {currentSessionUser.name ? currentSessionUser.name.split(" ").map(n => n[0]).join("") : "U"}
+              </div>
+              <div className="hidden md:flex flex-col text-left">
+                <span className="text-xs font-semibold leading-tight text-white">{currentSessionUser.name}</span>
+                <span className="text-[10px] text-emerald-400 font-mono leading-none font-bold">{currentSessionUser.role}</span>
+              </div>
             </div>
-            <div className="hidden md:flex flex-col text-left">
-              <span className="text-xs font-semibold leading-tight">{currentSessionUser.name}</span>
-              <span className="text-[10px] text-emerald-400 font-mono leading-none font-bold">{currentSessionUser.role}</span>
-            </div>
+            
+            <button 
+              onClick={handleLogout}
+              className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer flex items-center justify-center border border-transparent hover:border-slate-700"
+              title={locale === "pt" ? "Sair da Conta" : "Logout"}
+            >
+              <LogOut className="w-4.5 h-4.5" />
+            </button>
           </div>
         </div>
       </nav>
