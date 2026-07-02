@@ -38,6 +38,69 @@ router.put("/settings", requirePermission("admin:settings"), (req: Request, res:
   }
 });
 
+router.get("/branding", requireAuth, (req: Request, res: Response, next: NextFunction) => {
+  try {
+    res.json(dbStore.getBranding());
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/branding", requirePermission("branding:manage"), (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const allowedFields = [
+      "company_name",
+      "company_logo_path",
+      "login_logo_path",
+      "sidebar_logo_path",
+      "report_logo_path",
+      "favicon_path",
+      "primary_color",
+      "secondary_color",
+      "accent_color",
+      "background_color",
+      "text_color",
+      "font_family",
+      "border_radius",
+      "button_style",
+      "default_theme",
+      "custom_css_variables",
+      "footer_text",
+      "support_contact",
+      "legal_text"
+    ];
+
+    const updates = Object.fromEntries(
+      Object.entries(req.body || {}).filter(([key]) => allowedFields.includes(key))
+    );
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ success: false, message: "No valid branding fields provided." });
+    }
+
+    const branding = dbStore.updateBranding(updates);
+
+    const auditSafeUpdates = Object.fromEntries(
+      Object.entries(updates).map(([key, value]) => {
+        if (typeof value === "string" && value.startsWith("data:image/")) {
+          return [key, `[image-data-url:${value.length} chars]`];
+        }
+        return [key, value];
+      })
+    );
+
+    auditSettingsChange(req, "Update Branding Settings", "BrandingSettings", "branding-global", auditSafeUpdates);
+
+    res.json(branding);
+  } catch (err) {
+    next(err);
+  }
+});
+
+
+
+
+
 router.put("/settings/ai", requirePermission("ai:settings"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const allowedFields = [

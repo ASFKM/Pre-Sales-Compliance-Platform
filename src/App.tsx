@@ -761,7 +761,15 @@ export default function App() {
       const sRes = await fetch("/api/settings");
       const sData = await sRes.json();
       setPlatformSettings(sData.platform ?? sData ?? null);
-      setBrandingSettings(sData.branding ?? null);
+
+      const bRes = await fetch("/api/branding");
+      const bData = await bRes.json();
+      if (bRes.ok && bData) {
+        setBrandingSettings(bData);
+        setBrandLogoDataUrl(bData.company_logo_path || "");
+        setBrandPrimaryColor(bData.primary_color || "#059669");
+        setBrandAccentColor(bData.accent_color || "#10b981");
+      }
 
       const uRes = await fetch("/api/users");
       const uData = await uRes.json();
@@ -1402,87 +1410,8 @@ export default function App() {
     }
   };
 
-  const handleRemoveBrandLogo = () => {
-    if (!brandLogoDataUrl) return;
-
-    const confirmed = confirm(locale === "pt" ? "Remover a logo personalizada da interface?" : "Remove the custom logo from the interface?");
-    if (!confirmed) return;
-
-    const pass = prompt(locale === "pt" ? "Digite a senha do super admin para confirmar:" : "Enter the super admin password to confirm:");
-    if (pass !== "admin" && pass !== "admin123") {
-      alert(locale === "pt" ? "Senha inválida. A logo não foi removida." : "Invalid password. Logo was not removed.");
-      return;
-    }
-
-    setBrandLogoDataUrl("");
-    localStorage.removeItem("ca_brand_logo");
-  };
-
-  const handleBrandLogoUpload = (file?: File) => {
-    if (!file) return;
-
-    const allowed = ["image/png", "image/jpeg", "image/svg+xml", "image/webp"];
-    if (!allowed.includes(file.type)) {
-      alert(locale === "pt" ? "Formato inválido. Use PNG, JPG, SVG ou WebP." : "Invalid format. Use PNG, JPG, SVG or WebP.");
-      return;
-    }
-
-    if (file.size > 1024 * 1024) {
-      alert(locale === "pt" ? "Arquivo muito grande. Use uma imagem de até 1 MB." : "File too large. Use an image up to 1 MB.");
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => setBrandLogoDataUrl(String(reader.result || ""));
-    reader.readAsDataURL(file);
-  };
-
-  const handleCreateConnector = async () => {
-    if (!newConnectorName) {
-      alert(locale === "pt" ? "Por favor, digite o nome do conector" : "Please specify a connector name");
-      return;
-    }
-    try {
-      const res = await fetch("/api/integrations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: newConnectorName,
-          type: newConnectorType,
-          status: "disconnected",
-          url: newConnectorUrl || `https://api.${newConnectorName.toLowerCase().replace(/\s+/g, '')}.enterprise.com/v1`,
-          token: newConnectorToken,
-          configuration: JSON.stringify({
-            url: newConnectorUrl,
-            token: newConnectorToken
-          }),
-          last_sync_status: "DISCONNECTED"
-        })
-      });
-      if (res.ok) {
-        setShowNewConnectorForm(false);
-        setNewConnectorName("");
-        setNewConnectorUrl("");
-        setNewConnectorToken("");
-        fetchGlobalConfigs();
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const handleDeleteConnector = async (id: string) => {
-    if (!confirm(locale === "pt" ? "Tem certeza que deseja excluir esta integração?" : "Are you sure you want to delete this integration?")) return;
-    try {
-      const res = await fetch(`/api/integrations/${id}`, {
-        method: "DELETE"
-      });
-      if (res.ok) {
-        fetchGlobalConfigs();
-      }
-    } catch (e) {
-      console.error(e);
-    }
+  const handleExportCSV = () => {
+    window.open("/api/audit-logs/export/csv", "_blank");
   };
 
   const handleCreateUser = async () => {
@@ -1564,16 +1493,140 @@ export default function App() {
     }
   };
 
-  // Export CSV helper
-  const handleExportCSV = () => {
-    if (currentSessionUser.role !== "Administrator") {
-      alert(locale === "pt" ? "Acesso Negado: Apenas usuários com a função de 'Administrator' podem exportar relatórios de auditoria." : "Access Denied: Only users with 'Administrator' role can export audit reports.");
+  const handleCreateConnector = async () => {
+    if (!newConnectorName.trim() || !newConnectorUrl.trim()) {
+      alert(locale === "pt" ? "Informe nome e URL da integração." : "Enter connector name and URL.");
       return;
     }
-    window.open("/api/audit-logs/export/csv", "_blank");
+
+    try {
+      const res = await fetch("/api/integrations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newConnectorName.trim(),
+          type: newConnectorType,
+          status: "disconnected",
+          configuration: JSON.stringify({
+            url: newConnectorUrl.trim(),
+            token: newConnectorToken ? "[configured]" : "",
+          }),
+          last_sync_status: "PENDING",
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.message || (locale === "pt" ? "Não foi possível criar integração." : "Could not create connector."));
+        return;
+      }
+
+      setShowNewConnectorForm(false);
+      setNewConnectorName("");
+      setNewConnectorType("Salesforce");
+      setNewConnectorUrl("");
+      setNewConnectorToken("");
+      await fetchGlobalConfigs();
+      alert(locale === "pt" ? "Integração criada com sucesso." : "Connector created successfully.");
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao criar integração." : "Error creating connector.");
+    }
   };
 
-  // Set default prompt template
+  const handleDeleteConnector = async (id: string) => {
+    if (!confirm(locale === "pt" ? "Tem certeza que deseja excluir esta integração?" : "Are you sure you want to delete this integration?")) return;
+
+    try {
+      const res = await fetch(`/api/integrations/${id}`, {
+        method: "DELETE"
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.message || (locale === "pt" ? "Não foi possível excluir integração." : "Could not delete connector."));
+        return;
+      }
+
+      await fetchGlobalConfigs();
+    } catch (e) {
+      console.error(e);
+      alert(locale === "pt" ? "Erro ao excluir integração." : "Error deleting connector.");
+    }
+  };
+
+  const handleSaveBrandingSettings = async (updates: Partial<BrandingSettings>) => {
+    try {
+      const res = await fetch("/api/branding", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates)
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível salvar a identidade visual." : "Could not save branding settings."));
+        return null;
+      }
+
+      setBrandingSettings(data);
+      setBrandLogoDataUrl(data.company_logo_path || "");
+      setBrandPrimaryColor(data.primary_color || brandPrimaryColor);
+      setBrandAccentColor(data.accent_color || brandAccentColor);
+      return data;
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao salvar identidade visual." : "Error saving branding settings.");
+      return null;
+    }
+  };
+
+  const handleRemoveBrandLogo = async () => {
+    if (!brandLogoDataUrl) return;
+
+    const confirmed = confirm(locale === "pt" ? "Remover a logo personalizada da interface?" : "Remove the custom logo from the interface?");
+    if (!confirmed) return;
+
+    await handleSaveBrandingSettings({
+      company_logo_path: "",
+      login_logo_path: "",
+      sidebar_logo_path: "",
+      report_logo_path: ""
+    });
+
+    localStorage.removeItem("ca_brand_logo");
+  };
+
+  const handleBrandLogoUpload = (file?: File) => {
+    if (!file) return;
+
+    const allowed = ["image/png", "image/jpeg", "image/svg+xml", "image/webp"];
+    if (!allowed.includes(file.type)) {
+      alert(locale === "pt" ? "Formato inválido. Use PNG, JPG, SVG ou WebP." : "Invalid format. Use PNG, JPG, SVG or WebP.");
+      return;
+    }
+
+    if (file.size > 1024 * 1024) {
+      alert(locale === "pt" ? "A logo deve ter no máximo 1 MB." : "Logo must be at most 1 MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const dataUrl = String(reader.result || "");
+      setBrandLogoDataUrl(dataUrl);
+
+      await handleSaveBrandingSettings({
+        company_logo_path: dataUrl,
+        login_logo_path: dataUrl,
+        sidebar_logo_path: dataUrl,
+        report_logo_path: dataUrl
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleCreateProposalTemplate = async () => {
     if (!templateUploadFileName.trim()) {
       alert(locale === "pt" ? "Selecione um arquivo de template." : "Select a template file.");
@@ -5320,8 +5373,8 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                         </p>
                         <p className="text-xs text-slate-600 leading-relaxed">
                           {locale === "pt"
-                            ? "Formatos aceitos: PNG, JPG, SVG ou WebP. Tamanho máximo: 1 MB. Dimensão recomendada para o menu superior: 320 x 80 px, proporção horizontal 4:1, fundo transparente quando possível."
-                            : "Accepted formats: PNG, JPG, SVG or WebP. Max size: 1 MB. Recommended top-menu dimension: 320 x 80 px, horizontal 4:1 ratio, transparent background when possible."}
+                            ? "Formatos aceitos: PNG, JPG, SVG ou WebP. Tamanho máximo: 1 MB. Dimensão recomendada: 320 x 80 px."
+                            : "Accepted formats: PNG, JPG, SVG or WebP. Max size: 1 MB. Recommended dimension: 320 x 80 px."}
                         </p>
                         <label className="inline-flex items-center justify-center bg-slate-900 text-white text-xs font-bold px-4 py-2 rounded cursor-pointer">
                           {locale === "pt" ? "Selecionar Arquivo" : "Select File"}
@@ -5344,8 +5397,9 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
 
                     <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
                       <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
-                        {locale === "pt" ? "Cores do Sistema" : "System Colors"}
+                        {locale === "pt" ? "Cores e Dados da Marca" : "Colors and Brand Data"}
                       </h3>
+
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <label className="text-[10px] uppercase font-bold text-slate-400 font-mono block mb-1">{locale === "pt" ? "Cor Primária" : "Primary Color"}</label>
@@ -5356,8 +5410,52 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                           <input type="color" value={brandAccentColor} onChange={(e) => setBrandAccentColor(e.target.value)} className="w-full h-10" />
                         </div>
                       </div>
+
+                      <button
+                        onClick={() => handleSaveBrandingSettings({ primary_color: brandPrimaryColor, accent_color: brandAccentColor })}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 py-2 rounded"
+                      >
+                        {locale === "pt" ? "Salvar Cores" : "Save Colors"}
+                      </button>
+
+                      <div className="grid grid-cols-1 gap-3 text-xs">
+                        <div>
+                          <label className="text-[10px] uppercase font-bold text-slate-400 font-mono block mb-1">{locale === "pt" ? "Nome da Empresa" : "Company Name"}</label>
+                          <input
+                            defaultValue={brandingSettings?.company_name || "Assistant AI Brasil"}
+                            onBlur={(e) => handleSaveBrandingSettings({ company_name: e.target.value })}
+                            className="w-full p-2 bg-slate-50 border border-slate-200 rounded"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] uppercase font-bold text-slate-400 font-mono block mb-1">{locale === "pt" ? "Contato de Suporte" : "Support Contact"}</label>
+                          <input
+                            defaultValue={brandingSettings?.support_contact || ""}
+                            onBlur={(e) => handleSaveBrandingSettings({ support_contact: e.target.value })}
+                            className="w-full p-2 bg-slate-50 border border-slate-200 rounded"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] uppercase font-bold text-slate-400 font-mono block mb-1">Footer</label>
+                          <input
+                            defaultValue={brandingSettings?.footer_text || ""}
+                            onBlur={(e) => handleSaveBrandingSettings({ footer_text: e.target.value })}
+                            className="w-full p-2 bg-slate-50 border border-slate-200 rounded"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] uppercase font-bold text-slate-400 font-mono block mb-1">{locale === "pt" ? "Texto Legal" : "Legal Text"}</label>
+                          <textarea
+                            defaultValue={brandingSettings?.legal_text || ""}
+                            onBlur={(e) => handleSaveBrandingSettings({ legal_text: e.target.value })}
+                            rows={3}
+                            className="w-full p-2 bg-slate-50 border border-slate-200 rounded"
+                          />
+                        </div>
+                      </div>
+
                       <div className="p-4 rounded-lg text-white space-y-2" style={{ background: `linear-gradient(135deg, ${brandPrimaryColor}, ${brandAccentColor})` }}>
-                        <p className="font-bold">{locale === "pt" ? "Pré-visualização da identidade visual" : "Brand preview"}</p>
+                        <p className="font-bold">{brandingSettings?.company_name || (locale === "pt" ? "Pré-visualização da identidade visual" : "Brand preview")}</p>
                         <p className="text-xs opacity-90">{tx("Pre-Sales Compliance Platform", "Plataforma de Compliance de Pré-Vendas")}</p>
                       </div>
                     </div>
