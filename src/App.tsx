@@ -1,29 +1,29 @@
 import React, { useState, useEffect } from "react";
 import ApiClient from "./lib/api";
 import Login from "./components/Login";
-import { 
-  FileText, 
-  Plus, 
-  Trash2, 
-  RefreshCw, 
-  ShieldAlert, 
-  Database, 
-  HardDrive, 
-  CheckCircle2, 
-  Cpu, 
-  LogOut, 
-  Check, 
-  X, 
-  Save, 
-  Download, 
-  Edit3, 
-  MessageSquare, 
-  Settings, 
-  Users, 
-  Layers, 
-  Activity, 
-  FileSpreadsheet, 
-  FolderPlus, 
+import {
+  FileText,
+  Plus,
+  Trash2,
+  RefreshCw,
+  ShieldAlert,
+  Database,
+  HardDrive,
+  CheckCircle2,
+  Cpu,
+  LogOut,
+  Check,
+  X,
+  Save,
+  Download,
+  Edit3,
+  MessageSquare,
+  Settings,
+  Users,
+  Layers,
+  Activity,
+  FileSpreadsheet,
+  FolderPlus,
   HelpCircle,
   Sparkles,
   FileCode,
@@ -40,17 +40,17 @@ import {
   ArrowLeft,
   FilePlus
 } from "lucide-react";
-import { 
-  Project, 
-  Document, 
-  AnalysisResult, 
-  Proposal, 
-  AuditLog, 
-  DebugLog, 
-  CriticalRequirement, 
-  ProjectRisk, 
-  ProjectOpportunity, 
-  BOMItem, 
+import {
+  Project,
+  Document,
+  AnalysisResult,
+  Proposal,
+  AuditLog,
+  DebugLog,
+  CriticalRequirement,
+  ProjectRisk,
+  ProjectOpportunity,
+  BOMItem,
   PointToPointRow,
   PreliminarySchedulePhase,
   ClarificationQuestion,
@@ -108,7 +108,7 @@ const translations = {
     sug4Desc: "Run fully airgapped models locally to comply with strict sovereign defense and public intelligence agency security standards.",
     sug5Title: "🤖 Multi-agent consensus review loop",
     sug5Desc: "Run concurrent Gemini agents representing technical, commercial, legal, and financial personas to reach unanimous pre-sales validation before human signoff.",
-    
+
     // Help Tooltips
     workspaceHelp: "Workspace: Upload specifications, analyze compliance, build pricing BOM and generate proposals.",
     proposalsHelp: "Proposals Studio: Craft custom commercial and technical proposal drafts using AI-assisted templates.",
@@ -166,7 +166,7 @@ const translations = {
     sug4Desc: "Execução totalmente offline e isolada de modelos locais para atender aos rígidos padrões de segurança de defesa e inteligência pública.",
     sug5Title: "🤖 Loop de Consenso Multiagente de Pré-Vendas",
     sug5Desc: "Executa agentes Gemini simultâneos (Técnico, Comercial, Jurídico e Financeiro) para alcançar validação unânime antes da assinatura humana.",
-    
+
     // Help Tooltips
     workspaceHelp: "Área de Trabalho: Envie especificações, analise conformidade, monte precificação da BOM e gere propostas.",
     proposalsHelp: "Estúdio de Propostas: Elabore rascunhos comerciais e técnicos personalizados com templates assistidos por IA.",
@@ -324,7 +324,7 @@ export default function App() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [proposals, setProposals] = useState<Proposal[]>([]);
-  
+
   // User Tasks States
   const [tasks, setTasks] = useState<{ id: string; text: string; done: boolean; dueDate?: string }[]>(() => {
     const saved = localStorage.getItem("user_tasks");
@@ -363,7 +363,7 @@ export default function App() {
   // Load project-specific file system states
   useEffect(() => {
     if (!selectedProjectId) return;
-    
+
     // Load folders
     const savedFolders = localStorage.getItem(`folders_${selectedProjectId}`);
     if (savedFolders) {
@@ -442,7 +442,7 @@ export default function App() {
       if (folderName === "Planilhas Financeiras" && (ext === "xlsx" || ext === "xls" || ext === "csv")) return true;
       if (folderName === "Desenhos CAD" && (ext === "dwg" || ext === "dxf" || ext === "cad")) return true;
       if (folderName === "Propostas e Minutas" && (ext === "docx" || ext === "doc")) return true;
-      
+
       // If we are looking for Root (folderName === ""), and the file doesn't fit any auto-assigned folder:
       if (folderName === "") {
         const fitsAnyFolder = ["pdf", "xlsx", "xls", "csv", "dwg", "dxf", "cad", "docx", "doc"].includes(ext || "");
@@ -465,7 +465,7 @@ export default function App() {
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [showNewProjectModal, setShowNewProjectModal] = useState<boolean>(false);
   const [showDocumentTypeModal, setShowDocumentTypeModal] = useState<Document | null>(null);
-  
+
   // Chat Assistant Input
   const [chatMessage, setChatMessage] = useState<string>("");
   const [chatHistory, setChatHistory] = useState<{role: string, message: string}[]>([]);
@@ -488,7 +488,7 @@ export default function App() {
   const [approvalDecisions, setApprovalDecisions] = useState<any[]>([]);
   const [integrations, setIntegrations] = useState<IntegrationConnector[]>([]);
   const [systemStatus, setSystemStatus] = useState<any>(null);
-  
+
   // Modals / Overlays
   const [showDebugConsole, setShowDebugConsole] = useState<boolean>(false);
   const [showAuditModal, setShowAuditModal] = useState<boolean>(false);
@@ -1088,7 +1088,7 @@ export default function App() {
   // Generate Commercial Proposal
   const handleGenerateCommercialProposal = async () => {
     if (!selectedProjectId) return;
-    
+
     // Grab items from current BOM config
     const pricingRows: PricingRow[] = (analysisResult?.bom || []).map(b => ({
       item_id: b.item_id,
@@ -1336,7 +1336,7 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen w-full bg-[#f8fafc] text-slate-900 font-sans overflow-hidden">
-      
+
       {/* 1. TOP NAV BAR */}
       <nav className="h-14 bg-slate-900 text-white flex items-center justify-between px-6 shrink-0 z-10 shadow-md">
         <div className="flex items-center gap-4">
@@ -1354,8 +1354,8 @@ export default function App() {
         {/* Global Nav Targets */}
         <div className="flex items-center gap-6 text-sm font-medium text-slate-300">
           <div className="flex items-center">
-            <button 
-              onClick={() => setActiveTab("home")} 
+            <button
+              onClick={() => setActiveTab("home")}
               className={`py-4 px-1 border-b-2 transition-all ${activeTab === "home" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
             >
               {locale === "pt" ? "Início" : "Home"}
@@ -1363,8 +1363,8 @@ export default function App() {
           </div>
 
           <div className="flex items-center">
-            <button 
-              onClick={() => setActiveTab("workspace")} 
+            <button
+              onClick={() => setActiveTab("workspace")}
               className={`py-4 px-1 border-b-2 transition-all ${activeTab === "workspace" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
             >
               {t("workspace")}
@@ -1372,8 +1372,8 @@ export default function App() {
           </div>
 
           <div className="flex items-center">
-            <button 
-              onClick={() => setActiveTab("proposals")} 
+            <button
+              onClick={() => setActiveTab("proposals")}
               className={`py-4 px-1 border-b-2 transition-all ${activeTab === "proposals" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
             >
               {t("proposalsStudio")}
@@ -1381,8 +1381,8 @@ export default function App() {
           </div>
 
           <div className="flex items-center">
-            <button 
-              onClick={() => setActiveTab("templates")} 
+            <button
+              onClick={() => setActiveTab("templates")}
               className={`py-4 px-1 border-b-2 transition-all ${activeTab === "templates" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
             >
               {t("tenderTemplates")}
@@ -1390,8 +1390,8 @@ export default function App() {
           </div>
 
           <div className="flex items-center">
-            <button 
-              onClick={() => setActiveTab("approval")} 
+            <button
+              onClick={() => setActiveTab("approval")}
               className={`py-4 px-1 border-b-2 transition-all ${activeTab === "approval" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
             >
               {t("approvalCenter")}
@@ -1399,8 +1399,8 @@ export default function App() {
           </div>
 
           <div className="flex items-center">
-            <button 
-              onClick={() => setActiveTab("admin")} 
+            <button
+              onClick={() => setActiveTab("admin")}
               className={`py-4 px-1 border-b-2 transition-all ${activeTab === "admin" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
             >
               {t("adminConsole")}
@@ -1482,7 +1482,7 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3">
-            <div 
+            <div
               className="flex items-center gap-2 bg-slate-800 p-1.5 rounded-lg border border-slate-700/80 transition-colors"
             >
               <div className="w-7 h-7 rounded-md bg-emerald-600 flex items-center justify-center text-xs font-bold text-white uppercase font-sans">
@@ -1493,8 +1493,8 @@ export default function App() {
                 <span className="text-[10px] text-emerald-400 font-mono leading-none font-bold">{currentSessionUser.role}</span>
               </div>
             </div>
-            
-            <button 
+
+            <button
               onClick={handleLogout}
               className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer flex items-center justify-center border border-transparent hover:border-slate-700"
               title={locale === "pt" ? "Sair da Conta" : "Logout"}
@@ -1511,8 +1511,8 @@ export default function App() {
           <span className="text-slate-400 font-mono">{locale === "pt" ? "Projetos" : "Projects"}</span>
           <span className="text-slate-400">/</span>
           <div className="flex items-center gap-2">
-            <select 
-              value={selectedProjectId} 
+            <select
+              value={selectedProjectId}
               onChange={(e) => setSelectedProjectId(e.target.value)}
               className="font-bold text-slate-900 bg-slate-50 border border-slate-200 px-2 py-1 rounded hover:bg-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
             >
@@ -1522,17 +1522,17 @@ export default function App() {
             </select>
             <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-mono uppercase">{activeProject?.vertical}</span>
           </div>
-          
+
           <span className="ml-auto flex items-center gap-6">
             <span className="text-slate-400">
-              {locale === "pt" ? "Status" : "Pipeline"}: 
+              {locale === "pt" ? "Status" : "Pipeline"}:
               <span className={`ml-1 text-[11px] font-bold px-2 py-0.5 rounded border ${
                 activeProject?.status === "completed" ? "text-emerald-700 bg-emerald-50 border-emerald-200" :
                 activeProject?.status === "analysis_in_progress" ? "text-blue-700 bg-blue-50 border-blue-200" :
                 activeProject?.status === "waiting_internal" ? "text-purple-700 bg-purple-50 border-purple-200" :
                 "text-amber-700 bg-amber-50 border-amber-200"
               }`}>
-                {locale === "pt" ? 
+                {locale === "pt" ?
                   (activeProject?.status === "completed" ? "CONCLUÍDO" :
                    activeProject?.status === "analysis_in_progress" ? "ANÁLISE EM ANDAMENTO" :
                    activeProject?.status === "waiting_internal" ? "AGUARDANDO INTERNO" : "RASCUNHO") :
@@ -1552,15 +1552,15 @@ export default function App() {
 
       {/* 3. MAIN WORKSPACE */}
       <main className="flex-1 flex overflow-hidden">
-        
+
         {/* SIDEBAR: PROJECT SPECIFICATIONS & METADATA */}
         {activeTab !== "home" && (
           <aside className="w-80 bg-slate-50 border-r border-slate-200 flex flex-col p-4 gap-4 shrink-0 overflow-y-auto">
-          
+
           {/* Quick Creator */}
           <div className="flex items-center justify-between border-b border-slate-200 pb-2">
             <h3 className="text-[10px] uppercase tracking-widest text-slate-500 font-bold font-mono">{t("bidsManager")}</h3>
-            <button 
+            <button
               onClick={() => setShowNewProjectModal(true)}
               className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] px-2 py-1 rounded font-bold transition-all shadow-sm"
             >
@@ -1576,7 +1576,7 @@ export default function App() {
             </div>
             <p className="text-sm font-bold text-slate-800 leading-none">{activeProject?.customer_name}</p>
             <p className="text-xs text-slate-500">{locale === "pt" ? "Ref da Oportunidade" : "Opportunity Ref"}: <span className="font-mono bg-slate-50 px-1 rounded border border-slate-100">{activeProject?.opportunity_name}</span></p>
-            
+
             <div className="mt-2 pt-2 border-t border-slate-100">
               <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wide font-mono">{t("aiOrientationMode")}</span>
               <div className="mt-1 p-2 bg-slate-50 border border-slate-100 rounded text-xs">
@@ -1595,11 +1595,11 @@ export default function App() {
 
              {/* Real & Simulated File Input */}
              <div className="relative border-2 border-dashed border-slate-200 hover:border-emerald-500 rounded p-3 mb-2 text-center transition-all">
-               <input 
-                 type="file" 
-                 multiple 
-                 onChange={handleFileChange} 
-                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" 
+               <input
+                 type="file"
+                 multiple
+                 onChange={handleFileChange}
+                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                  title={locale === "pt" ? "Arraste arquivos ou clique para selecionar" : "Drag files or click to select"}
                />
                <FileSpreadsheet className="mx-auto text-slate-400 mb-1" size={20} />
@@ -1615,8 +1615,8 @@ export default function App() {
              <button
                onClick={() => {
                  const files = [
-                   "Edital_Pregao_Eletronico_82.pdf", 
-                   "Planilha_BOM_Precos_Equipamentos.xlsx", 
+                   "Edital_Pregao_Eletronico_82.pdf",
+                   "Planilha_BOM_Precos_Equipamentos.xlsx",
                    "Especificacoes_Tecnicas_Rede.docx",
                    "Planta_Civil_Canteiro_Subestacao.dwg",
                    "Diagrama_Esquematico_Topologia.png"
@@ -1628,7 +1628,7 @@ export default function App() {
                  else if (randomFile.endsWith(".dwg")) docType = "Engineering CAD blueprint";
                  else if (randomFile.endsWith(".png")) docType = "Site schematic image";
                  else docType = "Technical specification";
-                 
+
                  handleUploadDocumentMock(randomFile, docType);
                }}
                className="text-[10px] text-emerald-600 hover:text-emerald-700 font-bold mb-3 hover:underline text-center cursor-pointer block leading-none"
@@ -1653,7 +1653,7 @@ export default function App() {
                            <p className="text-xs font-semibold truncate text-slate-800" title={doc.original_filename}>
                              {doc.original_filename}
                            </p>
-                           <button 
+                           <button
                              onClick={() => setShowDocumentTypeModal(doc)}
                              className="text-[9px] bg-slate-200 text-slate-600 px-1 rounded hover:bg-emerald-50 hover:text-emerald-700 font-mono font-bold uppercase transition-all mt-0.5 block"
                            >
@@ -1661,7 +1661,7 @@ export default function App() {
                            </button>
                          </div>
                        </div>
-                       <button 
+                       <button
                          onClick={() => handleDeleteDocument(doc.id)}
                          className="text-slate-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity p-0.5"
                        >
@@ -1676,7 +1676,7 @@ export default function App() {
 
           {/* Core action trigger */}
           <section className="mt-auto pt-2 border-t border-slate-200">
-            <button 
+            <button
               onClick={handleRunAnalysis}
               disabled={isAnalyzing || documents.length === 0}
               className={`w-full py-2.5 rounded font-bold text-sm tracking-wide shadow-sm flex items-center justify-center gap-2 transition-all cursor-pointer ${
@@ -1696,11 +1696,11 @@ export default function App() {
 
         {/* WORKSPACE MAIN VIEW AREA */}
         <section className="flex-1 flex flex-col min-w-0 bg-white">
-          
+
           {/* TAB 0: HOME / DASHBOARD TAB */}
           {activeTab === "home" && (
             <div className="flex-1 p-6 overflow-y-auto space-y-6 bg-slate-50/50">
-              
+
               {/* Operational Tasks Section */}
               <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
@@ -1713,8 +1713,8 @@ export default function App() {
                         {locale === "pt" ? "Tarefas Pendentes do Usuário" : "User's Pending Tasks"}
                       </h2>
                       <p className="text-xs text-slate-400 mt-0.5">
-                        {locale === "pt" 
-                          ? `Foco operacional: ${tasks.filter(t => !t.done).length} pendências para resolução imediata` 
+                        {locale === "pt"
+                          ? `Foco operacional: ${tasks.filter(t => !t.done).length} pendências para resolução imediata`
                           : `Operational focus: ${tasks.filter(t => !t.done).length} pending actions requiring immediate attention`}
                       </p>
                     </div>
@@ -1725,7 +1725,7 @@ export default function App() {
                       {Math.round((tasks.filter(t => t.done).length / (tasks.length || 1)) * 100)}% {locale === "pt" ? "Concluído" : "Completed"}
                     </span>
                     <div className="w-24 bg-slate-100 h-2 rounded-full overflow-hidden">
-                      <div 
+                      <div
                         className="bg-emerald-600 h-full transition-all duration-300 rounded-full"
                         style={{ width: `${(tasks.filter(t => t.done).length / (tasks.length || 1)) * 100}%` }}
                       ></div>
@@ -1734,7 +1734,7 @@ export default function App() {
                 </div>
 
                 {/* Add task form inline */}
-                <form 
+                <form
                   onSubmit={(e) => {
                     e.preventDefault();
                     if (!newTaskText.trim()) return;
@@ -1772,11 +1772,11 @@ export default function App() {
                     </div>
                   ) : (
                     tasks.map(task => (
-                      <div 
-                        key={task.id} 
+                      <div
+                        key={task.id}
                         className={`p-3 rounded-xl border flex items-start justify-between gap-3 transition-all group ${
-                          task.done 
-                            ? "bg-slate-50/50 border-slate-100 opacity-60" 
+                          task.done
+                            ? "bg-slate-50/50 border-slate-100 opacity-60"
                             : "bg-white border-slate-200 hover:border-slate-300 shadow-xs"
                         }`}
                       >
@@ -1817,7 +1817,7 @@ export default function App() {
 
               {/* KPI Cards Grid */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                
+
                 {/* Card 1: Total Bids */}
                 <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
                   <div className="w-12 h-12 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
@@ -1858,7 +1858,7 @@ export default function App() {
                       {locale === "pt" ? "Próximo Prazo" : "Next Deadline"}
                     </span>
                     <span className="text-xs font-bold text-slate-700 font-mono block mt-1.5">
-                      {projects.length > 0 
+                      {projects.length > 0
                         ? projects.reduce((min, p) => p.deadline < min ? p.deadline : min, projects[0].deadline)
                         : "2026-08-30"}
                     </span>
@@ -1869,14 +1869,14 @@ export default function App() {
 
               {/* Graphical Analysis Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                
+
                 {/* Industry Verticals Breakdown */}
                 <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
                   <h3 className="text-xs font-bold uppercase tracking-wider font-mono text-slate-800 flex items-center gap-2">
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
                     {locale === "pt" ? "Licitações por Setor / Vertical" : "Bids by Industry Vertical"}
                   </h3>
-                  
+
                   <div className="space-y-3.5 pt-1">
                     {projects.length === 0 ? (
                       <p className="text-xs text-slate-400 italic text-center py-6">{locale === "pt" ? "Nenhuma licitação registrada" : "No bids registered"}</p>
@@ -1895,8 +1895,8 @@ export default function App() {
                               <span className="font-mono text-slate-500">{count} {count === 1 ? "bid" : "bids"} ({pct}%)</span>
                             </div>
                             <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                              <div 
-                                className="bg-emerald-600 h-full rounded-full transition-all duration-500" 
+                              <div
+                                className="bg-emerald-600 h-full rounded-full transition-all duration-500"
                                 style={{ width: `${pct}%` }}
                               ></div>
                             </div>
@@ -1913,7 +1913,7 @@ export default function App() {
                     <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
                     {locale === "pt" ? "Pipeline de Status" : "Pipeline Status Distribution"}
                   </h3>
-                  
+
                   <div className="space-y-3.5 pt-1">
                     {projects.length === 0 ? (
                       <p className="text-xs text-slate-400 italic text-center py-6">{locale === "pt" ? "Nenhum status disponível" : "No status available"}</p>
@@ -1945,8 +1945,8 @@ export default function App() {
                               <span className="font-mono text-slate-500">{count} ({pct}%)</span>
                             </div>
                             <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                              <div 
-                                className={`${statusColors[status] || "bg-slate-500"} h-full rounded-full transition-all duration-500`} 
+                              <div
+                                className={`${statusColors[status] || "bg-slate-500"} h-full rounded-full transition-all duration-500`}
                                 style={{ width: `${pct}%` }}
                               ></div>
                             </div>
@@ -1965,7 +1965,7 @@ export default function App() {
                   <h3 className="text-xs font-bold uppercase tracking-wider font-mono text-slate-800">
                     {locale === "pt" ? "Lista de Propostas e Editais Ativos" : "Active Bids & Tenders Directory"}
                   </h3>
-                  <button 
+                  <button
                     onClick={() => setShowNewProjectModal(true)}
                     className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-1.5 rounded-lg font-semibold transition-all shadow-sm cursor-pointer"
                   >
@@ -2003,7 +2003,7 @@ export default function App() {
                                 proj.status === "waiting_internal" ? "text-purple-700 bg-purple-50 border-purple-200" :
                                 "text-amber-700 bg-amber-50 border-amber-200"
                               }`}>
-                                {locale === "pt" ? 
+                                {locale === "pt" ?
                                   (proj.status === "completed" ? "CONCLUÍDO" :
                                    proj.status === "analysis_in_progress" ? "EM ANÁLISE" :
                                    proj.status === "waiting_internal" ? "AGUARDANDO INTERNO" : "RASCUNHO") :
@@ -2012,7 +2012,7 @@ export default function App() {
                               </span>
                             </td>
                             <td className="p-3.5 text-right">
-                              <button 
+                              <button
                                 onClick={() => handleViewProjectWorkspace(proj.id)}
                                 className="bg-slate-800 hover:bg-emerald-600 text-white hover:text-white px-3 py-1.5 rounded-lg font-semibold transition-all shadow-sm cursor-pointer inline-flex items-center gap-1 text-[11px]"
                               >
@@ -2033,38 +2033,38 @@ export default function App() {
           {/* Sub navigation bar for main workspace tabs */}
           {activeTab === "workspace" && (
             <div className="flex items-center gap-6 px-6 h-12 border-b border-slate-200 text-xs font-semibold bg-slate-50/50">
-              <button 
-                onClick={() => setSubTab("summary")} 
+              <button
+                onClick={() => setSubTab("summary")}
                 className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider ${subTab === "summary" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
               >
                 {t("execSummary")}
               </button>
-              <button 
-                onClick={() => setSubTab("requirements")} 
+              <button
+                onClick={() => setSubTab("requirements")}
                 className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider ${subTab === "requirements" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
               >
                 {t("reqsGrid")} ({reqsCount})
               </button>
-              <button 
-                onClick={() => setSubTab("risks")} 
+              <button
+                onClick={() => setSubTab("risks")}
                 className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider ${subTab === "risks" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
               >
                 {t("risksOpps")} ({risksCount + oppsCount})
               </button>
-              <button 
-                onClick={() => setSubTab("bom")} 
+              <button
+                onClick={() => setSubTab("bom")}
                 className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider ${subTab === "bom" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
               >
                 {t("bomBuilder")}
               </button>
-              <button 
-                onClick={() => setSubTab("proposal_builder")} 
+              <button
+                onClick={() => setSubTab("proposal_builder")}
                 className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider ${subTab === "proposal_builder" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
               >
                 {t("proposalStudioGen")}
               </button>
-              <button 
-                onClick={() => setSubTab("explorer")} 
+              <button
+                onClick={() => setSubTab("explorer")}
                 className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider ${subTab === "explorer" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
               >
                 📂 {locale === "pt" ? "Explorador de Arquivos" : "File Explorer"}
@@ -2075,10 +2075,10 @@ export default function App() {
           {/* TAB 1: WORKSPACE TAB */}
           {activeTab === "workspace" && (
             <div className="flex-1 p-6 flex gap-6 overflow-hidden min-h-0">
-              
+
               {/* Left Column of Workspace (Contents depend on SubTab) */}
               <div className="flex-[2] flex flex-col min-h-0 overflow-y-auto pr-2">
-                
+
                 {/* SUBTAB 1.1: EXECUTIVE SUMMARY */}
                 {subTab === "summary" && (
                   <div className="space-y-6">
@@ -2095,8 +2095,8 @@ export default function App() {
                           <span className="text-xs text-slate-500 font-mono"> / {risksCount} {locale === "pt" ? "Riscos" : "Risks"}</span>
                         </p>
                         <div className="w-full bg-amber-200 h-1 mt-2 rounded-full">
-                          <div 
-                            className="bg-amber-600 h-1 rounded-full" 
+                          <div
+                            className="bg-amber-600 h-1 rounded-full"
                             style={{ width: `${risksCount ? ((analysisResult?.risks.filter(r => r.mitigation).length || 0) / risksCount) * 100 : 0}%` }}
                           ></div>
                         </div>
@@ -2126,7 +2126,7 @@ export default function App() {
                             <h2 className="text-lg font-light text-slate-900">{locale === "en" ? "Executive Summary" : "Resumo Executivo"}</h2>
                             <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-bold font-mono">{tx("AI COMPLIANCE DIGEST", "RESUMO DE COMPLIANCE IA")}</span>
                           </div>
-                          
+
                           <div className="prose prose-sm text-slate-600 space-y-4">
                             <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg">
                               <h4 className="text-xs uppercase font-bold text-slate-500 tracking-wider font-mono mb-1">{locale === "en" ? "Project & Deliverable Scope" : "Escopo do Projeto e Entregáveis"}</h4>
@@ -2279,7 +2279,7 @@ export default function App() {
                                   </span>
                                 </td>
                                 <td className="p-3">
-                                  <select 
+                                  <select
                                     value={req.compliance_status}
                                     onChange={(e) => handleUpdateRequirement(req.requirement_id, e.target.value as any, req.notes)}
                                     className={`text-[11px] font-bold p-1 rounded border cursor-pointer focus:outline-none focus:ring-1 focus:ring-emerald-500 ${
@@ -2295,9 +2295,9 @@ export default function App() {
                                   </select>
                                 </td>
                                 <td className="p-3">
-                                  <input 
-                                    type="text" 
-                                    value={req.notes || ""} 
+                                  <input
+                                    type="text"
+                                    value={req.notes || ""}
                                     placeholder={tx("Add engineering compliance remarks...", "Adicionar observações técnicas de conformidade...")}
                                     onChange={(e) => handleUpdateRequirement(req.requirement_id, req.compliance_status, e.target.value)}
                                     className="border border-slate-200 px-2 py-1 rounded text-xs w-full focus:outline-none focus:ring-1 focus:ring-emerald-500"
@@ -2315,7 +2315,7 @@ export default function App() {
                 {/* SUBTAB 1.3: RISKS & OPPORTUNITIES */}
                 {subTab === "risks" && (
                   <div className="space-y-6">
-                    
+
                     {/* Tender Risks Grid */}
                     <div className="space-y-3">
                       <div className="flex justify-between items-center">
@@ -2361,15 +2361,15 @@ export default function App() {
                                     <p className="text-slate-400">{risk.source_page_or_section}</p>
                                   </td>
                                   <td className="p-3 w-1/4">
-                                    <textarea 
-                                      value={risk.mitigation || ""} 
+                                    <textarea
+                                      value={risk.mitigation || ""}
                                       placeholder={tx("Detail pre-sales engineering countermeasure...", "Detalhar contramedida técnica de pré-vendas...")}
                                       onChange={(e) => handleUpdateRisk(risk.risk_id, e.target.value, risk.requires_customer_clarification)}
                                       className="border border-slate-200 p-2.5 rounded text-xs w-full h-16 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                                     />
                                   </td>
                                   <td className="p-3 text-center">
-                                    <button 
+                                    <button
                                       onClick={() => handleUpdateRisk(risk.risk_id, risk.mitigation || "", !risk.requires_customer_clarification)}
                                       className={`text-[10px] font-bold px-2 py-1 rounded border transition-all ${
                                         risk.requires_customer_clarification ? "bg-amber-50 text-amber-700 border-amber-300" : "bg-slate-50 text-slate-400 border-slate-200"
@@ -2437,7 +2437,7 @@ export default function App() {
                 {/* SUBTAB 1.4: TECHNICAL BOM BUILDER */}
                 {subTab === "bom" && (
                   <div className="space-y-6">
-                    
+
                     {/* Bill of Materials Builder */}
                     <div className="space-y-3">
                       <div className="flex justify-between items-center">
@@ -2445,7 +2445,7 @@ export default function App() {
                           <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">{tx("Specifications Bill of Materials (B.O.M.)", "Lista de Materiais das Especificações (B.O.M.)")}</h3>
                           <span className="text-xs text-slate-400">{tx("Aligned with active design parameters e.g. standard vendor compatibility", "Alinhado aos parâmetros ativos do projeto, como compatibilidade com fornecedor padrão")}</span>
                         </div>
-                        <button 
+                        <button
                           onClick={() => {
                             if (!analysisResult) return;
                             const newBOMItem: BOMItem = {
@@ -2500,8 +2500,8 @@ export default function App() {
                                 <tr key={item.item_id || idx} className="hover:bg-slate-50/50">
                                   <td className="p-3 font-mono font-bold text-slate-400">{item.item_id || `bom-${idx+1}`}</td>
                                   <td className="p-3">
-                                    <input 
-                                      type="text" 
+                                    <input
+                                      type="text"
                                       value={item.product_or_service}
                                       onChange={(e) => {
                                         const updatedBOM = analysisResult.bom.map(b => b.item_id === item.item_id ? { ...b, product_or_service: e.target.value } : b);
@@ -2515,7 +2515,7 @@ export default function App() {
                                     />
                                   </td>
                                   <td className="p-3">
-                                    <textarea 
+                                    <textarea
                                       value={item.description}
                                       onChange={(e) => {
                                         const updatedBOM = analysisResult.bom.map(b => b.item_id === item.item_id ? { ...b, description: e.target.value } : b);
@@ -2529,8 +2529,8 @@ export default function App() {
                                     />
                                   </td>
                                   <td className="p-3">
-                                    <input 
-                                      type="number" 
+                                    <input
+                                      type="number"
                                       value={item.quantity}
                                       onChange={(e) => handleUpdateBOM(item.item_id, parseInt(e.target.value) || 1)}
                                       className="w-14 p-1 rounded border border-slate-200 font-semibold font-mono text-center"
@@ -2547,7 +2547,7 @@ export default function App() {
                                     </span>
                                   </td>
                                   <td className="p-3">
-                                    <button 
+                                    <button
                                       onClick={() => {
                                         const updatedBOM = analysisResult.bom.filter(b => b.item_id !== item.item_id);
                                         fetch(`/api/projects/${selectedProjectId}/analysis-result`, {
@@ -2619,7 +2619,7 @@ export default function App() {
                     </div>
 
                     <div className="grid grid-cols-2 gap-6">
-                      
+
                       {/* Technical Bid Generator Block */}
                       <div className="p-5 bg-slate-50 border border-slate-200 rounded-xl flex flex-col gap-3 shadow-sm">
                         <div className="w-10 h-10 bg-emerald-500/10 text-emerald-700 rounded-lg flex items-center justify-center">
@@ -2637,7 +2637,7 @@ export default function App() {
                             ))}
                           </select>
                         </div>
-                        <button 
+                        <button
                           onClick={handleGenerateTechnicalProposal}
                           disabled={!analysisResult}
                           className="mt-3 bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-2 px-4 rounded shadow-sm transition-all text-center cursor-pointer disabled:opacity-50"
@@ -2663,7 +2663,7 @@ export default function App() {
                             ))}
                           </select>
                         </div>
-                        <button 
+                        <button
                           onClick={handleGenerateCommercialProposal}
                           disabled={!analysisResult}
                           className="mt-3 bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-2 px-4 rounded shadow-sm transition-all text-center cursor-pointer disabled:opacity-50"
@@ -2679,13 +2679,13 @@ export default function App() {
                 {/* SUBTAB 1.6: FILE EXPLORER / GERENCIADOR DE ARQUIVOS */}
                 {subTab === "explorer" && (
                   <div className="space-y-6 flex flex-col h-full min-h-0 bg-slate-50/30 p-4 rounded-xl border border-slate-200">
-                    
+
                     {/* Explorer Header */}
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
-                      
+
                       {/* Left: Breadcrumbs & Path */}
                       <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
-                        <button 
+                        <button
                           onClick={() => setCurrentFolder("")}
                           className="hover:text-emerald-600 font-mono flex items-center gap-1 bg-white border border-slate-200 px-2 py-1 rounded shadow-xs transition-colors"
                         >
@@ -2706,11 +2706,11 @@ export default function App() {
 
                       {/* Right: Actions */}
                       <div className="flex items-center gap-2 self-end sm:self-auto">
-                        
+
                         {/* New Folder Action */}
                         {showNewFolderInput ? (
                           <div className="flex items-center gap-1.5 transition-all">
-                            <input 
+                            <input
                               type="text"
                               value={newFolderNameValue}
                               onChange={(e) => setNewFolderNameValue(e.target.value)}
@@ -2729,7 +2729,7 @@ export default function App() {
                                 }
                               }}
                             />
-                            <button 
+                            <button
                               onClick={() => {
                                 if (!newFolderNameValue.trim()) {
                                   setShowNewFolderInput(false);
@@ -2747,7 +2747,7 @@ export default function App() {
                             >
                               ✓
                             </button>
-                            <button 
+                            <button
                               onClick={() => {
                                 setShowNewFolderInput(false);
                                 setNewFolderNameValue("");
@@ -2758,7 +2758,7 @@ export default function App() {
                             </button>
                           </div>
                         ) : (
-                          <button 
+                          <button
                             onClick={() => setShowNewFolderInput(true)}
                             className="bg-white border border-slate-200 text-slate-700 hover:border-emerald-500 hover:text-emerald-600 text-xs px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs font-mono"
                           >
@@ -2767,7 +2767,7 @@ export default function App() {
                         )}
 
                         {/* Create Document Action */}
-                        <button 
+                        <button
                           onClick={() => {
                             setNewFileName("");
                             setNewFileContent("");
@@ -2777,7 +2777,7 @@ export default function App() {
                         >
                           <FilePlus size={14} /> {locale === "pt" ? "Novo Documento" : "New Document"}
                         </button>
-                        
+
                       </div>
                     </div>
 
@@ -2787,7 +2787,7 @@ export default function App() {
                         <h4 className="text-[10px] uppercase tracking-widest text-slate-400 font-bold font-mono">
                           {locale === "pt" ? "Diretórios de Organização" : "Organizational Directories"}
                         </h4>
-                        
+
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                           {projectFolders.map(folder => {
                             const folderFiles = (documents.filter(doc => {
@@ -2802,7 +2802,7 @@ export default function App() {
                             }).length) + virtualFiles.filter(vf => vf.folder === folder).length;
 
                             return (
-                              <div 
+                              <div
                                 key={folder}
                                 className="bg-white border border-slate-200 hover:border-emerald-500 hover:shadow-sm rounded-xl p-4 flex flex-col justify-between h-28 cursor-pointer transition-all group relative"
                                 onClick={() => setCurrentFolder(folder)}
@@ -2811,7 +2811,7 @@ export default function App() {
                                   <div className="w-9 h-9 rounded-lg bg-amber-50 text-amber-500 flex items-center justify-center border border-amber-100 group-hover:bg-emerald-50 group-hover:text-emerald-600 group-hover:border-emerald-100 transition-colors">
                                     <FolderOpen size={18} />
                                   </div>
-                                  
+
                                   {/* Delete Folder Button */}
                                   <button
                                     onClick={(e) => {
@@ -2858,9 +2858,9 @@ export default function App() {
                         <h4 className="text-[10px] uppercase tracking-widest text-slate-400 font-bold font-mono">
                           {currentFolder === "" ? (locale === "pt" ? "Arquivos na Raiz" : "Root Files") : (locale === "pt" ? `Arquivos em "${currentFolder}"` : `Files inside "${currentFolder}"`)}
                         </h4>
-                        
+
                         {currentFolder !== "" && (
-                          <button 
+                          <button
                             onClick={() => setCurrentFolder("")}
                             className="text-emerald-600 hover:text-emerald-700 text-xs font-bold flex items-center gap-1 hover:underline cursor-pointer"
                           >
@@ -2883,8 +2883,8 @@ export default function App() {
                                   {locale === "pt" ? "Nenhum arquivo neste diretório" : "No files in this directory"}
                                 </p>
                                 <p className="text-[11px] text-slate-400 max-w-xs mt-1 text-center">
-                                  {locale === "pt" 
-                                    ? "Adicione novos arquivos arrastando-os para a barra lateral ou crie um documento de texto virtual!" 
+                                  {locale === "pt"
+                                    ? "Adicione novos arquivos arrastando-os para a barra lateral ou crie um documento de texto virtual!"
                                     : "Add new files by dragging them to the sidebar, or create a virtual text document here!"}
                                 </p>
                               </div>
@@ -2893,10 +2893,10 @@ export default function App() {
 
                           return (
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                              
+
                               {/* Virtual files list */}
                               {virtualDocs.map(file => (
-                                <div 
+                                <div
                                   key={file.id}
                                   className="bg-white border border-slate-200 hover:border-emerald-500 rounded-xl p-4 flex flex-col justify-between min-h-[120px] transition-all group relative"
                                 >
@@ -2907,7 +2907,7 @@ export default function App() {
                                       </div>
                                       <div className="leading-tight min-w-0">
                                         {editingFileNameId === file.id ? (
-                                          <input 
+                                          <input
                                             type="text"
                                             value={editingFileNameValue}
                                             onChange={(e) => setEditingFileNameValue(e.target.value)}
@@ -2935,7 +2935,7 @@ export default function App() {
 
                                     {/* Quick Actions Menu */}
                                     <div className="flex items-center gap-0.5 shrink-0">
-                                      <button 
+                                      <button
                                         onClick={() => {
                                           setEditingFileNameId(file.id);
                                           setEditingFileNameValue(file.name);
@@ -2945,14 +2945,14 @@ export default function App() {
                                       >
                                         <Edit3 size={11} />
                                       </button>
-                                      <button 
+                                      <button
                                         onClick={() => setShowMoveFileModal({ type: "virtual", item: file })}
                                         className="text-slate-400 hover:text-slate-700 p-1 rounded hover:bg-slate-100 cursor-pointer"
                                         title={locale === "pt" ? "Mover de Pasta" : "Move Folder"}
                                       >
                                         <FolderOpen size={11} />
                                       </button>
-                                      <button 
+                                      <button
                                         onClick={() => {
                                           if (confirm(locale === "pt" ? `Excluir o arquivo virtual "${file.name}"?` : `Delete virtual file "${file.name}"?`)) {
                                             saveVirtualFilesToStorage(virtualFiles.filter(vf => vf.id !== file.id));
@@ -2968,7 +2968,7 @@ export default function App() {
 
                                   <div className="border-t border-slate-100 pt-3 mt-3 flex justify-between items-center text-[10px] text-slate-400 font-mono">
                                     <span>{file.size} bytes</span>
-                                    <button 
+                                    <button
                                       onClick={() => setActiveFileViewer(file)}
                                       className="text-emerald-600 hover:text-white hover:bg-emerald-600 border border-emerald-200 px-2.5 py-1 rounded-lg font-bold font-mono transition-all cursor-pointer"
                                     >
@@ -2982,7 +2982,7 @@ export default function App() {
                               {realDocs.map(doc => {
                                 const tag = getDocTag(doc.original_filename);
                                 return (
-                                  <div 
+                                  <div
                                     key={doc.id}
                                     className="bg-white border border-slate-200 hover:border-emerald-500 rounded-xl p-4 flex flex-col justify-between min-h-[120px] transition-all group relative"
                                   >
@@ -2993,7 +2993,7 @@ export default function App() {
                                         </div>
                                         <div className="leading-tight min-w-0">
                                           {editingFileNameId === doc.id ? (
-                                            <input 
+                                            <input
                                               type="text"
                                               value={editingFileNameValue}
                                               onChange={(e) => setEditingFileNameValue(e.target.value)}
@@ -3001,7 +3001,7 @@ export default function App() {
                                               onKeyDown={async (e) => {
                                                 if (e.key === "Enter") {
                                                   if (!editingFileNameValue.trim()) return;
-                                                  
+
                                                   // Mock local rename for client list
                                                   const updatedDocs = documents.map(d => d.id === doc.id ? { ...d, original_filename: editingFileNameValue.trim() } : d);
                                                   setDocuments(updatedDocs);
@@ -3023,7 +3023,7 @@ export default function App() {
 
                                       {/* Quick Actions Menu */}
                                       <div className="flex items-center gap-0.5 shrink-0">
-                                        <button 
+                                        <button
                                           onClick={() => {
                                             setEditingFileNameId(doc.id);
                                             setEditingFileNameValue(doc.original_filename);
@@ -3033,14 +3033,14 @@ export default function App() {
                                         >
                                           <Edit3 size={11} />
                                         </button>
-                                        <button 
+                                        <button
                                           onClick={() => setShowMoveFileModal({ type: "real", item: doc })}
                                           className="text-slate-400 hover:text-slate-700 p-1 rounded hover:bg-slate-100 cursor-pointer"
                                           title={locale === "pt" ? "Mover de Pasta" : "Move Folder"}
                                         >
                                           <FolderOpen size={11} />
                                         </button>
-                                        <button 
+                                        <button
                                           onClick={() => handleDeleteDocument(doc.id)}
                                           className="text-slate-400 hover:text-red-500 p-1 rounded hover:bg-slate-100 cursor-pointer"
                                           title={locale === "pt" ? "Excluir" : "Delete"}
@@ -3052,7 +3052,7 @@ export default function App() {
 
                                     <div className="border-t border-slate-100 pt-3 mt-3 flex justify-between items-center text-[10px] text-slate-400 font-mono">
                                       <span>{(doc.file_size / 1024).toFixed(1)} KB</span>
-                                      <button 
+                                      <button
                                         onClick={() => {
                                           // Simulate real document preview
                                           setActiveFileViewer({
@@ -3105,7 +3105,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                                 {activeFileViewer.name}
                               </h3>
                             </div>
-                            <button 
+                            <button
                               onClick={() => setActiveFileViewer(null)}
                               className="text-slate-400 hover:text-slate-700 p-1 rounded hover:bg-slate-200 cursor-pointer"
                             >
@@ -3140,7 +3140,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                           </div>
 
                           <div className="p-4 border-t border-slate-100 flex justify-end gap-2 bg-slate-50 rounded-b-2xl">
-                            <button 
+                            <button
                               onClick={() => setActiveFileViewer(null)}
                               className="bg-slate-900 hover:bg-slate-800 text-white font-mono text-xs font-bold py-2 px-4 rounded-lg shadow cursor-pointer"
                             >
@@ -3159,7 +3159,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                             <h3 className="text-xs font-bold uppercase tracking-wider font-mono text-slate-800">
                               {locale === "pt" ? "Criar Novo Documento de Texto" : "Create New Text Document"}
                             </h3>
-                            <button 
+                            <button
                               onClick={() => setShowCreateFileModal(false)}
                               className="text-slate-400 hover:text-slate-700 cursor-pointer"
                             >
@@ -3172,7 +3172,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                               <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block">
                                 {locale === "pt" ? "Nome do Arquivo" : "File Name"}
                               </label>
-                              <input 
+                              <input
                                 type="text"
                                 placeholder="Ex: notas_reuniao.md"
                                 value={newFileName}
@@ -3195,13 +3195,13 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                           </div>
 
                           <div className="p-4 border-t border-slate-100 flex justify-end gap-2 bg-slate-50 rounded-b-2xl">
-                            <button 
+                            <button
                               onClick={() => setShowCreateFileModal(false)}
                               className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-mono text-[10px] font-bold py-1.5 px-3 rounded cursor-pointer"
                             >
                               {locale === "pt" ? "Cancelar" : "Cancel"}
                             </button>
-                            <button 
+                            <button
                               onClick={() => {
                                 if (!newFileName.trim()) return;
                                 const fileWithExt = newFileName.includes('.') ? newFileName : `${newFileName}.md`;
@@ -3234,7 +3234,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                             <h3 className="text-xs font-bold uppercase tracking-wider font-mono text-slate-800">
                               {locale === "pt" ? "Mover Arquivo de Pasta" : "Move File Directory"}
                             </h3>
-                            <button 
+                            <button
                               onClick={() => setShowMoveFileModal(null)}
                               className="text-slate-400 hover:text-slate-700 cursor-pointer"
                             >
@@ -3244,12 +3244,12 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
 
                           <div className="p-5 text-xs space-y-3">
                             <p className="text-slate-500">
-                              {locale === "pt" 
-                                ? `Selecione o diretório destino para o arquivo "${showMoveFileModal.item.name || showMoveFileModal.item.original_filename}":` 
+                              {locale === "pt"
+                                ? `Selecione o diretório destino para o arquivo "${showMoveFileModal.item.name || showMoveFileModal.item.original_filename}":`
                                 : `Select destination directory for file "${showMoveFileModal.item.name || showMoveFileModal.item.original_filename}":`}
                             </p>
-                            
-                            <select 
+
+                            <select
                               defaultValue={showMoveFileModal.type === "virtual" ? showMoveFileModal.item.folder : (docFolderMapping[showMoveFileModal.item.id] || "")}
                               onChange={(e) => {
                                 const targetFold = e.target.value;
@@ -3272,7 +3272,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                           </div>
 
                           <div className="p-4 border-t border-slate-100 flex justify-end bg-slate-50 rounded-b-2xl">
-                            <button 
+                            <button
                               onClick={() => setShowMoveFileModal(null)}
                               className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-mono text-[10px] font-bold py-1.5 px-3 rounded cursor-pointer"
                             >
@@ -3290,13 +3290,13 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
 
               {/* Right Column of Workspace (Technical Q&A / Clarification List) */}
               <div className="w-96 bg-slate-50 rounded-xl border border-slate-200 p-4 flex flex-col min-h-0 shrink-0 shadow-sm">
-                
+
                 {/* Section 1: Dynamic QA List extracted */}
                 <div className="mb-4">
                   <h3 className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-2.5 font-mono">
                     {locale === "en" ? "Urgent Clarification Questions" : "Perguntas de Esclarecimento Urgentes"} ({displayAnalysisResult?.clarification_questions.length || 0})
                   </h3>
-                  
+
                   {!displayAnalysisResult ? (
                     <div className="text-xs text-slate-400 italic bg-white p-4 rounded border border-slate-200 text-center shadow-sm">
                       {locale === "en" ? "Awaiting compliance evaluation to flag clarification gap questions." : "Aguardando avaliação de conformidade para sinalizar lacunas e dúvidas."}
@@ -3342,15 +3342,15 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
 
                   {/* Message Input Form */}
                   <form onSubmit={handleSendChatMessage} className="flex gap-1">
-                    <input 
-                      type="text" 
-                      value={chatMessage} 
+                    <input
+                      type="text"
+                      value={chatMessage}
                       onChange={(e) => setChatMessage(e.target.value)}
                       placeholder={tx("Ask about cabinet temperature, ALPR accuracy, fiber conduits...", "Pergunte sobre temperatura de gabinete, precisão ALPR, dutos de fibra...")}
                       className="flex-1 text-xs px-3 py-1.5 border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-slate-50"
                     />
-                    <button 
-                      type="submit" 
+                    <button
+                      type="submit"
                       className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono font-bold text-xs px-3 rounded shadow-sm transition-all cursor-pointer"
                     >
                       SEND
@@ -3382,7 +3382,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                 <div className="space-y-6">
                   {proposals.map(prop => (
                     <div key={prop.id} className="bg-white border border-slate-200 rounded-lg p-5 shadow-sm flex flex-col gap-4">
-                      
+
                       {/* Header block of proposal */}
                       <div className="flex justify-between items-start border-b border-slate-100 pb-3">
                         <div className="flex gap-3 items-center">
@@ -3413,14 +3413,14 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
 
                         {/* Export Action Buttons */}
                         <div className="flex gap-2">
-                          <a 
+                          <a
                             href={`/api/proposals/${prop.id}/export/docx`}
                             target="_blank"
                             className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-mono text-[11px] font-bold px-3 py-1.5 rounded border border-slate-200 transition-all shadow-sm"
                           >
                             <Download size={12} /> Export DOCX
                           </a>
-                          <a 
+                          <a
                             href={`/api/proposals/${prop.id}/export/pdf`}
                             target="_blank"
                             className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-mono text-[11px] font-bold px-3 py-1.5 rounded border border-slate-200 transition-all shadow-sm"
@@ -3428,7 +3428,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                             <Download size={12} /> Export PDF
                           </a>
                           {prop.status === "draft" && (
-                            <button 
+                            <button
                               onClick={() => handleSubmitProposalApproval(prop.id)}
                               className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-[11px] font-bold px-3 py-1.5 rounded shadow-sm transition-all cursor-pointer"
                             >
@@ -3461,24 +3461,24 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                                     <td className="p-2.5 font-bold">{row.product_or_service}</td>
                                     <td className="p-2.5 text-slate-500 font-sans text-xs">{row.product_or_service.includes("ALPR") ? "High-speed outdoor edge-AI ALPR camera" : (row.product_or_service.includes("Switch") ? "8-Port industrial managed gigabit PoE+ switch" : "Edge AI traffic flow and vehicle classification license")}</td>
                                     <td className="p-2.5">
-                                      <input 
-                                        type="number" 
+                                      <input
+                                        type="number"
                                         value={row.quantity}
                                         onChange={(e) => handleUpdateProposalCommercial(prop.id, row.item_id, "quantity", parseInt(e.target.value) || 1)}
                                         className="w-14 p-1 rounded border border-slate-200 text-center font-semibold bg-white"
                                       />
                                     </td>
                                     <td className="p-2.5">
-                                      <input 
-                                        type="number" 
+                                      <input
+                                        type="number"
                                         value={row.unit_price}
                                         onChange={(e) => handleUpdateProposalCommercial(prop.id, row.item_id, "unit_price", parseFloat(e.target.value) || 0)}
                                         className="w-20 p-1 rounded border border-slate-200 text-center font-semibold bg-white"
                                       />
                                     </td>
                                     <td className="p-2.5">
-                                      <input 
-                                        type="number" 
+                                      <input
+                                        type="number"
                                         value={row.discount}
                                         onChange={(e) => handleUpdateProposalCommercial(prop.id, row.item_id, "discount", parseFloat(e.target.value) || 0)}
                                         className="w-14 p-1 rounded border border-slate-200 text-center font-semibold bg-white"
@@ -3562,7 +3562,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                       </div>
 
                       <div className="flex gap-2">
-                        <button 
+                        <button
                           onClick={() => {
                             fetch(`/api/templates/proposals/${tpl.id}/validate`, { method: "POST" })
                               .then(r => r.json())
@@ -3573,7 +3573,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                           {locale === "pt" ? "Verificar Esquema" : "Compile Schema Check"}
                         </button>
                         {!tpl.default_template && (
-                          <button 
+                          <button
                             onClick={() => {
                               fetch(`/api/templates/proposals/${tpl.id}/set-default`, { method: "POST" })
                                 .then(() => fetchGlobalConfigs());
@@ -3638,7 +3638,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                         {workflow && (
                           <div className="space-y-4">
                             <h4 className="text-xs uppercase font-bold text-slate-500 tracking-wider font-mono">{locale === "pt" ? "Checklist de Etapas de Aprovação:" : "Milestone Approval Stages Checklist:"}</h4>
-                            
+
                             <div className="grid grid-cols-3 gap-4">
                               {workflow.stages.map((stage) => {
                                 const matchedDecision = (Array.isArray(approvalDecisions) ? approvalDecisions : []).find(d => d.proposal_id === prop.id && d.stage_id === stage.id);
@@ -3662,13 +3662,13 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                                     {/* Action inside timeline stage */}
                                     {!matchedDecision && prop.status === "submitted" && (
                                       <div className="mt-3 pt-3 border-t border-slate-200 flex gap-1">
-                                        <button 
+                                        <button
                                           onClick={() => handleApprovalDecision(prop.id, stage.id, "approved", "Pre-Sales specs verified and margins approved.")}
                                           className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-[9px] font-bold py-1 px-2 rounded cursor-pointer"
                                         >
                                           Approve
                                         </button>
-                                        <button 
+                                        <button
                                           onClick={() => handleApprovalDecision(prop.id, stage.id, "rejected", "Requires compliance revision.")}
                                           className="bg-red-600 hover:bg-red-700 text-white font-mono text-[9px] font-bold py-1 px-2 rounded cursor-pointer"
                                         >
@@ -3700,7 +3700,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
           {/* TAB 5: ADMIN CONSOLE */}
           {activeTab === "admin" && (
             <div className="flex-1 p-6 overflow-y-auto space-y-8">
-              
+
               {/* Header */}
               <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
                 <div>
@@ -3721,7 +3721,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
 
               {/* Sub grid */}
               <div className="grid grid-cols-2 gap-8">
-                
+
                 {/* Visual Settings & Model Targets */}
                 <div className="space-y-4 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                   <div className="flex items-center gap-1">
@@ -3730,15 +3730,15 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                     </h3>
                     <HelpTooltip content={t("apiModelsHelp")} />
                   </div>
-                  
+
                   <div className="space-y-4 text-xs">
                     <div>
                       <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">
                         {locale === "pt" ? "Provedor NLP de IA Padrão" : "Default NLP AI Provider"}
                       </label>
-                      <input 
-                        type="text" 
-                        value={platformSettings?.ai_provider || ""} 
+                      <input
+                        type="text"
+                        value={platformSettings?.ai_provider || ""}
                         onChange={(e) => handleSavePlatformSettings("ai_provider", e.target.value)}
                         className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                       />
@@ -3747,9 +3747,9 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                       <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">
                         {locale === "pt" ? "Modelo de Classificação de Documentos" : "Standard Document Classification Model"}
                       </label>
-                      <input 
-                        type="text" 
-                        value={platformSettings?.document_analysis_model || ""} 
+                      <input
+                        type="text"
+                        value={platformSettings?.document_analysis_model || ""}
                         onChange={(e) => handleSavePlatformSettings("document_analysis_model", e.target.value)}
                         className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                       />
@@ -3758,8 +3758,8 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                       <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">
                         {locale === "pt" ? "Provedor de Armazenamento" : "Storage Provider Mode"}
                       </label>
-                      <select 
-                        value={platformSettings?.storage_mode || "local"} 
+                      <select
+                        value={platformSettings?.storage_mode || "local"}
                         onChange={(e) => handleSavePlatformSettings("storage_mode", e.target.value)}
                         className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                       >
@@ -3775,13 +3775,13 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                     <h4 className="text-xs font-bold font-mono text-slate-700 uppercase flex items-center gap-1">
                       {locale === "pt" ? "Gerenciador de Chaves de API de Provedores" : "Provider API Keys Manager"}
                     </h4>
-                    
+
                     <div className="space-y-3">
                       {modelProviders.map((prov, pIdx) => (
                         <div key={prov.id} className="p-3 rounded-lg border border-slate-100 bg-slate-50 space-y-2">
                           <div className="flex items-center justify-between">
                             <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-700 text-xs">
-                              <input 
+                              <input
                                 type="checkbox"
                                 checked={prov.enabled}
                                 onChange={(e) => {
@@ -3804,7 +3804,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                                 <label className="text-[9px] uppercase font-bold text-slate-400 font-mono block mb-0.5">
                                   {locale === "pt" ? "Modelo Ativo" : "Active Model"}
                                 </label>
-                                <input 
+                                <input
                                   type="text"
                                   value={prov.activeModel}
                                   onChange={(e) => {
@@ -3819,7 +3819,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                                 <label className="text-[9px] uppercase font-bold text-slate-400 font-mono block mb-0.5">
                                   {locale === "pt" ? "Chave de API" : "API Access Key"}
                                 </label>
-                                <input 
+                                <input
                                   type="password"
                                   placeholder="sk-••••••••••••••••"
                                   value={prov.apiKey}
@@ -3855,8 +3855,8 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                       }}
                       className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-1.5 rounded font-bold transition-all shadow-sm cursor-pointer"
                     >
-                      {showNewConnectorForm 
-                        ? (locale === "pt" ? "Cancelar" : "Cancel") 
+                      {showNewConnectorForm
+                        ? (locale === "pt" ? "Cancelar" : "Cancel")
                         : (locale === "pt" ? "+ Adicionar Conector" : "+ Add CRM Connector")}
                     </button>
                   </div>
@@ -3872,7 +3872,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                           <label className="text-[9px] uppercase font-bold text-slate-400 font-mono block mb-1">
                             {locale === "pt" ? "Nome do Conector" : "Connector Name"}
                           </label>
-                          <input 
+                          <input
                             type="text"
                             placeholder={locale === "pt" ? "Ex: SuiteCRM Latino América" : "Ex: SuiteCRM Latin America"}
                             value={newConnectorName}
@@ -3884,7 +3884,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                           <label className="text-[9px] uppercase font-bold text-slate-400 font-mono block mb-1">
                             {locale === "pt" ? "Modelo de Sistema" : "System Model"}
                           </label>
-                          <select 
+                          <select
                             value={newConnectorType}
                             onChange={(e) => {
                               const type = e.target.value;
@@ -3912,7 +3912,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                           <label className="text-[9px] uppercase font-bold text-slate-400 font-mono block mb-1">
                             {locale === "pt" ? "URL de Endpoint da API" : "API Endpoint URL"}
                           </label>
-                          <input 
+                          <input
                             type="text"
                             placeholder="https://api.system.com/v1"
                             value={newConnectorUrl}
@@ -3924,7 +3924,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                           <label className="text-[9px] uppercase font-bold text-slate-400 font-mono block mb-1">
                             {locale === "pt" ? "API Access Token / Chave Privada" : "API Access Token / Private Key"}
                           </label>
-                          <input 
+                          <input
                             type="password"
                             placeholder="bearer token ou api key"
                             value={newConnectorToken}
@@ -3960,7 +3960,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                     ) : (
                       integrations.map((conn, cIdx) => (
                         <div key={conn.id} className="p-4 bg-slate-50 rounded-lg border border-slate-100 space-y-3 relative group">
-                          
+
                           {/* DELETE BUTTON */}
                           <button
                             onClick={() => handleDeleteConnector(conn.id)}
@@ -3974,7 +3974,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                             <div>
                               <h4 className="text-xs font-bold text-slate-800 uppercase font-mono">{conn.name}</h4>
                               <p className="text-[10px] text-slate-400 font-mono">
-                                {tx("Sync Status", "Status de Sincronização")}: <span className="font-bold text-slate-600">{conn.last_sync_status}</span> 
+                                {tx("Sync Status", "Status de Sincronização")}: <span className="font-bold text-slate-600">{conn.last_sync_status}</span>
                                 {conn.last_sync_date && ` • ${new Date(conn.last_sync_date).toLocaleString(locale === "pt" ? "pt-BR" : "en-US")}`}
                               </p>
                             </div>
@@ -3989,7 +3989,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                               <label className="text-[9px] uppercase font-bold text-slate-400 font-mono block mb-0.5">
                                 {locale === "pt" ? "URL do Endpoint" : "Endpoint URL"}
                               </label>
-                              <input 
+                              <input
                                 type="text"
                                 value={conn.url || `https://api.${conn.id}.enterprise.com/v1`}
                                 onChange={(e) => {
@@ -4004,7 +4004,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                               <label className="text-[9px] uppercase font-bold text-slate-400 font-mono block mb-0.5">
                                 {locale === "pt" ? "Token de Acesso API" : "API Access Token"}
                               </label>
-                              <input 
+                              <input
                                 type="password"
                                 value={conn.token || "••••••••••••••••••••"}
                                 onChange={(e) => {
@@ -4022,7 +4022,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                           )}
 
                           <div className="flex justify-end gap-2 pt-1 border-t border-slate-200/50">
-                            <button 
+                            <button
                               onClick={async () => {
                                 try {
                                   const res = await fetch(`/api/integrations/${conn.id}`, {
@@ -4039,7 +4039,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                             >
                               {locale === "pt" ? "Salvar Conector" : "Save Connector"}
                             </button>
-                            <button 
+                            <button
                               onClick={() => handleTestIntegration(conn.id)}
                               className="bg-slate-800 hover:bg-slate-700 text-white font-mono text-[9px] font-bold py-1 px-2.5 rounded shadow transition-all cursor-pointer"
                             >
@@ -4056,7 +4056,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
 
               {/* SECTION: SUBSCRIPTION, LICENSING & COSTS */}
               <div className="grid grid-cols-2 gap-8 pt-4 border-t border-slate-200">
-                
+
                 {/* Licensing Section */}
                 <div className="space-y-4 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                   <div className="flex items-center gap-1">
@@ -4086,10 +4086,10 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                         <label className="text-[9px] uppercase font-bold text-slate-400 font-mono block mb-1">
                           {locale === "pt" ? "Chave de Licença Ativa" : "Active License Key"}
                         </label>
-                        <input 
-                          type="text" 
-                          disabled 
-                          value={licenseKey} 
+                        <input
+                          type="text"
+                          disabled
+                          value={licenseKey}
                           className="w-full p-2 rounded bg-slate-100 font-mono text-slate-600 border border-slate-200 cursor-not-allowed text-xs"
                         />
                       </div>
@@ -4104,14 +4104,14 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                         {locale === "pt" ? "Upgrade / Ativar Nova Licença" : "Upgrade / Activate New License"}
                       </label>
                       <div className="flex gap-2">
-                        <input 
-                          type="text" 
+                        <input
+                          type="text"
                           placeholder="XXXX-XXXX-XXXX-XXXX"
                           value={inputLicenseKey}
                           onChange={(e) => setInputLicenseKey(e.target.value)}
                           className="flex-1 p-1.5 bg-white border border-emerald-200 rounded focus:ring-1 focus:ring-emerald-500 text-xs font-mono"
                         />
-                        <button 
+                        <button
                           onClick={() => {
                             if (!inputLicenseKey.trim()) {
                               setLicenseMessage(locale === "pt" ? "Insira uma chave válida." : "Insert a valid key.");
@@ -4186,7 +4186,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <label className="text-[8px] font-mono block text-slate-400">{tx("INPUT TOKENS", "TOKENS DE ENTRADA")}</label>
-                          <input 
+                          <input
                             type="number"
                             value={inputTokens}
                             step={100000}
@@ -4200,7 +4200,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                         </div>
                         <div>
                           <label className="text-[8px] font-mono block text-slate-400">{tx("OUTPUT TOKENS", "TOKENS DE SAÍDA")}</label>
-                          <input 
+                          <input
                             type="number"
                             value={outputTokens}
                             step={50000}
@@ -4232,15 +4232,15 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                         </div>
                         <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-bold uppercase font-mono">{tx("ACTIVE INSTRUCTION", "INSTRUÇÃO ATIVA")}</span>
                       </div>
-                      
+
                       {/* Text area to edit prompt */}
-                      <textarea 
+                      <textarea
                         defaultValue={prm.content}
                         id={`textarea-prm-${prm.id}`}
                         className="w-full h-24 p-3 rounded font-mono text-xs bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none leading-normal text-slate-700"
                       />
                       <div className="flex justify-end">
-                        <button 
+                        <button
                           onClick={() => {
                             const val = (document.getElementById(`textarea-prm-${prm.id}`) as HTMLTextAreaElement)?.value;
                             handleUpdatePromptTemplate(prm.id, val);
@@ -4307,13 +4307,13 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
         </div>
         <div className="flex gap-4">
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500"></span> 200 SUCCESS OK</span>
-          <button 
+          <button
             onClick={() => setShowAuditModal(true)}
             className="text-slate-300 hover:text-emerald-400 hover:underline cursor-pointer transition-colors"
           >
             Audit Logs ({auditLogs.length})
           </button>
-          <button 
+          <button
             onClick={() => setShowDebugConsole(true)}
             className="text-slate-300 hover:text-emerald-400 hover:underline cursor-pointer font-bold transition-colors"
           >
@@ -4330,14 +4330,14 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
               <h3 className="text-sm font-bold uppercase font-mono tracking-wider">{locale === "pt" ? "Inicializar Proposta de Pré-Vendas" : "Initialize Pre-Sales Bid"}</h3>
               <button onClick={() => setShowNewProjectModal(false)} className="text-slate-400 hover:text-white cursor-pointer"><X size={16} /></button>
             </div>
-            
+
             <form onSubmit={handleCreateProject} className="p-6 overflow-y-auto space-y-4 text-xs text-slate-700 flex-1">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{locale === "pt" ? "Título do Projeto de Proposta" : "Bid Project Title"}</label>
-                  <input 
+                  <input
                     type="text" required
-                    value={newProject.name} 
+                    value={newProject.name}
                     onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
                     placeholder={locale === "pt" ? "ex: Modernização de Rodovias ITS" : "e.g. Highway ITS Modernization"}
                     className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
@@ -4345,9 +4345,9 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                 </div>
                 <div>
                   <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{locale === "pt" ? "Cliente" : "Customer / Client"}</label>
-                  <input 
+                  <input
                     type="text" required
-                    value={newProject.customer_name} 
+                    value={newProject.customer_name}
                     onChange={(e) => setNewProject({ ...newProject, customer_name: e.target.value })}
                     placeholder={locale === "pt" ? "ex: Concessionária de Rodovias" : "e.g. Metropolitan Transit Authority"}
                     className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
@@ -4358,9 +4358,9 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{locale === "pt" ? "Código da Oportunidade" : "Opportunity Code"}</label>
-                  <input 
+                  <input
                     type="text" required
-                    value={newProject.opportunity_name} 
+                    value={newProject.opportunity_name}
                     onChange={(e) => setNewProject({ ...newProject, opportunity_name: e.target.value })}
                     placeholder="e.g. ITS-MTA-2026"
                     className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none animate-pulse"
@@ -4368,8 +4368,8 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                 </div>
                 <div>
                   <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{locale === "pt" ? "Vertical do Setor" : "Industry Vertical"}</label>
-                  <select 
-                    value={newProject.vertical} 
+                  <select
+                    value={newProject.vertical}
                     onChange={(e) => setNewProject({ ...newProject, vertical: e.target.value })}
                     className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                   >
@@ -4384,7 +4384,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
 
               <div>
                 <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{locale === "pt" ? "Descrição do Escopo do Edital" : "Tender Scope Description"}</label>
-                <textarea 
+                <textarea
                   value={newProject.description} required
                   onChange={(e) => setNewProject({ ...newProject, description: e.target.value })}
                   placeholder={locale === "pt" ? "Detalhe o escopo de entregáveis de alto nível..." : "Detail high level deliverables scope..."}
@@ -4395,17 +4395,17 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{locale === "pt" ? "Prazo Final de Envio" : "Tender Submission Deadline"}</label>
-                  <input 
+                  <input
                     type="date" required
-                    value={newProject.deadline} 
+                    value={newProject.deadline}
                     onChange={(e) => setNewProject({ ...newProject, deadline: e.target.value })}
                     className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                   />
                 </div>
                 <div>
                   <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{locale === "pt" ? "Idioma de Saída de Conformidade da IA" : "AI Output Compliance Language"}</label>
-                  <select 
-                    value={newProject.output_language} 
+                  <select
+                    value={newProject.output_language}
                     onChange={(e) => setNewProject({ ...newProject, output_language: e.target.value as any })}
                     className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                   >
@@ -4491,8 +4491,8 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
               <div className="border-t border-slate-200 pt-3">
                 <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{locale === "pt" ? "Regras de Orientação de Design da IA" : "AI Design Orientation Rules"}</label>
                 <div className="space-y-2">
-                  <select 
-                    value={newProject.ai_orientation_mode} 
+                  <select
+                    value={newProject.ai_orientation_mode}
                     onChange={(e) => setNewProject({ ...newProject, ai_orientation_mode: e.target.value as any })}
                     className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none font-bold text-slate-800"
                   >
@@ -4502,9 +4502,9 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                     <option value="Existing customer standard">{locale === "pt" ? "Padrão de Cliente Existente" : "Existing customer standard"}</option>
                     <option value="Free AI recommendation">{locale === "pt" ? "Recomendação Livre da IA" : "Free AI recommendation"}</option>
                   </select>
-                  <input 
+                  <input
                     type="text" required
-                    value={newProject.ai_orientation_text} 
+                    value={newProject.ai_orientation_text}
                     onChange={(e) => setNewProject({ ...newProject, ai_orientation_text: e.target.value })}
                     placeholder={locale === "pt" ? "Especifique regras de marcas, ex: Recomendar leitores faciais homologados..." : "Specify brand rules e.g., Recommend certified facial readers..."}
                     className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none font-semibold text-slate-800"
@@ -4513,15 +4513,15 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
               </div>
 
               <div className="flex justify-end gap-2 pt-4 border-t border-slate-200">
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   onClick={() => setShowNewProjectModal(false)}
                   className="px-3 py-1.5 border border-slate-300 rounded hover:bg-slate-100 font-mono text-xs cursor-pointer text-slate-500"
                 >
                   {locale === "pt" ? "Cancelar" : "Cancel"}
                 </button>
-                <button 
-                  type="submit" 
+                <button
+                  type="submit"
                   className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer"
                 >
                   {locale === "pt" ? "Confirmar Configuração de Especificações" : "Confirm Specifications Setup"}
@@ -4542,21 +4542,21 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
             </div>
             <div className="p-6 space-y-4 text-xs text-slate-700">
               <p className="font-semibold">{tx("Modify manual document category metadata for", "Modificar manualmente a categoria do documento para")} <span className="font-mono bg-slate-100 px-1 rounded">{showDocumentTypeModal.original_filename}</span>:</p>
-              
+
               <div className="space-y-2">
-                <button 
+                <button
                   onClick={() => handleReclassifyDoc(showDocumentTypeModal.id, "Public tender / edital")}
                   className="w-full p-2.5 text-left bg-slate-50 border border-slate-200 hover:border-emerald-500 rounded font-bold hover:bg-slate-100 block cursor-pointer text-xs"
                 >
                   📜 Public tender / edital
                 </button>
-                <button 
+                <button
                   onClick={() => handleReclassifyDoc(showDocumentTypeModal.id, "Technical specification")}
                   className="w-full p-2.5 text-left bg-slate-50 border border-slate-200 hover:border-emerald-500 rounded font-bold hover:bg-slate-100 block cursor-pointer text-xs"
                 >
                   🔧 Technical specification
                 </button>
-                <button 
+                <button
                   onClick={() => handleReclassifyDoc(showDocumentTypeModal.id, "Customer requirements")}
                   className="w-full p-2.5 text-left bg-slate-50 border border-slate-200 hover:border-emerald-500 rounded font-bold hover:bg-slate-100 block cursor-pointer text-xs"
                 >
@@ -4579,10 +4579,10 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
               </div>
               <button onClick={() => setShowAuditModal(false)} className="text-slate-400 hover:text-white cursor-pointer"><X size={16} /></button>
             </div>
-            
+
             <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center shrink-0">
               <span className="text-xs text-slate-500 font-mono">{tx("Filter: All Pre-Sales Operations Logs", "Filtro: Todos os Logs de Operações de Pré-Vendas")}</span>
-              <button 
+              <button
                 onClick={handleExportCSV}
                 className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold px-3 py-1.5 rounded shadow-sm transition-all cursor-pointer"
               >
@@ -4626,7 +4626,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                 setAdminAuthError("");
               }} className="text-slate-400 hover:text-white cursor-pointer"><X size={16} /></button>
             </div>
-            
+
             {!isAdminUnlocked ? (
               <div className="flex-1 flex flex-col items-center justify-center p-8 bg-slate-950 text-white space-y-4 font-sans">
                 <div className="w-12 h-12 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center border border-emerald-500/20">
@@ -4642,7 +4642,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                 </div>
 
                 <div className="w-64 space-y-2 pt-2">
-                  <input 
+                  <input
                     type="password"
                     placeholder={locale === "pt" ? "Senha de Administrador" : "Admin Passcode"}
                     value={adminPasswordInput}
@@ -4664,7 +4664,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                   {adminAuthError && (
                     <p className="text-[10px] text-red-500 text-center font-mono">{adminAuthError}</p>
                   )}
-                  <button 
+                  <button
                     onClick={() => {
                       if (adminPasswordInput.toLowerCase() === "admin" || adminPasswordInput === "admin123") {
                         setIsAdminUnlocked(true);
@@ -4688,7 +4688,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                     <span>{tx("Active Channels", "Canais Ativos")}: <span className="text-emerald-400 font-bold">3</span></span>
                     <span>{tx("Diagnostics", "Diagnóstico")}: <span className="text-emerald-400 font-bold">{tx("Fully Decrypted", "Totalmente Descriptografado")}</span></span>
                   </div>
-                  <button 
+                  <button
                     onClick={() => {
                       if (currentSessionUser.role !== "Administrator") {
                         alert(locale === "pt" ? "Acesso Negado: Apenas a função 'Administrator' pode empacotar ou exportar os relatórios de diagnóstico técnicos!" : "Access Denied: Only the 'Administrator' role can compile and export technical diagnostic packages!");

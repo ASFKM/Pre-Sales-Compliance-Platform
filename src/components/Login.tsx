@@ -132,7 +132,7 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
       <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_top_right,rgba(16,185,129,0.06),transparent_45%)] pointer-events-none" />
       <div className="absolute bottom-0 right-0 w-full h-full bg-[radial-gradient(circle_at_bottom_left,rgba(14,165,233,0.06),transparent_45%)] pointer-events-none" />
 
-      <motion.div 
+      <motion.div
         id="login-card"
         initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
@@ -150,7 +150,7 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
 
         <AnimatePresence mode="wait">
           {!mfaRequired ? (
-            <motion.form 
+            <motion.form
               key="credentials-form"
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
@@ -244,7 +244,7 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
               )}
             </motion.form>
           ) : (
-            <motion.form 
+            <motion.form
               key="mfa-form"
               initial={{ opacity: 0, x: 10 }}
               animate={{ opacity: 1, x: 0 }}
