@@ -1,0 +1,6 @@
+{
+  "name": "Commercial Assistant AI",
+  "description": "Enterprise AI pre-sales assistant for document classification, requirement extraction, risk analysis, and drafting commercial/technical proposals.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
