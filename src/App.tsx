@@ -945,50 +945,65 @@ export default function App() {
     return { label: ext, style: "bg-slate-50 text-slate-700 border border-slate-200" };
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files) return;
-    for (let i = 0; i < e.target.files.length; i++) {
-      const file = e.target.files[i];
-      let docType = "Specification";
-      const ext = file.name.split(".").pop()?.toLowerCase();
-      if (ext === "pdf") docType = "Public tender / edital";
-      else if (["dwg", "dxf", "cad"].includes(ext || "")) docType = "Engineering / CAD blueprint";
-      else if (["xlsx", "xls", "csv"].includes(ext || "")) docType = "BOM Spreadsheet / Costs";
-      else if (["png", "jpg", "jpeg"].includes(ext || "")) docType = "Site / Architecture Image";
-      else docType = "Technical specification";
-
-      handleUploadDocumentMock(file.name, docType);
-    }
-  };
-
-  // Mock upload document
-  const handleUploadDocumentMock = async (filename: string, docType: string) => {
+  const handleUploadDocumentFile = async (file: File) => {
     if (!selectedProjectId) return;
+
+    const formData = new FormData();
+    formData.append("file", file);
+
     try {
       const res = await fetch(`/api/projects/${selectedProjectId}/documents`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          original_filename: filename,
-          filename: filename,
-          mime_type: filename.endsWith(".pdf") ? "application/pdf" :
-                     filename.endsWith(".docx") || filename.endsWith(".doc") ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" :
-                     filename.endsWith(".xlsx") || filename.endsWith(".xls") ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" :
-                     filename.endsWith(".dwg") || filename.endsWith(".dxf") ? "application/acad" :
-                     filename.endsWith(".png") ? "image/png" :
-                     filename.endsWith(".jpg") || filename.endsWith(".jpeg") ? "image/jpeg" : "application/octet-stream",
-          file_size: 2450000 + Math.floor(Math.random() * 5000000),
-          detected_document_type: docType
-        })
+        body: formData
       });
-      if (res.ok) {
-        const doc = await res.json();
-        setDocuments([...documents, doc]);
-        fetchGlobalConfigs();
+
+      const payload = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        alert(payload.message || (locale === "pt" ? "Não foi possível enviar o documento." : "Could not upload document."));
+        return;
       }
+
+      setDocuments(prev => [...prev, payload]);
+      await fetchProjectDetails(selectedProjectId);
+      await fetchGlobalConfigs();
     } catch (e) {
       console.error(e);
+      alert(locale === "pt" ? "Erro ao enviar documento." : "Error uploading document.");
     }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const input = e.currentTarget;
+    const fileList = input.files;
+
+    if (!fileList) return;
+
+    for (let i = 0; i < fileList.length; i++) {
+      const file = fileList.item(i);
+      if (file) {
+        await handleUploadDocumentFile(file);
+      }
+    }
+
+    input.value = "";
+  };
+
+  const handleUploadSampleDocument = async () => {
+    const sampleContent = `Documento de exemplo para análise de pré-vendas
+Cliente: Concessionária de Rodovias
+Requisito: câmera IP externa com OCR/ALPR para leitura de placas.
+Requisito: integração REST com sistema legado.
+Risco: prazo curto para instalação em campo.
+Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.`;
+
+    const file = new File(
+      [sampleContent],
+      `documento_exemplo_${Date.now()}.txt`,
+      { type: "text/plain" }
+    );
+
+    await handleUploadDocumentFile(file);
   };
 
   // Reclassify Document Type
@@ -2196,36 +2211,19 @@ export default function App() {
                  {locale === "pt" ? "Arraste ou Selecione Arquivo" : "Drag & Drop or Browse"}
                </p>
                <p className="text-[9px] text-slate-400 mt-0.5 leading-none">
-                 PDF, DOCX, XLSX, DWG/CAD, JPG, PNG...
+                 PDF, DOCX, XLSX, CSV, TXT...
                </p>
              </div>
 
-             {/* Quick Simulator Link */}
+             {/* Quick Sample Upload */}
              <button
-               onClick={() => {
-                 const files = [
-                   "Edital_Pregao_Eletronico_82.pdf",
-                   "Planilha_BOM_Precos_Equipamentos.xlsx",
-                   "Especificacoes_Tecnicas_Rede.docx",
-                   "Planta_Civil_Canteiro_Subestacao.dwg",
-                   "Diagrama_Esquematico_Topologia.png"
-                 ];
-                 const randomFile = files[Math.floor(Math.random() * files.length)];
-                 let docType = "Specification";
-                 if (randomFile.endsWith(".pdf")) docType = "Public tender / edital";
-                 else if (randomFile.endsWith(".xlsx")) docType = "BOM Costing sheet";
-                 else if (randomFile.endsWith(".dwg")) docType = "Engineering CAD blueprint";
-                 else if (randomFile.endsWith(".png")) docType = "Site schematic image";
-                 else docType = "Technical specification";
-
-                 handleUploadDocumentMock(randomFile, docType);
-               }}
+               onClick={handleUploadSampleDocument}
                className="text-[10px] text-emerald-600 hover:text-emerald-700 font-bold mb-3 hover:underline text-center cursor-pointer block leading-none"
              >
-               ✨ {locale === "pt" ? "Simular Upload Rápido (PDF/CAD/XLSX/DOC/IMG)" : "Simulate Quick Upload (PDF/CAD/XLSX/DOC/IMG)"}
+               ✨ {locale === "pt" ? "Enviar Documento de Exemplo" : "Upload Sample Document"}
              </button>
 
-             {/* Document list */}
+{/* Document list */}
              <div className="space-y-1.5 overflow-y-auto max-h-[160px] pr-1">
                {documents.length === 0 ? (
                  <div className="text-center py-4 text-xs text-slate-400 italic">{t("noDocs")}</div>
@@ -3642,13 +3640,21 @@ export default function App() {
                                     <div className="border-t border-slate-100 pt-3 mt-3 flex justify-between items-center text-[10px] text-slate-400 font-mono">
                                       <span>{(doc.file_size / 1024).toFixed(1)} KB</span>
                                       <button
-                                        onClick={() => {
-                                          // Simulate real document preview
-                                          setActiveFileViewer({
-                                            id: doc.id,
-                                            name: doc.original_filename,
-                                            isRealDoc: true,
-                                            content: `[Informação do Arquivo]
+                                        onClick={async () => {
+                                          try {
+                                            const res = await fetch(`/api/documents/${doc.id}/content`);
+                                            const data = await res.json();
+
+                                            if (!res.ok || !data.success) {
+                                              alert(data.message || (locale === "pt" ? "Não foi possível carregar o conteúdo extraído." : "Could not load extracted content."));
+                                              return;
+                                            }
+
+                                            setActiveFileViewer({
+                                              id: doc.id,
+                                              name: doc.original_filename,
+                                              isRealDoc: true,
+                                              content: `[Informação do Arquivo]
 Nome Original: ${doc.original_filename}
 Tipo Classificado: ${doc.manual_document_type || doc.detected_document_type}
 Provedor de Armazenamento: ${doc.storage_provider.toUpperCase()}
@@ -3658,13 +3664,18 @@ Enviado por: ${doc.uploaded_by}
 Criado em: ${new Date(doc.created_at).toLocaleString()}
 Idioma: ${doc.language}
 Versão: ${doc.version}
+Caracteres Extraídos: ${data.content_length}
+Conteúdo Truncado: ${data.truncated ? "sim" : "não"}
 
 --------------------------------------------------
-DOCUMENTO PROCESSADO POR INTELIGÊNCIA ARTIFICIAL
-Este arquivo já está totalmente indexado no pipeline de inteligência artificial. Seus requerimentos, riscos associados, termos de conformidade técnica e matriz de preços BOM já foram analisados.
-
-Você pode revisar as informações geradas por esse documento navegando pelas abas "Grades de Requisitos", "Riscos e Oportunidades" e "BOM Builder".`
-                                          });
+CONTEÚDO EXTRAÍDO
+--------------------------------------------------
+${data.content_preview || "[Sem conteúdo textual extraído]"}`
+                                            });
+                                          } catch (err) {
+                                            console.error(err);
+                                            alert(locale === "pt" ? "Erro ao abrir documento." : "Error opening document.");
+                                          }
                                         }}
                                         className="text-slate-700 hover:text-white hover:bg-slate-800 border border-slate-200 px-2.5 py-1 rounded-lg font-bold font-mono transition-all cursor-pointer"
                                       >

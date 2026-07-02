@@ -123,6 +123,31 @@ router.post(
   }
 );
 
+// Get extracted document content preview
+router.get("/documents/:id/content", requirePermission("document:read"), (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const docId = req.params.id;
+    const doc = dbStore.getData().documents.find(d => d.id === docId);
+
+    if (!doc) {
+      return res.status(404).json({ success: false, message: "Document not found." });
+    }
+
+    const content = dbStore.getData().document_contents?.[docId] || "";
+
+    res.json({
+      success: true,
+      document: doc,
+      content,
+      content_preview: content.slice(0, 12000),
+      content_length: content.length,
+      truncated: content.length > 12000
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Delete document
 router.delete("/documents/:id", requirePermission("document:delete"), async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -170,11 +195,15 @@ router.delete("/documents/:id", requirePermission("document:delete"), async (req
 // Reclassify document manually
 router.post("/documents/:id/reclassify", requirePermission("document:upload"), (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { document_type } = req.body;
+    const document_type = req.body.document_type || req.body.manual_document_type;
     const doc = dbStore.getData().documents.find(d => d.id === req.params.id);
 
     if (!doc) {
       return res.status(404).json({ success: false, message: "Document not found" });
+    }
+
+    if (!document_type || !String(document_type).trim()) {
+      return res.status(400).json({ success: false, message: "Document type is required." });
     }
 
     doc.manual_document_type = document_type;
