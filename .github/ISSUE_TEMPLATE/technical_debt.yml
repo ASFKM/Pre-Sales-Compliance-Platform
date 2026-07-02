@@ -1,0 +1,27 @@
+name: Technical debt
+description: Track refactoring, maintainability, or architecture work
+title: "tech debt: "
+labels: []
+body:
+  - type: textarea
+    id: current_state
+    attributes:
+      label: Current state
+    validations:
+      required: true
+  - type: textarea
+    id: target_state
+    attributes:
+      label: Target state
+    validations:
+      required: true
+  - type: textarea
+    id: risks
+    attributes:
+      label: Risks if not addressed
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+    validations:
+      required: true
