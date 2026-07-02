@@ -1402,11 +1402,15 @@ export default function App() {
   const handleTestIntegration = async (id: string) => {
     try {
       const res = await fetch(`/api/integrations/${id}/test`, { method: "POST" });
-      if (res.ok) {
-        fetchGlobalConfigs();
-      }
+      const data = await res.json();
+      await fetchGlobalConfigs();
+
+      alert(locale === "pt"
+        ? `Status: ${data.status} • Latência: ${data.latency_ms ?? "N/A"}ms`
+        : `Status: ${data.status} • Latency: ${data.latency_ms ?? "N/A"}ms`);
     } catch (e) {
       console.error(e);
+      alert(locale === "pt" ? "Erro ao testar integração." : "Error testing integration.");
     }
   };
 
@@ -1507,11 +1511,13 @@ export default function App() {
           name: newConnectorName.trim(),
           type: newConnectorType,
           status: "disconnected",
+          url: newConnectorUrl.trim(),
+          api_key: newConnectorToken,
           configuration: JSON.stringify({
             url: newConnectorUrl.trim(),
-            token: newConnectorToken ? "[configured]" : "",
+            sync_frequency: "manual",
           }),
-          last_sync_status: "PENDING",
+          last_sync_status: "NEVER_SYNCED",
         }),
       });
 
@@ -5564,7 +5570,13 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                                       headers: { "Content-Type": "application/json" },
                                       body: JSON.stringify(conn)
                                     });
-                                    if (res.ok) alert(locale === "pt" ? `Configurações do ${conn.name} salvas com sucesso!` : `Saved ${conn.name} configurations successfully!`);
+                                    if (res.ok) {
+                                      await fetchGlobalConfigs();
+                                      alert(locale === "pt" ? `Configurações do ${conn.name} salvas com sucesso!` : `Saved ${conn.name} configurations successfully!`);
+                                    } else {
+                                      const data = await res.json().catch(() => ({}));
+                                      alert(data.message || (locale === "pt" ? "Não foi possível salvar integração." : "Could not save integration."));
+                                    }
                                   } catch (e) { console.error(e); }
                                 }}
                                 className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-mono text-[9px] font-bold py-1 px-2.5 rounded"
