@@ -72,6 +72,17 @@ app.get("/api/health/readiness", (req: Request, res: Response) => {
   });
 });
 
+
+
+// 6. API 404 Handler - must run before SPA fallback
+app.use("/api", (req: Request, res: Response) => {
+  res.status(404).json({
+    success: false,
+    message: "API route not found",
+    path: req.originalUrl
+  });
+});
+
 // 6. Centralized Error Handling Middleware
 app.use(errorHandler);
 
