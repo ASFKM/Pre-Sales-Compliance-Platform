@@ -1345,16 +1345,93 @@ class DBStore {
     return this.data.approvalWorkflows;
   }
 
-  public updateApprovalWorkflow(id: string, updates: Partial<ApprovalWorkflow>): ApprovalWorkflow | undefined {
+  public createApprovalWorkflow(workflow: any): ApprovalWorkflow {
+    const now = new Date().toISOString();
+    const id = "w_" + Math.random().toString(36).substr(2, 9);
+
+    const newWorkflow: ApprovalWorkflow = {
+      ...workflow,
+      id,
+      stages: (workflow.stages || []).map((stage, index) => ({
+        ...stage,
+        id: stage.id || `${id}-s${index + 1}`,
+        workflow_id: id,
+        order: index + 1,
+        mandatory: stage.mandatory ?? true,
+        conditions: stage.conditions || "Always mandatory",
+        created_at: stage.created_at || now,
+        updated_at: now,
+      })),
+      created_at: now,
+      updated_at: now,
+    };
+
+    this.data.approvalWorkflows.unshift(newWorkflow);
+    this.save();
+    return newWorkflow;
+  }
+
+  public updateApprovalWorkflow(id: string, updates: any): ApprovalWorkflow | undefined {
     const idx = this.data.approvalWorkflows.findIndex((w) => w.id === id);
     if (idx === -1) return undefined;
+
+    const now = new Date().toISOString();
+    const current = this.data.approvalWorkflows[idx];
+
     this.data.approvalWorkflows[idx] = {
-      ...this.data.approvalWorkflows[idx],
+      ...current,
       ...updates,
-      updated_at: new Date().toISOString(),
+      stages: updates.stages
+        ? updates.stages.map((stage, index) => ({
+            ...stage,
+            id: stage.id || `${id}-s${index + 1}`,
+            workflow_id: id,
+            order: index + 1,
+            mandatory: stage.mandatory ?? true,
+            conditions: stage.conditions || "Always mandatory",
+            created_at: stage.created_at || now,
+            updated_at: now,
+          }))
+        : current.stages,
+      updated_at: now,
     };
+
     this.save();
     return this.data.approvalWorkflows[idx];
+  }
+
+  public deleteApprovalWorkflow(id: string): boolean {
+    const exists = this.data.approvalWorkflows.some((w) => w.id === id);
+    if (!exists) return false;
+
+    const usedByProject = this.data.projects.some((p) => p.selected_approval_workflow_id === id);
+    const usedByProposal = this.data.proposals.some((p) => p.approval_workflow_id === id);
+    if (usedByProject || usedByProposal) return false;
+
+    this.data.approvalWorkflows = this.data.approvalWorkflows.filter((w) => w.id !== id);
+    this.save();
+    return true;
+  }
+
+  public createApprovalDecision(decision: Omit<ApprovalDecision, "id" | "created_at">): ApprovalDecision {
+    const newDecision: ApprovalDecision = {
+      ...decision,
+      id: "dec_" + Math.random().toString(36).substring(2, 11),
+      created_at: new Date().toISOString(),
+    };
+
+    this.data.approvalDecisions.push(newDecision);
+    this.save();
+    return newDecision;
+  }
+
+  public updateProposalStatus(id: string, status: Proposal["status"]): Proposal | undefined {
+    const proposal = this.data.proposals.find((p) => p.id === id);
+    if (!proposal) return undefined;
+
+    proposal.status = status;
+    this.save();
+    return proposal;
   }
 
   // Roles CRUD

@@ -516,6 +516,10 @@ export default function App() {
   const [proposalTemplates, setProposalTemplates] = useState<any[]>([]);
   const [approvalWorkflows, setApprovalWorkflows] = useState<any[]>([]);
   const [approvalDecisions, setApprovalDecisions] = useState<any[]>([]);
+  const [showNewApprovalWorkflowForm, setShowNewApprovalWorkflowForm] = useState<boolean>(false);
+  const [newApprovalWorkflowName, setNewApprovalWorkflowName] = useState<string>("");
+  const [newApprovalWorkflowDescription, setNewApprovalWorkflowDescription] = useState<string>("");
+  const [newApprovalWorkflowAppliesTo, setNewApprovalWorkflowAppliesTo] = useState<string>("all");
   const [integrations, setIntegrations] = useState<IntegrationConnector[]>([]);
   const [systemStatus, setSystemStatus] = useState<any>(null);
 
@@ -1182,6 +1186,147 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
+  };
+
+  const normalizeApprovalWorkflowPayload = (flow: any) => ({
+    name: flow.name,
+    description: flow.description || "",
+    active: flow.active !== false,
+    applies_to: flow.applies_to || "all",
+    stages: (flow.stages || []).map((stage: any, index: number) => ({
+      id: stage.id,
+      name: stage.name || `${locale === "pt" ? "Etapa" : "Stage"} ${index + 1}`,
+      order: index + 1,
+      approver_type: stage.approver_type || "role",
+      approver_role_id: stage.approver_type === "user" ? undefined : (stage.approver_role_id || roles[0]?.id || "r1"),
+      approver_user_id: stage.approver_type === "user" ? (stage.approver_user_id || users[0]?.id || "u1") : undefined,
+      mandatory: stage.mandatory !== false,
+      conditions: stage.conditions || "Always mandatory"
+    }))
+  });
+
+  const handleCreateApprovalWorkflow = async () => {
+    if (!newApprovalWorkflowName.trim()) {
+      alert(locale === "pt" ? "Informe o nome do fluxo." : "Enter workflow name.");
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/approval-workflows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newApprovalWorkflowName.trim(),
+          description: newApprovalWorkflowDescription.trim(),
+          active: true,
+          applies_to: newApprovalWorkflowAppliesTo || "all",
+          stages: [
+            {
+              name: locale === "pt" ? "Revisão Técnica" : "Technical Review",
+              order: 1,
+              approver_type: "role",
+              approver_role_id: roles.find((r) => r.id === "r3")?.id || roles[0]?.id || "r1",
+              mandatory: true,
+              conditions: "Always mandatory"
+            }
+          ]
+        })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível criar o fluxo." : "Could not create workflow."));
+        return;
+      }
+
+      setShowNewApprovalWorkflowForm(false);
+      setNewApprovalWorkflowName("");
+      setNewApprovalWorkflowDescription("");
+      setNewApprovalWorkflowAppliesTo("all");
+      await fetchGlobalConfigs();
+      alert(locale === "pt" ? "Fluxo criado com sucesso." : "Workflow created successfully.");
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao criar fluxo." : "Error creating workflow.");
+    }
+  };
+
+  const handleSaveApprovalWorkflow = async (flow: any) => {
+    try {
+      const res = await fetch(`/api/approval-workflows/${flow.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(normalizeApprovalWorkflowPayload(flow))
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível salvar o fluxo." : "Could not save workflow."));
+        return;
+      }
+
+      await fetchGlobalConfigs();
+      alert(locale === "pt" ? "Fluxo salvo com sucesso." : "Workflow saved successfully.");
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao salvar fluxo." : "Error saving workflow.");
+    }
+  };
+
+  const handleDuplicateApprovalWorkflow = async (flow: any) => {
+    try {
+      const payload = normalizeApprovalWorkflowPayload({
+        ...flow,
+        name: `${flow.name} - ${locale === "pt" ? "Cópia" : "Copy"}`,
+        active: false,
+        stages: (flow.stages || []).map((stage: any) => ({ ...stage, id: undefined }))
+      });
+
+      const res = await fetch("/api/approval-workflows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível duplicar o fluxo." : "Could not duplicate workflow."));
+        return;
+      }
+
+      await fetchGlobalConfigs();
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao duplicar fluxo." : "Error duplicating workflow.");
+    }
+  };
+
+  const handleDeleteApprovalWorkflow = async (flowId: string) => {
+    const flow = approvalWorkflows.find((w) => w.id === flowId);
+    if (!confirm(locale === "pt" ? `Apagar fluxo "${flow?.name || flowId}"?` : `Delete workflow "${flow?.name || flowId}"?`)) return;
+
+    try {
+      const res = await fetch(`/api/approval-workflows/${flowId}`, { method: "DELETE" });
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível apagar o fluxo." : "Could not delete workflow."));
+        return;
+      }
+
+      await fetchGlobalConfigs();
+      alert(locale === "pt" ? "Fluxo apagado com sucesso." : "Workflow deleted successfully.");
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao apagar fluxo." : "Error deleting workflow.");
+    }
+  };
+
+  const updateApprovalWorkflowLocal = (flowId: string, updater: (flow: any) => any) => {
+    setApprovalWorkflows(approvalWorkflows.map((flow) => flow.id === flowId ? updater({ ...flow, stages: [...(flow.stages || [])] }) : flow));
   };
 
   // Submit proposal for workflow approvals
@@ -4905,79 +5050,203 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
 
                 {activeAdminSection === "approval_flow" && (
                   <div className="w-full bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-5">
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 border-b border-slate-100 pb-3">
                       <div>
                         <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
                           {locale === "pt" ? "Fluxos de Aprovação de Propostas" : "Proposal Approval Workflows"}
                         </h3>
                         <p className="text-xs text-slate-500 mt-1">
-                          {locale === "pt" ? "Visualize e ajuste etapas, responsáveis e ordem de aprovação." : "View and adjust stages, approvers and approval order."}
+                          {locale === "pt" ? "Crie, duplique, edite etapas, responsáveis e regras de aprovação." : "Create, duplicate and edit stages, approvers and approval rules."}
                         </p>
                       </div>
-                      <button className="bg-slate-900 text-white text-xs font-bold px-3 py-1.5 rounded">
-                        {locale === "pt" ? "+ Novo Fluxo" : "+ New Workflow"}
+                      <button
+                        onClick={() => setShowNewApprovalWorkflowForm(!showNewApprovalWorkflowForm)}
+                        className="bg-slate-900 text-white text-xs font-bold px-3 py-1.5 rounded"
+                      >
+                        {showNewApprovalWorkflowForm ? (locale === "pt" ? "Cancelar" : "Cancel") : (locale === "pt" ? "+ Novo Fluxo" : "+ New Workflow")}
                       </button>
                     </div>
+
+                    {showNewApprovalWorkflowForm && (
+                      <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg">
+                        <h4 className="text-xs font-bold uppercase font-mono text-slate-700 mb-3">
+                          {locale === "pt" ? "Criar Novo Fluxo" : "Create New Workflow"}
+                        </h4>
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
+                          <input
+                            value={newApprovalWorkflowName}
+                            onChange={(e) => setNewApprovalWorkflowName(e.target.value)}
+                            placeholder={locale === "pt" ? "Nome do fluxo" : "Workflow name"}
+                            className="p-2 bg-white border border-slate-200 rounded"
+                          />
+                          <input
+                            value={newApprovalWorkflowDescription}
+                            onChange={(e) => setNewApprovalWorkflowDescription(e.target.value)}
+                            placeholder={locale === "pt" ? "Descrição" : "Description"}
+                            className="p-2 bg-white border border-slate-200 rounded md:col-span-2"
+                          />
+                          <input
+                            value={newApprovalWorkflowAppliesTo}
+                            onChange={(e) => setNewApprovalWorkflowAppliesTo(e.target.value)}
+                            placeholder={locale === "pt" ? "Aplica-se a" : "Applies to"}
+                            className="p-2 bg-white border border-slate-200 rounded"
+                          />
+                        </div>
+                        <button
+                          onClick={handleCreateApprovalWorkflow}
+                          className="mt-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded"
+                        >
+                          {locale === "pt" ? "Criar Fluxo" : "Create Workflow"}
+                        </button>
+                      </div>
+                    )}
 
                     <div className="space-y-4">
                       {approvalWorkflows.map(flow => (
                         <div key={flow.id} className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-4">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <h4 className="text-sm font-bold text-slate-900">{flow.name}</h4>
-                              <p className="text-xs text-slate-500 mt-1">{flow.description}</p>
+                          <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-3">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 flex-1">
+                              <input
+                                value={flow.name}
+                                onChange={(e) => updateApprovalWorkflowLocal(flow.id, (f) => ({ ...f, name: e.target.value }))}
+                                className="w-full p-2 text-sm font-bold text-slate-900 bg-white border border-slate-200 rounded"
+                              />
+                              <input
+                                value={flow.applies_to || "all"}
+                                onChange={(e) => updateApprovalWorkflowLocal(flow.id, (f) => ({ ...f, applies_to: e.target.value }))}
+                                className="w-full p-2 text-xs text-slate-600 bg-white border border-slate-200 rounded font-mono"
+                              />
+                              <textarea
+                                value={flow.description || ""}
+                                onChange={(e) => updateApprovalWorkflowLocal(flow.id, (f) => ({ ...f, description: e.target.value }))}
+                                rows={2}
+                                className="md:col-span-2 w-full p-2 text-xs text-slate-600 bg-white border border-slate-200 rounded"
+                              />
                             </div>
-                            <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-bold uppercase">
-                              {flow.active ? (locale === "pt" ? "Ativo" : "Active") : (locale === "pt" ? "Inativo" : "Inactive")}
-                            </span>
+
+                            <label className="flex items-center gap-2 text-xs font-bold uppercase text-slate-600 bg-white border border-slate-200 rounded px-3 py-2">
+                              <input
+                                type="checkbox"
+                                checked={flow.active !== false}
+                                onChange={(e) => updateApprovalWorkflowLocal(flow.id, (f) => ({ ...f, active: e.target.checked }))}
+                              />
+                              {flow.active !== false ? (locale === "pt" ? "Ativo" : "Active") : (locale === "pt" ? "Inativo" : "Inactive")}
+                            </label>
                           </div>
 
                           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                            {flow.stages.map((stage: any, idx: number) => (
+                            {(flow.stages || []).map((stage: any, idx: number) => (
                               <div key={stage.id || idx} className="bg-white border border-slate-200 rounded-lg p-3">
                                 <div className="flex items-center justify-between mb-2">
                                   <span className="text-[10px] font-mono text-slate-400 uppercase">{locale === "pt" ? "Etapa" : "Stage"} {idx + 1}</span>
-                                  <span className="text-[10px] text-slate-500">{stage.required_approvals || 1}x</span>
+                                  <button
+                                    onClick={() => updateApprovalWorkflowLocal(flow.id, (f) => ({ ...f, stages: f.stages.filter((_: any, i: number) => i !== idx) }))}
+                                    className="text-[10px] text-red-600 font-bold"
+                                    disabled={(flow.stages || []).length <= 1}
+                                  >
+                                    {locale === "pt" ? "Remover" : "Remove"}
+                                  </button>
                                 </div>
+
                                 <input
                                   value={stage.name}
-                                  onChange={(e) => {
-                                    stage.name = e.target.value;
-                                    setApprovalWorkflows([...approvalWorkflows]);
-                                  }}
+                                  onChange={(e) => updateApprovalWorkflowLocal(flow.id, (f) => {
+                                    f.stages[idx] = { ...f.stages[idx], name: e.target.value };
+                                    return f;
+                                  })}
                                   className="w-full p-2 text-xs font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded mb-2"
                                 />
+
                                 <select
                                   value={stage.approver_type}
-                                  onChange={(e) => {
-                                    stage.approver_type = e.target.value;
-                                    setApprovalWorkflows([...approvalWorkflows]);
-                                  }}
+                                  onChange={(e) => updateApprovalWorkflowLocal(flow.id, (f) => {
+                                    f.stages[idx] = {
+                                      ...f.stages[idx],
+                                      approver_type: e.target.value,
+                                      approver_role_id: e.target.value === "role" ? (f.stages[idx].approver_role_id || roles[0]?.id || "r1") : undefined,
+                                      approver_user_id: e.target.value === "user" ? (f.stages[idx].approver_user_id || users[0]?.id || "u1") : undefined
+                                    };
+                                    return f;
+                                  })}
                                   className="w-full p-2 text-xs bg-slate-50 border border-slate-200 rounded mb-2"
                                 >
                                   <option value="role">{locale === "pt" ? "Perfil / Função" : "Role"}</option>
                                   <option value="user">{locale === "pt" ? "Usuário específico" : "Specific user"}</option>
                                 </select>
+
+                                {stage.approver_type === "user" ? (
+                                  <select
+                                    value={stage.approver_user_id || users[0]?.id || ""}
+                                    onChange={(e) => updateApprovalWorkflowLocal(flow.id, (f) => {
+                                      f.stages[idx] = { ...f.stages[idx], approver_user_id: e.target.value };
+                                      return f;
+                                    })}
+                                    className="w-full p-2 text-xs bg-white border border-slate-200 rounded mb-2"
+                                  >
+                                    {users.map((user) => (
+                                      <option key={user.id} value={user.id}>{user.name}</option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <select
+                                    value={stage.approver_role_id || roles[0]?.id || ""}
+                                    onChange={(e) => updateApprovalWorkflowLocal(flow.id, (f) => {
+                                      f.stages[idx] = { ...f.stages[idx], approver_role_id: e.target.value };
+                                      return f;
+                                    })}
+                                    className="w-full p-2 text-xs bg-white border border-slate-200 rounded mb-2"
+                                  >
+                                    {roles.map((role) => (
+                                      <option key={role.id} value={role.id}>{role.name}</option>
+                                    ))}
+                                  </select>
+                                )}
+
                                 <input
-                                  value={stage.approver_role || stage.approver_user_id || ""}
-                                  onChange={(e) => {
-                                    stage.approver_role = e.target.value;
-                                    setApprovalWorkflows([...approvalWorkflows]);
-                                  }}
-                                  placeholder={locale === "pt" ? "Ex: Sales Manager" : "Ex: Sales Manager"}
+                                  value={stage.conditions || ""}
+                                  onChange={(e) => updateApprovalWorkflowLocal(flow.id, (f) => {
+                                    f.stages[idx] = { ...f.stages[idx], conditions: e.target.value };
+                                    return f;
+                                  })}
+                                  placeholder={locale === "pt" ? "Condição" : "Condition"}
                                   className="w-full p-2 text-xs bg-white border border-slate-200 rounded"
                                 />
                               </div>
                             ))}
                           </div>
 
-                          <div className="flex justify-end gap-2">
-                            <button className="bg-white border border-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded">
-                              {locale === "pt" ? "Duplicar" : "Duplicate"}
+                          <div className="flex flex-wrap justify-between gap-2">
+                            <button
+                              onClick={() => updateApprovalWorkflowLocal(flow.id, (f) => ({
+                                ...f,
+                                stages: [
+                                  ...(f.stages || []),
+                                  {
+                                    name: `${locale === "pt" ? "Nova Etapa" : "New Stage"} ${(f.stages || []).length + 1}`,
+                                    order: (f.stages || []).length + 1,
+                                    approver_type: "role",
+                                    approver_role_id: roles[0]?.id || "r1",
+                                    mandatory: true,
+                                    conditions: "Always mandatory"
+                                  }
+                                ]
+                              }))}
+                              className="bg-white border border-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded"
+                            >
+                              {locale === "pt" ? "+ Etapa" : "+ Stage"}
                             </button>
-                            <button className="bg-emerald-600 text-white text-xs font-bold px-3 py-1.5 rounded">
-                              {locale === "pt" ? "Salvar Fluxo" : "Save Workflow"}
-                            </button>
+
+                            <div className="flex flex-wrap gap-2">
+                              <button onClick={() => handleDuplicateApprovalWorkflow(flow)} className="bg-white border border-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded">
+                                {locale === "pt" ? "Duplicar" : "Duplicate"}
+                              </button>
+                              <button onClick={() => handleDeleteApprovalWorkflow(flow.id)} className="bg-red-50 text-red-700 hover:bg-red-600 hover:text-white text-xs font-bold px-3 py-1.5 rounded">
+                                {locale === "pt" ? "Apagar" : "Delete"}
+                              </button>
+                              <button onClick={() => handleSaveApprovalWorkflow(flow)} className="bg-emerald-600 text-white text-xs font-bold px-3 py-1.5 rounded">
+                                {locale === "pt" ? "Salvar Fluxo" : "Save Workflow"}
+                              </button>
+                            </div>
                           </div>
                         </div>
                       ))}
