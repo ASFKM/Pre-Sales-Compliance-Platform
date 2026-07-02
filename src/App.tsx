@@ -1434,24 +1434,58 @@ export default function App() {
       });
       if (res.ok) {
         fetchGlobalConfigs();
-        alert("Prompt template saved successfully!");
+        alert(locale === "pt" ? "Prompt salvo com sucesso." : "Prompt template saved successfully!");
       }
     } catch (e) {
       console.error(e);
     }
   };
 
-  // Save platform model setup
+  // Save global platform, AI and storage settings
   const handleSavePlatformSettings = async (field: string, val: any) => {
+    const aiFields = [
+      "ai_provider",
+      "default_model",
+      "document_analysis_model",
+      "proposal_generation_model",
+      "summarization_model",
+      "risk_analysis_model",
+      "default_language",
+      "default_log_level"
+    ];
+
+    const storageFields = [
+      "storage_mode",
+      "local_storage_path",
+      "s3_bucket",
+      "gcs_bucket"
+    ];
+
+    const endpoint = aiFields.includes(field)
+      ? "/api/settings/ai"
+      : storageFields.includes(field)
+        ? "/api/settings/storage"
+        : "/api/settings";
+
     try {
-      await fetch("/api/settings/storage", {
+      const res = await fetch(endpoint, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ [field]: val })
       });
-      fetchGlobalConfigs();
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.message || (locale === "pt" ? "Não foi possível salvar a configuração." : "Could not save setting."));
+        return;
+      }
+
+      const updated = await res.json();
+      setPlatformSettings(updated);
+      await fetchGlobalConfigs();
     } catch (e) {
       console.error(e);
+      alert(locale === "pt" ? "Erro ao salvar configuração." : "Error saving setting.");
     }
   };
 
