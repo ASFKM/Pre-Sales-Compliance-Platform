@@ -120,6 +120,23 @@ router.post("/login", (req: Request, res: Response, next: NextFunction) => {
       return res.status(401).json({ success: false, message: "Invalid credentials." });
     }
 
+    if ((user as any).status && (user as any).status !== "ACTIVE") {
+      dbStore.addAuditLog({
+        user_id: user.id,
+        action: "Blocked Login For Non-Active User",
+        entity_type: "Authentication",
+        entity_id: user.id,
+        ip_address: req.ip || "127.0.0.1",
+        user_agent: req.headers["user-agent"] || "unknown",
+        metadata: JSON.stringify({ email: user.email, status: (user as any).status })
+      });
+
+      return res.status(403).json({
+        success: false,
+        message: "User account is not active."
+      });
+    }
+
     if (isProductionRuntime() && comparePasswords("password123", (user as any).password_hash)) {
       dbStore.addAuditLog({
         user_id: user.id,

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { dbStore } from "../../src/dbStore";
 import { requirePermission } from "./auth";
 import { UserStatus } from "../../src/types";
+import { hashPassword } from "../utils/security";
 
 const router = express.Router();
 
@@ -17,6 +18,7 @@ const CreateUserSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters long"),
   email: z.string().email("Invalid email format"),
   role_id: z.string().min(1, "Role ID is required"),
+  initial_password: z.string().min(8, "Initial password must be at least 8 characters long").optional(),
 });
 
 const UpdateUserSchema = z.object({
@@ -25,6 +27,7 @@ const UpdateUserSchema = z.object({
   role_id: z.string().optional(),
   status: z.nativeEnum(UserStatus).optional(),
   mfa_enabled: z.boolean().optional(),
+  password: z.string().min(8, "Password must be at least 8 characters long").optional(),
 });
 
 // Protect with users admin permissions
@@ -48,6 +51,7 @@ router.post("/", requirePermission("admin:users"), (req: Request, res: Response,
       mfa_enabled: false,
       status: UserStatus.ACTIVE,
       role_id: validated.role_id,
+      password_hash: hashPassword(validated.initial_password || "ChangeMe123!"),
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
@@ -83,7 +87,11 @@ router.put("/:id", requirePermission("admin:users"), (req: Request, res: Respons
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    Object.assign(user, validated, { updated_at: new Date().toISOString() });
+    const { password, ...safeUpdates } = validated;
+    Object.assign(user, safeUpdates, {
+      ...(password ? { password_hash: hashPassword(password) } : {}),
+      updated_at: new Date().toISOString()
+    });
 
     dbStore.addAuditLog({
       user_id: "System Admin",

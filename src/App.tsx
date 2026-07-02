@@ -327,6 +327,13 @@ export default function App() {
   const [newRoleDescription, setNewRoleDescription] = useState<string>("");
   const [newRoleModules, setNewRoleModules] = useState<string[]>(["workspace"]);
   const [customAdminRoles, setCustomAdminRoles] = useState<Array<{ id: string; name: string; description: string; modules: string[] }>>([]);
+  const [showNewUserForm, setShowNewUserForm] = useState<boolean>(false);
+  const [newUserName, setNewUserName] = useState<string>("");
+  const [newUserEmail, setNewUserEmail] = useState<string>("");
+  const [newUserRoleId, setNewUserRoleId] = useState<string>("r3");
+  const [newUserPassword, setNewUserPassword] = useState<string>("ChangeMe123!");
+  const [editingUserId, setEditingUserId] = useState<string>("");
+  const [editingUserPassword, setEditingUserPassword] = useState<string>("");
 
 
   useEffect(() => {
@@ -1326,6 +1333,85 @@ export default function App() {
       }
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const handleCreateUser = async () => {
+    if (!newUserName.trim() || !newUserEmail.trim()) {
+      alert(locale === "pt" ? "Informe nome e e-mail do usuário." : "Enter user name and email.");
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newUserName.trim(),
+          email: newUserEmail.trim(),
+          role_id: newUserRoleId,
+          initial_password: newUserPassword || "ChangeMe123!",
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.message || (locale === "pt" ? "Não foi possível criar usuário." : "Could not create user."));
+        return;
+      }
+
+      setShowNewUserForm(false);
+      setNewUserName("");
+      setNewUserEmail("");
+      setNewUserRoleId("r3");
+      setNewUserPassword("ChangeMe123!");
+      await fetchGlobalConfigs();
+      alert(locale === "pt" ? "Usuário criado com sucesso." : "User created successfully.");
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao criar usuário." : "Error creating user.");
+    }
+  };
+
+  const handleUpdateUser = async (userId: string, updates: any) => {
+    try {
+      const res = await fetch(`/api/users/${userId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.message || (locale === "pt" ? "Não foi possível atualizar usuário." : "Could not update user."));
+        return;
+      }
+
+      await fetchGlobalConfigs();
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao atualizar usuário." : "Error updating user.");
+    }
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    const user = users.find((u) => u.id === userId);
+    if (!confirm(locale === "pt" ? `Apagar usuário "${user?.name || userId}"?` : `Delete user "${user?.name || userId}"?`)) return;
+
+    try {
+      const res = await fetch(`/api/users/${userId}`, { method: "DELETE" });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.message || (locale === "pt" ? "Não foi possível apagar usuário." : "Could not delete user."));
+        return;
+      }
+
+      await fetchGlobalConfigs();
+      alert(locale === "pt" ? "Usuário apagado com sucesso." : "User deleted successfully.");
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao apagar usuário." : "Error deleting user.");
     }
   };
 
@@ -4098,10 +4184,59 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
                       <div className="p-4 border-b border-slate-200 flex items-center justify-between">
                         <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">{tx("User Access Directory", "Diretório de Acesso de Usuários")}</h3>
-                        <button className="bg-slate-900 text-white text-xs font-bold px-3 py-1.5 rounded">
-                          {locale === "pt" ? "+ Novo Usuário" : "+ New User"}
+                        <button
+                          onClick={() => setShowNewUserForm(!showNewUserForm)}
+                          className="bg-slate-900 text-white text-xs font-bold px-3 py-1.5 rounded"
+                        >
+                          {showNewUserForm ? (locale === "pt" ? "Cancelar" : "Cancel") : (locale === "pt" ? "+ Novo Usuário" : "+ New User")}
                         </button>
                       </div>
+                      {showNewUserForm && (
+                        <div className="p-4 border-b border-slate-200 bg-slate-50">
+                          <h4 className="text-xs font-bold uppercase font-mono text-slate-700 mb-3">
+                            {locale === "pt" ? "Criar Novo Usuário" : "Create New User"}
+                          </h4>
+                          <div className="grid grid-cols-1 md:grid-cols-5 gap-3 text-xs">
+                            <input
+                              value={newUserName}
+                              onChange={(e) => setNewUserName(e.target.value)}
+                              placeholder={locale === "pt" ? "Nome completo" : "Full name"}
+                              className="p-2 bg-white border border-slate-200 rounded"
+                            />
+                            <input
+                              value={newUserEmail}
+                              onChange={(e) => setNewUserEmail(e.target.value)}
+                              placeholder="email@empresa.com"
+                              className="p-2 bg-white border border-slate-200 rounded"
+                            />
+                            <select
+                              value={newUserRoleId}
+                              onChange={(e) => setNewUserRoleId(e.target.value)}
+                              className="p-2 bg-white border border-slate-200 rounded"
+                            >
+                              {roles.map((role) => (
+                                <option key={role.id} value={role.id}>{role.name}</option>
+                              ))}
+                            </select>
+                            <input
+                              value={newUserPassword}
+                              onChange={(e) => setNewUserPassword(e.target.value)}
+                              placeholder={locale === "pt" ? "Senha inicial" : "Initial password"}
+                              className="p-2 bg-white border border-slate-200 rounded font-mono"
+                            />
+                            <button
+                              onClick={handleCreateUser}
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded px-3 py-2"
+                            >
+                              {locale === "pt" ? "Criar Usuário" : "Create User"}
+                            </button>
+                          </div>
+                          <p className="text-[10px] text-slate-500 mt-2">
+                            {locale === "pt" ? "A senha inicial poderá ser alterada pelo administrador via reset de senha." : "The initial password can be changed later by the administrator."}
+                          </p>
+                        </div>
+                      )}
+
                       <table className="w-full text-left text-xs border-collapse">
                         <thead className="bg-slate-100 border-b border-slate-200 font-mono text-[10px] uppercase text-slate-500">
                           <tr>
@@ -4116,12 +4251,110 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                         <tbody className="divide-y divide-slate-200 text-slate-700 font-mono">
                           {users.map(u => (
                             <tr key={u.id} className="hover:bg-slate-50">
-                              <td className="p-3 font-sans font-semibold text-slate-800">{u.name}</td>
-                              <td className="p-3 font-semibold text-slate-500">{u.email}</td>
-                              <td className="p-3 font-semibold uppercase text-slate-600">{roles.find((r) => r.id === u.role_id)?.name || u.role_id}</td>
-                              <td className="p-3 text-center">{u.mfa_enabled ? tx("✅ Active", "✅ Ativo") : tx("❌ Disabled", "❌ Desativado")}</td>
-                              <td className="p-3"><span className="text-emerald-700 bg-emerald-50 px-2 rounded-full font-bold">{tx("ACTIVE", "ATIVO")}</span></td>
-                              <td className="p-3 text-slate-500 leading-none">{new Date(u.last_login_at || u.created_at).toLocaleString()}</td>
+                              <td className="p-3 font-sans font-semibold text-slate-800">
+                                <input
+                                  value={u.name}
+                                  onChange={(e) => setUsers(users.map((usr) => usr.id === u.id ? { ...usr, name: e.target.value } : usr))}
+                                  onBlur={(e) => handleUpdateUser(u.id, { name: e.target.value })}
+                                  className="w-full bg-transparent border border-transparent hover:border-slate-200 focus:border-emerald-500 rounded px-2 py-1 outline-none"
+                                />
+                              </td>
+                              <td className="p-3 font-semibold text-slate-500">
+                                <input
+                                  value={u.email}
+                                  onChange={(e) => setUsers(users.map((usr) => usr.id === u.id ? { ...usr, email: e.target.value } : usr))}
+                                  onBlur={(e) => handleUpdateUser(u.id, { email: e.target.value })}
+                                  className="w-full bg-transparent border border-transparent hover:border-slate-200 focus:border-emerald-500 rounded px-2 py-1 outline-none"
+                                />
+                              </td>
+                              <td className="p-3 font-semibold uppercase text-slate-600">
+                                <select
+                                  value={u.role_id}
+                                  onChange={(e) => {
+                                    setUsers(users.map((usr) => usr.id === u.id ? { ...usr, role_id: e.target.value } : usr));
+                                    handleUpdateUser(u.id, { role_id: e.target.value });
+                                  }}
+                                  className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-xs"
+                                >
+                                  {roles.map((role) => (
+                                    <option key={role.id} value={role.id}>{role.name}</option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td className="p-3 text-center">
+                                <label className="inline-flex items-center gap-2 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={!!u.mfa_enabled}
+                                    onChange={(e) => {
+                                      setUsers(users.map((usr) => usr.id === u.id ? { ...usr, mfa_enabled: e.target.checked } : usr));
+                                      handleUpdateUser(u.id, { mfa_enabled: e.target.checked });
+                                    }}
+                                  />
+                                  <span>{u.mfa_enabled ? tx("Active", "Ativo") : tx("Disabled", "Desativado")}</span>
+                                </label>
+                              </td>
+                              <td className="p-3">
+                                <select
+                                  value={u.status || "ACTIVE"}
+                                  onChange={(e) => {
+                                    setUsers(users.map((usr) => usr.id === u.id ? { ...usr, status: e.target.value } : usr));
+                                    handleUpdateUser(u.id, { status: e.target.value });
+                                  }}
+                                  className="bg-white border border-slate-200 rounded px-2 py-1 text-xs font-bold"
+                                >
+                                  <option value="ACTIVE">{tx("ACTIVE", "ATIVO")}</option>
+                                  <option value="INACTIVE">{tx("INACTIVE", "INATIVO")}</option>
+                                  <option value="PENDING">{tx("PENDING", "PENDENTE")}</option>
+                                </select>
+                              </td>
+                              <td className="p-3 text-slate-500 leading-none">
+                                <div className="flex flex-col gap-2">
+                                  <span>{new Date(u.last_login_at || u.created_at).toLocaleString()}</span>
+                                  <div className="flex gap-2">
+                                    <button
+                                      onClick={() => setEditingUserId(editingUserId === u.id ? "" : u.id)}
+                                      className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded text-[10px] font-bold"
+                                    >
+                                      {locale === "pt" ? "Senha" : "Password"}
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteUser(u.id)}
+                                      className="bg-red-50 hover:bg-red-600 hover:text-white text-red-700 px-2 py-1 rounded text-[10px] font-bold"
+                                      disabled={u.id === currentSessionUser.id}
+                                      title={u.id === currentSessionUser.id ? (locale === "pt" ? "Não é possível apagar o usuário logado." : "Cannot delete the current logged-in user.") : ""}
+                                    >
+                                      {locale === "pt" ? "Apagar" : "Delete"}
+                                    </button>
+                                  </div>
+                                  {editingUserId === u.id && (
+                                    <div className="flex gap-1">
+                                      <input
+                                        type="password"
+                                        value={editingUserPassword}
+                                        onChange={(e) => setEditingUserPassword(e.target.value)}
+                                        placeholder={locale === "pt" ? "Nova senha" : "New password"}
+                                        className="w-28 p-1 border border-slate-200 rounded text-[10px]"
+                                      />
+                                      <button
+                                        onClick={async () => {
+                                          if (editingUserPassword.length < 8) {
+                                            alert(locale === "pt" ? "A senha deve ter pelo menos 8 caracteres." : "Password must have at least 8 characters.");
+                                            return;
+                                          }
+                                          await handleUpdateUser(u.id, { password: editingUserPassword });
+                                          setEditingUserId("");
+                                          setEditingUserPassword("");
+                                          alert(locale === "pt" ? "Senha atualizada." : "Password updated.");
+                                        }}
+                                        className="bg-emerald-600 text-white px-2 py-1 rounded text-[10px] font-bold"
+                                      >
+                                        OK
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
