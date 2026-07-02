@@ -1,13 +1,66 @@
 import crypto from "crypto";
 
-// Simulation of hashing and comparison for security compliance
-export function hashPassword(password: string): string {
-  // Simple deterministic SHA-256 hash for verification in this hardened prototype
+const PASSWORD_HASH_ALGORITHM = "scrypt";
+const PASSWORD_HASH_KEY_LENGTH = 64;
+const PASSWORD_HASH_SALT_LENGTH = 16;
+
+function legacySha256PasswordHash(password: string): string {
   return crypto.createHash("sha256").update(password).digest("hex");
 }
 
+function safeEqualHex(leftHex: string, rightHex: string): boolean {
+  try {
+    const left = Buffer.from(leftHex, "hex");
+    const right = Buffer.from(rightHex, "hex");
+
+    if (left.length !== right.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(left, right);
+  } catch {
+    return false;
+  }
+}
+
+export function hashPassword(password: string): string {
+  const salt = crypto.randomBytes(PASSWORD_HASH_SALT_LENGTH).toString("hex");
+  const derived = crypto.scryptSync(password, salt, PASSWORD_HASH_KEY_LENGTH).toString("hex");
+  return `${PASSWORD_HASH_ALGORITHM}$${salt}$${derived}`;
+}
+
+export function isLegacyPasswordHash(hashed: string): boolean {
+  return /^[a-f0-9]{64}$/i.test(hashed);
+}
+
 export function comparePasswords(passwordInput: string, hashed: string): boolean {
-  return hashPassword(passwordInput) === hashed;
+  if (!hashed) return false;
+
+  if (hashed.startsWith(`${PASSWORD_HASH_ALGORITHM}$`)) {
+    const parts = hashed.split("$");
+    if (parts.length !== 3) return false;
+
+    const [, salt, storedDerived] = parts;
+    const derived = crypto.scryptSync(passwordInput, salt, PASSWORD_HASH_KEY_LENGTH).toString("hex");
+    return safeEqualHex(derived, storedDerived);
+  }
+
+  if (isLegacyPasswordHash(hashed)) {
+    return safeEqualHex(legacySha256PasswordHash(passwordInput), hashed);
+  }
+
+  return false;
+}
+
+function getSessionTtlMs(): number {
+  const raw = process.env.SESSION_TTL_MINUTES;
+  const parsed = raw ? Number.parseInt(raw, 10) : 60;
+
+  if (!Number.isFinite(parsed) || parsed < 5 || parsed > 1440) {
+    return 60 * 60 * 1000;
+  }
+
+  return parsed * 60 * 1000;
 }
 
 // Memory-based session store mapping session tokens to user records
@@ -24,7 +77,7 @@ const sessionStore = new Map<string, Session>();
 
 export function createSession(userId: string, roleId: string, mfaRequired: boolean): Session {
   const token = crypto.randomBytes(32).toString("hex");
-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+  const expiresAt = new Date(Date.now() + getSessionTtlMs());
   const session: Session = {
     token,
     userId,
