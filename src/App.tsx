@@ -1415,8 +1415,57 @@ export default function App() {
     }
   };
 
-  const handleExportCSV = () => {
-    window.open("/api/audit-logs/export/csv", "_blank");
+  const downloadBlob = (filename: string, blob: Blob) => {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportCSV = async () => {
+    try {
+      const res = await fetch("/api/audit-logs/export/csv");
+
+      if (!res.ok) {
+        const err = await res.text();
+        alert(err || (locale === "pt" ? "Não foi possível exportar auditoria." : "Could not export audit logs."));
+        return;
+      }
+
+      const blob = await res.blob();
+      downloadBlob("commercial_assistant_audit_log.csv", blob);
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao exportar auditoria." : "Error exporting audit logs.");
+    }
+  };
+
+  const handleExportDiagnosticsPackage = async () => {
+    try {
+      const res = await fetch("/api/admin/diagnostics/package", { method: "POST" });
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        alert(data.message || (locale === "pt" ? "Não foi possível gerar o pacote de diagnóstico." : "Could not generate diagnostic package."));
+        return;
+      }
+
+      const blob = new Blob([data.report_content || ""], { type: "text/plain;charset=utf-8" });
+      downloadBlob(data.filename || "commercial_assistant_diagnostic_package.txt", blob);
+
+      alert(locale === "pt"
+        ? `Diagnóstico gerado. Correlation ID: ${data.correlation_id}`
+        : `Diagnostics generated. Correlation ID: ${data.correlation_id}`);
+
+      await fetchGlobalConfigs();
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao exportar diagnóstico." : "Error exporting diagnostics.");
+    }
   };
 
   const handleCreateUser = async () => {
@@ -6143,9 +6192,7 @@ Você pode revisar as informações geradas por esse documento navegando pelas a
                         alert(locale === "pt" ? "Acesso Negado: Apenas a função 'Administrator' pode empacotar ou exportar os relatórios de diagnóstico técnicos!" : "Access Denied: Only the 'Administrator' role can compile and export technical diagnostic packages!");
                         return;
                       }
-                      fetch("/api/admin/diagnostics/package", { method: "POST" })
-                        .then(r => r.json())
-                        .then(res => alert(`System diagnostics compiled!\nCorrelation ID: ${res.correlation_id}\nActive connectors: ${res.active_connections.join(", ")}\nEnvironment: ${res.environment}`));
+                      handleExportDiagnosticsPackage();
                     }}
                     className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-3 rounded shadow-sm transition-all cursor-pointer"
                   >
