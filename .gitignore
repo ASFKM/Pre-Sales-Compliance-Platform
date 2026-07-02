@@ -1,0 +1,20 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+
+# Runtime state and generated artifacts
+db_state.json
+uploads/
+exports/
+templates/*.doc
+templates/*.docx
+
+# Local tooling
+.vscode/
+.idea/
+*.local

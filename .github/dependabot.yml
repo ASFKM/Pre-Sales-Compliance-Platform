@@ -1,0 +1,35 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '08:00'
+      timezone: America/Sao_Paulo
+    open-pull-requests-limit: 10
+    groups:
+      frontend-runtime:
+        patterns:
+          - react
+          - react-dom
+          - vite
+      tooling:
+        patterns:
+          - typescript
+          - esbuild
+          - tsx
+          - '@types/*'
+    commit-message:
+      prefix: deps
+      include: scope
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '08:15'
+      timezone: America/Sao_Paulo
+    commit-message:
+      prefix: ci
+      include: scope
