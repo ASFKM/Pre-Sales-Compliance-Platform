@@ -42,6 +42,7 @@ interface DBData {
   tasks: Task[];
   brandingSettings: BrandingSettings;
   integrationConnectors: IntegrationConnector[];
+  document_contents: Record<string, string>;
 }
 
 const DB_FILE = path.join(process.cwd(), "db_state.json");
@@ -994,7 +995,8 @@ const initialData: DBData = {
       created_at: "2026-03-15T14:00:00Z",
       updated_at: "2026-06-30T18:00:00Z"
     }
-  ]
+  ],
+  document_contents: {}
 };
 
 // Singleton storage loader

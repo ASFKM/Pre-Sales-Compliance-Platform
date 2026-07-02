@@ -1,0 +1,94 @@
+version: '3.8'
+
+services:
+  # 1. Main Full-Stack Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: commercial-assistant-ai:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - SECRET_ENCRYPTION_KEY=${SECRET_ENCRYPTION_KEY}
+      - JWT_SESSION_SECRET=${JWT_SESSION_SECRET}
+      - STORAGE_MODE=local # Switch to 's3' or 'gcs' when ready
+      - AWS_S3_BUCKET=${AWS_S3_BUCKET}
+      - GCS_BUCKET_NAME=${GCS_BUCKET_NAME}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./uploads:/app/uploads
+
+  # 2. Asynchronous pre-sales background workers
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: npm run start-worker # Placeholder command
+    environment:
+      - NODE_ENV=production
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # 3. Secure Relational Database (PostgreSQL Placeholder)
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=commercial_assistant
+      - POSTGRES_USER=app_user
+      - POSTGRES_PASSWORD=secure_password_123
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app_user -d commercial_assistant"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 4. Redis Cache / Session & Job Queue (Redis Placeholder)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 5. Local S3 Mock Storage (MinIO Placeholder)
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=minio_admin
+      - MINIO_ROOT_PASSWORD=minio_secure_pass_2026
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
