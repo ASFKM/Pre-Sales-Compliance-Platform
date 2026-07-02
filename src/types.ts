@@ -281,6 +281,9 @@ export interface PlatformSettings {
   proposal_generation_model: string;
   summarization_model: string;
   risk_analysis_model: string;
+  ai_api_key_encrypted?: string;
+  ai_api_key_configured?: boolean;
+  ai_api_key_masked?: string;
   storage_mode: "local" | "s3" | "gcs";
   local_storage_path: string;
   s3_bucket: string;

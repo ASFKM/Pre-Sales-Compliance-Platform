@@ -4,6 +4,7 @@ import { GoogleGenAI } from "@google/genai";
 import { dbStore } from "../../src/dbStore";
 import { requirePermission } from "./auth";
 import { logDebugMessage } from "../middleware/security";
+import { decryptSecret } from "../utils/security";
 import { AnalysisResult, AIAnalysisJob } from "../../src/types";
 
 const router = express.Router();
@@ -129,19 +130,34 @@ const AnalysisResultSchema = z.object({
 
 // Lazy Gemini client initialization with standard modern SDK and user-agent telemetry
 let aiClient: GoogleGenAI | null = null;
+let aiClientFingerprint = "";
+
+function getConfiguredGeminiApiKey(): string {
+  const envKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+  if (envKey) return envKey;
+
+  const encryptedKey = (dbStore.getSettings() as any).ai_api_key_encrypted;
+  if (!encryptedKey) {
+    throw new Error("Gemini API key is not configured. Configure it in Admin > IA, Prompts e Custos.");
+  }
+
+  return decryptSecret(encryptedKey);
+}
+
 function getGeminiClient(): GoogleGenAI {
-  if (!aiClient) {
-    const key = process.env.GEMINI_API_KEY;
-    if (!key) {
-      throw new Error("GEMINI_API_KEY is not configured in the server environment secrets.");
-    }
-    aiClient = new GoogleGenAI({ 
+  const key = getConfiguredGeminiApiKey();
+  const fingerprint = `${key.length}:${key.slice(0, 4)}:${key.slice(-4)}`;
+
+  if (!aiClient || aiClientFingerprint !== fingerprint) {
+    aiClient = new GoogleGenAI({
       apiKey: key,
       httpOptions: {
         headers: { "User-Agent": "aistudio-build" }
       }
     });
+    aiClientFingerprint = fingerprint;
   }
+
   return aiClient;
 }
 
@@ -196,6 +212,9 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
     return res.status(404).json({ success: false, message: "Project not found." });
   }
 
+  const platformSettings = dbStore.getSettings();
+  const analysisModel = platformSettings.document_analysis_model || platformSettings.default_model || "gemini-3.5-flash";
+
   // 1. Create Background AI Analysis Job and log it
   const userId = (req.headers["x-user-id"] as string) || "u1";
   const user = dbStore.getData().users.find(u => u.id === userId);
@@ -205,7 +224,7 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
     project_id: projectId,
     status: "running",
     ai_provider: "Google Gemini",
-    ai_model: "gemini-3.5-flash", // Standard valid text model
+    ai_model: analysisModel,
     prompt_template_version: "v3.0-structured",
     started_at: new Date().toISOString(),
     created_by: userName,
@@ -380,7 +399,7 @@ Write all generated content fields strictly in ${project.proposal_language}. Mai
 `;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: analysisModel,
       contents: prompt,
       config: {
         responseMimeType: "application/json"

@@ -1913,6 +1913,69 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
     }
   };
 
+
+  const handleSaveAiApiKey = async (providerName: string, apiKey: string) => {
+    const key = apiKey.trim();
+
+    if (!key) {
+      alert(locale === "pt" ? "Informe a chave de API antes de salvar." : "Enter the API key before saving.");
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/settings/ai", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ai_provider: providerName,
+          ai_api_key: key
+        })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível salvar a chave." : "Could not save API key."));
+        return;
+      }
+
+      setPlatformSettings(data);
+      setModelProviders(prev => prev.map(provider => (
+        provider.name === providerName ? { ...provider, apiKey: "" } : provider
+      )));
+
+      alert(locale === "pt" ? "Chave de API salva com segurança." : "API key saved securely.");
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao salvar chave de API." : "Error saving API key.");
+    }
+  };
+
+  const handleClearAiApiKey = async () => {
+    if (!confirm(locale === "pt" ? "Remover a chave de API de IA salva?" : "Remove saved AI API key?")) return;
+
+    try {
+      const res = await fetch("/api/settings/ai", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clear_ai_api_key: true })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível remover a chave." : "Could not remove API key."));
+        return;
+      }
+
+      setPlatformSettings(data);
+      alert(locale === "pt" ? "Chave de API removida." : "API key removed.");
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao remover chave de API." : "Error removing API key.");
+    }
+  };
+
   // Active document counts
   const docsCount = documents.length;
   const reqsCount = analysisResult?.critical_requirements.length || 0;
@@ -4985,6 +5048,29 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                         {locale === "pt" ? "Modelos e Provedores de IA" : "AI Models and Providers"}
                       </h3>
                       <div className="space-y-4 text-xs">
+                        <div className={`p-3 rounded-lg border ${platformSettings?.ai_api_key_configured ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-amber-50 border-amber-200 text-amber-800"}`}>
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <p className="text-[10px] uppercase font-bold tracking-wider font-mono">
+                                {locale === "pt" ? "Chave da API Gemini" : "Gemini API Key"}
+                              </p>
+                              <p className="text-[11px] mt-1 font-semibold">
+                                {platformSettings?.ai_api_key_configured
+                                  ? `${locale === "pt" ? "Configurada" : "Configured"}: ${platformSettings?.ai_api_key_masked || "********"}`
+                                  : (locale === "pt" ? "Não configurada" : "Not configured")}
+                              </p>
+                            </div>
+                            {platformSettings?.ai_api_key_configured && (
+                              <button
+                                onClick={handleClearAiApiKey}
+                                className="bg-white/70 hover:bg-white border border-current px-2 py-1 rounded text-[10px] font-bold font-mono"
+                              >
+                                {locale === "pt" ? "Remover" : "Remove"}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
                         <div>
                           <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">
                             {locale === "pt" ? "Provedor NLP de IA Padrão" : "Default NLP AI Provider"}
@@ -5048,17 +5134,25 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                                   }}
                                   className="w-full p-1.5 text-[11px] font-mono bg-white border border-slate-200 rounded"
                                 />
-                                <input
-                                  type="password"
-                                  placeholder="sk-••••••••••••••••"
-                                  value={prov.apiKey}
-                                  onChange={(e) => {
-                                    const updated = [...modelProviders];
-                                    updated[pIdx].apiKey = e.target.value;
-                                    setModelProviders(updated);
-                                  }}
-                                  className="w-full p-1.5 text-[11px] font-mono bg-white border border-slate-200 rounded"
-                                />
+                                <div className="flex gap-1">
+                                  <input
+                                    type="password"
+                                    placeholder={platformSettings?.ai_api_key_configured ? (platformSettings.ai_api_key_masked || "••••••••") : "Cole a API key"}
+                                    value={prov.apiKey}
+                                    onChange={(e) => {
+                                      const updated = [...modelProviders];
+                                      updated[pIdx].apiKey = e.target.value;
+                                      setModelProviders(updated);
+                                    }}
+                                    className="w-full p-1.5 text-[11px] font-mono bg-white border border-slate-200 rounded"
+                                  />
+                                  <button
+                                    onClick={() => handleSaveAiApiKey(prov.name, prov.apiKey)}
+                                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-2 rounded text-[10px] font-bold font-mono"
+                                  >
+                                    {locale === "pt" ? "Salvar" : "Save"}
+                                  </button>
+                                </div>
                               </div>
                             )}
                           </div>

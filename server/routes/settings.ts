@@ -3,8 +3,41 @@ import fs from "fs";
 import path from "path";
 import { dbStore } from "../../src/dbStore";
 import { requireAuth, requirePermission } from "./auth";
+import { encryptSecret, decryptSecret, maskSecret } from "../utils/security";
 
 const router = express.Router();
+
+function getSafePlatformSettings() {
+  const settings = dbStore.getSettings() as any;
+  const { ai_api_key_encrypted, ...safeSettings } = settings;
+
+  let aiApiKeyMasked = "";
+  if (ai_api_key_encrypted) {
+    try {
+      aiApiKeyMasked = maskSecret(decryptSecret(ai_api_key_encrypted));
+    } catch {
+      aiApiKeyMasked = "********";
+    }
+  }
+
+  return {
+    ...safeSettings,
+    ai_api_key_configured: Boolean(ai_api_key_encrypted),
+    ai_api_key_masked: aiApiKeyMasked
+  };
+}
+
+function sanitizeSettingsAudit(updates: any) {
+  const safe = { ...updates };
+  if (safe.ai_api_key) {
+    safe.ai_api_key = "[secret-updated]";
+  }
+  if (safe.ai_api_key_encrypted) {
+    safe.ai_api_key_encrypted = "[encrypted-secret]";
+  }
+  return safe;
+}
+
 
 function auditSettingsChange(req: Request, action: string, entityType: string, entityId: string, updates: any) {
   const userId = (req.headers["x-user-id"] as string) || "u1";
@@ -21,7 +54,7 @@ function auditSettingsChange(req: Request, action: string, entityType: string, e
 
 router.get("/settings", requireAuth, (req: Request, res: Response, next: NextFunction) => {
   try {
-    res.json(dbStore.getSettings());
+    res.json(getSafePlatformSettings());
   } catch (err) {
     next(err);
   }
@@ -34,7 +67,7 @@ router.put("/settings", requirePermission("admin:settings"), (req: Request, res:
 
     auditSettingsChange(req, "Update Global Platform Settings", "PlatformSettings", "global", updates);
 
-    res.json(settings);
+    res.json(getSafePlatformSettings());
   } catch (err) {
     next(err);
   }
@@ -116,19 +149,30 @@ router.put("/settings/ai", requirePermission("ai:settings"), (req: Request, res:
       "default_log_level"
     ];
 
-    const updates = Object.fromEntries(
+    const updates: any = Object.fromEntries(
       Object.entries(req.body || {}).filter(([key]) => allowedFields.includes(key))
     );
+
+    if (typeof req.body?.ai_api_key === "string" && req.body.ai_api_key.trim()) {
+      updates.ai_api_key_encrypted = encryptSecret(req.body.ai_api_key.trim());
+    }
+
+    if (req.body?.clear_ai_api_key === true) {
+      updates.ai_api_key_encrypted = "";
+    }
 
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ success: false, message: "No valid AI/settings fields provided." });
     }
 
-    const settings = dbStore.updateSettings(updates);
+    dbStore.updateSettings(updates);
 
-    auditSettingsChange(req, "Update AI Platform Settings", "PlatformSettings", "global-ai", updates);
+    auditSettingsChange(req, "Update AI Platform Settings", "PlatformSettings", "global-ai", sanitizeSettingsAudit({
+      ...updates,
+      ai_api_key: req.body?.ai_api_key ? "[secret-updated]" : undefined
+    }));
 
-    res.json(settings);
+    res.json(getSafePlatformSettings());
   } catch (err) {
     next(err);
   }
@@ -165,7 +209,7 @@ function updateStorageSettings(req: Request, res: Response, next: NextFunction) 
 
     auditSettingsChange(req, "Change Storage Provider Settings", "PlatformSettings", "global-storage", updates);
 
-    res.json(settings);
+    res.json(getSafePlatformSettings());
   } catch (err) {
     next(err);
   }
