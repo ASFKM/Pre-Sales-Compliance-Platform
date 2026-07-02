@@ -6,6 +6,12 @@ import { UserStatus } from "../../src/types";
 
 const router = express.Router();
 
+const sanitizeUser = (user: any) => {
+  if (!user) return user;
+  const { password, password_hash, token, session, ...safeUser } = user;
+  return safeUser;
+};
+
 // Define Zod schemas for validation
 const CreateUserSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters long"),
@@ -24,7 +30,7 @@ const UpdateUserSchema = z.object({
 // Protect with users admin permissions
 router.get("/", requirePermission("admin:users"), (req: Request, res: Response, next: NextFunction) => {
   try {
-    res.json(dbStore.getData().users);
+    res.json(dbStore.getData().users.map(sanitizeUser));
   } catch (err) {
     next(err);
   }
@@ -59,7 +65,7 @@ router.post("/", requirePermission("admin:users"), (req: Request, res: Response,
       metadata: JSON.stringify({ email: newUser.email, role_id: newUser.role_id })
     });
 
-    res.status(211).json(newUser);
+    res.status(201).json(sanitizeUser(newUser));
   } catch (err) {
     if (err instanceof z.ZodError) {
       return res.status(400).json({ success: false, message: err.issues[0].message });
@@ -89,7 +95,7 @@ router.put("/:id", requirePermission("admin:users"), (req: Request, res: Respons
       metadata: JSON.stringify(validated)
     });
 
-    res.json(user);
+    res.json(sanitizeUser(user));
   } catch (err) {
     if (err instanceof z.ZodError) {
       return res.status(400).json({ success: false, message: err.issues[0].message });

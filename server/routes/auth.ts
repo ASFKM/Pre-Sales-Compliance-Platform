@@ -36,7 +36,16 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   const session = getSession(token);
 
   if (!session) {
-    return res.status(401).json({ success: false, message: "Invalid or expired session token." });
+    return res.status(401).json({ success: false, message: "Invalid or expired session token.", correlationId });
+  }
+
+  if (!session.mfaVerified) {
+    return res.status(401).json({
+      success: false,
+      code: "MFA_REQUIRED",
+      message: "MFA verification is required before accessing this endpoint.",
+      correlationId
+    });
   }
 
   // Bind session info to request headers for downstream endpoint use
@@ -191,7 +200,7 @@ router.post("/mfa/verify", (req: Request, res: Response, next: NextFunction) => 
         entity_id: session.userId,
         ip_address: req.ip || "127.0.0.1",
         user_agent: req.headers["user-agent"] || "unknown",
-        metadata: JSON.stringify({ token_slice: token.substring(0, 5) })
+        metadata: JSON.stringify({ mfa_verified: true })
       });
 
       return res.json({
