@@ -9,6 +9,7 @@ interface LoginProps {
 }
 
 export default function Login({ locale, onLoginSuccess }: LoginProps) {
+  const isDemoRuntime = import.meta.env.VITE_APP_RUNTIME_MODE !== "production";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [mfaCode, setMfaCode] = useState("");
@@ -29,13 +30,13 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
       mfaSubtitle: "Enter the 6-digit verification code sent to your device",
       mfaLabel: "MFA Verification Code",
       mfaBtn: "Verify & Authenticate",
-      mfaPlaceholder: "e.g., 123456",
-      quickSelect: "Select B2B Seeded Role for Verification",
-      adminRole: "System Administrator (Sarah / Alex)",
-      managerRole: "Sales Manager (Marcus)",
-      engineerRole: "Pre-Sales Engineer (Elena)",
-      demoNotice: "Secure prototype mode. Default credentials: password123",
-      mfaNotice: "MFA code: 123456, 000000, or 111111",
+      mfaPlaceholder: isDemoRuntime ? "e.g., 123456" : "Verification code",
+      quickSelect: isDemoRuntime ? "Select B2B Seeded Role for Verification" : "",
+      adminRole: isDemoRuntime ? "System Administrator (Sarah / Alex)" : "",
+      managerRole: isDemoRuntime ? "Sales Manager (Marcus)" : "",
+      engineerRole: isDemoRuntime ? "Pre-Sales Engineer (Elena)" : "",
+      demoNotice: isDemoRuntime ? "Secure prototype mode. Default credentials: password123" : "",
+      mfaNotice: isDemoRuntime ? "MFA code: 123456, 000000, or 111111" : "",
       invalidCreds: "Invalid email or password.",
       invalidMfa: "Invalid verification code."
     },
@@ -49,13 +50,13 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
       mfaSubtitle: "Digite o código de 6 dígitos enviado para seu dispositivo",
       mfaLabel: "Código de Verificação MFA",
       mfaBtn: "Verificar e Autenticar",
-      mfaPlaceholder: "ex: 123456",
-      quickSelect: "Selecionar Papel Semeado para Verificação",
-      adminRole: "Administrador do Sistema (Alex Rivera)",
-      managerRole: "Gerente de Vendas (Marcus Vance)",
-      engineerRole: "Engenheira de Pré-Vendas (Elena Rostova)",
-      demoNotice: "Modo protótipo seguro. Senha padrão: password123",
-      mfaNotice: "Código MFA válido: 123456, 000000 ou 111111",
+      mfaPlaceholder: isDemoRuntime ? "ex: 123456" : "Código de verificação",
+      quickSelect: isDemoRuntime ? "Selecionar Papel Semeado para Verificação" : "",
+      adminRole: isDemoRuntime ? "Administrador do Sistema (Alex Rivera)" : "",
+      managerRole: isDemoRuntime ? "Gerente de Vendas (Marcus Vance)" : "",
+      engineerRole: isDemoRuntime ? "Engenheira de Pré-Vendas (Elena Rostova)" : "",
+      demoNotice: isDemoRuntime ? "Modo protótipo seguro. Senha padrão: password123" : "",
+      mfaNotice: isDemoRuntime ? "Código MFA válido: 123456, 000000 ou 111111" : "",
       invalidCreds: "E-mail ou senha inválidos.",
       invalidMfa: "Código de verificação MFA inválido."
     }
@@ -203,40 +204,44 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
                 <ArrowRight className="w-4 h-4" />
               </button>
 
-              {/* Quick Profile Selection */}
-              <div className="pt-6 border-t border-slate-800/60 mt-4">
-                <span className="block text-[10px] font-mono text-slate-500 uppercase tracking-wider mb-3 text-center">{dict.quickSelect}</span>
-                <div className="grid grid-cols-1 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => quickLogin("admin")}
-                    className="py-2 px-3 bg-slate-950 hover:bg-slate-800 border border-slate-800/80 rounded-lg text-left text-xs text-slate-300 flex items-center justify-between transition-colors cursor-pointer"
-                  >
-                    <span>{dict.adminRole}</span>
-                    <Fingerprint className="w-3.5 h-3.5 text-emerald-500" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => quickLogin("manager")}
-                    className="py-2 px-3 bg-slate-950 hover:bg-slate-800 border border-slate-800/80 rounded-lg text-left text-xs text-slate-300 flex items-center justify-between transition-colors cursor-pointer"
-                  >
-                    <span>{dict.managerRole}</span>
-                    <Fingerprint className="w-3.5 h-3.5 text-sky-500" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => quickLogin("engineer")}
-                    className="py-2 px-3 bg-slate-950 hover:bg-slate-800 border border-slate-800/80 rounded-lg text-left text-xs text-slate-300 flex items-center justify-between transition-colors cursor-pointer"
-                  >
-                    <span>{dict.engineerRole}</span>
-                    <Fingerprint className="w-3.5 h-3.5 text-amber-500" />
-                  </button>
-                </div>
-              </div>
+              {isDemoRuntime && (
+                <>
+                  {/* Quick Profile Selection */}
+                  <div className="pt-6 border-t border-slate-800/60 mt-4">
+                    <span className="block text-[10px] font-mono text-slate-500 uppercase tracking-wider mb-3 text-center">{dict.quickSelect}</span>
+                    <div className="grid grid-cols-1 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => quickLogin("admin")}
+                        className="py-2 px-3 bg-slate-950 hover:bg-slate-800 border border-slate-800/80 rounded-lg text-left text-xs text-slate-300 flex items-center justify-between transition-colors cursor-pointer"
+                      >
+                        <span>{dict.adminRole}</span>
+                        <Fingerprint className="w-3.5 h-3.5 text-emerald-500" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => quickLogin("manager")}
+                        className="py-2 px-3 bg-slate-950 hover:bg-slate-800 border border-slate-800/80 rounded-lg text-left text-xs text-slate-300 flex items-center justify-between transition-colors cursor-pointer"
+                      >
+                        <span>{dict.managerRole}</span>
+                        <Fingerprint className="w-3.5 h-3.5 text-sky-500" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => quickLogin("engineer")}
+                        className="py-2 px-3 bg-slate-950 hover:bg-slate-800 border border-slate-800/80 rounded-lg text-left text-xs text-slate-300 flex items-center justify-between transition-colors cursor-pointer"
+                      >
+                        <span>{dict.engineerRole}</span>
+                        <Fingerprint className="w-3.5 h-3.5 text-amber-500" />
+                      </button>
+                    </div>
+                  </div>
 
-              <div className="text-center text-[10px] text-slate-500 pt-4 leading-normal font-mono">
-                {dict.demoNotice}
-              </div>
+                  <div className="text-center text-[10px] text-slate-500 pt-4 leading-normal font-mono">
+                    {dict.demoNotice}
+                  </div>
+                </>
+              )}
             </motion.form>
           ) : (
             <motion.form 
@@ -271,7 +276,7 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
                   value={mfaCode}
                   onChange={(e) => setMfaCode(e.target.value)}
                   className="w-full text-center tracking-[0.5em] font-mono text-lg py-2.5 bg-slate-950 border border-slate-800 rounded-lg text-white focus:outline-none focus:border-sky-500 transition-colors"
-                  placeholder="000000"
+                  placeholder={dict.mfaPlaceholder}
                 />
               </div>
 
@@ -284,9 +289,11 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
                 <ArrowRight className="w-4 h-4" />
               </button>
 
-              <div className="text-center text-[10px] text-slate-500 pt-4 font-mono leading-normal">
-                {dict.mfaNotice}
-              </div>
+              {isDemoRuntime && (
+                <div className="text-center text-[10px] text-slate-500 pt-4 font-mono leading-normal">
+                  {dict.mfaNotice}
+                </div>
+              )}
             </motion.form>
           )}
         </AnimatePresence>

@@ -9,15 +9,20 @@ import {
   verifySessionMfa
 } from "../utils/security";
 import { logDebugMessage } from "../middleware/security";
+import { isProductionRuntime, isDemoRuntime } from "../config/runtime";
 
 const router = express.Router();
 
 // Seed password hashes for initial users if they do not exist
 function ensurePasswordHashes() {
+  if (isProductionRuntime()) {
+    return;
+  }
+
   const users = dbStore.getData().users;
   users.forEach((u: any) => {
     if (!u.password_hash) {
-      // Set hashed password placeholder for secure login simulation
+      // Demo-only seeded password. Never auto-created in production runtime.
       u.password_hash = hashPassword("password123");
     }
   });
@@ -115,6 +120,23 @@ router.post("/login", (req: Request, res: Response, next: NextFunction) => {
       return res.status(401).json({ success: false, message: "Invalid credentials." });
     }
 
+    if (isProductionRuntime() && comparePasswords("password123", (user as any).password_hash)) {
+      dbStore.addAuditLog({
+        user_id: user.id,
+        action: "Blocked Default Demo Credential Login",
+        entity_type: "Authentication",
+        entity_id: user.id,
+        ip_address: req.ip || "127.0.0.1",
+        user_agent: req.headers["user-agent"] || "unknown",
+        metadata: JSON.stringify({ email: user.email })
+      });
+
+      return res.status(403).json({
+        success: false,
+        message: "Default demo credentials are disabled in production runtime."
+      });
+    }
+
     // Generate secure session token (MFA required if user profile has mfa_enabled = true)
     const mfaRequired = user.mfa_enabled;
     const session = createSession(user.id, user.role_id, mfaRequired);
@@ -176,7 +198,9 @@ router.post("/mfa/verify", (req: Request, res: Response, next: NextFunction) => 
       return res.status(401).json({ success: false, message: "Invalid or expired login session." });
     }
 
-    if (code === "123456" || code === "000000" || code === "111111") {
+    const demoMfaAccepted = isDemoRuntime() && (code === "123456" || code === "000000" || code === "111111");
+
+    if (demoMfaAccepted) {
       verifySessionMfa(token);
       
       const user = dbStore.getData().users.find(u => u.id === session.userId);
@@ -216,7 +240,12 @@ router.post("/mfa/verify", (req: Request, res: Response, next: NextFunction) => 
       });
     }
 
-    return res.status(400).json({ success: false, message: "Invalid MFA verification code." });
+    return res.status(400).json({
+      success: false,
+      message: isProductionRuntime()
+        ? "MFA verification is not configured for production runtime."
+        : "Invalid MFA verification code."
+    });
   } catch (err) {
     next(err);
   }
