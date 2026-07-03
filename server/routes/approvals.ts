@@ -138,7 +138,7 @@ router.post("/proposals/:proposalId/approval/submit", requirePermission("approva
   }
 });
 
-router.post("/proposals/:proposalId/approval/decision", requirePermission("proposal:approve"), (req: Request, res: Response, next: NextFunction) => {
+router.post("/proposals/:proposalId/approval/decision", requireAuth, (req: Request, res: Response, next: NextFunction) => {
   try {
     const { decision, comments, stage_id } = req.body;
     const proposal = dbStore.getProposal(req.params.proposalId);
@@ -171,6 +171,45 @@ router.post("/proposals/:proposalId/approval/decision", requirePermission("propo
       return res.status(400).json({ success: false, message: "Approval stage does not belong to this proposal workflow." });
     }
 
+    const userId = (req.headers["x-user-id"] as string) || "";
+    const roleId = (req.headers["x-role-id"] as string) || "";
+    const currentUser = dbStore.getData().users.find(u => u.id === userId);
+    const currentRole = dbStore.getData().roles.find(r => r.id === roleId);
+
+    if (!currentUser || !currentRole) {
+      return res.status(403).json({ success: false, message: "Authenticated approver context was not found." });
+    }
+
+    const stageTargetConfigured =
+      targetStage.approver_type === "user"
+        ? Boolean(targetStage.approver_user_id)
+        : Boolean(targetStage.approver_role_id);
+
+    if (!stageTargetConfigured) {
+      return res.status(400).json({ success: false, message: "Approval stage approver target is not configured." });
+    }
+
+    const canApproveTargetStage =
+      targetStage.approver_type === "user"
+        ? targetStage.approver_user_id === userId
+        : targetStage.approver_role_id === roleId;
+
+    if (!canApproveTargetStage) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: You are not the configured approver for this approval stage.",
+        required_approver: {
+          approver_type: targetStage.approver_type,
+          approver_user_id: targetStage.approver_user_id,
+          approver_role_id: targetStage.approver_role_id
+        },
+        current_user: {
+          user_id: userId,
+          role_id: roleId
+        }
+      });
+    }
+
     const existingDecision = dbStore.getData().approvalDecisions.find(d =>
       d.proposal_id === req.params.proposalId && d.stage_id === targetStageId
     );
@@ -182,7 +221,6 @@ router.post("/proposals/:proposalId/approval/decision", requirePermission("propo
       });
     }
 
-    const userId = (req.headers["x-user-id"] as string) || "u1";
     const savedDecision = dbStore.createApprovalDecision({
       proposal_id: req.params.proposalId,
       stage_id: targetStageId,
@@ -211,7 +249,18 @@ router.post("/proposals/:proposalId/approval/decision", requirePermission("propo
       `Review Decision - ${decision}`,
       "Proposal",
       req.params.proposalId,
-      { decision, comments, stage_id: targetStageId, next_status: nextStatus },
+      {
+        decision,
+        comments,
+        stage_id: targetStageId,
+        next_status: nextStatus,
+        approver_user_id: userId,
+        approver_role_id: roleId,
+        approver_role_name: currentRole.name,
+        stage_approver_type: targetStage.approver_type,
+        stage_approver_user_id: targetStage.approver_user_id,
+        stage_approver_role_id: targetStage.approver_role_id
+      },
       proposal.project_id
     );
 
