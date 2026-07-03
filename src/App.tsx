@@ -242,7 +242,6 @@ export default function App() {
     ai: ["ai:settings"],
     templates: ["template:manage"],
     approval_flow: ["approval:manage"],
-    subscription: ["admin:settings"],
     branding: ["branding:manage"],
     integrations: ["integrations:manage"],
     storage: ["storage:manage"],
@@ -375,7 +374,7 @@ export default function App() {
 
   // Navigation / Views
   const [activeTab, setActiveTab] = useState<"home" | "workspace" | "proposals" | "templates" | "approval" | "admin">("home");
-  const [activeAdminSection, setActiveAdminSection] = useState<"overview" | "users" | "ai" | "templates" | "approval_flow" | "subscription" | "branding" | "integrations" | "storage" | "audit">("overview");
+  const [activeAdminSection, setActiveAdminSection] = useState<"overview" | "users" | "ai" | "templates" | "approval_flow" | "branding" | "integrations" | "storage" | "audit">("overview");
   const [brandLogoDataUrl, setBrandLogoDataUrl] = useState<string>(() => localStorage.getItem("ca_brand_logo") || "");
   const [brandPrimaryColor, setBrandPrimaryColor] = useState<string>(() => localStorage.getItem("ca_brand_primary_color") || "#059669");
   const [brandAccentColor, setBrandAccentColor] = useState<string>(() => localStorage.getItem("ca_brand_accent_color") || "#10b981");
@@ -4661,7 +4660,6 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                     ["ai", locale === "pt" ? "IA, Prompts e Custos" : "AI, Prompts & Costs", locale === "pt" ? "Modelos, chaves e consumo" : "Models, keys and usage"],
                     ["templates", locale === "pt" ? "Templates de Propostas" : "Proposal Templates", locale === "pt" ? "Upload, preview e versionamento" : "Upload, preview and versioning"],
                     ["approval_flow", locale === "pt" ? "Fluxo de Aprovação" : "Approval Workflow", locale === "pt" ? "Etapas, responsáveis e regras" : "Stages, owners and rules"],
-                    ["subscription", locale === "pt" ? "Subscrição e Licença" : "Subscription & License", locale === "pt" ? "Plano, chave e limites" : "Plan, key and limits"],
                     ["branding", locale === "pt" ? "Identidade Visual" : "Branding", locale === "pt" ? "Logo, cores e aparência" : "Logo, colors and appearance"],
                     ["integrations", locale === "pt" ? "Integrações e APIs" : "Integrations & APIs", locale === "pt" ? "CRM, ERP e conectores externos" : "CRM, ERP and external connectors"],
                     ["storage", locale === "pt" ? "Armazenamento" : "Storage", locale === "pt" ? "Arquivos, buckets e documentos" : "Files, buckets and documents"],
@@ -4856,7 +4854,6 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                 )}
 
                 {activeAdminSection === "approval_flow" && canAccessAdminSection("approval_flow") && (locale === "pt" ? "Fluxo de Aprovação de Propostas" : "Proposal Approval Workflow")}
-                      {activeAdminSection === "subscription" && canAccessAdminSection("subscription") && (locale === "pt" ? "Subscrição e Licença" : "Subscription & License")}
                       {activeAdminSection === "branding" && canAccessAdminSection("branding") && (locale === "pt" ? "Personalização e Identidade Visual" : "Branding & Visual Identity")}
                       {activeAdminSection === "integrations" && canAccessAdminSection("integrations") && (locale === "pt" ? "Integrações, CRMs, ERPs e APIs" : "Integrations, CRMs, ERPs and APIs")}
                       {activeAdminSection === "storage" && canAccessAdminSection("storage") && (locale === "pt" ? "Armazenamento e Documentos" : "Storage & Documents")}
@@ -5761,53 +5758,6 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                         </div>
                       ))}
                     </div>
-                  </div>
-                )}
-
-                {activeAdminSection === "subscription" && canAccessAdminSection("subscription") && (
-                  <div className="w-full bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
-                    <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
-                      {locale === "pt" ? "Gestão de Subscrição e Licença" : "Subscription & Licensing Manager"}
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                      <div className="p-3 bg-slate-50 border border-slate-100 rounded-lg">
-                        <span className="text-[10px] text-slate-400 font-mono block uppercase">{locale === "pt" ? "Plano Atual" : "License Plan"}</span>
-                        <span className="text-sm font-extrabold text-emerald-600 capitalize font-mono block mt-1">{licenseTier} Edition</span>
-                      </div>
-                      <div className="p-3 bg-slate-50 border border-slate-100 rounded-lg">
-                        <span className="text-[10px] text-slate-400 font-mono block uppercase">{locale === "pt" ? "Status da Assinatura" : "Subscription Status"}</span>
-                        <span className="text-sm font-extrabold text-emerald-600 font-mono mt-1 block">{licenseStatus}</span>
-                      </div>
-                    </div>
-                    <input type="text" disabled value={licenseKey} className="w-full p-2 rounded bg-slate-100 font-mono text-slate-600 border border-slate-200 cursor-not-allowed text-xs" />
-                    <div className="flex gap-2">
-                      <input type="text" placeholder="XXXX-XXXX-XXXX-XXXX" value={inputLicenseKey} onChange={(e) => setInputLicenseKey(e.target.value)} className="flex-1 p-2 bg-white border border-slate-200 rounded text-xs font-mono" />
-                      <button
-                        onClick={() => {
-                          if (!inputLicenseKey.trim()) {
-                            setLicenseMessage(locale === "pt" ? "Insira uma chave válida." : "Insert a valid key.");
-                            return;
-                          }
-                          if (inputLicenseKey.includes("PRO")) {
-                            setLicenseTier("professional");
-                            setLicenseKey(inputLicenseKey);
-                            setLicenseStatus("Active");
-                            setLicenseMessage(locale === "pt" ? "Licença Professional Ativada!" : "Professional License Activated!");
-                          } else if (inputLicenseKey.includes("ENT")) {
-                            setLicenseTier("enterprise");
-                            setLicenseKey(inputLicenseKey);
-                            setLicenseStatus("Active");
-                            setLicenseMessage(locale === "pt" ? "Licença Enterprise Ativada!" : "Enterprise License Activated!");
-                          } else {
-                            setLicenseMessage(locale === "pt" ? "Código de licença inválido ou expirado." : "Invalid or expired license code.");
-                          }
-                        }}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold px-4 rounded"
-                      >
-                        {locale === "pt" ? "Ativar" : "Activate"}
-                      </button>
-                    </div>
-                    {licenseMessage && <p className="text-xs font-semibold text-emerald-700 font-mono">{licenseMessage}</p>}
                   </div>
                 )}
 
