@@ -42,12 +42,13 @@ router.get("/", requirePermission("admin:users"), (req: Request, res: Response, 
 router.post("/", requirePermission("admin:users"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const validated = CreateUserSchema.parse(req.body);
+    const normalizedEmail = validated.email.toLowerCase().trim();
     const userId = "u_" + Math.random().toString(36).substring(2, 11);
     
     const newUser = {
       id: userId,
       name: validated.name,
-      email: validated.email.toLowerCase().trim(),
+      email: normalizedEmail,
       mfa_enabled: false,
       status: UserStatus.ACTIVE,
       role_id: validated.role_id,
@@ -87,11 +88,36 @@ router.put("/:id", requirePermission("admin:users"), (req: Request, res: Respons
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
+    if (validated.role_id) {
+      const roleExists = dbStore.getData().roles.some(r => r.id === validated.role_id);
+      if (!roleExists) {
+        return res.status(400).json({ success: false, message: "Role does not exist." });
+      }
+    }
+
+    if (validated.email) {
+      const normalizedEmail = validated.email.toLowerCase().trim();
+      const duplicatedEmail = dbStore.getData().users.some(u =>
+        u.id !== req.params.id && u.email.toLowerCase().trim() === normalizedEmail
+      );
+
+      if (duplicatedEmail) {
+        return res.status(409).json({ success: false, message: "User email already exists." });
+      }
+
+      validated.email = normalizedEmail;
+    }
+
     const { password, ...safeUpdates } = validated;
     Object.assign(user, safeUpdates, {
       ...(password ? { password_hash: hashPassword(password) } : {}),
       updated_at: new Date().toISOString()
     });
+
+    const auditMetadata = { ...validated } as any;
+    if (auditMetadata.password) {
+      auditMetadata.password = "[password-updated]";
+    }
 
     dbStore.addAuditLog({
       user_id: (req.headers["x-user-id"] as string) || "u1",
@@ -100,7 +126,7 @@ router.put("/:id", requirePermission("admin:users"), (req: Request, res: Respons
       entity_id: req.params.id,
       ip_address: req.ip || "127.0.0.1",
       user_agent: req.headers["user-agent"] || "unknown",
-      metadata: JSON.stringify(validated)
+      metadata: JSON.stringify(auditMetadata)
     });
 
     res.json(sanitizeUser(user));
@@ -114,10 +140,21 @@ router.put("/:id", requirePermission("admin:users"), (req: Request, res: Respons
 
 router.delete("/:id", requirePermission("admin:users"), (req: Request, res: Response, next: NextFunction) => {
   try {
+    const actorUserId = (req.headers["x-user-id"] as string) || "u1";
+    const user = dbStore.getData().users.find(u => u.id === req.params.id);
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+
+    if (actorUserId === req.params.id) {
+      return res.status(400).json({ success: false, message: "Current authenticated user cannot delete own account." });
+    }
+
     dbStore.getData().users = dbStore.getData().users.filter(u => u.id !== req.params.id);
 
     dbStore.addAuditLog({
-      user_id: (req.headers["x-user-id"] as string) || "u1",
+      user_id: actorUserId,
       action: "Delete User Account",
       entity_type: "User",
       entity_id: req.params.id,
