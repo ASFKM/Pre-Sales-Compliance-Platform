@@ -1453,6 +1453,26 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
   };
 
   // Record Approval Decision
+  const handleReleaseProposal = async (propId: string) => {
+    try {
+      const res = await fetch(`/api/proposals/${propId}/release`, { method: "POST" });
+
+      if (!res.ok) {
+        const errorBody = await res.json().catch(() => ({}));
+        throw new Error(errorBody.message || "Failed to release proposal.");
+      }
+
+      if (selectedProjectId) {
+        fetchProjectDetails(selectedProjectId);
+        fetchGlobalConfigs();
+        setActiveTab("proposals");
+      }
+    } catch (e) {
+      console.error(e);
+      alert(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const handleApprovalDecision = async (propId: string, stageId: string, decision: "approved" | "rejected", comments: string) => {
     try {
       const res = await fetch(`/api/proposals/${propId}/approval/decision`, {
@@ -4170,12 +4190,14 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                             <div className="flex items-center gap-2">
                               <h3 className="text-sm font-bold text-slate-800 uppercase font-mono">{prop.proposal_type === "technical" ? (locale === "pt" ? "Técnica" : "Technical") : (locale === "pt" ? "Comercial" : "Commercial")} - Draft v{prop.version}.0</h3>
                               <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${
+                                prop.status === "released" ? "text-purple-700 bg-purple-50 border-purple-200" :
                                 prop.status === "approved" ? "text-emerald-700 bg-emerald-50 border-emerald-200" :
                                 prop.status === "submitted" ? "text-blue-700 bg-blue-50 border-blue-200" :
                                 prop.status === "rejected" ? "text-red-700 bg-red-50 border-red-200" :
                                 "text-amber-700 bg-amber-50 border-amber-200"
                               }`}>
                                 {locale === "pt" ? (
+                                  prop.status === "released" ? "LIBERADA" :
                                   prop.status === "approved" ? "APROVADA" :
                                   prop.status === "submitted" ? "ENVIADA" :
                                   prop.status === "rejected" ? "REJEITADA" : "RASCUNHO"
@@ -4209,6 +4231,19 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                             >
                               {locale === "pt" ? "Enviar para Aprovação de Fluxo" : "Submit to Workflow Approvals"}
                             </button>
+                          )}
+                          {prop.status === "approved" && (
+                            <button
+                              onClick={() => handleReleaseProposal(prop.id)}
+                              className="bg-purple-600 hover:bg-purple-700 text-white font-mono text-[11px] font-bold px-3 py-1.5 rounded shadow-sm transition-all cursor-pointer"
+                            >
+                              {locale === "pt" ? "Liberar Versão Final" : "Release Final Version"}
+                            </button>
+                          )}
+                          {prop.status === "released" && (
+                            <span className="bg-purple-50 text-purple-700 border border-purple-200 font-mono text-[11px] font-bold px-3 py-1.5 rounded">
+                              {locale === "pt" ? "Versão Final Liberada" : "Final Version Released"}
+                            </span>
                           )}
                         </div>
                       </div>
@@ -4397,17 +4432,31 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                             <h3 className="text-sm font-bold text-slate-800 uppercase font-mono mt-0.5">{prop.proposal_type === "technical" ? (locale === "pt" ? "TÉCNICA" : "TECHNICAL") : (locale === "pt" ? "COMERCIAL" : "COMMERCIAL")} PROPOSAL BID v1.0</h3>
                           </div>
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${
+                            prop.status === "released" ? "text-purple-700 bg-purple-50 border-purple-200" :
                             prop.status === "approved" ? "text-emerald-700 bg-emerald-50 border-emerald-200" :
                             prop.status === "submitted" ? "text-blue-700 bg-blue-50 border-blue-200" :
+                            prop.status === "rejected" ? "text-red-700 bg-red-50 border-red-200" :
                             "text-amber-700 bg-amber-50 border-amber-200"
                           }`}>
                             {locale === "pt" ? (
+                              prop.status === "released" ? "LIBERADA" :
                               prop.status === "approved" ? "APROVADA" :
                               prop.status === "submitted" ? "ENVIADA" :
                               prop.status === "rejected" ? "REJEITADA" : "RASCUNHO"
                             ) : prop.status}
                           </span>
                         </div>
+
+                        {prop.status === "approved" && (
+                          <div className="flex justify-end">
+                            <button
+                              onClick={() => handleReleaseProposal(prop.id)}
+                              className="bg-purple-600 hover:bg-purple-700 text-white font-mono text-[11px] font-bold px-3 py-1.5 rounded shadow-sm transition-all cursor-pointer"
+                            >
+                              {locale === "pt" ? "Liberar Versão Final" : "Release Final Version"}
+                            </button>
+                          </div>
+                        )}
 
                         {/* Approval Stage Timeline */}
                         {workflow && (

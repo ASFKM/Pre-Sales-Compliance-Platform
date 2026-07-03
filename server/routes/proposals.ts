@@ -236,6 +236,71 @@ router.put("/proposals/:id", requirePermission("proposal:edit"), (req: Request, 
   }
 });
 
+// RELEASE an approved proposal as the final customer-ready version
+router.post("/proposals/:id/release", requirePermission("proposal:approve"), (req: Request, res: Response, next: NextFunction) => {
+  const correlationId = (req.headers["x-correlation-id"] as string) || "corr-proposal-release";
+  const startTime = Date.now();
+
+  try {
+    const proposal = dbStore.getProposal(req.params.id);
+
+    if (!proposal) {
+      return res.status(404).json({ success: false, message: "Proposal not found." });
+    }
+
+    if (proposal.status !== "approved") {
+      return res.status(400).json({
+        success: false,
+        message: `Only approved proposals can be released. Current status is '${proposal.status}'.`
+      });
+    }
+
+    const previousStatus = proposal.status;
+    const docxFullPath = path.join(process.cwd(), proposal.docx_file_path);
+    const pdfFullPath = path.join(process.cwd(), proposal.pdf_file_path);
+
+    if (!fs.existsSync(docxFullPath)) {
+      return res.status(400).json({ success: false, message: "Cannot release proposal because the DOCX file is missing." });
+    }
+
+    if (!fs.existsSync(pdfFullPath)) {
+      return res.status(400).json({ success: false, message: "Cannot release proposal because the PDF file is missing." });
+    }
+
+    const releasedProposal = dbStore.updateProposalStatus(req.params.id, "released");
+
+    logDebugMessage({
+      operation: "Proposal Release",
+      message: `Released proposal ${req.params.id} as final customer-ready version`,
+      status: "SUCCESS",
+      durationMs: Date.now() - startTime,
+      correlationId,
+      projectId: proposal.project_id
+    });
+
+    const userId = (req.headers["x-user-id"] as string) || "u1";
+    dbStore.addAuditLog({
+      user_id: userId,
+      action: "Release Final Proposal",
+      entity_type: "Proposal",
+      entity_id: proposal.id,
+      project_id: proposal.project_id,
+      ip_address: req.ip || "127.0.0.1",
+      user_agent: req.headers["user-agent"] || "unknown",
+      metadata: JSON.stringify({
+        previous_status: previousStatus,
+        next_status: "released",
+        docx_file_path: proposal.docx_file_path,
+        pdf_file_path: proposal.pdf_file_path
+      })
+    });
+
+    res.json({ success: true, proposal: releasedProposal });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // SERVE proposal files for download/export (fully compliant paths)
 router.get("/proposals/:id/export/docx", requireAuth, (req: Request, res: Response, next: NextFunction) => {
   try {
