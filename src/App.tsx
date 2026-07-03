@@ -1663,22 +1663,24 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
 
   const handleExportDiagnosticsPackage = async () => {
     try {
-      const res = await fetch("/api/admin/diagnostics/package", { method: "POST" });
-      const data = await res.json();
+      const res = await fetch("/api/admin/diagnostics/package/download");
 
-      if (!res.ok || !data.success) {
-        alert(data.message || (locale === "pt" ? "Não foi possível gerar o pacote de diagnóstico." : "Could not generate diagnostic package."));
+      if (!res.ok) {
+        const err = await res.text();
+        alert(err || (locale === "pt" ? "Não foi possível baixar o pacote de diagnóstico." : "Could not download diagnostic package."));
         return;
       }
 
-      const blob = new Blob([data.report_content || ""], { type: "text/plain;charset=utf-8" });
-      downloadBlob(data.filename || "commercial_assistant_diagnostic_package.txt", blob);
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const filenameMatch = disposition.match(/filename="?([^"]+)"?/i);
+      const filename = filenameMatch?.[1] || "commercial_assistant_diagnostic_package.txt";
+      const blob = await res.blob();
+
+      downloadBlob(filename, blob);
 
       alert(locale === "pt"
-        ? `Diagnóstico gerado. Correlation ID: ${data.correlation_id}`
-        : `Diagnostics generated. Correlation ID: ${data.correlation_id}`);
-
-      await fetchGlobalConfigs();
+        ? "Pacote de diagnóstico sanitizado baixado com sucesso."
+        : "Sanitized diagnostic package downloaded successfully.");
     } catch (err) {
       console.error(err);
       alert(locale === "pt" ? "Erro ao exportar diagnóstico." : "Error exporting diagnostics.");
@@ -6514,10 +6516,10 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                 </div>
                 <div className="text-center space-y-1 max-w-sm">
                   <h4 className="text-sm font-bold uppercase font-mono tracking-wider text-emerald-400">
-                    {locale === "pt" ? "Desbloquear console de diagnóstico" : "Unlock Diagnostic Console"}
+                    {locale === "pt" ? "Console de diagnóstico técnico" : "Technical Diagnostic Console"}
                   </h4>
                   <p className="text-[11px] text-slate-400">
-                    {locale === "pt" ? "Insira a senha de administrador do sistema para acessar os canais de telemetria em tempo real." : "Enter the system administrator password to connect to the active trace telemetry channels."}
+                    {locale === "pt" ? "Logs administrativos, status do sistema e pacote de diagnóstico sanitizado são carregados diretamente dos endpoints protegidos." : "Administrative logs, system status and sanitized diagnostic package are loaded directly from protected endpoints."}
                   </p>
                 </div>
 
@@ -6565,20 +6567,20 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
               <>
                 <div className="p-4 bg-slate-900 border-b border-slate-800 flex justify-between items-center shrink-0">
                   <div className="flex gap-4 text-xs font-mono text-slate-400">
-                    <span>{tx("Active Channels", "Canais Ativos")}: <span className="text-emerald-400 font-bold">3</span></span>
-                    <span>{tx("Diagnostics", "Diagnóstico")}: <span className="text-emerald-400 font-bold">{tx("Fully Decrypted", "Totalmente Descriptografado")}</span></span>
+                    <span>{tx("Debug Records", "Registros de Debug")}: <span className="text-emerald-400 font-bold">{debugLogs.length}</span></span>
+                    <span>{tx("Diagnostics", "Diagnóstico")}: <span className="text-emerald-400 font-bold">{tx("Sanitized", "Sanitizado")}</span></span>
                   </div>
                   <button
                     onClick={() => {
                       if (currentSessionUser.role !== "Administrator") {
-                        alert(locale === "pt" ? "Acesso Negado: Apenas a função 'Administrator' pode empacotar ou exportar os relatórios de diagnóstico técnicos!" : "Access Denied: Only the 'Administrator' role can compile and export technical diagnostic packages!");
+                        alert(locale === "pt" ? "Acesso negado pela API administrativa. Verifique as permissões do usuário." : "Access denied by the administrative API. Check the current user's permissions.");
                         return;
                       }
                       handleExportDiagnosticsPackage();
                     }}
                     className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-3 rounded shadow-sm transition-all cursor-pointer"
                   >
-                    {locale === "pt" ? "Exportar Diagnósticos Técnicos" : "Package Trace Diagnostics"}
+                    {locale === "pt" ? "Baixar Pacote de Diagnóstico" : "Download Diagnostic Package"}
                   </button>
                 </div>
 

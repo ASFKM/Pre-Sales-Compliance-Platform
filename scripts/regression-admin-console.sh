@@ -89,6 +89,11 @@ grep -q '\["subscription"' src/App.tsx || fail "subscription menu missing"
 grep -q 'activeAdminSection === "subscription"' src/App.tsx || fail "subscription panel missing"
 ok "subscription kept for last phase"
 
+if grep -q 'Desbloquear console de diagnóstico\|Unlock Diagnostic Console\|Fully Decrypted\|Totalmente Descriptografado\|Active Channels.*3' src/App.tsx; then
+  fail "admin diagnostics still contains mock/fake diagnostic copy"
+fi
+ok "diagnostics copy is enterprise-safe"
+
 echo "Users/Roles"
 expect 403 "manager cannot list users" \
   -H "Authorization: Bearer $MANAGER_TOKEN" \
