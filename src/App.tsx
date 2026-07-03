@@ -225,6 +225,38 @@ export default function App() {
   const hasPermission = (permission: string) =>
     Array.isArray(currentSessionUser.permissions) && currentSessionUser.permissions.includes(permission);
 
+  const adminSectionPermissions: Record<string, string[]> = {
+    overview: [
+      "admin:users",
+      "admin:roles",
+      "admin:settings",
+      "admin:audit",
+      "ai:settings",
+      "template:manage",
+      "approval:manage",
+      "branding:manage",
+      "integrations:manage",
+      "storage:manage"
+    ],
+    users: ["admin:users", "admin:roles"],
+    ai: ["ai:settings"],
+    templates: ["template:manage"],
+    approval_flow: ["approval:manage"],
+    subscription: ["admin:settings"],
+    branding: ["branding:manage"],
+    integrations: ["integrations:manage"],
+    storage: ["storage:manage"],
+    audit: ["admin:audit", "admin:debug", "admin:diagnostics"]
+  };
+
+  const hasAnyPermission = (permissions: string[]) => permissions.some((permission) => hasPermission(permission));
+
+  const canAccessAdminSection = (section: string) =>
+    hasAnyPermission(adminSectionPermissions[section] || []);
+
+  const canAccessAdminConsole = () =>
+    Object.keys(adminSectionPermissions).some((section) => canAccessAdminSection(section));
+
   useEffect(() => {
     const checkAuth = async () => {
       const token = localStorage.getItem("ca_session_token");
@@ -2211,14 +2243,22 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
             </button>
           </div>
 
-          <div className="flex items-center">
-            <button
-              onClick={() => setActiveTab("admin")}
-              className={`py-4 px-1 border-b-2 transition-all ${activeTab === "admin" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
-            >
-              {t("adminConsole")}
-            </button>
-          </div>
+          {canAccessAdminConsole() && (
+            <div className="flex items-center">
+              <button
+                onClick={() => {
+                  if (!canAccessAdminSection(activeAdminSection)) {
+                    const firstAllowedSection = Object.keys(adminSectionPermissions).find((section) => canAccessAdminSection(section));
+                    setActiveAdminSection((firstAllowedSection || "overview") as any);
+                  }
+                  setActiveTab("admin");
+                }}
+                className={`py-4 px-1 border-b-2 transition-all ${activeTab === "admin" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
+              >
+                {t("adminConsole")}
+              </button>
+            </div>
+          )}
         </div>
 
         {/* User Context, Language Switcher & AI Health */}
@@ -2915,6 +2955,11 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                         <p className="leading-relaxed">{analysisError}</p>
                         <button
                           onClick={() => {
+                            if (!canAccessAdminSection("ai")) {
+                              alert(locale === "pt" ? "Você não tem permissão para acessar as configurações de IA." : "You do not have permission to access AI settings.");
+                              return;
+                            }
+
                             setActiveTab("admin");
                             setActiveAdminSection("ai");
                           }}
@@ -4569,7 +4614,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
           )}
 
           {/* TAB 5: ADMIN CONSOLE */}
-          {activeTab === "admin" && (
+          {activeTab === "admin" && canAccessAdminConsole() && (
             <div className="flex-1 flex flex-col lg:flex-row overflow-hidden bg-slate-100">
 
               <aside className="w-full lg:w-72 bg-slate-950 text-slate-300 border-b lg:border-b-0 lg:border-r border-slate-800 flex flex-col shrink-0 max-h-72 lg:max-h-none">
@@ -4597,7 +4642,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                     ["integrations", locale === "pt" ? "Integrações e APIs" : "Integrations & APIs", locale === "pt" ? "CRM, ERP e conectores externos" : "CRM, ERP and external connectors"],
                     ["storage", locale === "pt" ? "Armazenamento" : "Storage", locale === "pt" ? "Arquivos, buckets e documentos" : "Files, buckets and documents"],
                     ["audit", locale === "pt" ? "Auditoria e Diagnóstico" : "Audit & Diagnostics", locale === "pt" ? "Logs, rastreio e exportação" : "Logs, traces and exports"],
-                  ].map(([id, label, desc]) => (
+                  ].filter(([id]) => canAccessAdminSection(String(id))).map(([id, label, desc]) => (
                     <button
                       key={id}
                       onClick={() => setActiveAdminSection(id as any)}
@@ -4621,10 +4666,10 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                       {locale === "pt" ? "Administração do Sistema" : "System Administration"}
                     </p>
                     <h2 className="text-xl font-bold text-slate-900 mt-1">
-                      {activeAdminSection === "overview" && (locale === "pt" ? "Visão Geral do Sistema" : "System Overview")}
-                      {activeAdminSection === "users" && (locale === "pt" ? "Usuários e Acessos" : "Users & Access")}
-                      {activeAdminSection === "ai" && (locale === "pt" ? "IA, Prompts e Custos" : "AI, Prompts & Costs")}
-                      {activeAdminSection === "templates" && (
+                      {activeAdminSection === "overview" && canAccessAdminSection("overview") && (locale === "pt" ? "Visão Geral do Sistema" : "System Overview")}
+                      {activeAdminSection === "users" && canAccessAdminSection("users") && (locale === "pt" ? "Usuários e Acessos" : "Users & Access")}
+                      {activeAdminSection === "ai" && canAccessAdminSection("ai") && (locale === "pt" ? "IA, Prompts e Custos" : "AI, Prompts & Costs")}
+                      {activeAdminSection === "templates" && canAccessAdminSection("templates") && (
                   <div className="w-full grid grid-cols-1 xl:grid-cols-3 gap-6">
                     <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
                       <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
@@ -4786,12 +4831,12 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                   </div>
                 )}
 
-                {activeAdminSection === "approval_flow" && (locale === "pt" ? "Fluxo de Aprovação de Propostas" : "Proposal Approval Workflow")}
-                      {activeAdminSection === "subscription" && (locale === "pt" ? "Subscrição e Licença" : "Subscription & License")}
-                      {activeAdminSection === "branding" && (locale === "pt" ? "Personalização e Identidade Visual" : "Branding & Visual Identity")}
-                      {activeAdminSection === "integrations" && (locale === "pt" ? "Integrações, CRMs, ERPs e APIs" : "Integrations, CRMs, ERPs and APIs")}
-                      {activeAdminSection === "storage" && (locale === "pt" ? "Armazenamento e Documentos" : "Storage & Documents")}
-                      {activeAdminSection === "audit" && (locale === "pt" ? "Auditoria e Diagnóstico" : "Audit & Diagnostics")}
+                {activeAdminSection === "approval_flow" && canAccessAdminSection("approval_flow") && (locale === "pt" ? "Fluxo de Aprovação de Propostas" : "Proposal Approval Workflow")}
+                      {activeAdminSection === "subscription" && canAccessAdminSection("subscription") && (locale === "pt" ? "Subscrição e Licença" : "Subscription & License")}
+                      {activeAdminSection === "branding" && canAccessAdminSection("branding") && (locale === "pt" ? "Personalização e Identidade Visual" : "Branding & Visual Identity")}
+                      {activeAdminSection === "integrations" && canAccessAdminSection("integrations") && (locale === "pt" ? "Integrações, CRMs, ERPs e APIs" : "Integrations, CRMs, ERPs and APIs")}
+                      {activeAdminSection === "storage" && canAccessAdminSection("storage") && (locale === "pt" ? "Armazenamento e Documentos" : "Storage & Documents")}
+                      {activeAdminSection === "audit" && canAccessAdminSection("audit") && (locale === "pt" ? "Auditoria e Diagnóstico" : "Audit & Diagnostics")}
                     </h2>
                     <p className="text-xs text-slate-500 mt-1">
                       {locale === "pt" ? "Configure parâmetros globais sem contexto de projeto ou licitação." : "Configure global settings without project or bid context."}
@@ -4805,7 +4850,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                   </span>
                 </div>
 
-                {activeAdminSection === "overview" && (
+                {activeAdminSection === "overview" && canAccessAdminSection("overview") && (
                   <div className="w-full space-y-3">
                     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
                       {[
@@ -4973,7 +5018,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                   </div>
                 )}
 
-                {activeAdminSection === "users" && (
+                {activeAdminSection === "users" && canAccessAdminSection("users") && (
                   <div className="w-full space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                       {roles.map(role => (
@@ -5249,7 +5294,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                   </div>
                 )}
 
-                {activeAdminSection === "ai" && (
+                {activeAdminSection === "ai" && canAccessAdminSection("ai") && (
                   <div className="w-full grid grid-cols-1 xl:grid-cols-2 gap-6">
                     <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
                       <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
@@ -5415,7 +5460,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                   </div>
                 )}
 
-                {activeAdminSection === "templates" && (
+                {activeAdminSection === "templates" && canAccessAdminSection("templates") && (
                   <div className="w-full grid grid-cols-1 xl:grid-cols-3 gap-6">
                     <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
                       <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
@@ -5489,7 +5534,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                   </div>
                 )}
 
-                {activeAdminSection === "approval_flow" && (
+                {activeAdminSection === "approval_flow" && canAccessAdminSection("approval_flow") && (
                   <div className="w-full bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-5">
                     <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 border-b border-slate-100 pb-3">
                       <div>
@@ -5695,7 +5740,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                   </div>
                 )}
 
-                {activeAdminSection === "subscription" && (
+                {activeAdminSection === "subscription" && canAccessAdminSection("subscription") && (
                   <div className="w-full bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
                     <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
                       {locale === "pt" ? "Gestão de Subscrição e Licença" : "Subscription & Licensing Manager"}
@@ -5742,7 +5787,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                   </div>
                 )}
 
-                {activeAdminSection === "branding" && (
+                {activeAdminSection === "branding" && canAccessAdminSection("branding") && (
                   <div className="w-full grid grid-cols-1 xl:grid-cols-2 gap-6">
                     <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
                       <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
@@ -5850,7 +5895,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                   </div>
                 )}
 
-                {activeAdminSection === "integrations" && (
+                {activeAdminSection === "integrations" && canAccessAdminSection("integrations") && (
                   <div className="w-full bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-5">
                     <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                       <div>
@@ -5976,7 +6021,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                   </div>
                 )}
 
-                {activeAdminSection === "storage" && (
+                {activeAdminSection === "storage" && canAccessAdminSection("storage") && (
                   <div className="w-full bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-5">
                     <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 border-b border-slate-100 pb-3">
                       <div>
@@ -6070,7 +6115,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                   </div>
                 )}
 
-                {activeAdminSection === "audit" && (
+                {activeAdminSection === "audit" && canAccessAdminSection("audit") && (
                   <div className="w-full grid grid-cols-1 xl:grid-cols-2 gap-6">
                     <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
                       <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
