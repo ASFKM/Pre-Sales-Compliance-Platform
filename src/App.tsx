@@ -516,6 +516,8 @@ export default function App() {
   const [brandingSettings, setBrandingSettings] = useState<BrandingSettings | null>(null);
   const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>([]);
   const [proposalTemplates, setProposalTemplates] = useState<any[]>([]);
+  const [selectedTechnicalTemplateId, setSelectedTechnicalTemplateId] = useState("");
+  const [selectedCommercialTemplateId, setSelectedCommercialTemplateId] = useState("");
   const [approvalWorkflows, setApprovalWorkflows] = useState<any[]>([]);
   const [approvalDecisions, setApprovalDecisions] = useState<any[]>([]);
   const [showNewApprovalWorkflowForm, setShowNewApprovalWorkflowForm] = useState<boolean>(false);
@@ -787,7 +789,16 @@ export default function App() {
 
       const tRes = await fetch("/api/templates/proposals");
       const tData = await tRes.json();
-      setProposalTemplates(Array.isArray(tData) ? tData : []);
+      const safeTemplates = Array.isArray(tData) ? tData : [];
+      setProposalTemplates(safeTemplates);
+
+      const defaultTechnicalTemplate = safeTemplates.find((tpl: any) => tpl.template_type === "technical" && tpl.default_template && tpl.active)
+        || safeTemplates.find((tpl: any) => tpl.template_type === "technical" && tpl.active);
+      const defaultCommercialTemplate = safeTemplates.find((tpl: any) => tpl.template_type === "commercial" && tpl.default_template && tpl.active)
+        || safeTemplates.find((tpl: any) => tpl.template_type === "commercial" && tpl.active);
+
+      if (defaultTechnicalTemplate) setSelectedTechnicalTemplateId((current) => current || defaultTechnicalTemplate.id);
+      if (defaultCommercialTemplate) setSelectedCommercialTemplateId((current) => current || defaultCommercialTemplate.id);
 
       const workflowRes = await fetch("/api/approval-workflows");
       const workflowData = await workflowRes.json();
@@ -1161,19 +1172,40 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
   // Generate Technical Proposal Studio
   const handleGenerateTechnicalProposal = async () => {
     if (!selectedProjectId) return;
+
+    const templateId = selectedTechnicalTemplateId
+      || proposalTemplates.find((tpl: any) => tpl.template_type === "technical" && tpl.default_template && tpl.active)?.id
+      || proposalTemplates.find((tpl: any) => tpl.template_type === "technical" && tpl.active)?.id;
+
+    if (!templateId) {
+      alert(locale === "pt" ? "Nenhum template técnico ativo foi encontrado." : "No active technical template was found.");
+      return;
+    }
+
     try {
       const res = await fetch(`/api/projects/${selectedProjectId}/proposals/technical`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ template_id: "t1" })
+        body: JSON.stringify({
+          template_id: templateId,
+          language: locale === "pt" ? "Portuguese" : "English",
+          payment_terms: "Net 30",
+          delivery_terms: "Delivery after technical approval",
+          proposal_validity: "90 days"
+        })
       });
-      if (res.ok) {
-        fetchProjectDetails(selectedProjectId);
-        fetchGlobalConfigs();
-        setActiveTab("proposals");
+
+      if (!res.ok) {
+        const errorBody = await res.json().catch(() => ({}));
+        throw new Error(errorBody.message || "Failed to generate technical proposal.");
       }
+
+      fetchProjectDetails(selectedProjectId);
+      fetchGlobalConfigs();
+      setActiveTab("proposals");
     } catch (e) {
       console.error(e);
+      alert(e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -1181,39 +1213,59 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
   const handleGenerateCommercialProposal = async () => {
     if (!selectedProjectId) return;
 
+    const templateId = selectedCommercialTemplateId
+      || proposalTemplates.find((tpl: any) => tpl.template_type === "commercial" && tpl.default_template && tpl.active)?.id
+      || proposalTemplates.find((tpl: any) => tpl.template_type === "commercial" && tpl.active)?.id;
+
+    if (!templateId) {
+      alert(locale === "pt" ? "Nenhum template comercial ativo foi encontrado." : "No active commercial template was found.");
+      return;
+    }
+
     // Grab items from current BOM config
-    const pricingRows: PricingRow[] = (analysisResult?.bom || []).map(b => ({
-      item_id: b.item_id,
-      product_or_service: b.product_or_service,
-      quantity: b.quantity,
-      unit: b.unit,
-      unit_price: b.product_or_service.includes("ALPR") ? 1850 : (b.product_or_service.includes("Switch") ? 420 : 350),
-      total_price: b.quantity * (b.product_or_service.includes("ALPR") ? 1850 : (b.product_or_service.includes("Switch") ? 420 : 350)),
-      currency: "USD",
-      is_optional: b.mandatory_or_optional === "optional",
-      discount: 10
-    }));
+    const pricingRows: PricingRow[] = (analysisResult?.bom || []).map(b => {
+      const unitPrice = b.product_or_service.includes("ALPR") ? 1850 : (b.product_or_service.includes("Switch") ? 420 : 350);
+
+      return {
+        item_id: b.item_id,
+        product_or_service: b.product_or_service,
+        quantity: b.quantity,
+        unit: b.unit,
+        unit_price: unitPrice,
+        total_price: b.quantity * unitPrice,
+        currency: "USD",
+        is_optional: b.mandatory_or_optional === "optional",
+        discount: 10
+      };
+    });
 
     try {
       const res = await fetch(`/api/projects/${selectedProjectId}/proposals/commercial`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          template_id: "t2",
-          pricing_table: pricingRows,
-          payment_terms: "30% mobilisação, 40% entrega de hardware no local, 30% aceite final.",
+          template_id: templateId,
+          language: locale === "pt" ? "Portuguese" : "English",
+          manual_pricing_table: pricingRows,
+          payment_terms: "30% mobilização, 40% entrega de hardware no local, 30% aceite final.",
           delivery_terms: "DDP Local do Cliente (Incoterms 2026)",
-          validity: "90 dias de validade a contar de hoje",
+          proposal_validity: "90 dias de validade a contar de hoje",
+          commercial_assumptions: "Valores estimados com base no BOM técnico preliminar gerado pela análise.",
           exclusions: "Infraestrutura civil de dutos ou permissões públicas regionais."
         })
       });
-      if (res.ok) {
-        fetchProjectDetails(selectedProjectId);
-        fetchGlobalConfigs();
-        setActiveTab("proposals");
+
+      if (!res.ok) {
+        const errorBody = await res.json().catch(() => ({}));
+        throw new Error(errorBody.message || "Failed to generate commercial proposal.");
       }
+
+      fetchProjectDetails(selectedProjectId);
+      fetchGlobalConfigs();
+      setActiveTab("proposals");
     } catch (e) {
       console.error(e);
+      alert(e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -3333,8 +3385,12 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                         </p>
                         <div className="mt-2 pt-2 border-t border-slate-200">
                           <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{tx("Select Document Template", "Selecionar Modelo de Documento")}</label>
-                          <select className="text-xs p-1.5 rounded border border-slate-300 w-full focus:outline-none focus:ring-1 focus:ring-emerald-500">
-                            {proposalTemplates.filter(t => t.template_type === "technical").map(t => (
+                          <select
+                            value={selectedTechnicalTemplateId}
+                            onChange={(e) => setSelectedTechnicalTemplateId(e.target.value)}
+                            className="text-xs p-1.5 rounded border border-slate-300 w-full focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                          >
+                            {proposalTemplates.filter(t => t.template_type === "technical" && t.active).map(t => (
                               <option key={t.id} value={t.id}>{t.name} ({t.version})</option>
                             ))}
                           </select>
@@ -3359,8 +3415,12 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                         </p>
                         <div className="mt-2 pt-2 border-t border-slate-200">
                           <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{tx("Select Document Template", "Selecionar Modelo de Documento")}</label>
-                          <select className="text-xs p-1.5 rounded border border-slate-300 w-full focus:outline-none focus:ring-1 focus:ring-emerald-500">
-                            {proposalTemplates.filter(t => t.template_type === "commercial").map(t => (
+                          <select
+                            value={selectedCommercialTemplateId}
+                            onChange={(e) => setSelectedCommercialTemplateId(e.target.value)}
+                            className="text-xs p-1.5 rounded border border-slate-300 w-full focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                          >
+                            {proposalTemplates.filter(t => t.template_type === "commercial" && t.active).map(t => (
                               <option key={t.id} value={t.id}>{t.name} ({t.version})</option>
                             ))}
                           </select>
