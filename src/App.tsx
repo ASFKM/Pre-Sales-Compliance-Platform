@@ -1274,6 +1274,11 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
     const prop = (Array.isArray(proposals) ? proposals : []).find(p => p.id === propId);
     if (!prop || !prop.manual_pricing_table) return;
 
+    if (prop.status !== "draft") {
+      alert(locale === "pt" ? "Apenas propostas em rascunho podem ser editadas." : "Only draft proposals can be edited.");
+      return;
+    }
+
     const updatedTable = prop.manual_pricing_table.map(row => {
       if (row.item_id === rowId) {
         const updatedRow = { ...row, [field]: value };
@@ -4275,7 +4280,8 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                                         type="number"
                                         value={row.quantity}
                                         onChange={(e) => handleUpdateProposalCommercial(prop.id, row.item_id, "quantity", parseInt(e.target.value) || 1)}
-                                        className="w-14 p-1 rounded border border-slate-200 text-center font-semibold bg-white"
+                                        disabled={prop.status !== "draft"}
+                                        className="w-14 p-1 rounded border border-slate-200 text-center font-semibold bg-white disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
                                       />
                                     </td>
                                     <td className="p-2.5">
@@ -4283,7 +4289,8 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                                         type="number"
                                         value={row.unit_price}
                                         onChange={(e) => handleUpdateProposalCommercial(prop.id, row.item_id, "unit_price", parseFloat(e.target.value) || 0)}
-                                        className="w-20 p-1 rounded border border-slate-200 text-center font-semibold bg-white"
+                                        disabled={prop.status !== "draft"}
+                                        className="w-20 p-1 rounded border border-slate-200 text-center font-semibold bg-white disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
                                       />
                                     </td>
                                     <td className="p-2.5">
@@ -4291,7 +4298,8 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                                         type="number"
                                         value={row.discount}
                                         onChange={(e) => handleUpdateProposalCommercial(prop.id, row.item_id, "discount", parseFloat(e.target.value) || 0)}
-                                        className="w-14 p-1 rounded border border-slate-200 text-center font-semibold bg-white"
+                                        disabled={prop.status !== "draft"}
+                                        className="w-14 p-1 rounded border border-slate-200 text-center font-semibold bg-white disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
                                       />
                                     </td>
                                     <td className="p-2.5 font-bold text-slate-900">${row.total_price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>

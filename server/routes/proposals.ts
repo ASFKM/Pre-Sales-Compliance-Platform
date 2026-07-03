@@ -209,11 +209,20 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
 router.put("/proposals/:id", requirePermission("proposal:edit"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const validated = CreateProposalSchema.partial().parse(req.body);
-    const proposal = dbStore.updateProposal(req.params.id, validated);
+    const existingProposal = dbStore.getProposal(req.params.id);
 
-    if (!proposal) {
+    if (!existingProposal) {
       return res.status(404).json({ success: false, message: "Proposal not found" });
     }
+
+    if (existingProposal.status !== "draft") {
+      return res.status(400).json({
+        success: false,
+        message: `Only draft proposals can be edited. Current status is '${existingProposal.status}'.`
+      });
+    }
+
+    const proposal = dbStore.updateProposal(req.params.id, validated);
 
     const userId = (req.headers["x-user-id"] as string) || "u1";
     dbStore.addAuditLog({
@@ -221,7 +230,7 @@ router.put("/proposals/:id", requirePermission("proposal:edit"), (req: Request, 
       action: "Update Proposal Pricing Details",
       entity_type: "Proposal",
       entity_id: req.params.id,
-      project_id: proposal.project_id,
+      project_id: proposal?.project_id,
       ip_address: req.ip || "127.0.0.1",
       user_agent: req.headers["user-agent"] || "unknown",
       metadata: JSON.stringify(validated)
