@@ -311,7 +311,7 @@ router.post("/proposals/:id/release", requirePermission("proposal:approve"), (re
 });
 
 // SERVE proposal files for download/export (fully compliant paths)
-router.get("/proposals/:id/export/docx", requireAuth, (req: Request, res: Response, next: NextFunction) => {
+router.get("/proposals/:id/export/docx", requirePermission("proposal:export"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const proposal = dbStore.getProposal(req.params.id);
     if (!proposal) {
@@ -327,7 +327,7 @@ router.get("/proposals/:id/export/docx", requireAuth, (req: Request, res: Respon
   }
 });
 
-router.get("/proposals/:id/export/pdf", requireAuth, (req: Request, res: Response, next: NextFunction) => {
+router.get("/proposals/:id/export/pdf", requirePermission("proposal:export"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const proposal = dbStore.getProposal(req.params.id);
     if (!proposal) {
