@@ -10,7 +10,8 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "regression:approval-rbac": "bash scripts/regression-approval-rbac.sh",
-    "regression:workspace-documents": "bash scripts/regression-workspace-documents.sh"
+    "regression:workspace-documents": "bash scripts/regression-workspace-documents.sh",
+    "regression:admin-console": "bash scripts/regression-admin-console.sh"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
