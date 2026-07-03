@@ -19,6 +19,15 @@ cp db_state.json "$DB_BAK"
 cleanup() {
   cp "$DB_BAK" db_state.json
   sudo systemctl restart commercial-assistant-ai >/dev/null 2>&1 || true
+
+  if [ -n "${GENERATED_DOCX_PATH:-}" ]; then
+    rm -f "$GENERATED_DOCX_PATH"
+  fi
+
+  if [ -n "${GENERATED_PDF_PATH:-}" ]; then
+    rm -f "$GENERATED_PDF_PATH"
+  fi
+
   rm -f "$DB_BAK" \
     /tmp/regression_approval_context.json \
     /tmp/regression_approval_export.docx \
@@ -88,7 +97,10 @@ CREATE_RESPONSE="$(curl -s -X POST "http://127.0.0.1:3000/api/projects/$PROJECT_
   -d "{\"template_id\":\"$TEMPLATE_ID\",\"language\":\"Portuguese\",\"payment_terms\":\"Net 30\",\"delivery_terms\":\"Delivery after approval\",\"proposal_validity\":\"90 days\"}")"
 
 PROPOSAL_ID="$(echo "$CREATE_RESPONSE" | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{const j=JSON.parse(s); if(!j.id){console.error(s); process.exit(1)} console.log(j.id)})')"
+GENERATED_DOCX_PATH="$(echo "$CREATE_RESPONSE" | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{const j=JSON.parse(s); const p=String(j.docx_file_path || ""); console.log(p.startsWith("/") ? p.slice(1) : p)})')"
+GENERATED_PDF_PATH="$(echo "$CREATE_RESPONSE" | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{const j=JSON.parse(s); const p=String(j.pdf_file_path || ""); console.log(p.startsWith("/") ? p.slice(1) : p)})')"
 echo "Created proposal: $PROPOSAL_ID"
+echo "Generated files: $GENERATED_DOCX_PATH $GENERATED_PDF_PATH"
 
 curl -s -o /tmp/regression_approval_export.docx -w "HTTP:%{http_code}\n" \
   -H "Authorization: Bearer $ENGINEER_TOKEN" \
