@@ -197,7 +197,7 @@ router.delete("/:id", requirePermission("integrations:manage"), (req: Request, r
   }
 });
 
-// Test integration securely and persist simulated health result
+// Validate connector configuration securely without simulating an external sync
 router.post("/:id/test", requirePermission("integrations:manage"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const conn = dbStore.getIntegrations().find(c => c.id === req.params.id) as any;
@@ -216,7 +216,7 @@ router.post("/:id/test", requirePermission("integrations:manage"), (req: Request
     const canConnect = Boolean(configuration.url || configuration.endpoint);
 
     const status = canConnect ? "connected" : "error";
-    const lastSyncStatus = canConnect ? "SUCCESS" : "FAILED";
+    const lastSyncStatus = canConnect ? "CONFIG_VALIDATED" : "CONFIG_INVALID";
 
     const updated = dbStore.updateIntegration(req.params.id, {
       status,
@@ -225,20 +225,25 @@ router.post("/:id/test", requirePermission("integrations:manage"), (req: Request
       error_message: canConnect ? "" : "Missing endpoint URL."
     }) as any;
 
-    auditIntegration(req, "Test Integration", req.params.id, {
+    auditIntegration(req, "Validate Integration Configuration", req.params.id, {
       name: conn.name,
       status,
       has_credential: hasCredential,
-      endpoint_configured: canConnect
+      endpoint_configured: canConnect,
+      external_sync_executed: false
     });
 
     res.json({
       success: canConnect,
       status,
-      latency_ms: canConnect ? 124 : null,
+      validation_mode: "configuration_only",
+      external_sync_executed: false,
+      latency_ms: null,
       credential_configured: hasCredential,
       integration: safeConnectorForResponse(updated),
-      message: canConnect ? "Integration test completed successfully." : "Integration endpoint is not configured."
+      message: canConnect
+        ? "Connector configuration validated. No external sync was executed."
+        : "Integration endpoint is not configured."
     });
   } catch (err) {
     next(err);

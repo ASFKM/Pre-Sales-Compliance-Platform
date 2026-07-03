@@ -571,7 +571,7 @@ export default function App() {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [debugLogs, setDebugLogs] = useState<DebugLog[]>([]);
   const [platformSettings, setPlatformSettings] = useState<PlatformSettings | null>(null);
-  const [storageTestResult, setStorageTestResult] = useState<any>(null);
+  const [storageValidateResult, setStorageValidateResult] = useState<any>(null);
   const [brandingSettings, setBrandingSettings] = useState<BrandingSettings | null>(null);
   const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>([]);
   const [proposalTemplates, setProposalTemplates] = useState<any[]>([]);
@@ -668,7 +668,7 @@ export default function App() {
           responsible_area: "Equipe de Instalação"
         },
         {
-          phase_name: "Integração de Software & Testes de Aceitação",
+          phase_name: "Integração de Software & Validatees de Aceitação",
           estimated_duration: "2 semanas",
           activities: ["Conectar API gateway", "Executar teste de velocidade de veículos a 180 km/h", "Emitir termo de encerramento da MTA"],
           responsible_area: "Engenharia de Software"
@@ -1616,16 +1616,16 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
     }
   };
 
-  // Test Integrations Link
-  const handleTestIntegration = async (id: string) => {
+  // Validate Integrations Link
+  const handleValidateIntegration = async (id: string) => {
     try {
       const res = await fetch(`/api/integrations/${id}/test`, { method: "POST" });
       const data = await res.json();
       await fetchGlobalConfigs();
 
       alert(locale === "pt"
-        ? `Status: ${data.status} • Latência: ${data.latency_ms ?? "N/A"}ms`
-        : `Status: ${data.status} • Latency: ${data.latency_ms ?? "N/A"}ms`);
+        ? `Status: ${data.status} • Validação: ${data.validation_mode || "configuration_only"}`
+        : `Status: ${data.status} • Validation: ${data.validation_mode || "configuration_only"}`);
     } catch (e) {
       console.error(e);
       alert(locale === "pt" ? "Erro ao testar integração." : "Error testing integration.");
@@ -2050,12 +2050,12 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
     }
   };
 
-  const handleTestStorageSettings = async () => {
+  const handleValidateStorageSettings = async () => {
     try {
       const res = await fetch("/api/settings/storage/status");
       const data = await res.json();
 
-      setStorageTestResult(data);
+      setStorageValidateResult(data);
 
       if (!res.ok || !data.success) {
         alert(data.message || (locale === "pt" ? "Falha ao testar armazenamento." : "Storage test failed."));
@@ -6036,8 +6036,8 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                               >
                                 {locale === "pt" ? "Salvar" : "Save"}
                               </button>
-                              <button onClick={() => handleTestIntegration(conn.id)} className="bg-slate-800 hover:bg-slate-700 text-white font-mono text-[9px] font-bold py-1 px-2.5 rounded">
-                                {locale === "pt" ? "Testar" : "Test"}
+                              <button onClick={() => handleValidateIntegration(conn.id)} className="bg-slate-800 hover:bg-slate-700 text-white font-mono text-[9px] font-bold py-1 px-2.5 rounded">
+                                {locale === "pt" ? "Validar" : "Validate"}
                               </button>
                             </div>
                           </div>
@@ -6059,10 +6059,10 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                         </p>
                       </div>
                       <button
-                        onClick={handleTestStorageSettings}
+                        onClick={handleValidateStorageSettings}
                         className="bg-slate-900 text-white text-xs font-bold px-3 py-2 rounded"
                       >
-                        {locale === "pt" ? "Testar Storage" : "Test Storage"}
+                        {locale === "pt" ? "Validar Storage" : "Validate Storage"}
                       </button>
                     </div>
 
@@ -6113,13 +6113,13 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                       </div>
                     </div>
 
-                    {storageTestResult && (
-                      <div className={`p-3 rounded-lg border text-xs ${storageTestResult.success ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-red-50 border-red-200 text-red-800"}`}>
-                        <p className="font-bold uppercase font-mono">{locale === "pt" ? "Resultado do Teste" : "Test Result"}</p>
-                        <p className="mt-1">{storageTestResult.message}</p>
+                    {storageValidateResult && (
+                      <div className={`p-3 rounded-lg border text-xs ${storageValidateResult.success ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-red-50 border-red-200 text-red-800"}`}>
+                        <p className="font-bold uppercase font-mono">{locale === "pt" ? "Resultado do Validatee" : "Validate Result"}</p>
+                        <p className="mt-1">{storageValidateResult.message}</p>
                         <p className="mt-1 font-mono break-all">
-                          Mode: {storageTestResult.mode} • Target: {storageTestResult.target} • Writable: {String(storageTestResult.writable)}
-                          {storageTestResult.scaffolded ? " • Scaffold" : ""}
+                          Mode: {storageValidateResult.mode} • Target: {storageValidateResult.target} • Writable: {String(storageValidateResult.writable)}
+                          {storageValidateResult.scaffolded ? " • Scaffold" : ""}
                         </p>
                       </div>
                     )}

@@ -235,9 +235,17 @@ node -e 'const fs=require("fs"); const j=JSON.parse(fs.readFileSync("/tmp/admin_
 
 INT_ID="$(node -e 'const fs=require("fs"); const j=JSON.parse(fs.readFileSync("/tmp/admin_reg_integration.json","utf8")); console.log(j.id)')"
 
-expect 200 "admin tests integration" \
+expect_save 200 "admin validates integration configuration" /tmp/admin_reg_integration_test.json \
   -X POST "http://127.0.0.1:3000/api/integrations/$INT_ID/test" \
   -H "Authorization: Bearer $ADMIN_TOKEN"
+
+node - <<'NODE'
+const fs = require("fs");
+const j = JSON.parse(fs.readFileSync("/tmp/admin_reg_integration_test.json", "utf8"));
+if (j.validation_mode !== "configuration_only") process.exit(1);
+if (j.external_sync_executed !== false) process.exit(1);
+if (j.latency_ms !== null) process.exit(1);
+NODE
 
 expect 200 "admin deletes integration" \
   -X DELETE "http://127.0.0.1:3000/api/integrations/$INT_ID" \
@@ -286,7 +294,7 @@ const required = [
   "Create Approval Workflow",
   "Delete Approval Workflow",
   "Add Integration Connector",
-  "Test Integration",
+  "Validate Integration Configuration",
   "Remove Integration"
 ];
 const missing = required.filter(a => !actions.has(a));
