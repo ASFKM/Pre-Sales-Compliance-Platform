@@ -217,8 +217,13 @@ export default function App() {
     id: "",
     name: "",
     email: "",
-    role: ""
+    role_id: "",
+    role: "",
+    permissions: [] as string[]
   });
+
+  const hasPermission = (permission: string) =>
+    Array.isArray(currentSessionUser.permissions) && currentSessionUser.permissions.includes(permission);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -1171,6 +1176,11 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
 
   // Generate Technical Proposal Studio
   const handleGenerateTechnicalProposal = async () => {
+    if (!hasPermission("proposal:generate")) {
+      alert(locale === "pt" ? "Você não tem permissão para gerar propostas." : "You do not have permission to generate proposals.");
+      return;
+    }
+
     if (!selectedProjectId) return;
 
     const templateId = selectedTechnicalTemplateId
@@ -1211,6 +1221,11 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
 
   // Generate Commercial Proposal
   const handleGenerateCommercialProposal = async () => {
+    if (!hasPermission("proposal:generate")) {
+      alert(locale === "pt" ? "Você não tem permissão para gerar propostas." : "You do not have permission to generate proposals.");
+      return;
+    }
+
     if (!selectedProjectId) return;
 
     const templateId = selectedCommercialTemplateId
@@ -1273,6 +1288,11 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
   const handleUpdateProposalCommercial = async (propId: string, rowId: string, field: string, value: any) => {
     const prop = (Array.isArray(proposals) ? proposals : []).find(p => p.id === propId);
     if (!prop || !prop.manual_pricing_table) return;
+
+    if (!hasPermission("proposal:edit")) {
+      alert(locale === "pt" ? "Você não tem permissão para editar propostas." : "You do not have permission to edit proposals.");
+      return;
+    }
 
     if (prop.status !== "draft") {
       alert(locale === "pt" ? "Apenas propostas em rascunho podem ser editadas." : "Only draft proposals can be edited.");
@@ -1446,6 +1466,11 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
 
   // Submit proposal for workflow approvals
   const handleSubmitProposalApproval = async (propId: string) => {
+    if (!hasPermission("approval:manage")) {
+      alert(locale === "pt" ? "Você não tem permissão para enviar propostas para aprovação." : "You do not have permission to submit proposals for approval.");
+      return;
+    }
+
     try {
       const res = await fetch(`/api/proposals/${propId}/approval/submit`, { method: "POST" });
       if (res.ok) {
@@ -1459,6 +1484,11 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
 
   // Record Approval Decision
   const handleReleaseProposal = async (propId: string) => {
+    if (!hasPermission("proposal:approve")) {
+      alert(locale === "pt" ? "Você não tem permissão para liberar a versão final." : "You do not have permission to release final proposals.");
+      return;
+    }
+
     try {
       const res = await fetch(`/api/proposals/${propId}/release`, { method: "POST" });
 
@@ -1479,6 +1509,11 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
   };
 
   const handleApprovalDecision = async (propId: string, stageId: string, decision: "approved" | "rejected", comments: string) => {
+    if (!hasPermission("proposal:approve")) {
+      alert(locale === "pt" ? "Você não tem permissão para aprovar ou rejeitar propostas." : "You do not have permission to approve or reject proposals.");
+      return;
+    }
+
     try {
       const res = await fetch(`/api/proposals/${propId}/approval/decision`, {
         method: "POST",
@@ -3422,7 +3457,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                         </div>
                         <button
                           onClick={handleGenerateTechnicalProposal}
-                          disabled={!analysisResult}
+                          disabled={!analysisResult || !hasPermission("proposal:generate")}
                           className="mt-3 bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-2 px-4 rounded shadow-sm transition-all text-center cursor-pointer disabled:opacity-50"
                         >
                           Generate Technical Draft (DOCX/PDF)
@@ -3452,7 +3487,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                         </div>
                         <button
                           onClick={handleGenerateCommercialProposal}
-                          disabled={!analysisResult}
+                          disabled={!analysisResult || !hasPermission("proposal:generate")}
                           className="mt-3 bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-2 px-4 rounded shadow-sm transition-all text-center cursor-pointer disabled:opacity-50"
                         >
                           Generate Commercial Draft (DOCX/PDF)
@@ -4215,21 +4250,25 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
 
                         {/* Export Action Buttons */}
                         <div className="flex gap-2">
-                          <a
-                            href={`/api/proposals/${prop.id}/export/docx`}
-                            target="_blank"
-                            className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-mono text-[11px] font-bold px-3 py-1.5 rounded border border-slate-200 transition-all shadow-sm"
-                          >
-                            <Download size={12} /> Export DOCX
-                          </a>
-                          <a
-                            href={`/api/proposals/${prop.id}/export/pdf`}
-                            target="_blank"
-                            className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-mono text-[11px] font-bold px-3 py-1.5 rounded border border-slate-200 transition-all shadow-sm"
-                          >
-                            <Download size={12} /> Export PDF
-                          </a>
-                          {prop.status === "draft" && (
+                          {hasPermission("proposal:export") && (
+                            <>
+                              <a
+                                href={`/api/proposals/${prop.id}/export/docx`}
+                                target="_blank"
+                                className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-mono text-[11px] font-bold px-3 py-1.5 rounded border border-slate-200 transition-all shadow-sm"
+                              >
+                                <Download size={12} /> Export DOCX
+                              </a>
+                              <a
+                                href={`/api/proposals/${prop.id}/export/pdf`}
+                                target="_blank"
+                                className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-mono text-[11px] font-bold px-3 py-1.5 rounded border border-slate-200 transition-all shadow-sm"
+                              >
+                                <Download size={12} /> Export PDF
+                              </a>
+                            </>
+                          )}
+                          {prop.status === "draft" && hasPermission("approval:manage") && (
                             <button
                               onClick={() => handleSubmitProposalApproval(prop.id)}
                               className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-[11px] font-bold px-3 py-1.5 rounded shadow-sm transition-all cursor-pointer"
@@ -4237,7 +4276,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                               {locale === "pt" ? "Enviar para Aprovação de Fluxo" : "Submit to Workflow Approvals"}
                             </button>
                           )}
-                          {prop.status === "approved" && (
+                          {prop.status === "approved" && hasPermission("proposal:approve") && (
                             <button
                               onClick={() => handleReleaseProposal(prop.id)}
                               className="bg-purple-600 hover:bg-purple-700 text-white font-mono text-[11px] font-bold px-3 py-1.5 rounded shadow-sm transition-all cursor-pointer"
@@ -4280,7 +4319,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                                         type="number"
                                         value={row.quantity}
                                         onChange={(e) => handleUpdateProposalCommercial(prop.id, row.item_id, "quantity", parseInt(e.target.value) || 1)}
-                                        disabled={prop.status !== "draft"}
+                                        disabled={prop.status !== "draft" || !hasPermission("proposal:edit")}
                                         className="w-14 p-1 rounded border border-slate-200 text-center font-semibold bg-white disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
                                       />
                                     </td>
@@ -4289,7 +4328,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                                         type="number"
                                         value={row.unit_price}
                                         onChange={(e) => handleUpdateProposalCommercial(prop.id, row.item_id, "unit_price", parseFloat(e.target.value) || 0)}
-                                        disabled={prop.status !== "draft"}
+                                        disabled={prop.status !== "draft" || !hasPermission("proposal:edit")}
                                         className="w-20 p-1 rounded border border-slate-200 text-center font-semibold bg-white disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
                                       />
                                     </td>
@@ -4298,7 +4337,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                                         type="number"
                                         value={row.discount}
                                         onChange={(e) => handleUpdateProposalCommercial(prop.id, row.item_id, "discount", parseFloat(e.target.value) || 0)}
-                                        disabled={prop.status !== "draft"}
+                                        disabled={prop.status !== "draft" || !hasPermission("proposal:edit")}
                                         className="w-14 p-1 rounded border border-slate-200 text-center font-semibold bg-white disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
                                       />
                                     </td>
@@ -4455,7 +4494,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                           </span>
                         </div>
 
-                        {prop.status === "approved" && (
+                        {prop.status === "approved" && hasPermission("proposal:approve") && (
                           <div className="flex justify-end">
                             <button
                               onClick={() => handleReleaseProposal(prop.id)}
@@ -4492,7 +4531,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                                     <p className="text-[11px] text-slate-500 leading-snug">{tx("Approver Target", "Aprovador Alvo")}: <span className="font-semibold">{stage.approver_type === "role" ? tx("Pre-Sales Engineering Leads", "Líderes de Engenharia de Pré-Vendas") : tx("Admins", "Administradores")}</span></p>
 
                                     {/* Action inside timeline stage */}
-                                    {!matchedDecision && prop.status === "submitted" && (
+                                    {!matchedDecision && prop.status === "submitted" && hasPermission("proposal:approve") && (
                                       <div className="mt-3 pt-3 border-t border-slate-200 flex gap-1">
                                         <button
                                           onClick={() => handleApprovalDecision(prop.id, stage.id, "approved", "Pre-Sales specs verified and margins approved.")}

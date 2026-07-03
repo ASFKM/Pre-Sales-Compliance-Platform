@@ -28,6 +28,20 @@ function ensurePasswordHashes() {
   });
 }
 
+function buildSessionUser(user: any) {
+  const role = dbStore.getData().roles.find(r => r.id === user.role_id);
+
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    mfa_enabled: user.mfa_enabled,
+    role_id: user.role_id,
+    role: role?.name || "Unknown Role",
+    permissions: role?.permissions || []
+  };
+}
+
 // Session validation middleware to protect modular endpoints
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers["authorization"];
@@ -182,14 +196,7 @@ router.post("/login", (req: Request, res: Response, next: NextFunction) => {
       success: true,
       mfa_required: mfaRequired,
       token: session.token,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        mfa_enabled: user.mfa_enabled,
-        role_id: user.role_id,
-        role: user.role_id === "r1" ? "Administrator" : (user.role_id === "r2" ? "Sales Manager" : "Pre-Sales Engineer")
-      }
+      user: buildSessionUser(user)
     });
 
   } catch (err) {
@@ -247,13 +254,7 @@ router.post("/mfa/verify", (req: Request, res: Response, next: NextFunction) => 
       return res.json({
         success: true,
         verified: true,
-        user: user ? {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role_id: user.role_id,
-          role: user.role_id === "r1" ? "Administrator" : (user.role_id === "r2" ? "Sales Manager" : "Pre-Sales Engineer")
-        } : null
+        user: user ? buildSessionUser(user) : null
       });
     }
 
@@ -314,14 +315,7 @@ router.get("/me", (req: Request, res: Response) => {
 
   res.json({
     success: true,
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      mfa_enabled: user.mfa_enabled,
-      role_id: user.role_id,
-      role: user.role_id === "r1" ? "Administrator" : (user.role_id === "r2" ? "Sales Manager" : "Pre-Sales Engineer")
-    }
+    user: buildSessionUser(user)
   });
 });
 
