@@ -257,6 +257,28 @@ export default function App() {
   const canAccessAdminConsole = () =>
     Object.keys(adminSectionPermissions).some((section) => canAccessAdminSection(section));
 
+  const getApprovalStageTargetLabel = (stage: any) => {
+    if (!stage) return locale === "pt" ? "Não configurado" : "Not configured";
+
+    if (stage.approver_type === "user") {
+      const user = users.find((u) => u.id === stage.approver_user_id);
+      return user?.name || stage.approver_user_id || (locale === "pt" ? "Usuário não configurado" : "User not configured");
+    }
+
+    const role = roles.find((r) => r.id === stage.approver_role_id);
+    return role?.name || stage.approver_role_id || (locale === "pt" ? "Perfil não configurado" : "Role not configured");
+  };
+
+  const canReviewApprovalStage = (stage: any) => {
+    if (!stage || !currentSessionUser.id || !currentSessionUser.role_id) return false;
+
+    if (stage.approver_type === "user") {
+      return stage.approver_user_id === currentSessionUser.id;
+    }
+
+    return stage.approver_role_id === currentSessionUser.role_id;
+  };
+
   useEffect(() => {
     const checkAuth = async () => {
       const token = localStorage.getItem("ca_session_token");
@@ -1540,11 +1562,13 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
     }
   };
 
-  const handleApprovalDecision = async (propId: string, stageId: string, decision: "approved" | "rejected", comments: string) => {
-    if (!hasPermission("proposal:approve")) {
-      alert(locale === "pt" ? "Você não tem permissão para aprovar ou rejeitar propostas." : "You do not have permission to approve or reject proposals.");
+  const handleApprovalDecision = async (propId: string, stage: any, decision: "approved" | "rejected", comments: string) => {
+    if (!canReviewApprovalStage(stage)) {
+      alert(locale === "pt" ? "Você não é o aprovador configurado para esta etapa." : "You are not the configured approver for this stage.");
       return;
     }
+
+    const stageId = stage.id;
 
     try {
       const res = await fetch(`/api/proposals/${propId}/approval/decision`, {
@@ -4573,19 +4597,19 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                                       )}
                                     </div>
                                     <h5 className="text-xs font-bold text-slate-800 uppercase leading-none font-mono mb-1">{stage.name}</h5>
-                                    <p className="text-[11px] text-slate-500 leading-snug">{tx("Approver Target", "Aprovador Alvo")}: <span className="font-semibold">{stage.approver_type === "role" ? tx("Pre-Sales Engineering Leads", "Líderes de Engenharia de Pré-Vendas") : tx("Admins", "Administradores")}</span></p>
+                                    <p className="text-[11px] text-slate-500 leading-snug">{tx("Approver Target", "Aprovador Alvo")}: <span className="font-semibold">{getApprovalStageTargetLabel(stage)}</span></p>
 
                                     {/* Action inside timeline stage */}
-                                    {!matchedDecision && prop.status === "submitted" && hasPermission("proposal:approve") && (
+                                    {!matchedDecision && prop.status === "submitted" && canReviewApprovalStage(stage) && (
                                       <div className="mt-3 pt-3 border-t border-slate-200 flex gap-1">
                                         <button
-                                          onClick={() => handleApprovalDecision(prop.id, stage.id, "approved", "Pre-Sales specs verified and margins approved.")}
+                                          onClick={() => handleApprovalDecision(prop.id, stage, "approved", "Pre-Sales specs verified and margins approved.")}
                                           className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-[9px] font-bold py-1 px-2 rounded cursor-pointer"
                                         >
                                           Approve
                                         </button>
                                         <button
-                                          onClick={() => handleApprovalDecision(prop.id, stage.id, "rejected", "Requires compliance revision.")}
+                                          onClick={() => handleApprovalDecision(prop.id, stage, "rejected", "Requires compliance revision.")}
                                           className="bg-red-600 hover:bg-red-700 text-white font-mono text-[9px] font-bold py-1 px-2 rounded cursor-pointer"
                                         >
                                           Reject
