@@ -102,19 +102,34 @@ router.delete("/approval-workflows/:id", requirePermission("approval:manage"), (
 
 router.post("/proposals/:proposalId/approval/submit", requirePermission("approval:manage"), (req: Request, res: Response, next: NextFunction) => {
   try {
-    const proposal = dbStore.updateProposalStatus(req.params.proposalId, "submitted");
+    const currentProposal = dbStore.getProposal(req.params.proposalId);
 
-    if (!proposal) {
+    if (!currentProposal) {
       return res.status(404).json({ success: false, message: "Proposal not found" });
     }
+
+    if (currentProposal.status !== "draft") {
+      return res.status(400).json({
+        success: false,
+        message: `Only draft proposals can be submitted for approval. Current status is '${currentProposal.status}'.`
+      });
+    }
+
+    const workflow = dbStore.getApprovalWorkflows().find(w => w.id === currentProposal.approval_workflow_id);
+
+    if (!workflow || !workflow.active) {
+      return res.status(400).json({ success: false, message: "Active approval workflow not found for this proposal." });
+    }
+
+    const proposal = dbStore.updateProposalStatus(req.params.proposalId, "submitted");
 
     auditApprovalChange(
       req,
       "Submit Proposal for Approval",
       "Proposal",
       req.params.proposalId,
-      { status: "submitted", workflow_id: proposal.approval_workflow_id },
-      proposal.project_id
+      { status: "submitted", workflow_id: proposal?.approval_workflow_id },
+      currentProposal.project_id
     );
 
     res.json({ success: true, proposal });
@@ -132,12 +147,40 @@ router.post("/proposals/:proposalId/approval/decision", requirePermission("propo
       return res.status(404).json({ success: false, message: "Proposal not found" });
     }
 
+    if (proposal.status !== "submitted") {
+      return res.status(400).json({
+        success: false,
+        message: `Approval decisions can only be recorded for submitted proposals. Current status is '${proposal.status}'.`
+      });
+    }
+
     if (decision !== "approved" && decision !== "rejected") {
       return res.status(400).json({ success: false, message: "Decision must be approved or rejected." });
     }
 
     const workflow = dbStore.getApprovalWorkflows().find(w => w.id === proposal.approval_workflow_id);
-    const targetStageId = stage_id || workflow?.stages?.[0]?.id || "s1";
+
+    if (!workflow || !workflow.active || !workflow.stages?.length) {
+      return res.status(400).json({ success: false, message: "Active approval workflow with stages not found for this proposal." });
+    }
+
+    const targetStageId = stage_id || workflow.stages[0].id;
+    const targetStage = workflow.stages.find(s => s.id === targetStageId);
+
+    if (!targetStage) {
+      return res.status(400).json({ success: false, message: "Approval stage does not belong to this proposal workflow." });
+    }
+
+    const existingDecision = dbStore.getData().approvalDecisions.find(d =>
+      d.proposal_id === req.params.proposalId && d.stage_id === targetStageId
+    );
+
+    if (existingDecision) {
+      return res.status(409).json({
+        success: false,
+        message: "An approval decision already exists for this proposal stage."
+      });
+    }
 
     const userId = (req.headers["x-user-id"] as string) || "u1";
     const savedDecision = dbStore.createApprovalDecision({
@@ -152,15 +195,13 @@ router.post("/proposals/:proposalId/approval/decision", requirePermission("propo
 
     if (decision === "rejected") {
       nextStatus = "rejected";
-    } else if (workflow?.stages?.length) {
+    } else {
       const allDecisions = [...dbStore.getData().approvalDecisions, savedDecision];
       const requiredStageIds = workflow.stages.filter(s => s.mandatory !== false).map(s => s.id);
       const allRequiredApproved = requiredStageIds.every(id =>
         allDecisions.some(d => d.proposal_id === req.params.proposalId && d.stage_id === id && d.decision === "approved")
       );
       nextStatus = allRequiredApproved ? "approved" : "submitted";
-    } else {
-      nextStatus = "approved";
     }
 
     const updatedProposal = dbStore.updateProposalStatus(req.params.proposalId, nextStatus);
