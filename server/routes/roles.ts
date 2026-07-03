@@ -41,7 +41,7 @@ router.post("/", requirePermission("admin:roles"), (req: Request, res: Response,
     });
 
     dbStore.addAuditLog({
-      user_id: "System Admin",
+      user_id: (req.headers["x-user-id"] as string) || "u1",
       action: "Create Role",
       entity_type: "Role",
       entity_id: role.id,
@@ -77,7 +77,7 @@ router.put("/:id", requirePermission("admin:roles"), (req: Request, res: Respons
     }
 
     dbStore.addAuditLog({
-      user_id: "System Admin",
+      user_id: (req.headers["x-user-id"] as string) || "u1",
       action: "Update Role",
       entity_type: "Role",
       entity_id: role.id,
@@ -106,7 +106,7 @@ router.delete("/:id", requirePermission("admin:roles"), (req: Request, res: Resp
     }
 
     dbStore.addAuditLog({
-      user_id: "System Admin",
+      user_id: (req.headers["x-user-id"] as string) || "u1",
       action: "Delete Role",
       entity_type: "Role",
       entity_id: req.params.id,
