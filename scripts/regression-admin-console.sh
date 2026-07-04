@@ -80,11 +80,11 @@ MANAGER_TOKEN="$(login "marcus.vance@enterprise.com")"
 ENGINEER_TOKEN="$(login "elena.rostova@enterprise.com")"
 SUFFIX="$(date +%s)_$RANDOM"
 
-grep -q '\["subscription"' src/App.tsx || fail "subscription menu missing"
-grep -q 'activeAdminSection === "subscription"' src/App.tsx || fail "subscription panel missing"
+grep -rq '\["subscription"' src/ || fail "subscription menu missing"
+grep -rq 'activeAdminSection === "subscription"' src/ || fail "subscription panel missing"
 ok "subscription kept for last phase"
 
-if grep -q 'Desbloquear console de diagnóstico\|Unlock Diagnostic Console\|Fully Decrypted\|Totalmente Descriptografado\|Active Channels.*3' src/App.tsx; then
+if grep -rq 'Desbloquear console de diagnóstico\|Unlock Diagnostic Console\|Fully Decrypted\|Totalmente Descriptografado\|Active Channels.*3' src/; then
   fail "admin diagnostics still contains mock/fake diagnostic copy"
 fi
 ok "diagnostics copy is enterprise-safe"
