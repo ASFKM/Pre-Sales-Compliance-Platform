@@ -105,9 +105,9 @@ function buildConnectorPayload(input: any, existing?: any) {
   return payload;
 }
 
-function auditIntegration(req: Request, action: string, entityId: string, metadata: any) {
+async function auditIntegration(req: Request, action: string, entityId: string, metadata: any) {
   const userId = (req.headers["x-user-id"] as string) || "u1";
-  dbStore.addAuditLog({
+  await dbStore.addAuditLog({
     user_id: userId,
     action,
     entity_type: "IntegrationConnector",
@@ -119,9 +119,9 @@ function auditIntegration(req: Request, action: string, entityId: string, metada
 }
 
 // Retrieve all integration connectors with masked credentials
-router.get("/", requireAuth, (req: Request, res: Response, next: NextFunction) => {
+router.get("/", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const integrations = dbStore.getIntegrations();
+    const integrations = await dbStore.getIntegrations();
     res.json(integrations.map(safeConnectorForResponse));
   } catch (err) {
     next(err);
@@ -129,7 +129,7 @@ router.get("/", requireAuth, (req: Request, res: Response, next: NextFunction) =
 });
 
 // Create integration connector
-router.post("/", requirePermission("integrations:manage"), (req: Request, res: Response, next: NextFunction) => {
+router.post("/", requirePermission("integrations:manage"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const data = req.body as any;
 
@@ -143,9 +143,9 @@ router.post("/", requirePermission("integrations:manage"), (req: Request, res: R
       last_sync_status: data.last_sync_status || "NEVER_SYNCED",
     });
 
-    const newConn = dbStore.addIntegration(payload) as any;
+    const newConn = await dbStore.addIntegration(payload) as any;
 
-    auditIntegration(req, "Add Integration Connector", newConn.id, {
+    await auditIntegration(req, "Add Integration Connector", newConn.id, {
       name: newConn.name,
       type: newConn.type,
       status: newConn.status
@@ -158,18 +158,19 @@ router.post("/", requirePermission("integrations:manage"), (req: Request, res: R
 });
 
 // Update integration connector
-router.put("/:id", requirePermission("integrations:manage"), (req: Request, res: Response, next: NextFunction) => {
+router.put("/:id", requirePermission("integrations:manage"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const existing = dbStore.getIntegrations().find(c => c.id === req.params.id) as any;
+    const integrations = await dbStore.getIntegrations();
+    const existing = integrations.find(c => c.id === req.params.id) as any;
 
     if (!existing) {
       return res.status(404).json({ success: false, message: "Integration not found" });
     }
 
     const updates = buildConnectorPayload(req.body as any, existing);
-    const conn = dbStore.updateIntegration(req.params.id, updates) as any;
+    const conn = await dbStore.updateIntegration(req.params.id, updates) as any;
 
-    auditIntegration(req, "Update Integration", req.params.id, {
+    await auditIntegration(req, "Update Integration", req.params.id, {
       name: conn.name,
       type: conn.type,
       status: conn.status
@@ -182,14 +183,14 @@ router.put("/:id", requirePermission("integrations:manage"), (req: Request, res:
 });
 
 // Delete integration
-router.delete("/:id", requirePermission("integrations:manage"), (req: Request, res: Response, next: NextFunction) => {
+router.delete("/:id", requirePermission("integrations:manage"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const deleted = dbStore.deleteIntegration(req.params.id);
+    const deleted = await dbStore.deleteIntegration(req.params.id);
     if (!deleted) {
       return res.status(404).json({ success: false, message: "Integration not found" });
     }
 
-    auditIntegration(req, "Remove Integration", req.params.id, { id: req.params.id });
+    await auditIntegration(req, "Remove Integration", req.params.id, { id: req.params.id });
 
     res.json({ success: true, message: "Integration removed successfully" });
   } catch (err) {
@@ -198,9 +199,10 @@ router.delete("/:id", requirePermission("integrations:manage"), (req: Request, r
 });
 
 // Validate connector configuration securely without simulating an external sync
-router.post("/:id/test", requirePermission("integrations:manage"), (req: Request, res: Response, next: NextFunction) => {
+router.post("/:id/test", requirePermission("integrations:manage"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const conn = dbStore.getIntegrations().find(c => c.id === req.params.id) as any;
+    const integrations = await dbStore.getIntegrations();
+    const conn = integrations.find(c => c.id === req.params.id) as any;
     if (!conn) {
       return res.status(404).json({ success: false, message: "Integration not found" });
     }
@@ -218,14 +220,14 @@ router.post("/:id/test", requirePermission("integrations:manage"), (req: Request
     const status = canConnect ? "connected" : "error";
     const lastSyncStatus = canConnect ? "CONFIG_VALIDATED" : "CONFIG_INVALID";
 
-    const updated = dbStore.updateIntegration(req.params.id, {
+    const updated = await dbStore.updateIntegration(req.params.id, {
       status,
       last_sync_status: lastSyncStatus,
       last_sync_date: new Date().toISOString(),
       error_message: canConnect ? "" : "Missing endpoint URL."
     }) as any;
 
-    auditIntegration(req, "Validate Integration Configuration", req.params.id, {
+    await auditIntegration(req, "Validate Integration Configuration", req.params.id, {
       name: conn.name,
       status,
       has_credential: hasCredential,

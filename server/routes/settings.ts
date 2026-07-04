@@ -7,8 +7,8 @@ import { encryptSecret, decryptSecret, maskSecret } from "../utils/security";
 
 const router = express.Router();
 
-function getSafePlatformSettings() {
-  const settings = dbStore.getSettings() as any;
+async function getSafePlatformSettings() {
+  const settings = await dbStore.getSettings() as any;
   const { ai_api_key_encrypted, ...safeSettings } = settings;
 
   let aiApiKeyMasked = "";
@@ -39,9 +39,9 @@ function sanitizeSettingsAudit(updates: any) {
 }
 
 
-function auditSettingsChange(req: Request, action: string, entityType: string, entityId: string, updates: any) {
+async function auditSettingsChange(req: Request, action: string, entityType: string, entityId: string, updates: any) {
   const userId = (req.headers["x-user-id"] as string) || "u1";
-  dbStore.addAuditLog({
+  await dbStore.addAuditLog({
     user_id: userId,
     action,
     entity_type: entityType,
@@ -91,15 +91,15 @@ function validateBrandingUpdates(updates: any) {
   return { valid: true, message: "" };
 }
 
-router.get("/settings", requireAuth, (req: Request, res: Response, next: NextFunction) => {
+router.get("/settings", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    res.json(getSafePlatformSettings());
+    res.json(await getSafePlatformSettings());
   } catch (err) {
     next(err);
   }
 });
 
-router.put("/settings", requirePermission("admin:settings"), (req: Request, res: Response, next: NextFunction) => {
+router.put("/settings", requirePermission("admin:settings"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const allowedFields = ["default_language", "default_log_level"];
     const updates = Object.fromEntries(
@@ -115,25 +115,25 @@ router.put("/settings", requirePermission("admin:settings"), (req: Request, res:
       return res.status(400).json({ success: false, message: settingsValidation.message });
     }
 
-    dbStore.updateSettings(updates);
+    await dbStore.updateSettings(updates);
 
-    auditSettingsChange(req, "Update Global Platform Settings", "PlatformSettings", "global", updates);
+    await auditSettingsChange(req, "Update Global Platform Settings", "PlatformSettings", "global", updates);
 
-    res.json(getSafePlatformSettings());
+    res.json(await getSafePlatformSettings());
   } catch (err) {
     next(err);
   }
 });
 
-router.get("/branding", requireAuth, (req: Request, res: Response, next: NextFunction) => {
+router.get("/branding", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    res.json(dbStore.getBranding());
+    res.json(await dbStore.getBranding());
   } catch (err) {
     next(err);
   }
 });
 
-router.put("/branding", requirePermission("branding:manage"), (req: Request, res: Response, next: NextFunction) => {
+router.put("/branding", requirePermission("branding:manage"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const allowedFields = [
       "company_name",
@@ -170,7 +170,7 @@ router.put("/branding", requirePermission("branding:manage"), (req: Request, res
       return res.status(400).json({ success: false, message: brandingValidation.message });
     }
 
-    const branding = dbStore.updateBranding(updates);
+    const branding = await dbStore.updateBranding(updates);
 
     const auditSafeUpdates = Object.fromEntries(
       Object.entries(updates).map(([key, value]) => {
@@ -181,14 +181,13 @@ router.put("/branding", requirePermission("branding:manage"), (req: Request, res
       })
     );
 
-    auditSettingsChange(req, "Update Branding Settings", "BrandingSettings", "branding-global", auditSafeUpdates);
+    await auditSettingsChange(req, "Update Branding Settings", "BrandingSettings", "branding-global", auditSafeUpdates);
 
     res.json(branding);
   } catch (err) {
     next(err);
   }
 });
-
 
 
 
@@ -245,7 +244,7 @@ function validatePromptUpdates(updates: any) {
   return { valid: true, message: "" };
 }
 
-router.put("/settings/ai", requirePermission("ai:settings"), (req: Request, res: Response, next: NextFunction) => {
+router.put("/settings/ai", requirePermission("ai:settings"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const allowedFields = [
       "ai_provider",
@@ -279,14 +278,14 @@ router.put("/settings/ai", requirePermission("ai:settings"), (req: Request, res:
       return res.status(400).json({ success: false, message: aiValidation.message });
     }
 
-    dbStore.updateSettings(updates);
+    await dbStore.updateSettings(updates);
 
-    auditSettingsChange(req, "Update AI Platform Settings", "PlatformSettings", "global-ai", sanitizeSettingsAudit({
+    await auditSettingsChange(req, "Update AI Platform Settings", "PlatformSettings", "global-ai", sanitizeSettingsAudit({
       ...updates,
       ai_api_key: req.body?.ai_api_key ? "[secret-updated]" : undefined
     }));
 
-    res.json(getSafePlatformSettings());
+    res.json(await getSafePlatformSettings());
   } catch (err) {
     next(err);
   }
@@ -333,7 +332,7 @@ function validateStorageSettings(updates: any, currentSettings: any) {
   return { valid: true, message: "" };
 }
 
-function updateStorageSettings(req: Request, res: Response, next: NextFunction) {
+async function updateStorageSettings(req: Request, res: Response, next: NextFunction) {
   try {
     const allowedFields = [
       "storage_mode",
@@ -350,24 +349,25 @@ function updateStorageSettings(req: Request, res: Response, next: NextFunction) 
       return res.status(400).json({ success: false, message: "No valid storage fields provided." });
     }
 
-    const storageValidation = validateStorageSettings(updates, dbStore.getSettings());
+    const currentSettings = await dbStore.getSettings();
+    const storageValidation = validateStorageSettings(updates, currentSettings);
     if (!storageValidation.valid) {
       return res.status(400).json({ success: false, message: storageValidation.message });
     }
 
-    const settings = dbStore.updateSettings(updates);
+    await dbStore.updateSettings(updates);
 
-    auditSettingsChange(req, "Change Storage Provider Settings", "PlatformSettings", "global-storage", updates);
+    await auditSettingsChange(req, "Change Storage Provider Settings", "PlatformSettings", "global-storage", updates);
 
-    res.json(getSafePlatformSettings());
+    res.json(await getSafePlatformSettings());
   } catch (err) {
     next(err);
   }
 }
 
-router.get("/settings/storage/status", requirePermission("storage:manage"), (req: Request, res: Response, next: NextFunction) => {
+router.get("/settings/storage/status", requirePermission("storage:manage"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const settings = dbStore.getSettings();
+    const settings = await dbStore.getSettings();
     const mode = settings.storage_mode || "local";
 
     if (mode === "local") {
@@ -419,15 +419,15 @@ router.get("/settings/storage/status", requirePermission("storage:manage"), (req
 router.post("/settings/storage", requirePermission("storage:manage"), updateStorageSettings);
 router.put("/settings/storage", requirePermission("storage:manage"), updateStorageSettings);
 
-router.get("/settings/prompts", requireAuth, (req: Request, res: Response, next: NextFunction) => {
+router.get("/settings/prompts", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    res.json(dbStore.getPrompts());
+    res.json(await dbStore.getPrompts());
   } catch (err) {
     next(err);
   }
 });
 
-router.put("/settings/prompts/:id", requirePermission("ai:settings"), (req: Request, res: Response, next: NextFunction) => {
+router.put("/settings/prompts/:id", requirePermission("ai:settings"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const allowedFields = ["name", "type", "content", "language", "version", "is_active"];
     const updates = Object.fromEntries(
@@ -443,13 +443,13 @@ router.put("/settings/prompts/:id", requirePermission("ai:settings"), (req: Requ
       return res.status(400).json({ success: false, message: promptValidation.message });
     }
 
-    const prompt = dbStore.updatePrompt(req.params.id, updates);
+    const prompt = await dbStore.updatePrompt(req.params.id, updates);
 
     if (!prompt) {
       return res.status(404).json({ success: false, message: "Prompt not found" });
     }
 
-    auditSettingsChange(req, "Update AI Prompt Template", "PromptTemplate", req.params.id, updates);
+    await auditSettingsChange(req, "Update AI Prompt Template", "PromptTemplate", req.params.id, updates);
 
     res.json(prompt);
   } catch (err) {

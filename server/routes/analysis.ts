@@ -5,7 +5,7 @@ import { dbStore } from "../../src/dbStore";
 import { requirePermission } from "./auth";
 import { logDebugMessage } from "../middleware/security";
 import { decryptSecret } from "../utils/security";
-import { AnalysisResult, AIAnalysisJob } from "../../src/types";
+import { AnalysisResult } from "../../src/types";
 
 const router = express.Router();
 
@@ -132,7 +132,7 @@ const AnalysisResultSchema = z.object({
 let aiClient: GoogleGenAI | null = null;
 let aiClientFingerprint = "";
 
-function getConfiguredGeminiApiKey(): string {
+async function getConfiguredGeminiApiKey(): Promise<string> {
   const envKey = [
     process.env.GEMINI_API_KEY,
     process.env.GOOGLE_API_KEY,
@@ -141,7 +141,8 @@ function getConfiguredGeminiApiKey(): string {
 
   if (envKey) return envKey;
 
-  const encryptedKey = (dbStore.getSettings() as any).ai_api_key_encrypted;
+  const settings = await dbStore.getSettings() as any;
+  const encryptedKey = settings.ai_api_key_encrypted;
   if (!encryptedKey) {
     throw new Error("Gemini API key is not configured. Configure it in Admin > IA, Prompts e Custos.");
   }
@@ -149,8 +150,8 @@ function getConfiguredGeminiApiKey(): string {
   return decryptSecret(encryptedKey);
 }
 
-function getGeminiClient(): GoogleGenAI {
-  const key = getConfiguredGeminiApiKey();
+async function getGeminiClient(): Promise<GoogleGenAI> {
+  const key = await getConfiguredGeminiApiKey();
   const fingerprint = `${key.length}:${key.slice(0, 4)}:${key.slice(-4)}`;
 
   if (!aiClient || aiClientFingerprint !== fingerprint) {
@@ -167,9 +168,9 @@ function getGeminiClient(): GoogleGenAI {
 }
 
 // GET latest analysis result
-router.get("/projects/:projectId/analysis-result", requirePermission("analysis:read"), (req: Request, res: Response, next: NextFunction) => {
+router.get("/projects/:projectId/analysis-result", requirePermission("analysis:read"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const result = dbStore.getAnalysisResult(req.params.projectId);
+    const result = await dbStore.getAnalysisResult(req.params.projectId);
     if (!result) {
       return res.status(404).json({ success: false, message: "No analysis result exists for this project." });
     }
@@ -180,16 +181,16 @@ router.get("/projects/:projectId/analysis-result", requirePermission("analysis:r
 });
 
 // UPDATE or SAVE analysis result manually (human-in-the-loop edits)
-router.post("/projects/:projectId/analysis-result", requirePermission("analysis:edit"), (req: Request, res: Response, next: NextFunction) => {
+router.post("/projects/:projectId/analysis-result", requirePermission("analysis:edit"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const result = req.body;
     result.project_id = req.params.projectId;
     result.updated_at = new Date().toISOString();
-    
-    dbStore.saveAnalysisResult(result);
+
+    await dbStore.saveAnalysisResult(result);
 
     const userId = (req.headers["x-user-id"] as string) || "u1";
-    dbStore.addAuditLog({
+    await dbStore.addAuditLog({
       user_id: userId,
       action: "Update AI Analysis Content",
       entity_type: "AnalysisResult",
@@ -212,20 +213,20 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
   const startTime = Date.now();
   const projectId = req.params.projectId;
 
-  const project = dbStore.getProject(projectId);
+  const project = await dbStore.getProject(projectId);
   if (!project) {
     return res.status(404).json({ success: false, message: "Project not found." });
   }
 
-  const platformSettings = dbStore.getSettings();
+  const platformSettings = await dbStore.getSettings();
   const analysisModel = platformSettings.document_analysis_model || platformSettings.default_model || "gemini-3.5-flash";
 
   // 1. Create Background AI Analysis Job and log it
   const userId = (req.headers["x-user-id"] as string) || "u1";
-  const user = dbStore.getData().users.find(u => u.id === userId);
+  const user = await dbStore.getUserById(userId);
   const userName = user ? user.name : "System User";
 
-  const job = dbStore.createJob({
+  const job = await dbStore.createJob({
     project_id: projectId,
     status: "running",
     ai_provider: "Google Gemini",
@@ -236,7 +237,7 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
     correlation_id: correlationId
   });
 
-  dbStore.addAuditLog({
+  await dbStore.addAuditLog({
     user_id: userName,
     action: "Trigger AI Document Analysis",
     entity_type: "AIAnalysisJob",
@@ -248,25 +249,25 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
   });
 
   // 2. Fetch all project documents and retrieve their real extracted text
-  const docs = dbStore.getDocuments(projectId);
-  const dataStore = dbStore.getData();
-  
+  const docs = await dbStore.getDocuments(projectId);
+
   let combinedExtractedText = "";
-  docs.forEach((doc, idx) => {
-    const text = dataStore.document_contents?.[doc.id] || "";
+  for (let idx = 0; idx < docs.length; idx++) {
+    const doc = docs[idx];
+    const text = await dbStore.getDocumentContent(doc.id);
     if (text) {
       combinedExtractedText += `\n--- START DOCUMENT ${idx + 1}: ${doc.filename} (${doc.detected_document_type}) ---\n`;
       combinedExtractedText += text.substring(0, 10000); // Send first 10,000 characters per document to avoid token overflow in basic tier
       combinedExtractedText += `\n--- END DOCUMENT ${idx + 1} ---\n`;
     }
-  });
+  }
 
   if (!combinedExtractedText) {
     combinedExtractedText = "No document text was extracted. Standard project description fallback is used.";
   }
 
   try {
-    const ai = getGeminiClient();
+    const ai = await getGeminiClient();
 
     const prompt = `You are an expert Pre-Sales Solution Architect analyzing bid, RFP, and specification documents to design commercial and technical proposals.
 Analyze the following project description and real extracted document texts:
@@ -412,7 +413,7 @@ Write all generated content fields strictly in ${project.proposal_language}. Mai
     });
 
     const rawText = response.text || "{}";
-    
+
     // 3. Add Structured Output Validation using Zod
     const parsedJson = JSON.parse(rawText.trim());
     const validatedJson = AnalysisResultSchema.parse(parsedJson);
@@ -437,10 +438,10 @@ Write all generated content fields strictly in ${project.proposal_language}. Mai
       updated_at: new Date().toISOString()
     };
 
-    dbStore.saveAnalysisResult(analysisResult);
+    await dbStore.saveAnalysisResult(analysisResult);
 
     // Update job to completed
-    dbStore.updateJob(job.id, {
+    await dbStore.updateJob(job.id, {
       status: "completed",
       completed_at: new Date().toISOString(),
       token_input: 14200,
@@ -463,7 +464,7 @@ Write all generated content fields strictly in ${project.proposal_language}. Mai
     // 4. Proper error handling. No mock fallback silently marked as complete.
     console.error("Gemini invocation or validation failed:", err);
 
-    dbStore.updateJob(job.id, {
+    await dbStore.updateJob(job.id, {
       status: "failed", // Real failed status, no silent mock completed status!
       completed_at: new Date().toISOString(),
       error_message: err.message || "Unknown error during AI synthesis"
@@ -488,10 +489,10 @@ Write all generated content fields strictly in ${project.proposal_language}. Mai
 });
 
 // GET persistent job history
-router.get("/projects/:projectId/jobs", requirePermission("analysis:read"), (req: Request, res: Response, next: NextFunction) => {
+router.get("/projects/:projectId/jobs", requirePermission("analysis:read"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const jobs = dbStore.getJobs().filter(j => j.project_id === req.params.projectId);
-    res.json(jobs);
+    const jobs = await dbStore.getJobs();
+    res.json(jobs.filter(j => j.project_id === req.params.projectId));
   } catch (err) {
     next(err);
   }

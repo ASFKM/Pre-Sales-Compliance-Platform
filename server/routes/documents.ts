@@ -16,9 +16,9 @@ const upload = multer({
 
 
 // Get documents for a project
-router.get("/projects/:projectId/documents", requireAuth, (req: Request, res: Response, next: NextFunction) => {
+router.get("/projects/:projectId/documents", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const docs = dbStore.getDocuments(req.params.projectId);
+    const docs = await dbStore.getDocuments(req.params.projectId);
     res.json(docs);
   } catch (err) {
     next(err);
@@ -56,7 +56,7 @@ router.post(
       }
 
       // 2. Store via selected Storage Adapter
-      const platformSettings = dbStore.getSettings();
+      const platformSettings = await dbStore.getSettings();
       const storageAdapter = createStorageAdapter(platformSettings);
       const storagePath = await storageAdapter.uploadFile(
         projectId,
@@ -70,7 +70,7 @@ router.post(
 
       // 4. Save to Database
       const userId = (req.headers["x-user-id"] as string) || "u1";
-      const docRecord = dbStore.addDocument({
+      const docRecord = await dbStore.addDocument({
         project_id: projectId,
         filename: file.originalname,
         original_filename: file.originalname,
@@ -86,13 +86,8 @@ router.post(
         uploaded_by: userId
       });
 
-      // Save extracted text to in-memory store so it is persistent for Gemini analysis
-      // We extend the global dbData in dbStore.ts to hold document content index securely
-      const dataStore = dbStore.getData();
-      if (!dataStore.document_contents) {
-        dataStore.document_contents = {};
-      }
-      dataStore.document_contents[docRecord.id] = extraction.text;
+      // Save extracted text so it is persistent for Gemini analysis
+      await dbStore.setDocumentContent(docRecord.id, extraction.text);
 
       logDebugMessage({
         operation: "Document Upload & Extraction",
@@ -105,7 +100,7 @@ router.post(
       });
 
       // Audit Log
-      dbStore.addAuditLog({
+      await dbStore.addAuditLog({
         user_id: userId,
         action: "Upload Document",
         entity_type: "Document",
@@ -124,16 +119,16 @@ router.post(
 );
 
 // Get extracted document content preview
-router.get("/documents/:id/content", requirePermission("document:read"), (req: Request, res: Response, next: NextFunction) => {
+router.get("/documents/:id/content", requirePermission("document:read"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const docId = req.params.id;
-    const doc = dbStore.getData().documents.find(d => d.id === docId);
+    const doc = await dbStore.getDocument(docId);
 
     if (!doc) {
       return res.status(404).json({ success: false, message: "Document not found." });
     }
 
-    const content = dbStore.getData().document_contents?.[docId] || "";
+    const content = await dbStore.getDocumentContent(docId);
 
     res.json({
       success: true,
@@ -152,30 +147,25 @@ router.get("/documents/:id/content", requirePermission("document:read"), (req: R
 router.delete("/documents/:id", requirePermission("document:delete"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const docId = req.params.id;
-    const doc = dbStore.getData().documents.find(d => d.id === docId);
-    
+    const doc = await dbStore.getDocument(docId);
+
     if (!doc) {
       return res.status(404).json({ success: false, message: "Document not found." });
     }
 
     // Remove from physical storage using the provider recorded on the document
+    const settings = await dbStore.getSettings();
     const storageAdapter = createStorageAdapter({
-      ...dbStore.getSettings(),
+      ...settings,
       storage_mode: doc.storage_provider
     });
     await storageAdapter.deleteFile(doc.storage_path);
 
-    // Remove from DB
-    dbStore.deleteDocument(docId);
-
-    // Remove text index
-    const dataStore = dbStore.getData();
-    if (dataStore.document_contents && dataStore.document_contents[docId]) {
-      delete dataStore.document_contents[docId];
-    }
+    // Remove from DB (document_contents row cascades automatically)
+    await dbStore.deleteDocument(docId);
 
     const userId = (req.headers["x-user-id"] as string) || "u1";
-    dbStore.addAuditLog({
+    await dbStore.addAuditLog({
       user_id: userId,
       action: "Delete Document",
       entity_type: "Document",
@@ -193,10 +183,10 @@ router.delete("/documents/:id", requirePermission("document:delete"), async (req
 });
 
 // Reclassify document manually
-router.post("/documents/:id/reclassify", requirePermission("document:upload"), (req: Request, res: Response, next: NextFunction) => {
+router.post("/documents/:id/reclassify", requirePermission("document:upload"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const document_type = req.body.document_type || req.body.manual_document_type;
-    const doc = dbStore.getData().documents.find(d => d.id === req.params.id);
+    const doc = await dbStore.getDocument(req.params.id);
 
     if (!doc) {
       return res.status(404).json({ success: false, message: "Document not found" });
@@ -206,11 +196,13 @@ router.post("/documents/:id/reclassify", requirePermission("document:upload"), (
       return res.status(400).json({ success: false, message: "Document type is required." });
     }
 
-    doc.manual_document_type = document_type;
-    doc.detected_document_type = document_type; // also update active type
+    const updatedDoc = await dbStore.updateDocument(req.params.id, {
+      manual_document_type: document_type,
+      detected_document_type: document_type, // also update active type
+    });
 
     const userId = (req.headers["x-user-id"] as string) || "u1";
-    dbStore.addAuditLog({
+    await dbStore.addAuditLog({
       user_id: userId,
       action: "Reclassify Document",
       entity_type: "Document",
@@ -221,7 +213,7 @@ router.post("/documents/:id/reclassify", requirePermission("document:upload"), (
       metadata: JSON.stringify({ manual_type: document_type })
     });
 
-    res.json(doc);
+    res.json(updatedDoc);
   } catch (err) {
     next(err);
   }

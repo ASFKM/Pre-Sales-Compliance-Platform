@@ -6,12 +6,12 @@ import { dbStore } from "../../src/dbStore";
 import { requireAuth, requirePermission } from "./auth";
 import { generateDocxFromTemplate, generatePdfFromProposal } from "../utils/docx";
 import { logDebugMessage } from "../middleware/security";
-import { Proposal } from "../../src/types";
 
 const router = express.Router();
 
-function resolveRegisteredTemplate(templateId: string, proposalType: "technical" | "commercial") {
-  const template = dbStore.getProposalTemplates().find(t => t.id === templateId);
+async function resolveRegisteredTemplate(templateId: string, proposalType: "technical" | "commercial") {
+  const templates = await dbStore.getProposalTemplates();
+  const template = templates.find(t => t.id === templateId);
 
   if (!template) {
     return { errorStatus: 404, errorMessage: "Proposal template not found." } as const;
@@ -68,9 +68,9 @@ const CreateProposalSchema = z.object({
 });
 
 // GET all proposals for a project
-router.get("/projects/:projectId/proposals", requireAuth, (req: Request, res: Response, next: NextFunction) => {
+router.get("/projects/:projectId/proposals", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const proposals = dbStore.getProposals(req.params.projectId);
+    const proposals = await dbStore.getProposals(req.params.projectId);
     res.json(proposals);
   } catch (err) {
     next(err);
@@ -90,14 +90,14 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
 
   try {
     const validated = CreateProposalSchema.parse(req.body);
-    const project = dbStore.getProject(projectId);
-    const analysis = dbStore.getAnalysisResult(projectId);
+    const project = await dbStore.getProject(projectId);
+    const analysis = await dbStore.getAnalysisResult(projectId);
 
     if (!project) {
       return res.status(404).json({ success: false, message: "Project not found." });
     }
 
-    const templateResolution = resolveRegisteredTemplate(validated.template_id, proposalType);
+    const templateResolution = await resolveRegisteredTemplate(validated.template_id, proposalType);
     if ("errorStatus" in templateResolution) {
       return res.status(templateResolution.errorStatus).json({ success: false, message: templateResolution.errorMessage });
     }
@@ -106,7 +106,7 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
     const templateFile = resolveTemplatePath(template.file_path);
 
     const userId = (req.headers["x-user-id"] as string) || "u1";
-    const user = dbStore.getData().users.find(u => u.id === userId);
+    const user = await dbStore.getUserById(userId);
     const userName = user ? user.name : "System User";
 
     const uuid = Math.random().toString(36).substring(2, 11);
@@ -155,7 +155,7 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
     await generatePdfFromProposal(docxPath, pdfPath, templateData);
 
     // 4. Save proposal to database
-    const proposal = dbStore.createProposal({
+    const proposal = await dbStore.createProposal({
       project_id: projectId,
       proposal_type: proposalType,
       template_id: validated.template_id,
@@ -184,7 +184,7 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
       projectId
     });
 
-    dbStore.addAuditLog({
+    await dbStore.addAuditLog({
       user_id: userName,
       action: "Generate Proposal Docs",
       entity_type: "Proposal",
@@ -206,10 +206,10 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
 });
 
 // UPDATE proposal metadata/manually edited pricing
-router.put("/proposals/:id", requirePermission("proposal:edit"), (req: Request, res: Response, next: NextFunction) => {
+router.put("/proposals/:id", requirePermission("proposal:edit"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validated = CreateProposalSchema.partial().parse(req.body);
-    const existingProposal = dbStore.getProposal(req.params.id);
+    const existingProposal = await dbStore.getProposal(req.params.id);
 
     if (!existingProposal) {
       return res.status(404).json({ success: false, message: "Proposal not found" });
@@ -222,10 +222,10 @@ router.put("/proposals/:id", requirePermission("proposal:edit"), (req: Request, 
       });
     }
 
-    const proposal = dbStore.updateProposal(req.params.id, validated);
+    const proposal = await dbStore.updateProposal(req.params.id, validated);
 
     const userId = (req.headers["x-user-id"] as string) || "u1";
-    dbStore.addAuditLog({
+    await dbStore.addAuditLog({
       user_id: userId,
       action: "Update Proposal Pricing Details",
       entity_type: "Proposal",
@@ -246,12 +246,12 @@ router.put("/proposals/:id", requirePermission("proposal:edit"), (req: Request, 
 });
 
 // RELEASE an approved proposal as the final customer-ready version
-router.post("/proposals/:id/release", requirePermission("proposal:approve"), (req: Request, res: Response, next: NextFunction) => {
+router.post("/proposals/:id/release", requirePermission("proposal:approve"), async (req: Request, res: Response, next: NextFunction) => {
   const correlationId = (req.headers["x-correlation-id"] as string) || "corr-proposal-release";
   const startTime = Date.now();
 
   try {
-    const proposal = dbStore.getProposal(req.params.id);
+    const proposal = await dbStore.getProposal(req.params.id);
 
     if (!proposal) {
       return res.status(404).json({ success: false, message: "Proposal not found." });
@@ -276,7 +276,7 @@ router.post("/proposals/:id/release", requirePermission("proposal:approve"), (re
       return res.status(400).json({ success: false, message: "Cannot release proposal because the PDF file is missing." });
     }
 
-    const releasedProposal = dbStore.updateProposalStatus(req.params.id, "released");
+    const releasedProposal = await dbStore.updateProposalStatus(req.params.id, "released");
 
     logDebugMessage({
       operation: "Proposal Release",
@@ -288,7 +288,7 @@ router.post("/proposals/:id/release", requirePermission("proposal:approve"), (re
     });
 
     const userId = (req.headers["x-user-id"] as string) || "u1";
-    dbStore.addAuditLog({
+    await dbStore.addAuditLog({
       user_id: userId,
       action: "Release Final Proposal",
       entity_type: "Proposal",
@@ -311,9 +311,9 @@ router.post("/proposals/:id/release", requirePermission("proposal:approve"), (re
 });
 
 // SERVE proposal files for download/export (fully compliant paths)
-router.get("/proposals/:id/export/docx", requirePermission("proposal:export"), (req: Request, res: Response, next: NextFunction) => {
+router.get("/proposals/:id/export/docx", requirePermission("proposal:export"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const proposal = dbStore.getProposal(req.params.id);
+    const proposal = await dbStore.getProposal(req.params.id);
     if (!proposal) {
       return res.status(404).json({ success: false, message: "Proposal not found" });
     }
@@ -327,9 +327,9 @@ router.get("/proposals/:id/export/docx", requirePermission("proposal:export"), (
   }
 });
 
-router.get("/proposals/:id/export/pdf", requirePermission("proposal:export"), (req: Request, res: Response, next: NextFunction) => {
+router.get("/proposals/:id/export/pdf", requirePermission("proposal:export"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const proposal = dbStore.getProposal(req.params.id);
+    const proposal = await dbStore.getProposal(req.params.id);
     if (!proposal) {
       return res.status(404).json({ success: false, message: "Proposal not found" });
     }

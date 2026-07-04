@@ -13,44 +13,24 @@ sudo systemctl restart commercial-assistant-ai >/dev/null
 sleep 2
 curl -s -w "\nHTTP:%{http_code}\n" http://127.0.0.1:3000/api/health | grep -q "HTTP:200"
 
-DB_BAK="$(mktemp)"
-cp db_state.json "$DB_BAK"
-
-echo
-echo "=== PREPARAR STORAGE LOCAL TEMPORARIO PARA REGRESSAO ==="
-node - <<'NODE'
-const fs = require("fs");
-const dbPath = "db_state.json";
-const db = JSON.parse(fs.readFileSync(dbPath, "utf8"));
-
-db.platformSettings = db.platformSettings || {};
-db.platformSettings.storage_mode = "local";
-db.platformSettings.local_storage_path = "./uploads";
-
-fs.writeFileSync(dbPath, JSON.stringify(db, null, 2));
-NODE
-
-sudo systemctl restart commercial-assistant-ai >/dev/null
-sleep 2
-curl -s -w "\nHTTP:%{http_code}\n" http://127.0.0.1:3000/api/health | grep -q "HTTP:200"
-
 UPLOADED_DOC_ID=""
 UPLOADED_STORAGE_PATH=""
 
 cleanup() {
-  cp "$DB_BAK" db_state.json
-  sudo systemctl restart commercial-assistant-ai >/dev/null 2>&1 || true
-
   if [ -n "${UPLOADED_STORAGE_PATH:-}" ]; then
     rm -f "$UPLOADED_STORAGE_PATH"
   fi
 
-  rm -f "$DB_BAK" \
+  rm -f \
     /tmp/regression_workspace_doc.txt \
     /tmp/regression_workspace_invalid.exe \
     /tmp/regression_workspace_upload_response.json \
     /tmp/regression_workspace_content_response.json \
-    /tmp/regression_workspace_reclassify_response.json
+    /tmp/regression_workspace_reclassify_response.json \
+    /tmp/regression_workspace_content_check.json \
+    /tmp/regression_workspace_audit_upload.json \
+    /tmp/regression_workspace_audit_reclassify.json \
+    /tmp/regression_workspace_audit_delete.json
 }
 trap cleanup EXIT
 
@@ -72,8 +52,17 @@ login_token() {
   echo "$token"
 }
 
+ADMIN_TOKEN="$(login_token "alex.rivera@enterprise.com")"
 MANAGER_TOKEN="$(login_token "marcus.vance@enterprise.com")"
 ENGINEER_TOKEN="$(login_token "elena.rostova@enterprise.com")"
+
+echo
+echo "=== PREPARAR STORAGE LOCAL TEMPORARIO PARA REGRESSAO ==="
+curl -s -w "\nHTTP:%{http_code}\n" -X PUT \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"storage_mode":"local","local_storage_path":"./uploads"}' \
+  http://127.0.0.1:3000/api/settings/storage | grep -q "HTTP:200"
 
 echo
 echo "=== 1) LISTA SEM TOKEN DEVE FALHAR ==="
@@ -201,20 +190,25 @@ fi
 
 echo
 echo "=== 10) DB DEVE ESTAR SEM DOCUMENTO E SEM CONTENT INDEX ==="
+curl -s -o /tmp/regression_workspace_content_check.json -w "HTTP:%{http_code}\n" \
+  -H "Authorization: Bearer $MANAGER_TOKEN" \
+  "http://127.0.0.1:3000/api/documents/$UPLOADED_DOC_ID/content" | tee /tmp/regression_workspace_content_check_status.txt | grep -q "HTTP:404"
+
+curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
+  "http://127.0.0.1:3000/api/audit-logs?entity_id=$UPLOADED_DOC_ID&action=Upload%20Document" > /tmp/regression_workspace_audit_upload.json
+curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
+  "http://127.0.0.1:3000/api/audit-logs?entity_id=$UPLOADED_DOC_ID&action=Reclassify%20Document" > /tmp/regression_workspace_audit_reclassify.json
+curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
+  "http://127.0.0.1:3000/api/audit-logs?entity_id=$UPLOADED_DOC_ID&action=Delete%20Document" > /tmp/regression_workspace_audit_delete.json
+
 node - "$UPLOADED_DOC_ID" <<'NODE'
 const fs = require("fs");
 const docId = process.argv[2];
-const db = JSON.parse(fs.readFileSync("db_state.json", "utf8"));
 
-const doc = (db.documents || []).find(d => d.id === docId);
-const content = db.document_contents?.[docId];
+const uploadAudit = JSON.parse(fs.readFileSync("/tmp/regression_workspace_audit_upload.json", "utf8")).slice(-1)[0];
+const reclassifyAudit = JSON.parse(fs.readFileSync("/tmp/regression_workspace_audit_reclassify.json", "utf8")).slice(-1)[0];
+const deleteAudit = JSON.parse(fs.readFileSync("/tmp/regression_workspace_audit_delete.json", "utf8")).slice(-1)[0];
 
-const uploadAudit = (db.auditLogs || []).filter(a => a.entity_id === docId && a.action === "Upload Document").slice(-1)[0];
-const reclassifyAudit = (db.auditLogs || []).filter(a => a.entity_id === docId && a.action === "Reclassify Document").slice(-1)[0];
-const deleteAudit = (db.auditLogs || []).filter(a => a.entity_id === docId && a.action === "Delete Document").slice(-1)[0];
-
-if (doc) throw new Error("DOCUMENT_STILL_IN_DB");
-if (content) throw new Error("DOCUMENT_CONTENT_STILL_INDEXED");
 if (!uploadAudit) throw new Error("UPLOAD_AUDIT_MISSING");
 if (!reclassifyAudit) throw new Error("RECLASSIFY_AUDIT_MISSING");
 if (!deleteAudit) throw new Error("DELETE_AUDIT_MISSING");
@@ -230,6 +224,7 @@ console.log(JSON.stringify({
   }
 }, null, 2));
 NODE
+rm -f /tmp/regression_workspace_content_check_status.txt
 
 echo
 echo "=== REGRESSION PASSED ==="

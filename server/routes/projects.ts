@@ -24,18 +24,18 @@ const ProjectSchema = z.object({
   custom_modality: z.string().optional()
 });
 
-router.get("/", requireAuth, (req: Request, res: Response, next: NextFunction) => {
+router.get("/", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const projects = dbStore.getProjects();
+    const projects = await dbStore.getProjects();
     res.json(projects);
   } catch (err) {
     next(err);
   }
 });
 
-router.get("/:id", requireAuth, (req: Request, res: Response, next: NextFunction) => {
+router.get("/:id", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const project = dbStore.getProject(req.params.id);
+    const project = await dbStore.getProject(req.params.id);
     if (!project) {
       return res.status(404).json({ success: false, message: "Project not found" });
     }
@@ -45,17 +45,17 @@ router.get("/:id", requireAuth, (req: Request, res: Response, next: NextFunction
   }
 });
 
-router.post("/", requirePermission("project:create"), (req: Request, res: Response, next: NextFunction) => {
+router.post("/", requirePermission("project:create"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validated = ProjectSchema.parse(req.body);
     const userId = (req.headers["x-user-id"] as string) || "u1";
 
-    const project = dbStore.createProject({
+    const project = await dbStore.createProject({
       ...validated,
       owner_user_id: userId
     });
 
-    dbStore.addAuditLog({
+    await dbStore.addAuditLog({
       user_id: userId,
       action: "Create Project",
       entity_type: "Project",
@@ -74,16 +74,16 @@ router.post("/", requirePermission("project:create"), (req: Request, res: Respon
   }
 });
 
-router.put("/:id", requirePermission("project:update"), (req: Request, res: Response, next: NextFunction) => {
+router.put("/:id", requirePermission("project:update"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validated = ProjectSchema.partial().parse(req.body);
-    const project = dbStore.updateProject(req.params.id, validated);
+    const project = await dbStore.updateProject(req.params.id, validated);
     if (!project) {
       return res.status(404).json({ success: false, message: "Project not found" });
     }
 
     const userId = (req.headers["x-user-id"] as string) || "u1";
-    dbStore.addAuditLog({
+    await dbStore.addAuditLog({
       user_id: userId,
       action: "Update Project",
       entity_type: "Project",
@@ -102,15 +102,15 @@ router.put("/:id", requirePermission("project:update"), (req: Request, res: Resp
   }
 });
 
-router.delete("/:id", requirePermission("project:delete"), (req: Request, res: Response, next: NextFunction) => {
+router.delete("/:id", requirePermission("project:delete"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const deleted = dbStore.deleteProject(req.params.id);
+    const deleted = await dbStore.deleteProject(req.params.id);
     if (!deleted) {
       return res.status(404).json({ success: false, message: "Project not found" });
     }
 
     const userId = (req.headers["x-user-id"] as string) || "u1";
-    dbStore.addAuditLog({
+    await dbStore.addAuditLog({
       user_id: userId,
       action: "Delete Project",
       entity_type: "Project",

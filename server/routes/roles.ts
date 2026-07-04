@@ -44,15 +44,15 @@ const UpdateRoleSchema = z.object({
   permissions: z.array(z.string()).min(1).optional(),
 });
 
-router.get("/", requirePermission("admin:roles"), (req: Request, res: Response, next: NextFunction) => {
+router.get("/", requirePermission("admin:roles"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    res.json(dbStore.getRoles());
+    res.json(await dbStore.getRoles());
   } catch (err) {
     next(err);
   }
 });
 
-router.post("/", requirePermission("admin:roles"), (req: Request, res: Response, next: NextFunction) => {
+router.post("/", requirePermission("admin:roles"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validated = RoleSchema.parse(req.body);
     const permissionValidation = validatePermissions(validated.permissions);
@@ -65,18 +65,19 @@ router.post("/", requirePermission("admin:roles"), (req: Request, res: Response,
       });
     }
 
-    const duplicated = dbStore.getRoles().some((r) => r.name.toLowerCase() === validated.name.toLowerCase());
+    const roles = await dbStore.getRoles();
+    const duplicated = roles.some((r) => r.name.toLowerCase() === validated.name.toLowerCase());
     if (duplicated) {
       return res.status(409).json({ success: false, message: "Role already exists." });
     }
 
-    const role = dbStore.createRole({
+    const role = await dbStore.createRole({
       name: validated.name.trim(),
       description: validated.description || "",
       permissions: permissionValidation.permissions,
     });
 
-    dbStore.addAuditLog({
+    await dbStore.addAuditLog({
       user_id: (req.headers["x-user-id"] as string) || "u1",
       action: "Create Role",
       entity_type: "Role",
@@ -95,7 +96,7 @@ router.post("/", requirePermission("admin:roles"), (req: Request, res: Response,
   }
 });
 
-router.put("/:id", requirePermission("admin:roles"), (req: Request, res: Response, next: NextFunction) => {
+router.put("/:id", requirePermission("admin:roles"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const protectedRoles = ["r1", "r2", "r3"];
     if (protectedRoles.includes(req.params.id)) {
@@ -116,7 +117,7 @@ router.put("/:id", requirePermission("admin:roles"), (req: Request, res: Respons
       });
     }
 
-    const role = dbStore.updateRole(req.params.id, {
+    const role = await dbStore.updateRole(req.params.id, {
       ...validated,
       permissions: permissionValidation ? permissionValidation.permissions : undefined,
     });
@@ -125,7 +126,7 @@ router.put("/:id", requirePermission("admin:roles"), (req: Request, res: Respons
       return res.status(404).json({ success: false, message: "Role not found." });
     }
 
-    dbStore.addAuditLog({
+    await dbStore.addAuditLog({
       user_id: (req.headers["x-user-id"] as string) || "u1",
       action: "Update Role",
       entity_type: "Role",
@@ -144,9 +145,9 @@ router.put("/:id", requirePermission("admin:roles"), (req: Request, res: Respons
   }
 });
 
-router.delete("/:id", requirePermission("admin:roles"), (req: Request, res: Response, next: NextFunction) => {
+router.delete("/:id", requirePermission("admin:roles"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const deleted = dbStore.deleteRole(req.params.id);
+    const deleted = await dbStore.deleteRole(req.params.id);
     if (!deleted) {
       return res.status(400).json({
         success: false,
@@ -154,7 +155,7 @@ router.delete("/:id", requirePermission("admin:roles"), (req: Request, res: Resp
       });
     }
 
-    dbStore.addAuditLog({
+    await dbStore.addAuditLog({
       user_id: (req.headers["x-user-id"] as string) || "u1",
       action: "Delete Role",
       entity_type: "Role",

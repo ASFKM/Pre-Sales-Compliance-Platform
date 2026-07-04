@@ -29,16 +29,17 @@ const ApprovalWorkflowSchema = z.object({
 
 const UpdateApprovalWorkflowSchema = ApprovalWorkflowSchema.partial();
 
-function hasDuplicateWorkflowName(name: string, ignoreId?: string) {
-  return dbStore.getApprovalWorkflows().some(workflow =>
+async function hasDuplicateWorkflowName(name: string, ignoreId?: string) {
+  const workflows = await dbStore.getApprovalWorkflows();
+  return workflows.some(workflow =>
     workflow.id !== ignoreId &&
     workflow.name.toLowerCase().trim() === name.toLowerCase().trim()
   );
 }
 
-function validateApprovalWorkflowStages(stages: any[]) {
-  const roles = dbStore.getData().roles || [];
-  const users = dbStore.getData().users || [];
+async function validateApprovalWorkflowStages(stages: any[]) {
+  const roles = await dbStore.getRoles();
+  const users = await dbStore.getUsers();
   const stageNames = new Set<string>();
 
   for (const stage of stages || []) {
@@ -72,9 +73,9 @@ function validateApprovalWorkflowStages(stages: any[]) {
   return { valid: true, message: "" };
 }
 
-function auditApprovalChange(req: Request, action: string, entityType: string, entityId: string, metadata: any, projectId?: string) {
+async function auditApprovalChange(req: Request, action: string, entityType: string, entityId: string, metadata: any, projectId?: string) {
   const userId = (req.headers["x-user-id"] as string) || "u1";
-  dbStore.addAuditLog({
+  await dbStore.addAuditLog({
     user_id: userId,
     action,
     entity_type: entityType,
@@ -86,30 +87,30 @@ function auditApprovalChange(req: Request, action: string, entityType: string, e
   });
 }
 
-router.get("/approval-workflows", requireAuth, (req: Request, res: Response, next: NextFunction) => {
+router.get("/approval-workflows", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    res.json(dbStore.getApprovalWorkflows());
+    res.json(await dbStore.getApprovalWorkflows());
   } catch (err) {
     next(err);
   }
 });
 
-router.post("/approval-workflows", requirePermission("approval:manage"), (req: Request, res: Response, next: NextFunction) => {
+router.post("/approval-workflows", requirePermission("approval:manage"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validated = ApprovalWorkflowSchema.parse(req.body);
 
-    if (hasDuplicateWorkflowName(validated.name)) {
+    if (await hasDuplicateWorkflowName(validated.name)) {
       return res.status(409).json({ success: false, message: "Approval workflow name already exists." });
     }
 
-    const stageValidation = validateApprovalWorkflowStages(validated.stages);
+    const stageValidation = await validateApprovalWorkflowStages(validated.stages);
     if (!stageValidation.valid) {
       return res.status(400).json({ success: false, message: stageValidation.message });
     }
 
-    const workflow = dbStore.createApprovalWorkflow(validated);
+    const workflow = await dbStore.createApprovalWorkflow(validated);
 
-    auditApprovalChange(req, "Create Approval Workflow", "ApprovalWorkflow", workflow.id, validated);
+    await auditApprovalChange(req, "Create Approval Workflow", "ApprovalWorkflow", workflow.id, validated);
 
     res.status(201).json(workflow);
   } catch (err) {
@@ -117,28 +118,29 @@ router.post("/approval-workflows", requirePermission("approval:manage"), (req: R
   }
 });
 
-router.put("/approval-workflows/:id", requirePermission("approval:manage"), (req: Request, res: Response, next: NextFunction) => {
+router.put("/approval-workflows/:id", requirePermission("approval:manage"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validated = UpdateApprovalWorkflowSchema.parse(req.body);
-    const currentWorkflow = dbStore.getApprovalWorkflows().find(w => w.id === req.params.id);
+    const workflows = await dbStore.getApprovalWorkflows();
+    const currentWorkflow = workflows.find(w => w.id === req.params.id);
 
     if (!currentWorkflow) {
       return res.status(404).json({ success: false, message: "Approval workflow not found." });
     }
 
-    if (validated.name && hasDuplicateWorkflowName(validated.name, req.params.id)) {
+    if (validated.name && (await hasDuplicateWorkflowName(validated.name, req.params.id))) {
       return res.status(409).json({ success: false, message: "Approval workflow name already exists." });
     }
 
     const effectiveStages = validated.stages || currentWorkflow.stages || [];
-    const stageValidation = validateApprovalWorkflowStages(effectiveStages);
+    const stageValidation = await validateApprovalWorkflowStages(effectiveStages);
     if (!stageValidation.valid) {
       return res.status(400).json({ success: false, message: stageValidation.message });
     }
 
-    const workflow = dbStore.updateApprovalWorkflow(req.params.id, validated);
+    const workflow = await dbStore.updateApprovalWorkflow(req.params.id, validated);
 
-    auditApprovalChange(req, "Update Approval Workflow", "ApprovalWorkflow", req.params.id, validated);
+    await auditApprovalChange(req, "Update Approval Workflow", "ApprovalWorkflow", req.params.id, validated);
 
     res.json(workflow);
   } catch (err) {
@@ -146,9 +148,9 @@ router.put("/approval-workflows/:id", requirePermission("approval:manage"), (req
   }
 });
 
-router.delete("/approval-workflows/:id", requirePermission("approval:manage"), (req: Request, res: Response, next: NextFunction) => {
+router.delete("/approval-workflows/:id", requirePermission("approval:manage"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const ok = dbStore.deleteApprovalWorkflow(req.params.id);
+    const ok = await dbStore.deleteApprovalWorkflow(req.params.id);
 
     if (!ok) {
       return res.status(400).json({
@@ -157,7 +159,7 @@ router.delete("/approval-workflows/:id", requirePermission("approval:manage"), (
       });
     }
 
-    auditApprovalChange(req, "Delete Approval Workflow", "ApprovalWorkflow", req.params.id, {});
+    await auditApprovalChange(req, "Delete Approval Workflow", "ApprovalWorkflow", req.params.id, {});
 
     res.json({ success: true, message: "Approval workflow deleted successfully." });
   } catch (err) {
@@ -165,9 +167,9 @@ router.delete("/approval-workflows/:id", requirePermission("approval:manage"), (
   }
 });
 
-router.post("/proposals/:proposalId/approval/submit", requirePermission("approval:manage"), (req: Request, res: Response, next: NextFunction) => {
+router.post("/proposals/:proposalId/approval/submit", requirePermission("approval:manage"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const currentProposal = dbStore.getProposal(req.params.proposalId);
+    const currentProposal = await dbStore.getProposal(req.params.proposalId);
 
     if (!currentProposal) {
       return res.status(404).json({ success: false, message: "Proposal not found" });
@@ -180,15 +182,16 @@ router.post("/proposals/:proposalId/approval/submit", requirePermission("approva
       });
     }
 
-    const workflow = dbStore.getApprovalWorkflows().find(w => w.id === currentProposal.approval_workflow_id);
+    const workflows = await dbStore.getApprovalWorkflows();
+    const workflow = workflows.find(w => w.id === currentProposal.approval_workflow_id);
 
     if (!workflow || !workflow.active) {
       return res.status(400).json({ success: false, message: "Active approval workflow not found for this proposal." });
     }
 
-    const proposal = dbStore.updateProposalStatus(req.params.proposalId, "submitted");
+    const proposal = await dbStore.updateProposalStatus(req.params.proposalId, "submitted");
 
-    auditApprovalChange(
+    await auditApprovalChange(
       req,
       "Submit Proposal for Approval",
       "Proposal",
@@ -203,10 +206,10 @@ router.post("/proposals/:proposalId/approval/submit", requirePermission("approva
   }
 });
 
-router.post("/proposals/:proposalId/approval/decision", requireAuth, (req: Request, res: Response, next: NextFunction) => {
+router.post("/proposals/:proposalId/approval/decision", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { decision, comments, stage_id } = req.body;
-    const proposal = dbStore.getProposal(req.params.proposalId);
+    const proposal = await dbStore.getProposal(req.params.proposalId);
 
     if (!proposal) {
       return res.status(404).json({ success: false, message: "Proposal not found" });
@@ -223,7 +226,8 @@ router.post("/proposals/:proposalId/approval/decision", requireAuth, (req: Reque
       return res.status(400).json({ success: false, message: "Decision must be approved or rejected." });
     }
 
-    const workflow = dbStore.getApprovalWorkflows().find(w => w.id === proposal.approval_workflow_id);
+    const workflows = await dbStore.getApprovalWorkflows();
+    const workflow = workflows.find(w => w.id === proposal.approval_workflow_id);
 
     if (!workflow || !workflow.active || !workflow.stages?.length) {
       return res.status(400).json({ success: false, message: "Active approval workflow with stages not found for this proposal." });
@@ -238,8 +242,8 @@ router.post("/proposals/:proposalId/approval/decision", requireAuth, (req: Reque
 
     const userId = (req.headers["x-user-id"] as string) || "";
     const roleId = (req.headers["x-role-id"] as string) || "";
-    const currentUser = dbStore.getData().users.find(u => u.id === userId);
-    const currentRole = dbStore.getData().roles.find(r => r.id === roleId);
+    const currentUser = await dbStore.getUserById(userId);
+    const currentRole = await dbStore.getRoleById(roleId);
 
     if (!currentUser || !currentRole) {
       return res.status(403).json({ success: false, message: "Authenticated approver context was not found." });
@@ -275,9 +279,7 @@ router.post("/proposals/:proposalId/approval/decision", requireAuth, (req: Reque
       });
     }
 
-    const existingDecision = dbStore.getData().approvalDecisions.find(d =>
-      d.proposal_id === req.params.proposalId && d.stage_id === targetStageId
-    );
+    const existingDecision = await dbStore.getApprovalDecision(req.params.proposalId, targetStageId);
 
     if (existingDecision) {
       return res.status(409).json({
@@ -286,7 +288,7 @@ router.post("/proposals/:proposalId/approval/decision", requireAuth, (req: Reque
       });
     }
 
-    const savedDecision = dbStore.createApprovalDecision({
+    const savedDecision = await dbStore.createApprovalDecision({
       proposal_id: req.params.proposalId,
       stage_id: targetStageId,
       approver_user_id: userId,
@@ -299,17 +301,17 @@ router.post("/proposals/:proposalId/approval/decision", requireAuth, (req: Reque
     if (decision === "rejected") {
       nextStatus = "rejected";
     } else {
-      const allDecisions = [...dbStore.getData().approvalDecisions, savedDecision];
+      const allDecisions = await dbStore.getApprovalDecisionsForProposal(req.params.proposalId);
       const requiredStageIds = workflow.stages.filter(s => s.mandatory !== false).map(s => s.id);
       const allRequiredApproved = requiredStageIds.every(id =>
-        allDecisions.some(d => d.proposal_id === req.params.proposalId && d.stage_id === id && d.decision === "approved")
+        allDecisions.some(d => d.stage_id === id && d.decision === "approved")
       );
       nextStatus = allRequiredApproved ? "approved" : "submitted";
     }
 
-    const updatedProposal = dbStore.updateProposalStatus(req.params.proposalId, nextStatus);
+    const updatedProposal = await dbStore.updateProposalStatus(req.params.proposalId, nextStatus);
 
-    auditApprovalChange(
+    await auditApprovalChange(
       req,
       `Review Decision - ${decision}`,
       "Proposal",
@@ -335,9 +337,9 @@ router.post("/proposals/:proposalId/approval/decision", requireAuth, (req: Reque
   }
 });
 
-router.get("/approval-decisions", requireAuth, (req: Request, res: Response, next: NextFunction) => {
+router.get("/approval-decisions", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    res.json(dbStore.getData().approvalDecisions);
+    res.json(await dbStore.getApprovalDecisions());
   } catch (err) {
     next(err);
   }

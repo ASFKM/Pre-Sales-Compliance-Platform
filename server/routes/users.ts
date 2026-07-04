@@ -31,49 +31,39 @@ const UpdateUserSchema = z.object({
 });
 
 // Protect with users admin permissions
-router.get("/", requirePermission("admin:users"), (req: Request, res: Response, next: NextFunction) => {
+router.get("/", requirePermission("admin:users"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    res.json(dbStore.getData().users.map(sanitizeUser));
+    const users = await dbStore.getUsers();
+    res.json(users.map(sanitizeUser));
   } catch (err) {
     next(err);
   }
 });
 
-router.post("/", requirePermission("admin:users"), (req: Request, res: Response, next: NextFunction) => {
+router.post("/", requirePermission("admin:users"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validated = CreateUserSchema.parse(req.body);
     const normalizedEmail = validated.email.toLowerCase().trim();
 
-    const roleExists = dbStore.getData().roles.some(r => r.id === validated.role_id);
+    const roleExists = await dbStore.getRoleById(validated.role_id);
     if (!roleExists) {
       return res.status(400).json({ success: false, message: "Role does not exist." });
     }
 
-    const duplicatedEmail = dbStore.getData().users.some(u =>
-      u.email.toLowerCase().trim() === normalizedEmail
-    );
+    const duplicatedEmail = await dbStore.getUserByEmail(normalizedEmail);
     if (duplicatedEmail) {
       return res.status(409).json({ success: false, message: "User email already exists." });
     }
 
-    const userId = "u_" + Math.random().toString(36).substring(2, 11);
-
-    const newUser = {
-      id: userId,
+    const newUser = await dbStore.createUser({
       name: validated.name,
       email: normalizedEmail,
-      mfa_enabled: false,
-      status: UserStatus.ACTIVE,
       role_id: validated.role_id,
       password_hash: hashPassword(validated.initial_password || "ChangeMe123!"),
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    };
-
-    dbStore.getData().users.push(newUser);
+    });
 
     // Audit Log
-    dbStore.addAuditLog({
+    await dbStore.addAuditLog({
       user_id: (req.headers["x-user-id"] as string) || "u1",
       action: "Create User",
       entity_type: "User",
@@ -92,39 +82,37 @@ router.post("/", requirePermission("admin:users"), (req: Request, res: Response,
   }
 });
 
-router.put("/:id", requirePermission("admin:users"), (req: Request, res: Response, next: NextFunction) => {
+router.put("/:id", requirePermission("admin:users"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validated = UpdateUserSchema.parse(req.body);
-    const user = dbStore.getData().users.find(u => u.id === req.params.id);
+    const user = await dbStore.getUserById(req.params.id);
 
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
     if (validated.role_id) {
-      const roleExists = dbStore.getData().roles.some(r => r.id === validated.role_id);
+      const roleExists = await dbStore.getRoleById(validated.role_id);
       if (!roleExists) {
         return res.status(400).json({ success: false, message: "Role does not exist." });
       }
     }
 
+    let normalizedEmail: string | undefined;
     if (validated.email) {
-      const normalizedEmail = validated.email.toLowerCase().trim();
-      const duplicatedEmail = dbStore.getData().users.some(u =>
-        u.id !== req.params.id && u.email.toLowerCase().trim() === normalizedEmail
-      );
+      normalizedEmail = validated.email.toLowerCase().trim();
+      const duplicatedEmail = await dbStore.getUserByEmail(normalizedEmail);
 
-      if (duplicatedEmail) {
+      if (duplicatedEmail && duplicatedEmail.id !== req.params.id) {
         return res.status(409).json({ success: false, message: "User email already exists." });
       }
-
-      validated.email = normalizedEmail;
     }
 
     const { password, ...safeUpdates } = validated;
-    Object.assign(user, safeUpdates, {
+    const updatedUser = await dbStore.updateUser(req.params.id, {
+      ...safeUpdates,
+      email: normalizedEmail,
       ...(password ? { password_hash: hashPassword(password) } : {}),
-      updated_at: new Date().toISOString()
     });
 
     const auditMetadata = { ...validated } as any;
@@ -132,7 +120,7 @@ router.put("/:id", requirePermission("admin:users"), (req: Request, res: Respons
       auditMetadata.password = "[password-updated]";
     }
 
-    dbStore.addAuditLog({
+    await dbStore.addAuditLog({
       user_id: (req.headers["x-user-id"] as string) || "u1",
       action: "Update User Record",
       entity_type: "User",
@@ -142,7 +130,7 @@ router.put("/:id", requirePermission("admin:users"), (req: Request, res: Respons
       metadata: JSON.stringify(auditMetadata)
     });
 
-    res.json(sanitizeUser(user));
+    res.json(sanitizeUser(updatedUser));
   } catch (err) {
     if (err instanceof z.ZodError) {
       return res.status(400).json({ success: false, message: err.issues[0].message });
@@ -151,10 +139,10 @@ router.put("/:id", requirePermission("admin:users"), (req: Request, res: Respons
   }
 });
 
-router.delete("/:id", requirePermission("admin:users"), (req: Request, res: Response, next: NextFunction) => {
+router.delete("/:id", requirePermission("admin:users"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const actorUserId = (req.headers["x-user-id"] as string) || "u1";
-    const user = dbStore.getData().users.find(u => u.id === req.params.id);
+    const user = await dbStore.getUserById(req.params.id);
 
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found." });
@@ -164,9 +152,9 @@ router.delete("/:id", requirePermission("admin:users"), (req: Request, res: Resp
       return res.status(400).json({ success: false, message: "Current authenticated user cannot delete own account." });
     }
 
-    dbStore.getData().users = dbStore.getData().users.filter(u => u.id !== req.params.id);
+    await dbStore.deleteUser(req.params.id);
 
-    dbStore.addAuditLog({
+    await dbStore.addAuditLog({
       user_id: actorUserId,
       action: "Delete User Account",
       entity_type: "User",

@@ -6,13 +6,8 @@ cd "$BASE_DIR"
 
 echo "=== REGRESSION: ADMIN CONSOLE COMPACT ==="
 
-DB_BAK="$(mktemp)"
-cp db_state.json "$DB_BAK"
-
 cleanup() {
-  cp "$DB_BAK" db_state.json
-  rm -f "$DB_BAK" /tmp/admin_reg_*.json /tmp/admin_reg_*.txt /tmp/admin_reg_*.csv
-  sudo systemctl restart commercial-assistant-ai >/dev/null 2>&1 || true
+  rm -f /tmp/admin_reg_*.json /tmp/admin_reg_*.txt /tmp/admin_reg_*.csv
 }
 trap cleanup EXIT
 
@@ -466,10 +461,11 @@ expect_save 200 "admin diagnostics download" /tmp/admin_reg_diag.txt \
 grep -q "SANITIZED DIAGNOSTIC PACKAGE" /tmp/admin_reg_diag.txt || fail "diagnostics invalid"
 
 echo "Audit actions"
+curl -s -H "Authorization: Bearer $ADMIN_TOKEN" "http://127.0.0.1:3000/api/audit-logs?limit=1000" > /tmp/admin_reg_audit.json
 node - <<'NODE'
 const fs = require("fs");
-const db = JSON.parse(fs.readFileSync("db_state.json", "utf8"));
-const actions = new Set((db.auditLogs || []).map(a => a.action));
+const auditLogs = JSON.parse(fs.readFileSync("/tmp/admin_reg_audit.json", "utf8"));
+const actions = new Set((auditLogs || []).map(a => a.action));
 const required = [
   "Create User",
   "Update User Record",

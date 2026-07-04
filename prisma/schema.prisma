@@ -1,0 +1,533 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  PENDING
+}
+
+enum Language {
+  Portuguese
+  English
+  Spanish
+}
+
+enum ProjectStatus {
+  draft
+  analysis_in_progress
+  waiting_customer
+  waiting_internal
+  completed
+  canceled
+}
+
+enum StorageProvider {
+  local
+  s3
+  gcs
+}
+
+enum AnalysisJobStatus {
+  idle
+  running
+  completed
+  failed
+}
+
+enum ReviewStatus {
+  pending
+  reviewed
+  approved
+}
+
+enum ConversationRole {
+  user
+  model
+}
+
+enum LogLevel {
+  TRACE
+  DEBUG
+  INFO
+  WARN
+  ERROR
+  FATAL
+}
+
+enum ProposalTemplateType {
+  technical
+  commercial
+  executive_summary
+  risk_report
+  bom_report
+  questions_report
+}
+
+enum ProposalFileType {
+  docx
+  doc
+  pdf
+}
+
+enum ProposalType {
+  technical
+  commercial
+}
+
+enum ProposalStatus {
+  draft
+  submitted
+  approved
+  rejected
+  released
+}
+
+enum ApproverType {
+  user
+  role
+}
+
+enum ApprovalDecisionType {
+  approved
+  rejected
+}
+
+enum TaskStatus {
+  open
+  in_progress
+  waiting_customer
+  waiting_internal
+  completed
+  canceled
+}
+
+enum Priority {
+  high
+  medium
+  low
+}
+
+enum IntegrationStatus {
+  connected
+  disconnected
+  error
+}
+
+enum Theme {
+  light
+  dark
+}
+
+model User {
+  id             String     @id
+  name           String
+  email          String     @unique
+  passwordHash   String?    @map("password_hash")
+  mfaEnabled     Boolean    @default(false) @map("mfa_enabled")
+  mfaTotpSecret  String?    @map("mfa_totp_secret")
+  status         UserStatus @default(ACTIVE)
+  roleId         String     @map("role_id")
+  role           Role       @relation(fields: [roleId], references: [id])
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+  lastLoginAt    DateTime?  @map("last_login_at")
+
+  ownedProjects   Project[]        @relation("ProjectOwner")
+
+  @@map("users")
+}
+
+model Role {
+  id          String   @id
+  name        String
+  description String
+  permissions String[]
+
+  users User[]
+
+  @@map("roles")
+}
+
+model Project {
+  id                          String   @id
+  name                        String
+  customerName                String   @map("customer_name")
+  opportunityName             String   @map("opportunity_name")
+  vertical                    String
+  description                 String
+  status                      ProjectStatus
+  deadline                    DateTime
+  proposalValidityDate        DateTime @map("proposal_validity_date")
+  ownerUserId                 String   @map("owner_user_id")
+  owner                       User     @relation("ProjectOwner", fields: [ownerUserId], references: [id])
+  outputLanguage              Language @map("output_language")
+  proposalLanguage            Language @map("proposal_language")
+  aiOrientationMode           String   @map("ai_orientation_mode")
+  aiOrientationText           String   @map("ai_orientation_text") @db.Text
+  selectedApprovalWorkflowId  String?  @map("selected_approval_workflow_id")
+  procurementModality         String?  @map("procurement_modality")
+  procurementSubtype          String?  @map("procurement_subtype")
+  customModality              String?  @map("custom_modality")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  documents         Document[]
+  analysisJobs      AIAnalysisJob[]
+  analysisResults   AnalysisResult[]
+  proposals         Proposal[]
+  tasks             Task[]
+  conversationHistory ConversationMessage[]
+
+  @@map("projects")
+}
+
+model Document {
+  id                       String   @id
+  projectId                String   @map("project_id")
+  project                  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  filename                 String
+  originalFilename         String   @map("original_filename")
+  mimeType                 String   @map("mime_type")
+  fileSize                 Int      @map("file_size")
+  storageProvider          StorageProvider @map("storage_provider")
+  storagePath              String   @map("storage_path")
+  detectedDocumentType     String   @map("detected_document_type")
+  manualDocumentType       String?  @map("manual_document_type")
+  aiClassificationConfidence Float  @map("ai_classification_confidence")
+  version                  Int
+  language                 String
+  // Not a User FK: some call sites store a display name here instead of a user id.
+  uploadedBy               String   @map("uploaded_by")
+  createdAt                DateTime @default(now()) @map("created_at")
+
+  content DocumentContent?
+
+  @@map("documents")
+}
+
+model DocumentContent {
+  documentId String   @id @map("document_id")
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  content    String   @db.Text
+
+  @@map("document_contents")
+}
+
+model AIAnalysisJob {
+  id                     String    @id
+  projectId              String    @map("project_id")
+  project                Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  status                 AnalysisJobStatus
+  aiProvider             String    @map("ai_provider")
+  aiModel                String    @map("ai_model")
+  promptTemplateVersion  String    @map("prompt_template_version")
+  startedAt              DateTime? @map("started_at")
+  completedAt            DateTime? @map("completed_at")
+  errorMessage           String?   @map("error_message") @db.Text
+  tokenInput             Int?      @map("token_input")
+  tokenOutput            Int?      @map("token_output")
+  estimatedCost          Float?    @map("estimated_cost")
+  // Not a User FK: analysis.ts stores the user's display name here, not their id.
+  createdBy              String    @map("created_by")
+  correlationId          String    @map("correlation_id")
+
+  results AnalysisResult[]
+
+  @@map("analysis_jobs")
+}
+
+model AnalysisResult {
+  id                       String   @id
+  projectId                String   @map("project_id")
+  project                  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  jobId                    String   @map("job_id")
+  job                      AIAnalysisJob @relation(fields: [jobId], references: [id])
+
+  // Semi-structured AI-generated content: shape evolves with prompt/model versions,
+  // always read/written as a whole per project, never queried by sub-item elsewhere.
+  executiveSummary         Json     @map("executive_summary")
+  criticalRequirements     Json     @map("critical_requirements")
+  risks                    Json
+  opportunities            Json
+  bom                      Json
+  pointToPointTable        Json     @map("point_to_point_table")
+  preliminarySchedule      Json     @map("preliminary_schedule")
+  clarificationQuestions   Json     @map("clarification_questions")
+
+  technicalProposalDraft   String   @map("technical_proposal_draft") @db.Text
+  commercialProposalDraft  String   @map("commercial_proposal_draft") @db.Text
+  reviewStatus             ReviewStatus @default(pending) @map("review_status")
+  approvedBy               String?  @map("approved_by")
+  approvedAt               DateTime? @map("approved_at")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+
+  @@unique([projectId])
+  @@map("analysis_results")
+}
+
+model ConversationMessage {
+  id                    String   @id
+  projectId             String   @map("project_id")
+  project               Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  // Not a User FK: field is unused by current routes; kept loose like the other actor fields above.
+  userId                String   @map("user_id")
+  role                  ConversationRole
+  message               String   @db.Text
+  aiProvider            String   @map("ai_provider")
+  aiModel               String   @map("ai_model")
+  promptTemplateVersion String   @map("prompt_template_version")
+  inputSummary          String   @map("input_summary") @db.Text
+  outputSummary         String   @map("output_summary") @db.Text
+  tokenInput            Int      @map("token_input")
+  tokenOutput           Int      @map("token_output")
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  @@map("conversation_messages")
+}
+
+model AuditLog {
+  id         String   @id
+  userId     String   @map("user_id")
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  projectId  String?  @map("project_id")
+  ipAddress  String   @map("ip_address")
+  userAgent  String   @map("user_agent")
+  metadata   String   @db.Text
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model DebugLog {
+  id             String   @id
+  timestamp      DateTime @default(now())
+  logLevel       LogLevel @map("log_level")
+  serviceName    String   @map("service_name")
+  moduleName     String   @map("module_name")
+  environment    String
+  correlationId  String   @map("correlation_id")
+  requestId      String   @map("request_id")
+  userId         String?  @map("user_id")
+  projectId      String?  @map("project_id")
+  documentId     String?  @map("document_id")
+  analysisJobId  String?  @map("analysis_job_id")
+  proposalId     String?  @map("proposal_id")
+  operation      String
+  message        String   @db.Text
+  status         String
+  durationMs     Int      @map("duration_ms")
+  errorCode      String?  @map("error_code")
+  errorMessage   String?  @map("error_message") @db.Text
+  safeMetadata   String   @map("safe_metadata") @db.Text
+
+  @@index([timestamp])
+  @@map("debug_logs")
+}
+
+model PlatformSettings {
+  id                       String   @id @default("singleton")
+  aiProvider               String   @map("ai_provider")
+  defaultModel             String   @map("default_model")
+  documentAnalysisModel    String   @map("document_analysis_model")
+  proposalGenerationModel  String   @map("proposal_generation_model")
+  summarizationModel       String   @map("summarization_model")
+  riskAnalysisModel        String   @map("risk_analysis_model")
+  aiApiKeyEncrypted        String?  @map("ai_api_key_encrypted") @db.Text
+  storageMode              StorageProvider @default(local) @map("storage_mode")
+  localStoragePath         String   @map("local_storage_path")
+  s3Bucket                 String   @map("s3_bucket")
+  gcsBucket                String   @map("gcs_bucket")
+  defaultLanguage          Language @map("default_language")
+  defaultLogLevel          LogLevel @map("default_log_level")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+
+  @@map("platform_settings")
+}
+
+model PromptTemplate {
+  id        String   @id
+  name      String
+  type      String
+  content   String   @db.Text
+  language  Language
+  version   String
+  isActive  Boolean  @default(true) @map("is_active")
+  createdBy String   @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("prompt_templates")
+}
+
+model ProposalTemplate {
+  id               String   @id
+  name             String
+  description      String
+  templateType     ProposalTemplateType @map("template_type")
+  language         Language
+  fileType         ProposalFileType @map("file_type")
+  filePath         String   @map("file_path")
+  variablesSchema  String   @map("variables_schema") @db.Text
+  version          String
+  active           Boolean  @default(true)
+  defaultTemplate  Boolean  @default(false) @map("default_template")
+  uploadedBy       String   @map("uploaded_by")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  proposals Proposal[]
+
+  @@map("proposal_templates")
+}
+
+model Proposal {
+  id                    String   @id
+  projectId             String   @map("project_id")
+  project               Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  proposalType          ProposalType @map("proposal_type")
+  templateId            String   @map("template_id")
+  template              ProposalTemplate @relation(fields: [templateId], references: [id])
+  templateVersion       String   @map("template_version")
+  status                ProposalStatus @default(draft)
+  language              Language
+  docxFilePath          String   @map("docx_file_path")
+  pdfFilePath           String   @map("pdf_file_path")
+  generatedBy           String   @map("generated_by")
+  generatedAt           DateTime @default(now()) @map("generated_at")
+  version               Int
+  approvalWorkflowId    String   @map("approval_workflow_id")
+  approvalWorkflow      ApprovalWorkflow @relation(fields: [approvalWorkflowId], references: [id])
+  manualPricingTable    Json?    @map("manual_pricing_table")
+  paymentTerms          String?  @map("payment_terms") @db.Text
+  deliveryTerms         String?  @map("delivery_terms") @db.Text
+  proposalValidity      String?  @map("proposal_validity")
+  commercialAssumptions String?  @map("commercial_assumptions") @db.Text
+  exclusions            String?  @db.Text
+
+  decisions ApprovalDecision[]
+
+  @@map("proposals")
+}
+
+model ApprovalWorkflow {
+  id          String   @id
+  name        String
+  description String
+  active      Boolean  @default(true)
+  appliesTo   String   @map("applies_to")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  stages    ApprovalStage[]
+  proposals Proposal[]
+
+  @@map("approval_workflows")
+}
+
+model ApprovalStage {
+  id              String   @id
+  workflowId      String   @map("workflow_id")
+  workflow        ApprovalWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  name            String
+  order           Int
+  approverType    ApproverType @map("approver_type")
+  approverUserId  String?  @map("approver_user_id")
+  approverRoleId  String?  @map("approver_role_id")
+  mandatory       Boolean  @default(true)
+  conditions      String
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  decisions ApprovalDecision[]
+
+  @@map("approval_stages")
+}
+
+model ApprovalDecision {
+  id              String   @id
+  proposalId      String   @map("proposal_id")
+  proposal        Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  stageId         String   @map("stage_id")
+  stage           ApprovalStage @relation(fields: [stageId], references: [id])
+  approverUserId  String   @map("approver_user_id")
+  decision        ApprovalDecisionType
+  comments        String   @db.Text
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@map("approval_decisions")
+}
+
+model Task {
+  id                   String   @id
+  projectId            String   @map("project_id")
+  project              Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title                String
+  description          String   @db.Text
+  ownerUserId          String   @map("owner_user_id")
+  dueDate              DateTime @map("due_date")
+  status               TaskStatus
+  priority             Priority
+  relatedAnalysisItem  String?  @map("related_analysis_item")
+  createdBy            String   @map("created_by")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@map("tasks")
+}
+
+model BrandingSettings {
+  id                   String   @id @default("singleton")
+  companyName          String   @map("company_name")
+  companyLogoPath      String   @map("company_logo_path")
+  loginLogoPath        String   @map("login_logo_path")
+  sidebarLogoPath      String   @map("sidebar_logo_path")
+  reportLogoPath       String   @map("report_logo_path")
+  faviconPath          String   @map("favicon_path")
+  primaryColor         String   @map("primary_color")
+  secondaryColor       String   @map("secondary_color")
+  accentColor          String   @map("accent_color")
+  backgroundColor      String   @map("background_color")
+  textColor            String   @map("text_color")
+  fontFamily           String   @map("font_family")
+  borderRadius         String   @map("border_radius")
+  buttonStyle          String   @map("button_style")
+  defaultTheme         Theme    @default(light) @map("default_theme")
+  customCssVariables   String   @map("custom_css_variables") @db.Text
+  footerText           String   @map("footer_text")
+  supportContact       String   @map("support_contact")
+  legalText            String   @map("legal_text") @db.Text
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@map("branding_settings")
+}
+
+model IntegrationConnector {
+  id                    String   @id
+  name                  String
+  type                  String
+  status                IntegrationStatus
+  configuration         String   @db.Text
+  // Encrypted (AES-256-GCM via encryptSecret) - set when the connector form submits a raw credential.
+  apiKeyEncrypted       String?  @map("api_key_encrypted") @db.Text
+  webhookSecretEncrypted String? @map("webhook_secret_encrypted") @db.Text
+  lastSyncStatus        String   @map("last_sync_status")
+  lastSyncDate          DateTime? @map("last_sync_date")
+  errorMessage          String?  @map("error_message") @db.Text
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@map("integration_connectors")
+}

@@ -35,16 +35,17 @@ function validateTemplateFilePath(filePath: string, fileType: string) {
   return { valid: true, message: "" };
 }
 
-function hasDuplicateTemplateName(name: string, ignoreId?: string) {
-  return dbStore.getProposalTemplates().some(template =>
+async function hasDuplicateTemplateName(name: string, ignoreId?: string) {
+  const templates = await dbStore.getProposalTemplates();
+  return templates.some(template =>
     template.id !== ignoreId &&
     template.name.toLowerCase().trim() === name.toLowerCase().trim()
   );
 }
 
-function auditTemplateChange(req: Request, action: string, templateId: string, updates: any) {
+async function auditTemplateChange(req: Request, action: string, templateId: string, updates: any) {
   const userId = (req.headers["x-user-id"] as string) || "u1";
-  dbStore.addAuditLog({
+  await dbStore.addAuditLog({
     user_id: userId,
     action,
     entity_type: "ProposalTemplate",
@@ -68,19 +69,19 @@ function extractTemplateVariables(rawSchema: string): string[] {
   return Array.from(new Set(matches));
 }
 
-router.get("/proposals", requireAuth, (req: Request, res: Response, next: NextFunction) => {
+router.get("/proposals", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    res.json(dbStore.getProposalTemplates());
+    res.json(await dbStore.getProposalTemplates());
   } catch (err) {
     next(err);
   }
 });
 
-router.post("/proposals", requirePermission("template:manage"), (req: Request, res: Response, next: NextFunction) => {
+router.post("/proposals", requirePermission("template:manage"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validated = ProposalTemplateSchema.parse(req.body);
 
-    if (hasDuplicateTemplateName(validated.name)) {
+    if (await hasDuplicateTemplateName(validated.name)) {
       return res.status(409).json({ success: false, message: "Template name already exists." });
     }
 
@@ -89,30 +90,31 @@ router.post("/proposals", requirePermission("template:manage"), (req: Request, r
       return res.status(400).json({ success: false, message: fileValidation.message });
     }
 
-    const tpl = dbStore.createProposalTemplate(validated);
+    const tpl = await dbStore.createProposalTemplate(validated);
 
     let result = tpl;
     if (validated.default_template) {
-      result = dbStore.setDefaultProposalTemplate(tpl.id) || tpl;
+      result = (await dbStore.setDefaultProposalTemplate(tpl.id)) || tpl;
     }
 
-    auditTemplateChange(req, "Create Proposal Template", result.id, validated);
+    await auditTemplateChange(req, "Create Proposal Template", result.id, validated);
     res.status(201).json(result);
   } catch (err) {
     next(err);
   }
 });
 
-router.put("/proposals/:id", requirePermission("template:manage"), (req: Request, res: Response, next: NextFunction) => {
+router.put("/proposals/:id", requirePermission("template:manage"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validated = UpdateProposalTemplateSchema.parse(req.body);
-    const currentTemplate = dbStore.getProposalTemplates().find(t => t.id === req.params.id);
+    const templates = await dbStore.getProposalTemplates();
+    const currentTemplate = templates.find(t => t.id === req.params.id);
 
     if (!currentTemplate) {
       return res.status(404).json({ success: false, message: "Template not found" });
     }
 
-    if (validated.name && hasDuplicateTemplateName(validated.name, req.params.id)) {
+    if (validated.name && (await hasDuplicateTemplateName(validated.name, req.params.id))) {
       return res.status(409).json({ success: false, message: "Template name already exists." });
     }
 
@@ -123,22 +125,22 @@ router.put("/proposals/:id", requirePermission("template:manage"), (req: Request
       return res.status(400).json({ success: false, message: fileValidation.message });
     }
 
-    let tpl = dbStore.updateProposalTemplate(req.params.id, validated);
+    let tpl = await dbStore.updateProposalTemplate(req.params.id, validated);
 
     if (validated.default_template === true) {
-      tpl = dbStore.setDefaultProposalTemplate(req.params.id) || tpl;
+      tpl = (await dbStore.setDefaultProposalTemplate(req.params.id)) || tpl;
     }
 
-    auditTemplateChange(req, "Update Proposal Template", req.params.id, validated);
+    await auditTemplateChange(req, "Update Proposal Template", req.params.id, validated);
     res.json(tpl);
   } catch (err) {
     next(err);
   }
 });
 
-router.delete("/proposals/:id", requirePermission("template:manage"), (req: Request, res: Response, next: NextFunction) => {
+router.delete("/proposals/:id", requirePermission("template:manage"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const ok = dbStore.deleteProposalTemplate(req.params.id);
+    const ok = await dbStore.deleteProposalTemplate(req.params.id);
 
     if (!ok) {
       return res.status(400).json({
@@ -147,16 +149,17 @@ router.delete("/proposals/:id", requirePermission("template:manage"), (req: Requ
       });
     }
 
-    auditTemplateChange(req, "Delete Proposal Template", req.params.id, {});
+    await auditTemplateChange(req, "Delete Proposal Template", req.params.id, {});
     res.json({ success: true, message: "Template deleted successfully." });
   } catch (err) {
     next(err);
   }
 });
 
-router.post("/proposals/:id/validate", requirePermission("template:manage"), (req: Request, res: Response, next: NextFunction) => {
+router.post("/proposals/:id/validate", requirePermission("template:manage"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const tpl = dbStore.getProposalTemplates().find(t => t.id === req.params.id);
+    const templates = await dbStore.getProposalTemplates();
+    const tpl = templates.find(t => t.id === req.params.id);
     if (!tpl) {
       return res.status(404).json({ success: false, message: "Template not found" });
     }
@@ -174,15 +177,15 @@ router.post("/proposals/:id/validate", requirePermission("template:manage"), (re
   }
 });
 
-router.post("/proposals/:id/set-default", requirePermission("template:manage"), (req: Request, res: Response, next: NextFunction) => {
+router.post("/proposals/:id/set-default", requirePermission("template:manage"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const tpl = dbStore.setDefaultProposalTemplate(req.params.id);
+    const tpl = await dbStore.setDefaultProposalTemplate(req.params.id);
 
     if (!tpl) {
       return res.status(404).json({ success: false, message: "Template not found" });
     }
 
-    auditTemplateChange(req, "Set Default Proposal Template", req.params.id, { template_type: tpl.template_type });
+    await auditTemplateChange(req, "Set Default Proposal Template", req.params.id, { template_type: tpl.template_type });
     res.json({ success: true, message: "Default pre-sales template updated.", template: tpl });
   } catch (err) {
     next(err);

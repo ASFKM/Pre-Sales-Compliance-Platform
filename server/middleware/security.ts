@@ -47,6 +47,7 @@ export function logDebugMessage(options: {
     safeMetadata.error_stack = options.error.stack;
   }
 
+  // Fire-and-forget: debug logging must never block the request it is describing.
   dbStore.addDebugLog({
     log_level: options.status === "ERROR" ? "ERROR" : (options.status === "WARN" ? "WARN" : "DEBUG"),
     service_name: "API Service Engine",
@@ -62,7 +63,7 @@ export function logDebugMessage(options: {
     status: options.status,
     duration_ms: options.durationMs,
     safe_metadata: JSON.stringify(safeMetadata)
-  });
+  }).catch((err) => console.error("Failed to persist debug log:", err));
 }
 
 // 5. Centralized Error Handling Middleware

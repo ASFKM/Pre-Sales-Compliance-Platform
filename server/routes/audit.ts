@@ -33,11 +33,12 @@ function validateAuditQuery(req: Request) {
   return { valid: true, message: "" };
 }
 
-function filterAuditLogs(req: Request) {
+async function filterAuditLogs(req: Request) {
   const {
     user_id,
     action,
     entity_type,
+    entity_id,
     project_id,
     q,
     from,
@@ -45,11 +46,12 @@ function filterAuditLogs(req: Request) {
   } = req.query as Record<string, string | undefined>;
 
   const limit = parseLimit(req.query.limit);
-  let logs = dbStore.getAuditLogs();
+  let logs = await dbStore.getAuditLogs();
 
   if (user_id) logs = logs.filter(log => log.user_id === user_id);
   if (action) logs = logs.filter(log => log.action.toLowerCase().includes(action.toLowerCase()));
   if (entity_type) logs = logs.filter(log => log.entity_type === entity_type);
+  if (entity_id) logs = logs.filter(log => log.entity_id === entity_id);
   if (project_id) logs = logs.filter(log => log.project_id === project_id);
 
   if (from) {
@@ -84,28 +86,28 @@ function csvEscape(value: any) {
   return `"${text.replace(/"/g, '""')}"`;
 }
 
-router.get("/audit-logs", requirePermission("admin:audit"), (req: Request, res: Response, next: NextFunction) => {
+router.get("/audit-logs", requirePermission("admin:audit"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const queryValidation = validateAuditQuery(req);
     if (!queryValidation.valid) {
       return res.status(400).json({ success: false, message: queryValidation.message });
     }
 
-    const logs = filterAuditLogs(req).map(log => sanitizeAndMaskObject(log));
+    const logs = (await filterAuditLogs(req)).map(log => sanitizeAndMaskObject(log));
     res.json(logs);
   } catch (err) {
     next(err);
   }
 });
 
-router.get("/audit-logs/export/csv", requirePermission("admin:audit"), (req: Request, res: Response, next: NextFunction) => {
+router.get("/audit-logs/export/csv", requirePermission("admin:audit"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const queryValidation = validateAuditQuery(req);
     if (!queryValidation.valid) {
       return res.status(400).json({ success: false, message: queryValidation.message });
     }
 
-    const logs = filterAuditLogs(req).map(log => sanitizeAndMaskObject(log));
+    const logs = (await filterAuditLogs(req)).map(log => sanitizeAndMaskObject(log));
 
     const headers = [
       "ID",

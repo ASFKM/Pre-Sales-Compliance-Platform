@@ -1,10 +1,10 @@
 import express, { Request, Response, NextFunction } from "express";
 import { dbStore } from "../../src/dbStore";
-import { 
-  createSession, 
-  getSession, 
-  deleteSession, 
-  comparePasswords, 
+import {
+  createSession,
+  getSession,
+  deleteSession,
+  comparePasswords,
   hashPassword,
   verifySessionMfa
 } from "../utils/security";
@@ -14,23 +14,22 @@ import { isProductionRuntime, isDemoRuntime } from "../config/runtime";
 const router = express.Router();
 
 // Seed password hashes for initial users if they do not exist
-function ensurePasswordHashes() {
+async function ensurePasswordHashes() {
   if (isProductionRuntime()) {
     return;
   }
 
-  const users = dbStore.getData().users;
-  users.forEach((u: any) => {
-    if (!u.password_hash) {
+  const users = await dbStore.getUsers();
+  for (const u of users) {
+    const existingHash = await dbStore.getUserPasswordHash(u.id);
+    if (!existingHash) {
       // Demo-only seeded password. Never auto-created in production runtime.
-      u.password_hash = hashPassword("password123");
+      await dbStore.updateUser(u.id, { password_hash: hashPassword("password123") });
     }
-  });
+  }
 }
 
-function buildSessionUser(user: any) {
-  const role = dbStore.getData().roles.find(r => r.id === user.role_id);
-
+function buildSessionUser(user: any, role: any) {
   return {
     id: user.id,
     name: user.name,
@@ -71,59 +70,69 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   req.headers["x-user-id"] = session.userId;
   req.headers["x-role-id"] = session.roleId;
   req.headers["x-session-token"] = token;
-  
+
   next();
 }
 
 // Admin validation middleware
 export function requireAdmin(req: Request, res: Response, next: NextFunction) {
-  requireAuth(req, res, () => {
-    const roleId = req.headers["x-role-id"] as string;
-    const role = dbStore.getData().roles.find(r => r.id === roleId);
+  requireAuth(req, res, async () => {
+    try {
+      const roleId = req.headers["x-role-id"] as string;
+      const role = await dbStore.getRoleById(roleId);
 
-    if (!role || role.name !== "Administrator") {
-      return res.status(403).json({ 
-        success: false, 
-        message: "Access Denied: Administrator privileges required." 
-      });
+      if (!role || role.name !== "Administrator") {
+        return res.status(403).json({
+          success: false,
+          message: "Access Denied: Administrator privileges required."
+        });
+      }
+      next();
+    } catch (err) {
+      next(err);
     }
-    next();
   });
 }
 
 // RBAC Authorization Middleware creator
 export function requirePermission(permission: string) {
   return (req: Request, res: Response, next: NextFunction) => {
-    requireAuth(req, res, () => {
-      const roleId = req.headers["x-role-id"] as string;
-      const role = dbStore.getData().roles.find(r => r.id === roleId);
+    requireAuth(req, res, async () => {
+      try {
+        const roleId = req.headers["x-role-id"] as string;
+        const role = await dbStore.getRoleById(roleId);
 
-      if (!role || !role.permissions.includes(permission)) {
-        return res.status(403).json({ 
-          success: false, 
-          message: `Forbidden: Missing required permission [${permission}]` 
-        });
+        if (!role || !role.permissions.includes(permission)) {
+          return res.status(403).json({
+            success: false,
+            message: `Forbidden: Missing required permission [${permission}]`
+          });
+        }
+        next();
+      } catch (err) {
+        next(err);
       }
-      next();
     });
   };
 }
 
 // LOGIN ENDPOINT
-router.post("/login", (req: Request, res: Response, next: NextFunction) => {
+router.post("/login", async (req: Request, res: Response, next: NextFunction) => {
   const correlationId = (req.headers["x-correlation-id"] as string) || "corr-auth";
   const startTime = Date.now();
-  
+
   try {
-    ensurePasswordHashes();
+    await ensurePasswordHashes();
     const { email, password } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({ success: false, message: "Email and password are required." });
     }
 
-    const user = dbStore.getData().users.find((u: any) => u.email === email.toLowerCase().trim());
-    if (!user || !comparePasswords(password, (user as any).password_hash)) {
+    const user = await dbStore.getUserByEmail(email.toLowerCase().trim());
+    const passwordHash = user ? await dbStore.getUserPasswordHash(user.id) : null;
+
+    if (!user || !comparePasswords(password, passwordHash || "")) {
       logDebugMessage({
         operation: "User Authentication",
         message: `Failed login attempt for email: ${email}`,
@@ -134,15 +143,15 @@ router.post("/login", (req: Request, res: Response, next: NextFunction) => {
       return res.status(401).json({ success: false, message: "Invalid credentials." });
     }
 
-    if ((user as any).status && (user as any).status !== "ACTIVE") {
-      dbStore.addAuditLog({
+    if (user.status && user.status !== "ACTIVE") {
+      await dbStore.addAuditLog({
         user_id: user.id,
         action: "Blocked Login For Non-Active User",
         entity_type: "Authentication",
         entity_id: user.id,
         ip_address: req.ip || "127.0.0.1",
         user_agent: req.headers["user-agent"] || "unknown",
-        metadata: JSON.stringify({ email: user.email, status: (user as any).status })
+        metadata: JSON.stringify({ email: user.email, status: user.status })
       });
 
       return res.status(403).json({
@@ -151,8 +160,8 @@ router.post("/login", (req: Request, res: Response, next: NextFunction) => {
       });
     }
 
-    if (isProductionRuntime() && comparePasswords("password123", (user as any).password_hash)) {
-      dbStore.addAuditLog({
+    if (isProductionRuntime() && comparePasswords("password123", passwordHash || "")) {
+      await dbStore.addAuditLog({
         user_id: user.id,
         action: "Blocked Default Demo Credential Login",
         entity_type: "Authentication",
@@ -171,6 +180,7 @@ router.post("/login", (req: Request, res: Response, next: NextFunction) => {
     // Generate secure session token (MFA required if user profile has mfa_enabled = true)
     const mfaRequired = user.mfa_enabled;
     const session = createSession(user.id, user.role_id, mfaRequired);
+    const role = await dbStore.getRoleById(user.role_id);
 
     logDebugMessage({
       operation: "User Authentication",
@@ -182,7 +192,7 @@ router.post("/login", (req: Request, res: Response, next: NextFunction) => {
     });
 
     // Create Audit Log
-    dbStore.addAuditLog({
+    await dbStore.addAuditLog({
       user_id: user.name,
       action: "Credential Challenge Passed",
       entity_type: "User",
@@ -196,7 +206,7 @@ router.post("/login", (req: Request, res: Response, next: NextFunction) => {
       success: true,
       mfa_required: mfaRequired,
       token: session.token,
-      user: buildSessionUser(user)
+      user: buildSessionUser(user, role)
     });
 
   } catch (err) {
@@ -205,7 +215,7 @@ router.post("/login", (req: Request, res: Response, next: NextFunction) => {
 });
 
 // MFA VERIFY ENDPOINT
-router.post("/mfa/verify", (req: Request, res: Response, next: NextFunction) => {
+router.post("/mfa/verify", async (req: Request, res: Response, next: NextFunction) => {
   const correlationId = (req.headers["x-correlation-id"] as string) || "corr-mfa";
   const startTime = Date.now();
 
@@ -226,10 +236,10 @@ router.post("/mfa/verify", (req: Request, res: Response, next: NextFunction) => 
 
     if (demoMfaAccepted) {
       verifySessionMfa(token);
-      
-      const user = dbStore.getData().users.find(u => u.id === session.userId);
+
+      const user = await dbStore.getUserById(session.userId);
       if (user) {
-        user.last_login_at = new Date().toISOString();
+        await dbStore.setUserLastLogin(user.id);
       }
 
       logDebugMessage({
@@ -241,7 +251,7 @@ router.post("/mfa/verify", (req: Request, res: Response, next: NextFunction) => 
         userId: session.userId
       });
 
-      dbStore.addAuditLog({
+      await dbStore.addAuditLog({
         user_id: user?.name || session.userId,
         action: "MFA Multi-Factor Challenge Verified",
         entity_type: "User",
@@ -251,10 +261,12 @@ router.post("/mfa/verify", (req: Request, res: Response, next: NextFunction) => 
         metadata: JSON.stringify({ mfa_verified: true })
       });
 
+      const role = user ? await dbStore.getRoleById(user.role_id) : null;
+
       return res.json({
         success: true,
         verified: true,
-        user: user ? buildSessionUser(user) : null
+        user: user ? buildSessionUser(user, role) : null
       });
     }
 
@@ -270,15 +282,15 @@ router.post("/mfa/verify", (req: Request, res: Response, next: NextFunction) => 
 });
 
 // LOGOUT ENDPOINT
-router.post("/logout", requireAuth, (req: Request, res: Response, next: NextFunction) => {
+router.post("/logout", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   const token = req.headers["x-session-token"] as string;
   const userId = req.headers["x-user-id"] as string;
-  const user = dbStore.getData().users.find(u => u.id === userId);
 
   try {
+    const user = await dbStore.getUserById(userId);
     deleteSession(token);
-    
-    dbStore.addAuditLog({
+
+    await dbStore.addAuditLog({
       user_id: user?.name || "Unknown",
       action: "Session Terminated",
       entity_type: "User",
@@ -295,7 +307,7 @@ router.post("/logout", requireAuth, (req: Request, res: Response, next: NextFunc
 });
 
 // GET CURRENT SESSION PROFILE
-router.get("/me", (req: Request, res: Response) => {
+router.get("/me", async (req: Request, res: Response) => {
   const authHeader = req.headers["authorization"];
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({ success: false, message: "Unauthenticated." });
@@ -308,14 +320,16 @@ router.get("/me", (req: Request, res: Response) => {
     return res.status(401).json({ success: false, message: "Session expired or invalid." });
   }
 
-  const user = dbStore.getData().users.find(u => u.id === session.userId);
+  const user = await dbStore.getUserById(session.userId);
   if (!user) {
     return res.status(404).json({ success: false, message: "User not found." });
   }
 
+  const role = await dbStore.getRoleById(user.role_id);
+
   res.json({
     success: true,
-    user: buildSessionUser(user)
+    user: buildSessionUser(user, role)
   });
 });
 

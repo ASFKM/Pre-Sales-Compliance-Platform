@@ -22,8 +22,8 @@ function setNoStoreHeaders(res: Response) {
   res.setHeader("X-Content-Type-Options", "nosniff");
 }
 
-function getDiagnosticPayload(req: Request) {
-  const rawData = dbStore.getData();
+async function getDiagnosticPayload(req: Request) {
+  const rawData = await dbStore.getDiagnosticSnapshot();
   const correlationId = getSafeCorrelationId(req.headers["x-correlation-id"]);
 
   const activeConnectors = (rawData.integrationConnectors || [])
@@ -121,9 +121,9 @@ ${JSON.stringify(sanitizedData.auditLogs, null, 2)}
   };
 }
 
-router.get("/admin/logs/debug", requirePermission("admin:debug"), (req: Request, res: Response, next: NextFunction) => {
+router.get("/admin/logs/debug", requirePermission("admin:debug"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const logs = dbStore.getDebugLogs();
+    const logs = await dbStore.getDebugLogs();
     const safeLogs = logs.map(log => sanitizeAndMaskObject(log));
     res.json(safeLogs);
   } catch (err) {
@@ -131,9 +131,14 @@ router.get("/admin/logs/debug", requirePermission("admin:debug"), (req: Request,
   }
 });
 
-router.get("/admin/system/status", requirePermission("admin:diagnostics"), (req: Request, res: Response, next: NextFunction) => {
+router.get("/admin/system/status", requirePermission("admin:diagnostics"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const rawData = dbStore.getData();
+    const [settings, integrations, auditLogs, debugLogs] = await Promise.all([
+      dbStore.getSettings(),
+      dbStore.getIntegrations(),
+      dbStore.getAuditLogs(),
+      dbStore.getDebugLogs(),
+    ]);
 
     res.json({
       success: true,
@@ -144,30 +149,30 @@ router.get("/admin/system/status", requirePermission("admin:diagnostics"), (req:
       uptime_seconds: process.uptime(),
       memory_usage: process.memoryUsage(),
       node_version: process.version,
-      active_connections: (rawData.integrationConnectors || []).filter((conn: any) => conn.status === "connected").length,
-      database_connector: "JSON local store",
-      encryption_status: "AES-256-CBC active",
-      storage_mode: rawData.platformSettings?.storage_mode || "local",
-      audit_logs: rawData.auditLogs?.length || 0,
-      debug_logs: rawData.debugLogs?.length || 0
+      active_connections: integrations.filter((conn: any) => conn.status === "connected").length,
+      database_connector: "PostgreSQL (Prisma)",
+      encryption_status: "AES-256-GCM active",
+      storage_mode: settings.storage_mode || "local",
+      audit_logs: auditLogs.length,
+      debug_logs: debugLogs.length
     });
   } catch (err) {
     next(err);
   }
 });
 
-router.post("/admin/diagnostics/package", requirePermission("admin:diagnostics"), (req: Request, res: Response, next: NextFunction) => {
+router.post("/admin/diagnostics/package", requirePermission("admin:diagnostics"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const payload = getDiagnosticPayload(req);
+    const payload = await getDiagnosticPayload(req);
     res.json(payload);
   } catch (err) {
     next(err);
   }
 });
 
-router.get("/admin/diagnostics/package/download", requirePermission("admin:diagnostics"), (req: Request, res: Response, next: NextFunction) => {
+router.get("/admin/diagnostics/package/download", requirePermission("admin:diagnostics"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const payload = getDiagnosticPayload(req);
+    const payload = await getDiagnosticPayload(req);
 
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename=${payload.filename}`);

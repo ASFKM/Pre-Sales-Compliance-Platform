@@ -13,13 +13,7 @@ sudo systemctl restart commercial-assistant-ai >/dev/null
 sleep 2
 curl -s -w "\nHTTP:%{http_code}\n" http://127.0.0.1:3000/api/health | grep -q "HTTP:200"
 
-DB_BAK="$(mktemp)"
-cp db_state.json "$DB_BAK"
-
 cleanup() {
-  cp "$DB_BAK" db_state.json
-  sudo systemctl restart commercial-assistant-ai >/dev/null 2>&1 || true
-
   if [ -n "${GENERATED_DOCX_PATH:-}" ]; then
     rm -f "$GENERATED_DOCX_PATH"
   fi
@@ -28,11 +22,18 @@ cleanup() {
     rm -f "$GENERATED_PDF_PATH"
   fi
 
-  rm -f "$DB_BAK" \
+  rm -f \
     /tmp/regression_approval_context.json \
     /tmp/regression_approval_export.docx \
     /tmp/regression_approval_final.docx \
-    /tmp/regression_approval_final.pdf
+    /tmp/regression_approval_final.pdf \
+    /tmp/regression_approval_projects.json \
+    /tmp/regression_approval_templates.json \
+    /tmp/regression_approval_workflows.json \
+    /tmp/regression_approval_users.json \
+    /tmp/regression_approval_roles.json \
+    /tmp/regression_approval_decisions.json \
+    /tmp/regression_approval_release_audit.json
 }
 trap cleanup EXIT
 
@@ -58,15 +59,21 @@ ADMIN_TOKEN="$(login_token "alex.rivera@enterprise.com")"
 MANAGER_TOKEN="$(login_token "marcus.vance@enterprise.com")"
 ENGINEER_TOKEN="$(login_token "elena.rostova@enterprise.com")"
 
+curl -s -H "Authorization: Bearer $ADMIN_TOKEN" "http://127.0.0.1:3000/api/projects" > /tmp/regression_approval_projects.json
+curl -s -H "Authorization: Bearer $ADMIN_TOKEN" "http://127.0.0.1:3000/api/templates/proposals" > /tmp/regression_approval_templates.json
+curl -s -H "Authorization: Bearer $ADMIN_TOKEN" "http://127.0.0.1:3000/api/approval-workflows" > /tmp/regression_approval_workflows.json
+
 node - <<'NODE' > /tmp/regression_approval_context.json
 const fs = require("fs");
-const db = JSON.parse(fs.readFileSync("db_state.json", "utf8"));
+const projects = JSON.parse(fs.readFileSync("/tmp/regression_approval_projects.json", "utf8"));
+const proposalTemplates = JSON.parse(fs.readFileSync("/tmp/regression_approval_templates.json", "utf8"));
+const approvalWorkflows = JSON.parse(fs.readFileSync("/tmp/regression_approval_workflows.json", "utf8"));
 
-const project = db.projects[0];
+const project = projects[0];
 const technicalTemplate =
-  db.proposalTemplates.find(t => t.template_type === "technical" && t.default_template && t.active) ||
-  db.proposalTemplates.find(t => t.template_type === "technical" && t.active);
-const workflow = db.approvalWorkflows.find(w => w.id === "w1");
+  proposalTemplates.find(t => t.template_type === "technical" && t.default_template && t.active) ||
+  proposalTemplates.find(t => t.template_type === "technical" && t.active);
+const workflow = approvalWorkflows.find(w => w.id === "w1");
 
 if (!project) throw new Error("NO_PROJECT_FOUND");
 if (!technicalTemplate) throw new Error("NO_ACTIVE_TECHNICAL_TEMPLATE_FOUND");
@@ -161,21 +168,31 @@ curl -s -o /tmp/regression_approval_final.pdf -w "HTTP:%{http_code}\n" \
 file /tmp/regression_approval_final.docx | grep -q "Microsoft Word 2007+"
 file /tmp/regression_approval_final.pdf | grep -q "PDF document"
 
+curl -s -H "Authorization: Bearer $ADMIN_TOKEN" "http://127.0.0.1:3000/api/projects/$PROJECT_ID/proposals" > /tmp/regression_approval_proposals_final.json
+curl -s -H "Authorization: Bearer $ADMIN_TOKEN" "http://127.0.0.1:3000/api/approval-decisions" > /tmp/regression_approval_decisions.json
+curl -s -H "Authorization: Bearer $ADMIN_TOKEN" "http://127.0.0.1:3000/api/users" > /tmp/regression_approval_users.json
+curl -s -H "Authorization: Bearer $ADMIN_TOKEN" "http://127.0.0.1:3000/api/roles" > /tmp/regression_approval_roles.json
+curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
+  "http://127.0.0.1:3000/api/audit-logs?entity_id=$PROPOSAL_ID&action=Release%20Final%20Proposal" > /tmp/regression_approval_release_audit.json
+
 node - "$PROPOSAL_ID" <<'NODE'
 const fs = require("fs");
 const proposalId = process.argv[2];
-const db = JSON.parse(fs.readFileSync("db_state.json", "utf8"));
 
-const proposal = db.proposals.find(p => p.id === proposalId);
-const decisions = db.approvalDecisions.filter(d => d.proposal_id === proposalId).map(d => {
-  const user = db.users.find(u => u.id === d.approver_user_id);
-  const role = db.roles.find(r => r.id === user?.role_id);
+const proposals = JSON.parse(fs.readFileSync("/tmp/regression_approval_proposals_final.json", "utf8"));
+const allDecisionsRaw = JSON.parse(fs.readFileSync("/tmp/regression_approval_decisions.json", "utf8"));
+const users = JSON.parse(fs.readFileSync("/tmp/regression_approval_users.json", "utf8"));
+const roles = JSON.parse(fs.readFileSync("/tmp/regression_approval_roles.json", "utf8"));
+const releaseAuditLogs = JSON.parse(fs.readFileSync("/tmp/regression_approval_release_audit.json", "utf8"));
+
+const proposal = proposals.find(p => p.id === proposalId);
+const decisions = allDecisionsRaw.filter(d => d.proposal_id === proposalId).map(d => {
+  const user = users.find(u => u.id === d.approver_user_id);
+  const role = roles.find(r => r.id === user?.role_id);
   return { stage_id: d.stage_id, approver_role: role?.name, decision: d.decision };
 });
 
-const releaseAudit = db.auditLogs
-  .filter(a => a.entity_id === proposalId && a.action === "Release Final Proposal")
-  .slice(-1)[0];
+const releaseAudit = releaseAuditLogs.slice(-1)[0];
 
 if (proposal?.status !== "released") throw new Error("FINAL_STATUS_NOT_RELEASED");
 if (decisions.length !== 3) throw new Error("DECISION_COUNT_INVALID");
