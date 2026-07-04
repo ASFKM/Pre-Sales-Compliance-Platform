@@ -1,13 +1,30 @@
 import express, { Request, Response, NextFunction } from "express";
 import { dbStore } from "../../src/dbStore";
-import { requireAdmin } from "./auth";
+import { requirePermission } from "./auth";
 import { sanitizeAndMaskObject } from "../utils/security";
 
 const router = express.Router();
 
+function getSafeCorrelationId(value: any) {
+  const raw = typeof value === "string" ? value : "";
+  const safe = raw.replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 80);
+
+  if (safe) {
+    return safe;
+  }
+
+  return `corr-diag-${Math.random().toString(36).substring(2, 11)}`;
+}
+
+function setNoStoreHeaders(res: Response) {
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+}
+
 function getDiagnosticPayload(req: Request) {
   const rawData = dbStore.getData();
-  const correlationId = (req.headers["x-correlation-id"] as string) || `corr-diag-${Math.random().toString(36).substring(2, 11)}`;
+  const correlationId = getSafeCorrelationId(req.headers["x-correlation-id"]);
 
   const activeConnectors = (rawData.integrationConnectors || [])
     .filter((conn: any) => conn.status === "connected")
@@ -104,7 +121,7 @@ ${JSON.stringify(sanitizedData.auditLogs, null, 2)}
   };
 }
 
-router.get("/admin/logs/debug", requireAdmin, (req: Request, res: Response, next: NextFunction) => {
+router.get("/admin/logs/debug", requirePermission("admin:debug"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const logs = dbStore.getDebugLogs();
     const safeLogs = logs.map(log => sanitizeAndMaskObject(log));
@@ -114,7 +131,7 @@ router.get("/admin/logs/debug", requireAdmin, (req: Request, res: Response, next
   }
 });
 
-router.get("/admin/system/status", requireAdmin, (req: Request, res: Response, next: NextFunction) => {
+router.get("/admin/system/status", requirePermission("admin:diagnostics"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const rawData = dbStore.getData();
 
@@ -139,7 +156,7 @@ router.get("/admin/system/status", requireAdmin, (req: Request, res: Response, n
   }
 });
 
-router.post("/admin/diagnostics/package", requireAdmin, (req: Request, res: Response, next: NextFunction) => {
+router.post("/admin/diagnostics/package", requirePermission("admin:diagnostics"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const payload = getDiagnosticPayload(req);
     res.json(payload);
@@ -148,7 +165,7 @@ router.post("/admin/diagnostics/package", requireAdmin, (req: Request, res: Resp
   }
 });
 
-router.get("/admin/diagnostics/package/download", requireAdmin, (req: Request, res: Response, next: NextFunction) => {
+router.get("/admin/diagnostics/package/download", requirePermission("admin:diagnostics"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const payload = getDiagnosticPayload(req);
 
