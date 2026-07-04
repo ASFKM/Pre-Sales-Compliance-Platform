@@ -184,6 +184,34 @@ async function main() {
     update: {}
   });
 
+  console.log("Seeding prompt templates...");
+  const prompts = [
+    {
+      id: "prm1",
+      name: "Document Classification Prompt",
+      type: "classification",
+      content: "Classify the uploaded document by type (technical specification, tender/edital, contract, other) based on its extracted text.",
+      language: "English" as const,
+      version: "v1.2",
+      isActive: true,
+      createdBy: "u1"
+    },
+    {
+      id: "prm2",
+      name: "Pre-Sales Technical Specification Analyser",
+      type: "analysis",
+      content: "Analyze the extracted document text and produce structured critical requirements, risks, opportunities, and a bill of materials for the pre-sales team.",
+      language: "English" as const,
+      version: "v2.1",
+      isActive: true,
+      createdBy: "u1"
+    }
+  ];
+
+  for (const prompt of prompts) {
+    await prisma.promptTemplate.upsert({ where: { id: prompt.id }, create: prompt, update: {} });
+  }
+
   console.log("Seeding platform settings...");
   await prisma.platformSettings.upsert({
     where: { id: "settings-global" },
