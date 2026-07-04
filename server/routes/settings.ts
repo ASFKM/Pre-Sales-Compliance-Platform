@@ -101,8 +101,21 @@ router.get("/settings", requireAuth, (req: Request, res: Response, next: NextFun
 
 router.put("/settings", requirePermission("admin:settings"), (req: Request, res: Response, next: NextFunction) => {
   try {
-    const updates = req.body || {};
-    const settings = dbStore.updateSettings(updates);
+    const allowedFields = ["default_language", "default_log_level"];
+    const updates = Object.fromEntries(
+      Object.entries(req.body || {}).filter(([key]) => allowedFields.includes(key))
+    );
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ success: false, message: "No valid global settings fields provided." });
+    }
+
+    const settingsValidation = validateAISettingsUpdates(updates);
+    if (!settingsValidation.valid) {
+      return res.status(400).json({ success: false, message: settingsValidation.message });
+    }
+
+    dbStore.updateSettings(updates);
 
     auditSettingsChange(req, "Update Global Platform Settings", "PlatformSettings", "global", updates);
 
