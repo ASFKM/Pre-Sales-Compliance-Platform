@@ -21,6 +21,27 @@ const ProposalTemplateSchema = z.object({
 
 const UpdateProposalTemplateSchema = ProposalTemplateSchema.partial();
 
+function validateTemplateFilePath(filePath: string, fileType: string) {
+  const normalizedPath = String(filePath || "").trim().toLowerCase();
+  const normalizedType = String(fileType || "").trim().toLowerCase();
+
+  if (!normalizedPath.endsWith(`.${normalizedType}`)) {
+    return {
+      valid: false,
+      message: "Template file path must match the configured file type."
+    };
+  }
+
+  return { valid: true, message: "" };
+}
+
+function hasDuplicateTemplateName(name: string, ignoreId?: string) {
+  return dbStore.getProposalTemplates().some(template =>
+    template.id !== ignoreId &&
+    template.name.toLowerCase().trim() === name.toLowerCase().trim()
+  );
+}
+
 function auditTemplateChange(req: Request, action: string, templateId: string, updates: any) {
   const userId = (req.headers["x-user-id"] as string) || "u1";
   dbStore.addAuditLog({
@@ -58,6 +79,16 @@ router.get("/proposals", requireAuth, (req: Request, res: Response, next: NextFu
 router.post("/proposals", requirePermission("template:manage"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const validated = ProposalTemplateSchema.parse(req.body);
+
+    if (hasDuplicateTemplateName(validated.name)) {
+      return res.status(409).json({ success: false, message: "Template name already exists." });
+    }
+
+    const fileValidation = validateTemplateFilePath(validated.file_path, validated.file_type);
+    if (!fileValidation.valid) {
+      return res.status(400).json({ success: false, message: fileValidation.message });
+    }
+
     const tpl = dbStore.createProposalTemplate(validated);
 
     let result = tpl;
@@ -75,11 +106,24 @@ router.post("/proposals", requirePermission("template:manage"), (req: Request, r
 router.put("/proposals/:id", requirePermission("template:manage"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const validated = UpdateProposalTemplateSchema.parse(req.body);
-    let tpl = dbStore.updateProposalTemplate(req.params.id, validated);
+    const currentTemplate = dbStore.getProposalTemplates().find(t => t.id === req.params.id);
 
-    if (!tpl) {
+    if (!currentTemplate) {
       return res.status(404).json({ success: false, message: "Template not found" });
     }
+
+    if (validated.name && hasDuplicateTemplateName(validated.name, req.params.id)) {
+      return res.status(409).json({ success: false, message: "Template name already exists." });
+    }
+
+    const effectiveFilePath = validated.file_path || currentTemplate.file_path;
+    const effectiveFileType = validated.file_type || currentTemplate.file_type;
+    const fileValidation = validateTemplateFilePath(effectiveFilePath, effectiveFileType);
+    if (!fileValidation.valid) {
+      return res.status(400).json({ success: false, message: fileValidation.message });
+    }
+
+    let tpl = dbStore.updateProposalTemplate(req.params.id, validated);
 
     if (validated.default_template === true) {
       tpl = dbStore.setDefaultProposalTemplate(req.params.id) || tpl;
