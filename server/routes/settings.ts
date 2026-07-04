@@ -180,6 +180,58 @@ router.put("/branding", requirePermission("branding:manage"), (req: Request, res
 
 
 
+function validateAISettingsUpdates(updates: any) {
+  const modelFields = [
+    "default_model",
+    "document_analysis_model",
+    "proposal_generation_model",
+    "summarization_model",
+    "risk_analysis_model"
+  ];
+  const allowedLanguages = ["Portuguese", "English", "Spanish"];
+  const allowedLogLevels = ["DEBUG", "INFO", "WARN", "ERROR"];
+
+  if (updates.ai_provider !== undefined && !String(updates.ai_provider).trim()) {
+    return { valid: false, message: "AI provider cannot be empty." };
+  }
+
+  for (const field of modelFields) {
+    if (updates[field] !== undefined && !String(updates[field]).trim()) {
+      return { valid: false, message: `${field} cannot be empty.` };
+    }
+  }
+
+  if (updates.default_language !== undefined && !allowedLanguages.includes(String(updates.default_language))) {
+    return { valid: false, message: "Invalid default language." };
+  }
+
+  if (updates.default_log_level !== undefined && !allowedLogLevels.includes(String(updates.default_log_level))) {
+    return { valid: false, message: "Invalid default log level." };
+  }
+
+  return { valid: true, message: "" };
+}
+
+function validatePromptUpdates(updates: any) {
+  const allowedLanguages = ["Portuguese", "English", "Spanish"];
+
+  for (const field of ["name", "type", "content", "version"]) {
+    if (updates[field] !== undefined && !String(updates[field]).trim()) {
+      return { valid: false, message: `${field} cannot be empty.` };
+    }
+  }
+
+  if (updates.language !== undefined && !allowedLanguages.includes(String(updates.language))) {
+    return { valid: false, message: "Invalid prompt language." };
+  }
+
+  if (updates.is_active !== undefined && typeof updates.is_active !== "boolean") {
+    return { valid: false, message: "is_active must be boolean." };
+  }
+
+  return { valid: true, message: "" };
+}
+
 router.put("/settings/ai", requirePermission("ai:settings"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const allowedFields = [
@@ -207,6 +259,11 @@ router.put("/settings/ai", requirePermission("ai:settings"), (req: Request, res:
 
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ success: false, message: "No valid AI/settings fields provided." });
+    }
+
+    const aiValidation = validateAISettingsUpdates(updates);
+    if (!aiValidation.valid) {
+      return res.status(400).json({ success: false, message: aiValidation.message });
     }
 
     dbStore.updateSettings(updates);
@@ -359,7 +416,20 @@ router.get("/settings/prompts", requireAuth, (req: Request, res: Response, next:
 
 router.put("/settings/prompts/:id", requirePermission("ai:settings"), (req: Request, res: Response, next: NextFunction) => {
   try {
-    const updates = req.body;
+    const allowedFields = ["name", "type", "content", "language", "version", "is_active"];
+    const updates = Object.fromEntries(
+      Object.entries(req.body || {}).filter(([key]) => allowedFields.includes(key))
+    );
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ success: false, message: "No valid prompt fields provided." });
+    }
+
+    const promptValidation = validatePromptUpdates(updates);
+    if (!promptValidation.valid) {
+      return res.status(400).json({ success: false, message: promptValidation.message });
+    }
+
     const prompt = dbStore.updatePrompt(req.params.id, updates);
 
     if (!prompt) {
