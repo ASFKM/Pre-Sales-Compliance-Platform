@@ -229,6 +229,18 @@ expect_save 201 "admin creates template" /tmp/admin_reg_template.json \
 
 TPL_ID="$(node -e 'const fs=require("fs"); const j=JSON.parse(fs.readFileSync("/tmp/admin_reg_template.json","utf8")); console.log(j.id)')"
 
+expect 409 "duplicate template name is blocked" \
+  -X POST http://127.0.0.1:3000/api/templates/proposals \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"name\":\"Regression Template $SUFFIX\",\"template_type\":\"technical\",\"language\":\"Portuguese\",\"file_type\":\"docx\",\"file_path\":\"/templates/duplicate.docx\",\"variables_schema\":\"[]\"}"
+
+expect 400 "template file type mismatch is blocked" \
+  -X POST http://127.0.0.1:3000/api/templates/proposals \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"name\":\"Mismatch Template $SUFFIX\",\"template_type\":\"technical\",\"language\":\"Portuguese\",\"file_type\":\"docx\",\"file_path\":\"/templates/mismatch.pdf\",\"variables_schema\":\"[]\"}"
+
 expect 200 "admin validates template" \
   -X POST "http://127.0.0.1:3000/api/templates/proposals/$TPL_ID/validate" \
   -H "Authorization: Bearer $ADMIN_TOKEN"
