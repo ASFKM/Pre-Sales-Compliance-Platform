@@ -416,6 +416,19 @@ expect 200 "admin audit" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   "http://127.0.0.1:3000/api/audit-logs?limit=5"
 
+expect 400 "invalid audit from date is blocked" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  "http://127.0.0.1:3000/api/audit-logs?from=not-a-date"
+
+expect 400 "invalid audit date range is blocked" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  "http://127.0.0.1:3000/api/audit-logs?from=2026-07-02T00:00:00Z&to=2026-07-01T00:00:00Z"
+
+LONG_AUDIT_Q="$(node -e 'console.log("x".repeat(201))')"
+expect 400 "long audit query is blocked" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  "http://127.0.0.1:3000/api/audit-logs?q=$LONG_AUDIT_Q"
+
 expect_save 200 "admin audit csv" /tmp/admin_reg_audit.csv \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   http://127.0.0.1:3000/api/audit-logs/export/csv
