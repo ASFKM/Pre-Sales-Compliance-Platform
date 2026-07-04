@@ -11,6 +11,28 @@ function parseLimit(value: any, fallback = 500, max = 1000) {
   return Math.min(parsed, max);
 }
 
+function validateAuditQuery(req: Request) {
+  const { q, from, to } = req.query as Record<string, string | undefined>;
+
+  if (q && q.length > 200) {
+    return { valid: false, message: "Audit search query is too long." };
+  }
+
+  if (from && Number.isNaN(new Date(from).getTime())) {
+    return { valid: false, message: "Invalid audit from date." };
+  }
+
+  if (to && Number.isNaN(new Date(to).getTime())) {
+    return { valid: false, message: "Invalid audit to date." };
+  }
+
+  if (from && to && new Date(from).getTime() > new Date(to).getTime()) {
+    return { valid: false, message: "Audit from date must be before to date." };
+  }
+
+  return { valid: true, message: "" };
+}
+
 function filterAuditLogs(req: Request) {
   const {
     user_id,
@@ -53,12 +75,22 @@ function filterAuditLogs(req: Request) {
 }
 
 function csvEscape(value: any) {
-  const text = value === undefined || value === null ? "" : String(value);
+  let text = value === undefined || value === null ? "" : String(value);
+
+  if (/^[=+\-@\t\r]/.test(text)) {
+    text = `'${text}`;
+  }
+
   return `"${text.replace(/"/g, '""')}"`;
 }
 
 router.get("/audit-logs", requirePermission("admin:audit"), (req: Request, res: Response, next: NextFunction) => {
   try {
+    const queryValidation = validateAuditQuery(req);
+    if (!queryValidation.valid) {
+      return res.status(400).json({ success: false, message: queryValidation.message });
+    }
+
     const logs = filterAuditLogs(req).map(log => sanitizeAndMaskObject(log));
     res.json(logs);
   } catch (err) {
@@ -68,6 +100,11 @@ router.get("/audit-logs", requirePermission("admin:audit"), (req: Request, res: 
 
 router.get("/audit-logs/export/csv", requirePermission("admin:audit"), (req: Request, res: Response, next: NextFunction) => {
   try {
+    const queryValidation = validateAuditQuery(req);
+    if (!queryValidation.valid) {
+      return res.status(400).json({ success: false, message: queryValidation.message });
+    }
+
     const logs = filterAuditLogs(req).map(log => sanitizeAndMaskObject(log));
 
     const headers = [
