@@ -10,8 +10,39 @@ on:
 
 jobs:
   lint-and-build:
-    name: Lint and build
+    name: Lint, test, and build
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: commercial_assistant
+          POSTGRES_USER: app_user
+          POSTGRES_PASSWORD: ci_test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U app_user -d commercial_assistant"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://app_user:ci_test_password@localhost:5432/commercial_assistant
+      REDIS_URL: redis://localhost:6379
+      JWT_SESSION_SECRET: ci-test-only-jwt-session-secret
+      SECRET_ENCRYPTION_KEY: ci-test-only-secret-encryption-key-32b
+      CI: "true"
 
     steps:
       - name: Checkout repository
@@ -29,5 +60,39 @@ jobs:
       - name: TypeScript lint
         run: npm run lint
 
+      - name: Unit tests
+        run: npm test
+
       - name: Production build
         run: npm run build
+
+      - name: Apply database migrations
+        run: npx prisma migrate deploy
+
+      - name: Seed database
+        run: npm run prisma:seed
+
+      - name: Start app
+        run: |
+          bash scripts/restart-app.sh
+          for i in $(seq 1 20); do
+            if curl -s -f http://127.0.0.1:3000/api/health > /dev/null; then
+              echo "App is healthy"
+              break
+            fi
+            sleep 1
+          done
+          curl -s -w "\nHTTP:%{http_code}\n" http://127.0.0.1:3000/api/health | grep -q "HTTP:200"
+
+      - name: Regression - Admin Console
+        run: npm run regression:admin-console
+
+      - name: Regression - Approval RBAC
+        run: npm run regression:approval-rbac
+
+      - name: Regression - Workspace Documents
+        run: npm run regression:workspace-documents
+
+      - name: Dump app logs on failure
+        if: failure()
+        run: cat /tmp/ci-app.log || true

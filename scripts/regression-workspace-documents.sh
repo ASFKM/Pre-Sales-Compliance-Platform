@@ -9,7 +9,7 @@ echo "=== REGRESSION: WORKSPACE DOCUMENTS / RBAC / CONTENT / CLEANUP ==="
 npm run lint
 npm run build
 
-sudo systemctl restart commercial-assistant-ai >/dev/null
+bash scripts/restart-app.sh
 sleep 2
 curl -s -w "\nHTTP:%{http_code}\n" http://127.0.0.1:3000/api/health | grep -q "HTTP:200"
 
