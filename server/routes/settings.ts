@@ -52,6 +52,45 @@ function auditSettingsChange(req: Request, action: string, entityType: string, e
   });
 }
 
+function validateBrandingUpdates(updates: any) {
+  const colorFields = ["primary_color", "secondary_color", "accent_color", "background_color", "text_color"];
+  const pathFields = ["company_logo_path", "login_logo_path", "sidebar_logo_path", "report_logo_path", "favicon_path"];
+  const hexColor = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+
+  if (updates.company_name !== undefined && !String(updates.company_name).trim()) {
+    return { valid: false, message: "Company name cannot be empty." };
+  }
+
+  for (const field of colorFields) {
+    if (updates[field] !== undefined && !hexColor.test(String(updates[field]).trim())) {
+      return { valid: false, message: `${field} must be a valid HEX color.` };
+    }
+  }
+
+  if (updates.default_theme !== undefined && !["light", "dark"].includes(String(updates.default_theme))) {
+    return { valid: false, message: "Invalid default theme." };
+  }
+
+  for (const field of pathFields) {
+    if (updates[field] === undefined || updates[field] === "") {
+      continue;
+    }
+
+    const value = String(updates[field]).trim();
+
+    if (value.startsWith("data:image/")) {
+      continue;
+    }
+
+    const lower = value.toLowerCase();
+    if (lower.startsWith("javascript:") || lower.startsWith("http://") || lower.startsWith("https://") || value.includes("..")) {
+      return { valid: false, message: `${field} must be a safe local asset path or image data URL.` };
+    }
+  }
+
+  return { valid: true, message: "" };
+}
+
 router.get("/settings", requireAuth, (req: Request, res: Response, next: NextFunction) => {
   try {
     res.json(getSafePlatformSettings());
@@ -111,6 +150,11 @@ router.put("/branding", requirePermission("branding:manage"), (req: Request, res
 
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ success: false, message: "No valid branding fields provided." });
+    }
+
+    const brandingValidation = validateBrandingUpdates(updates);
+    if (!brandingValidation.valid) {
+      return res.status(400).json({ success: false, message: brandingValidation.message });
     }
 
     const branding = dbStore.updateBranding(updates);
