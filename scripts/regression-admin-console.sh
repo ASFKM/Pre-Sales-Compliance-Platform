@@ -188,6 +188,24 @@ expect 200 "admin updates ai settings" \
   -H "Content-Type: application/json" \
   -d '{"ai_provider":"Google Gemini","document_analysis_model":"gemini-3.5-flash"}'
 
+expect 400 "empty ai model is blocked" \
+  -X PUT http://127.0.0.1:3000/api/settings/ai \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"document_analysis_model\":\"\"}"
+
+expect 400 "invalid ai language is blocked" \
+  -X PUT http://127.0.0.1:3000/api/settings/ai \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"default_language\":\"German\"}"
+
+expect 400 "invalid ai log level is blocked" \
+  -X PUT http://127.0.0.1:3000/api/settings/ai \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"default_log_level\":\"TRACE\"}"
+
 expect_save 200 "admin lists prompts" /tmp/admin_reg_prompts.json \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   http://127.0.0.1:3000/api/settings/prompts
@@ -199,6 +217,24 @@ expect 200 "admin updates prompt" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"content":"Regression prompt content."}'
+
+expect 400 "empty prompt content is blocked" \
+  -X PUT "http://127.0.0.1:3000/api/settings/prompts/$PROMPT_ID" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"content\":\"\"}"
+
+expect 400 "invalid prompt language is blocked" \
+  -X PUT "http://127.0.0.1:3000/api/settings/prompts/$PROMPT_ID" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"language\":\"German\"}"
+
+expect 400 "invalid prompt boolean is blocked" \
+  -X PUT "http://127.0.0.1:3000/api/settings/prompts/$PROMPT_ID" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"is_active\":\"yes\"}"
 
 expect 403 "manager cannot update branding" \
   -X PUT http://127.0.0.1:3000/api/branding \
