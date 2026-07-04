@@ -6,7 +6,13 @@ import {
   deleteSession,
   comparePasswords,
   hashPassword,
-  verifySessionMfa
+  verifySessionMfa,
+  generateTotpSecret,
+  buildTotpEnrollmentUri,
+  buildTotpQrCodeDataUrl,
+  verifyTotpCode,
+  encryptSecret,
+  decryptSecret
 } from "../utils/security";
 import { logDebugMessage } from "../middleware/security";
 import { isProductionRuntime, isDemoRuntime } from "../config/runtime";
@@ -218,6 +224,64 @@ router.post("/login", async (req: Request, res: Response, next: NextFunction) =>
   }
 });
 
+// MFA ENROLLMENT ENDPOINT - generates a real TOTP secret for the logged-in-but-not-yet-MFA-verified
+// session. Uses the login token directly (like /mfa/verify), not requireAuth, since a user who has
+// just entered valid credentials but hasn't completed MFA yet cannot pass requireAuth. Re-enrollment
+// (secret already exists) requires the session to already be mfaVerified, so a stolen password alone
+// can never be used to silently reset someone's MFA - only an administrator can do that (via user
+// update, which clears the secret).
+router.post("/mfa/enroll", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { token } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ success: false, message: "Token is required." });
+    }
+
+    const session = await getSession(token);
+    if (!session) {
+      return res.status(401).json({ success: false, message: "Invalid or expired login session." });
+    }
+
+    const user = await dbStore.getUserById(session.userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+
+    if (!user.mfa_enabled) {
+      return res.status(400).json({ success: false, message: "MFA is not enabled for this account." });
+    }
+
+    const existingSecret = await dbStore.getUserMfaSecretEncrypted(user.id);
+    if (existingSecret && !session.mfaVerified) {
+      return res.status(403).json({
+        success: false,
+        message: "MFA is already configured for this account. Complete MFA verification to re-enroll, or ask an administrator to reset it."
+      });
+    }
+
+    const secret = generateTotpSecret();
+    const otpauthUrl = buildTotpEnrollmentUri(user.email, secret);
+    const qrCode = await buildTotpQrCodeDataUrl(otpauthUrl);
+
+    await dbStore.setUserMfaSecret(user.id, encryptSecret(secret));
+
+    await dbStore.addAuditLog({
+      user_id: user.name,
+      action: existingSecret ? "MFA TOTP Re-enrolled" : "MFA TOTP Enrolled",
+      entity_type: "User",
+      entity_id: user.id,
+      ip_address: req.ip || "127.0.0.1",
+      user_agent: req.headers["user-agent"] || "unknown",
+      metadata: JSON.stringify({})
+    });
+
+    res.json({ success: true, secret, otpauth_url: otpauthUrl, qr_code: qrCode });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // MFA VERIFY ENDPOINT
 router.post("/mfa/verify", async (req: Request, res: Response, next: NextFunction) => {
   const correlationId = (req.headers["x-correlation-id"] as string) || "corr-mfa";
@@ -230,15 +294,23 @@ router.post("/mfa/verify", async (req: Request, res: Response, next: NextFunctio
       return res.status(400).json({ success: false, message: "Token and verification code are required." });
     }
 
-    // Real MFA verification step: Accept placeholder valid code '123456' or '000000'
     const session = await getSession(token);
     if (!session) {
       return res.status(401).json({ success: false, message: "Invalid or expired login session." });
     }
 
-    const demoMfaAccepted = isDemoRuntime() && (code === "123456" || code === "000000" || code === "111111");
+    // Real TOTP if the account has enrolled a secret; demo codes only remain valid as a
+    // bootstrapping/testing fallback for accounts that haven't enrolled a real secret yet.
+    const encryptedSecret = await dbStore.getUserMfaSecretEncrypted(session.userId);
+    let mfaAccepted = false;
 
-    if (demoMfaAccepted) {
+    if (encryptedSecret) {
+      mfaAccepted = verifyTotpCode(decryptSecret(encryptedSecret), code);
+    } else if (isDemoRuntime()) {
+      mfaAccepted = code === "123456" || code === "000000" || code === "111111";
+    }
+
+    if (mfaAccepted) {
       await verifySessionMfa(token);
 
       const user = await dbStore.getUserById(session.userId);
@@ -276,9 +348,9 @@ router.post("/mfa/verify", async (req: Request, res: Response, next: NextFunctio
 
     return res.status(400).json({
       success: false,
-      message: isProductionRuntime()
-        ? "MFA verification is not configured for production runtime."
-        : "Invalid MFA verification code."
+      message: encryptedSecret
+        ? "Invalid MFA verification code."
+        : "MFA is enabled for this account but not yet enrolled. Call /api/auth/mfa/enroll first."
     });
   } catch (err) {
     next(err);

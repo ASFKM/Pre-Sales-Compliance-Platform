@@ -1,5 +1,7 @@
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
+import { authenticator } from "otplib";
+import QRCode from "qrcode";
 import { isProductionRuntime } from "../config/runtime";
 import { redis } from "../../src/redis";
 
@@ -266,4 +268,27 @@ export function sanitizeAndMaskObject(obj: any): any {
   
   mask(cloned);
   return cloned;
+}
+
+// Real TOTP MFA (RFC 6238), compatible with Google Authenticator / Authy / 1Password etc.
+authenticator.options = { window: 1 };
+
+export function generateTotpSecret(): string {
+  return authenticator.generateSecret();
+}
+
+export function buildTotpEnrollmentUri(email: string, secret: string): string {
+  return authenticator.keyuri(email, "Commercial Assistant AI", secret);
+}
+
+export async function buildTotpQrCodeDataUrl(otpauthUri: string): Promise<string> {
+  return QRCode.toDataURL(otpauthUri);
+}
+
+export function verifyTotpCode(secret: string, code: string): boolean {
+  try {
+    return authenticator.check(code, secret);
+  } catch {
+    return false;
+  }
 }

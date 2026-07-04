@@ -115,6 +115,12 @@ router.put("/:id", requirePermission("admin:users"), async (req: Request, res: R
       ...(password ? { password_hash: hashPassword(password) } : {}),
     });
 
+    // Disabling MFA also clears the enrolled TOTP secret so a future re-enable starts fresh
+    // instead of silently resurrecting an old secret nobody can prove they still hold.
+    if (validated.mfa_enabled === false) {
+      await dbStore.setUserMfaSecret(req.params.id, null);
+    }
+
     const auditMetadata = { ...validated } as any;
     if (auditMetadata.password) {
       auditMetadata.password = "[password-updated]";

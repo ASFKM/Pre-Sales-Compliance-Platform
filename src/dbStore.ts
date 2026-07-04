@@ -448,6 +448,15 @@ class DBStore {
     await prisma.user.update({ where: { id }, data: { lastLoginAt: new Date() } });
   }
 
+  public async getUserMfaSecretEncrypted(id: string): Promise<string | null> {
+    const u = await prisma.user.findUnique({ where: { id }, select: { mfaTotpSecret: true } });
+    return u?.mfaTotpSecret ?? null;
+  }
+
+  public async setUserMfaSecret(id: string, encryptedSecret: string | null): Promise<void> {
+    await prisma.user.update({ where: { id }, data: { mfaTotpSecret: encryptedSecret } });
+  }
+
   // Roles
   public async getRoles(): Promise<Role[]> {
     return (await prisma.role.findMany()).map(mapRole);
