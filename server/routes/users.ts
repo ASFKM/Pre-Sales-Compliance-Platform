@@ -43,8 +43,21 @@ router.post("/", requirePermission("admin:users"), (req: Request, res: Response,
   try {
     const validated = CreateUserSchema.parse(req.body);
     const normalizedEmail = validated.email.toLowerCase().trim();
+
+    const roleExists = dbStore.getData().roles.some(r => r.id === validated.role_id);
+    if (!roleExists) {
+      return res.status(400).json({ success: false, message: "Role does not exist." });
+    }
+
+    const duplicatedEmail = dbStore.getData().users.some(u =>
+      u.email.toLowerCase().trim() === normalizedEmail
+    );
+    if (duplicatedEmail) {
+      return res.status(409).json({ success: false, message: "User email already exists." });
+    }
+
     const userId = "u_" + Math.random().toString(36).substring(2, 11);
-    
+
     const newUser = {
       id: userId,
       name: validated.name,
