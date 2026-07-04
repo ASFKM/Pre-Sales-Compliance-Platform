@@ -3,6 +3,10 @@ import ApiClient from "./lib/api";
 import Login from "./components/Login";
 import AdminConsole from "./components/AdminConsole";
 import Workspace from "./components/Workspace";
+import Home from "./components/Home";
+import Proposals from "./components/Proposals";
+import Templates from "./components/Templates";
+import Approval from "./components/Approval";
 import CreateProjectModal from "./components/modals/CreateProjectModal";
 import ClassifyDocumentModal from "./components/modals/ClassifyDocumentModal";
 import AuditLogsModal from "./components/modals/AuditLogsModal";
@@ -257,28 +261,6 @@ export default function App() {
   const canAccessAdminConsole = () =>
     Object.keys(adminSectionPermissions).some((section) => canAccessAdminSection(section));
 
-  const getApprovalStageTargetLabel = (stage: any) => {
-    if (!stage) return locale === "pt" ? "Não configurado" : "Not configured";
-
-    if (stage.approver_type === "user") {
-      const user = users.find((u) => u.id === stage.approver_user_id);
-      return user?.name || stage.approver_user_id || (locale === "pt" ? "Usuário não configurado" : "User not configured");
-    }
-
-    const role = roles.find((r) => r.id === stage.approver_role_id);
-    return role?.name || stage.approver_role_id || (locale === "pt" ? "Perfil não configurado" : "Role not configured");
-  };
-
-  const canReviewApprovalStage = (stage: any) => {
-    if (!stage || !currentSessionUser.id || !currentSessionUser.role_id) return false;
-
-    if (stage.approver_type === "user") {
-      return stage.approver_user_id === currentSessionUser.id;
-    }
-
-    return stage.approver_role_id === currentSessionUser.role_id;
-  };
-
   useEffect(() => {
     const checkAuth = async () => {
       const token = localStorage.getItem("ca_session_token");
@@ -378,26 +360,6 @@ export default function App() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [proposals, setProposals] = useState<Proposal[]>([]);
-
-  // User Tasks States
-  const [tasks, setTasks] = useState<{ id: string; text: string; done: boolean; dueDate?: string }[]>(() => {
-    const saved = localStorage.getItem("user_tasks");
-    if (saved) {
-      try { return JSON.parse(saved); } catch (e) {}
-    }
-    return [
-      { id: "1", text: "Revisar inconformidades críticas do Edital 82", done: false, dueDate: "2026-07-05" },
-      { id: "2", text: "Ajustar margem de lucro e precificação na planilha BOM", done: false, dueDate: "2026-07-08" },
-      { id: "3", text: "Subir diagramas elétricos no explorador de arquivos", done: false, dueDate: "2026-07-06" },
-      { id: "4", text: "Gerar minuta final da proposta comercial para diretoria", done: true, dueDate: "2026-06-30" }
-    ];
-  });
-  const [newTaskText, setNewTaskText] = useState("");
-
-  // Sync tasks to localStorage
-  useEffect(() => {
-    localStorage.setItem("user_tasks", JSON.stringify(tasks));
-  }, [tasks]);
 
   // UI Controls & Lists
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -743,11 +705,6 @@ export default function App() {
     fetchGlobalConfigs();
   }, []);
 
-  const handleViewProjectWorkspace = (projId: string) => {
-    setSelectedProjectId(projId);
-    setActiveTab("workspace");
-  };
-
   useEffect(() => {
     if (selectedProjectId) {
       fetchProjectDetails(selectedProjectId);
@@ -918,65 +875,6 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
     }
   };
 
-
-  // Update requirement compliance notes
-  // Update Commercial Proposal rows directly
-  const handleUpdateProposalCommercial = async (propId: string, rowId: string, field: string, value: any) => {
-    const prop = (Array.isArray(proposals) ? proposals : []).find(p => p.id === propId);
-    if (!prop || !prop.manual_pricing_table) return;
-
-    if (!hasPermission("proposal:edit")) {
-      alert(locale === "pt" ? "Você não tem permissão para editar propostas." : "You do not have permission to edit proposals.");
-      return;
-    }
-
-    if (prop.status !== "draft") {
-      alert(locale === "pt" ? "Apenas propostas em rascunho podem ser editadas." : "Only draft proposals can be edited.");
-      return;
-    }
-
-    const updatedTable = prop.manual_pricing_table.map(row => {
-      if (row.item_id === rowId) {
-        const updatedRow = { ...row, [field]: value };
-        updatedRow.total_price = updatedRow.quantity * updatedRow.unit_price * (1 - updatedRow.discount / 100);
-        return updatedRow;
-      }
-      return row;
-    });
-
-    try {
-      const res = await fetch(`/api/proposals/${propId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ manual_pricing_table: updatedTable })
-      });
-      if (res.ok) {
-        fetchProjectDetails(selectedProjectId);
-        fetchGlobalConfigs();
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  // Submit proposal for workflow approvals
-  const handleSubmitProposalApproval = async (propId: string) => {
-    if (!hasPermission("approval:manage")) {
-      alert(locale === "pt" ? "Você não tem permissão para enviar propostas para aprovação." : "You do not have permission to submit proposals for approval.");
-      return;
-    }
-
-    try {
-      const res = await fetch(`/api/proposals/${propId}/approval/submit`, { method: "POST" });
-      if (res.ok) {
-        fetchProjectDetails(selectedProjectId);
-        fetchGlobalConfigs();
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
   // Record Approval Decision
   const handleReleaseProposal = async (propId: string) => {
     if (!hasPermission("proposal:approve")) {
@@ -1000,29 +898,6 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
     } catch (e) {
       console.error(e);
       alert(e instanceof Error ? e.message : String(e));
-    }
-  };
-
-  const handleApprovalDecision = async (propId: string, stage: any, decision: "approved" | "rejected", comments: string) => {
-    if (!canReviewApprovalStage(stage)) {
-      alert(locale === "pt" ? "Você não é o aprovador configurado para esta etapa." : "You are not the configured approver for this stage.");
-      return;
-    }
-
-    const stageId = stage.id;
-
-    try {
-      const res = await fetch(`/api/proposals/${propId}/approval/decision`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stage_id: stageId, decision, comments })
-      });
-      if (res.ok) {
-        fetchProjectDetails(selectedProjectId);
-        fetchGlobalConfigs();
-      }
-    } catch (e) {
-      console.error(e);
     }
   };
 
@@ -1462,743 +1337,57 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
 
           {/* TAB 0: HOME / DASHBOARD TAB */}
           {activeTab === "home" && (
-            <div className="flex-1 p-6 overflow-y-auto space-y-6 bg-slate-50/50">
-
-              {/* Operational Tasks Section */}
-              <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
-                      <ListTodo size={20} />
-                    </div>
-                    <div>
-                      <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide font-mono">
-                        {locale === "pt" ? "Tarefas Pendentes do Usuário" : "User's Pending Tasks"}
-                      </h2>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        {locale === "pt"
-                          ? `Foco operacional: ${tasks.filter(t => !t.done).length} pendências para resolução imediata`
-                          : `Operational focus: ${tasks.filter(t => !t.done).length} pending actions requiring immediate attention`}
-                      </p>
-                    </div>
-                  </div>
-                  {/* Progress Indicators */}
-                  <div className="flex items-center gap-3 self-end sm:self-auto">
-                    <span className="text-xs font-mono font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
-                      {Math.round((tasks.filter(t => t.done).length / (tasks.length || 1)) * 100)}% {locale === "pt" ? "Concluído" : "Completed"}
-                    </span>
-                    <div className="w-24 bg-slate-100 h-2 rounded-full overflow-hidden">
-                      <div
-                        className="bg-emerald-600 h-full transition-all duration-300 rounded-full"
-                        style={{ width: `${(tasks.filter(t => t.done).length / (tasks.length || 1)) * 100}%` }}
-                      ></div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Add task form inline */}
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    if (!newTaskText.trim()) return;
-                    const newTask = {
-                      id: Date.now().toString(),
-                      text: newTaskText.trim(),
-                      done: false,
-                      dueDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-                    };
-                    setTasks([...tasks, newTask]);
-                    setNewTaskText("");
-                  }}
-                  className="flex gap-2"
-                >
-                  <input
-                    type="text"
-                    value={newTaskText}
-                    onChange={(e) => setNewTaskText(e.target.value)}
-                    placeholder={locale === "pt" ? "Nova tarefa... Ex: Revisar conformidades do Anexo B" : "New task... Ex: Review compliance on Appendix B"}
-                    className="flex-1 text-xs px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-slate-50/50 hover:bg-slate-50 transition-colors"
-                  />
-                  <button
-                    type="submit"
-                    className="bg-slate-950 hover:bg-slate-800 text-white font-bold text-xs px-4 py-2 rounded-lg transition-all cursor-pointer shadow-xs font-mono"
-                  >
-                    + {locale === "pt" ? "ADICIONAR" : "ADD TASK"}
-                  </button>
-                </form>
-
-                {/* Grid layout of actual tasks */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[190px] overflow-y-auto pr-1">
-                  {tasks.length === 0 ? (
-                    <div className="col-span-2 text-center py-8 text-xs text-slate-400 italic font-mono">
-                      {locale === "pt" ? "Nenhuma tarefa pendente! Excelente trabalho." : "No pending tasks found! Awesome job."}
-                    </div>
-                  ) : (
-                    tasks.map(task => (
-                      <div
-                        key={task.id}
-                        className={`p-3 rounded-xl border flex items-start justify-between gap-3 transition-all group ${
-                          task.done
-                            ? "bg-slate-50/50 border-slate-100 opacity-60"
-                            : "bg-white border-slate-200 hover:border-slate-300 shadow-xs"
-                        }`}
-                      >
-                        <div className="flex gap-3 items-start flex-1 min-w-0">
-                          <input
-                            type="checkbox"
-                            checked={task.done}
-                            onChange={() => {
-                              setTasks(tasks.map(t => t.id === task.id ? { ...t, done: !t.done } : t));
-                            }}
-                            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer shrink-0"
-                          />
-                          <div className="leading-tight flex-1 min-w-0">
-                            <p className={`text-xs font-semibold text-slate-700 truncate ${task.done ? "line-through text-slate-400 font-normal" : ""}`} title={task.text}>
-                              {task.text}
-                            </p>
-                            {task.dueDate && (
-                              <span className="text-[9px] font-mono text-slate-400 bg-slate-100 px-1 rounded mt-1.5 inline-block font-bold">
-                                📅 {locale === "pt" ? "PRAZO: " : "DUE: "}{task.dueDate}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => {
-                            setTasks(tasks.filter(t => t.id !== task.id));
-                          }}
-                          className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 cursor-pointer shrink-0"
-                          title={locale === "pt" ? "Excluir tarefa" : "Delete task"}
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              {/* KPI Cards Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-
-                {/* Card 1: Total Bids */}
-                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
-                    <FileText size={22} />
-                  </div>
-                  <div className="leading-tight">
-                    <span className="text-[10px] uppercase font-bold text-slate-400 font-mono tracking-wider block">
-                      {locale === "pt" ? "Propostas Ativas" : "Active Bids"}
-                    </span>
-                    <span className="text-2xl font-bold text-slate-800 font-mono block mt-0.5">
-                      {projects.length}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Card 2: Average Compliance */}
-                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shrink-0">
-                    <CheckCircle2 size={22} />
-                  </div>
-                  <div className="leading-tight">
-                    <span className="text-[10px] uppercase font-bold text-slate-400 font-mono tracking-wider block">
-                      {locale === "pt" ? "Conformidade Média" : "Avg Compliance"}
-                    </span>
-                    <span className="text-2xl font-bold text-slate-800 font-mono block mt-0.5">
-                      94.2%
-                    </span>
-                  </div>
-                </div>
-
-                {/* Card 3: Next Deadline */}
-                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-lg bg-purple-50 border border-purple-100 flex items-center justify-center text-purple-600 shrink-0">
-                    <Activity size={22} />
-                  </div>
-                  <div className="leading-tight">
-                    <span className="text-[10px] uppercase font-bold text-slate-400 font-mono tracking-wider block">
-                      {locale === "pt" ? "Próximo Prazo" : "Next Deadline"}
-                    </span>
-                    <span className="text-xs font-bold text-slate-700 font-mono block mt-1.5">
-                      {projects.length > 0
-                        ? projects.reduce((min, p) => p.deadline < min ? p.deadline : min, projects[0].deadline)
-                        : "2026-08-30"}
-                    </span>
-                  </div>
-                </div>
-
-              </div>
-
-              {/* Graphical Analysis Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-                {/* Industry Verticals Breakdown */}
-                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
-                  <h3 className="text-xs font-bold uppercase tracking-wider font-mono text-slate-800 flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-                    {locale === "pt" ? "Licitações por Setor / Vertical" : "Bids by Industry Vertical"}
-                  </h3>
-
-                  <div className="space-y-3.5 pt-1">
-                    {projects.length === 0 ? (
-                      <p className="text-xs text-slate-400 italic text-center py-6">{locale === "pt" ? "Nenhuma licitação registrada" : "No bids registered"}</p>
-                    ) : (
-                      Object.entries(
-                        projects.reduce((acc, p) => {
-                          acc[p.vertical] = (acc[p.vertical] || 0) + 1;
-                          return acc;
-                        }, {} as Record<string, number>)
-                      ).map(([vertical, count]) => {
-                        const pct = Math.round(((count as number) / projects.length) * 100);
-                        return (
-                          <div key={vertical} className="space-y-1">
-                            <div className="flex justify-between text-xs font-semibold text-slate-700">
-                              <span>{vertical}</span>
-                              <span className="font-mono text-slate-500">{count} {count === 1 ? "bid" : "bids"} ({pct}%)</span>
-                            </div>
-                            <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                              <div
-                                className="bg-emerald-600 h-full rounded-full transition-all duration-500"
-                                style={{ width: `${pct}%` }}
-                              ></div>
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-
-                {/* Status and Pipeline Summary */}
-                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
-                  <h3 className="text-xs font-bold uppercase tracking-wider font-mono text-slate-800 flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
-                    {locale === "pt" ? "Pipeline de Status" : "Pipeline Status Distribution"}
-                  </h3>
-
-                  <div className="space-y-3.5 pt-1">
-                    {projects.length === 0 ? (
-                      <p className="text-xs text-slate-400 italic text-center py-6">{locale === "pt" ? "Nenhum status disponível" : "No status available"}</p>
-                    ) : (
-                      Object.entries(
-                        projects.reduce((acc, p) => {
-                          const status = p.status || "draft";
-                          acc[status] = (acc[status] || 0) + 1;
-                          return acc;
-                        }, {} as Record<string, number>)
-                      ).map(([status, count]) => {
-                        const pct = Math.round(((count as number) / projects.length) * 100);
-                        const statusLabels: Record<string, string> = {
-                          completed: locale === "pt" ? "Concluído" : "Completed",
-                          analysis_in_progress: locale === "pt" ? "Análise em Andamento" : "Analysis In Progress",
-                          waiting_internal: locale === "pt" ? "Aguardando Interno" : "Waiting Internal",
-                          draft: locale === "pt" ? "Rascunho" : "Draft"
-                        };
-                        const statusColors: Record<string, string> = {
-                          completed: "bg-emerald-500",
-                          analysis_in_progress: "bg-blue-500",
-                          waiting_internal: "bg-purple-500",
-                          draft: "bg-amber-500"
-                        };
-                        return (
-                          <div key={status} className="space-y-1">
-                            <div className="flex justify-between text-xs font-semibold text-slate-700">
-                              <span className="capitalize">{statusLabels[status] || status}</span>
-                              <span className="font-mono text-slate-500">{count} ({pct}%)</span>
-                            </div>
-                            <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                              <div
-                                className={`${statusColors[status] || "bg-slate-500"} h-full rounded-full transition-all duration-500`}
-                                style={{ width: `${pct}%` }}
-                              ></div>
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-
-              </div>
-
-              {/* Active Tender / Bids Datagrid List */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                  <h3 className="text-xs font-bold uppercase tracking-wider font-mono text-slate-800">
-                    {locale === "pt" ? "Lista de Propostas e Editais Ativos" : "Active Bids & Tenders Directory"}
-                  </h3>
-                  <button
-                    onClick={() => setShowNewProjectModal(true)}
-                    className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-1.5 rounded-lg font-semibold transition-all shadow-sm cursor-pointer"
-                  >
-                    <Plus size={14} /> {locale === "pt" ? "Adicionar Nova" : "Add New"}
-                  </button>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse text-left text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-200 text-slate-400 font-mono uppercase bg-slate-50/50">
-                        <th className="p-3.5 font-bold">{locale === "pt" ? "Projeto / Cliente" : "Project / Client"}</th>
-                        <th className="p-3.5 font-bold">{locale === "pt" ? "Setor" : "Vertical"}</th>
-                        <th className="p-3.5 font-bold">{locale === "pt" ? "Prazo Final" : "Submission Deadline"}</th>
-                        <th className="p-3.5 font-bold">{tx("Status", "Status")}</th>
-                        <th className="p-3.5 font-bold text-right">{locale === "pt" ? "Ações" : "Actions"}</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {projects.map(proj => {
-                        return (
-                          <tr key={proj.id} className="hover:bg-slate-50/50 transition-colors">
-                            <td className="p-3.5">
-                              <p className="font-bold text-slate-800 text-sm leading-tight">{proj.name}</p>
-                              <p className="text-xs text-slate-500 leading-tight mt-0.5">{proj.customer_name} • <span className="font-mono bg-slate-100 text-slate-600 px-1 rounded text-[10px]">{proj.opportunity_name}</span></p>
-                            </td>
-                            <td className="p-3.5 font-medium text-slate-600">
-                              <span className="bg-slate-100 text-slate-800 px-2 py-0.5 rounded-full text-[10px] uppercase font-mono">{proj.vertical}</span>
-                            </td>
-                            <td className="p-3.5 text-slate-500 font-mono font-semibold">{proj.deadline}</td>
-                            <td className="p-3.5">
-                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
-                                proj.status === "completed" ? "text-emerald-700 bg-emerald-50 border-emerald-200" :
-                                proj.status === "analysis_in_progress" ? "text-blue-700 bg-blue-50 border-blue-200" :
-                                proj.status === "waiting_internal" ? "text-purple-700 bg-purple-50 border-purple-200" :
-                                "text-amber-700 bg-amber-50 border-amber-200"
-                              }`}>
-                                {locale === "pt" ?
-                                  (proj.status === "completed" ? "CONCLUÍDO" :
-                                   proj.status === "analysis_in_progress" ? "EM ANÁLISE" :
-                                   proj.status === "waiting_internal" ? "AGUARDANDO INTERNO" : "RASCUNHO") :
-                                  (proj.status || "draft").toUpperCase().replace("_", " ")
-                                }
-                              </span>
-                            </td>
-                            <td className="p-3.5 text-right">
-                              <button
-                                onClick={() => handleViewProjectWorkspace(proj.id)}
-                                className="bg-slate-800 hover:bg-emerald-600 text-white hover:text-white px-3 py-1.5 rounded-lg font-semibold transition-all shadow-sm cursor-pointer inline-flex items-center gap-1 text-[11px]"
-                              >
-                                {locale === "pt" ? "Ir para Área de Trabalho" : "Open Workspace"} <ChevronRight size={12} />
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-            </div>
-          )}
-
-          {/* Sub navigation bar for main workspace tabs */}
-          {activeTab === "workspace" && (
-            <Workspace
+            <Home
               locale={locale}
               tx={tx}
-              t={t}
-              hasPermission={hasPermission}
-              selectedProjectId={selectedProjectId}
-              documents={documents}
-              setDocuments={setDocuments}
-              analysisResult={analysisResult}
-              setAnalysisResult={setAnalysisResult}
-              displayAnalysisResult={displayAnalysisResult}
-              analysisError={analysisError}
-              docsCount={docsCount}
-              reqsCount={reqsCount}
-              risksCount={risksCount}
-              oppsCount={oppsCount}
-              proposalTemplates={proposalTemplates}
-              fetchGlobalConfigs={fetchGlobalConfigs}
-              fetchProjectDetails={fetchProjectDetails}
+              projects={projects}
+              setSelectedProjectId={setSelectedProjectId}
               setActiveTab={setActiveTab}
-              setActiveAdminSection={setActiveAdminSection}
-              canAccessAdminSection={canAccessAdminSection}
-              handleDeleteDocument={handleDeleteDocument}
-              getDocTag={getDocTag}
-              selectedTechnicalTemplateId={selectedTechnicalTemplateId}
-              setSelectedTechnicalTemplateId={setSelectedTechnicalTemplateId}
-              selectedCommercialTemplateId={selectedCommercialTemplateId}
-              setSelectedCommercialTemplateId={setSelectedCommercialTemplateId}
-              chatHistory={chatHistory}
-              setChatHistory={setChatHistory}
+              setShowNewProjectModal={setShowNewProjectModal}
             />
           )}
 
-
           {/* TAB 2: PROPOSALS TAB */}
           {activeTab === "proposals" && (
-            <div className="flex-1 p-6 overflow-y-auto space-y-6">
-              <div className="flex justify-between items-center">
-                <h2 className="text-lg font-light text-slate-900">{locale === "pt" ? "Espaço de Trabalho do Estúdio de Propostas" : "Proposal Studio Workspace"}</h2>
-                <span className="text-xs text-slate-400">{locale === "pt" ? "Gerencie planilhas de precificação de lances, exclusões comerciais e fluxos de aprovação" : "Manage bid pricing spreadsheets, commercial exclusions and approval pipelines"}</span>
-              </div>
-
-              {proposals.length === 0 ? (
-                <div className="bg-slate-50 border border-slate-200 rounded-xl p-8 text-center py-16">
-                  <AlertTriangle className="text-amber-500 mx-auto mb-2" size={32} />
-                  <h4 className="text-sm font-bold text-slate-800 uppercase font-mono">{locale === "pt" ? "Nenhuma Proposta Compilada Ainda" : "No Proposals Compiled Yet"}</h4>
-                  <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 leading-relaxed">
-                    {locale === "pt" ? "Acesse a Área de Trabalho e escolha a aba 'Estúdio de Geração de Propostas' para compilar especificações técnicas ou planilhas de preços em rascunhos de documentos reais." : "Go to your Workspace tab and choose the 'Proposal Studio Generator' sub-tab to compile technical specifications or pricing tables into actual document drafts."}
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  {proposals.map(prop => (
-                    <div key={prop.id} className="bg-white border border-slate-200 rounded-lg p-5 shadow-sm flex flex-col gap-4">
-
-                      {/* Header block of proposal */}
-                      <div className="flex justify-between items-start border-b border-slate-100 pb-3">
-                        <div className="flex gap-3 items-center">
-                          <div className={`w-10 h-10 rounded-lg flex items-center justify-center font-bold text-sm ${
-                            prop.proposal_type === "technical" ? "bg-blue-50 text-blue-700" : "bg-emerald-50 text-emerald-700"
-                          }`}>
-                            {prop.proposal_type === "technical" ? "TECH" : "COMM"}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <h3 className="text-sm font-bold text-slate-800 uppercase font-mono">{prop.proposal_type === "technical" ? (locale === "pt" ? "Técnica" : "Technical") : (locale === "pt" ? "Comercial" : "Commercial")} - Draft v{prop.version}.0</h3>
-                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${
-                                prop.status === "released" ? "text-purple-700 bg-purple-50 border-purple-200" :
-                                prop.status === "approved" ? "text-emerald-700 bg-emerald-50 border-emerald-200" :
-                                prop.status === "submitted" ? "text-blue-700 bg-blue-50 border-blue-200" :
-                                prop.status === "rejected" ? "text-red-700 bg-red-50 border-red-200" :
-                                "text-amber-700 bg-amber-50 border-amber-200"
-                              }`}>
-                                {locale === "pt" ? (
-                                  prop.status === "released" ? "LIBERADA" :
-                                  prop.status === "approved" ? "APROVADA" :
-                                  prop.status === "submitted" ? "ENVIADA" :
-                                  prop.status === "rejected" ? "REJEITADA" : "RASCUNHO"
-                                ) : prop.status}
-                              </span>
-                            </div>
-                            <p className="text-xs text-slate-400 mt-0.5 font-mono">{locale === "pt" ? "Gerada por:" : "Generated by:"} {prop.generated_by} {locale === "pt" ? "em" : "on"} {new Date(prop.generated_at).toLocaleString()}</p>
-                          </div>
-                        </div>
-
-                        {/* Export Action Buttons */}
-                        <div className="flex gap-2">
-                          {hasPermission("proposal:export") && (
-                            <>
-                              <a
-                                href={`/api/proposals/${prop.id}/export/docx`}
-                                target="_blank"
-                                className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-mono text-[11px] font-bold px-3 py-1.5 rounded border border-slate-200 transition-all shadow-sm"
-                              >
-                                <Download size={12} /> Export DOCX
-                              </a>
-                              <a
-                                href={`/api/proposals/${prop.id}/export/pdf`}
-                                target="_blank"
-                                className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-mono text-[11px] font-bold px-3 py-1.5 rounded border border-slate-200 transition-all shadow-sm"
-                              >
-                                <Download size={12} /> Export PDF
-                              </a>
-                            </>
-                          )}
-                          {prop.status === "draft" && hasPermission("approval:manage") && (
-                            <button
-                              onClick={() => handleSubmitProposalApproval(prop.id)}
-                              className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-[11px] font-bold px-3 py-1.5 rounded shadow-sm transition-all cursor-pointer"
-                            >
-                              {locale === "pt" ? "Enviar para Aprovação de Fluxo" : "Submit to Workflow Approvals"}
-                            </button>
-                          )}
-                          {prop.status === "approved" && hasPermission("proposal:approve") && (
-                            <button
-                              onClick={() => handleReleaseProposal(prop.id)}
-                              className="bg-purple-600 hover:bg-purple-700 text-white font-mono text-[11px] font-bold px-3 py-1.5 rounded shadow-sm transition-all cursor-pointer"
-                            >
-                              {locale === "pt" ? "Liberar Versão Final" : "Release Final Version"}
-                            </button>
-                          )}
-                          {prop.status === "released" && (
-                            <span className="bg-purple-50 text-purple-700 border border-purple-200 font-mono text-[11px] font-bold px-3 py-1.5 rounded">
-                              {locale === "pt" ? "Versão Final Liberada" : "Final Version Released"}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Pricing table block - ONLY FOR COMMERCIAL */}
-                      {prop.proposal_type === "commercial" && prop.manual_pricing_table && (
-                        <div className="space-y-2">
-                          <h4 className="text-xs uppercase font-bold text-slate-500 tracking-wider font-mono">{locale === "pt" ? "Grade de Planilha de Preço de Licitação" : "Commercial Bid Pricing Sheet Grid"}</h4>
-                          <div className="border border-slate-200 rounded-lg overflow-hidden bg-slate-50/50">
-                            <table className="w-full text-left text-xs border-collapse">
-                              <thead className="bg-slate-100 border-b border-slate-200 font-mono text-[10px] uppercase text-slate-500">
-                                <tr>
-                                  <th className="p-2.5">{locale === "pt" ? "Código do Item" : "Item Code"}</th>
-                                  <th className="p-2.5">{locale === "pt" ? "Descrição" : "Description"}</th>
-                                  <th className="p-2.5">{locale === "pt" ? "Quantidade" : "Quantity"}</th>
-                                  <th className="p-2.5">{locale === "pt" ? "Preço Unitário" : "Unit List Price"}</th>
-                                  <th className="p-2.5">{locale === "pt" ? "Desconto %" : "Discount %"}</th>
-                                  <th className="p-2.5">{locale === "pt" ? "Preço Total USD" : "Total USD Price"}</th>
-                                  <th className="p-2.5">{locale === "pt" ? "Status de Inclusão" : "Inclusion Status"}</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-200 font-mono text-slate-700">
-                                {prop.manual_pricing_table.map((row, i) => (
-                                  <tr key={row.item_id || i} className="hover:bg-slate-50">
-                                    <td className="p-2.5 font-bold">{row.product_or_service}</td>
-                                    <td className="p-2.5 text-slate-500 font-sans text-xs">{row.product_or_service.includes("ALPR") ? "High-speed outdoor edge-AI ALPR camera" : (row.product_or_service.includes("Switch") ? "8-Port industrial managed gigabit PoE+ switch" : "Edge AI traffic flow and vehicle classification license")}</td>
-                                    <td className="p-2.5">
-                                      <input
-                                        type="number"
-                                        value={row.quantity}
-                                        onChange={(e) => handleUpdateProposalCommercial(prop.id, row.item_id, "quantity", parseInt(e.target.value) || 1)}
-                                        disabled={prop.status !== "draft" || !hasPermission("proposal:edit")}
-                                        className="w-14 p-1 rounded border border-slate-200 text-center font-semibold bg-white disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
-                                      />
-                                    </td>
-                                    <td className="p-2.5">
-                                      <input
-                                        type="number"
-                                        value={row.unit_price}
-                                        onChange={(e) => handleUpdateProposalCommercial(prop.id, row.item_id, "unit_price", parseFloat(e.target.value) || 0)}
-                                        disabled={prop.status !== "draft" || !hasPermission("proposal:edit")}
-                                        className="w-20 p-1 rounded border border-slate-200 text-center font-semibold bg-white disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
-                                      />
-                                    </td>
-                                    <td className="p-2.5">
-                                      <input
-                                        type="number"
-                                        value={row.discount}
-                                        onChange={(e) => handleUpdateProposalCommercial(prop.id, row.item_id, "discount", parseFloat(e.target.value) || 0)}
-                                        disabled={prop.status !== "draft" || !hasPermission("proposal:edit")}
-                                        className="w-14 p-1 rounded border border-slate-200 text-center font-semibold bg-white disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
-                                      />
-                                    </td>
-                                    <td className="p-2.5 font-bold text-slate-900">${row.total_price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                    <td className="p-2.5">
-                                      <span className={`px-1.5 py-0.5 rounded font-bold text-[9px] uppercase ${
-                                        row.is_optional ? "text-amber-700 bg-amber-50 border border-amber-100" : "text-emerald-700 bg-emerald-50 border border-emerald-100"
-                                      }`}>
-                                        {row.is_optional ? (locale === "pt" ? "Opcional" : "Optional") : (locale === "pt" ? "Obrigatório" : "Mandatory")}
-                                      </span>
-                                    </td>
-                                  </tr>
-                                ))}
-                                {/* Totals block */}
-                                <tr className="bg-slate-100 font-sans font-bold text-slate-800">
-                                  <td colSpan={5} className="p-3 text-right uppercase tracking-wider font-mono text-[10px] text-slate-500">{locale === "pt" ? "Preço de Licitação Bruto Total:" : "Gross Contract Bid Price:"}</td>
-                                  <td colSpan={2} className="p-3 text-sm text-emerald-800 font-mono">
-                                    ${(prop.manual_pricing_table || []).reduce((acc, r) => acc + r.total_price, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                                  </td>
-                                </tr>
-                              </tbody>
-                            </table>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Text details for exclusions, validity etc */}
-                      <div className="grid grid-cols-2 gap-6 text-xs text-slate-600 bg-slate-50/50 p-4 rounded-lg border border-slate-200">
-                        <div className="space-y-3">
-                          <div>
-                            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block">{locale === "pt" ? "Exclusões Comerciais" : "Commercial Exclusions"}</span>
-                            <p className="text-xs text-slate-700 italic mt-0.5">"{prop.exclusions || "N/A"}"</p>
-                          </div>
-                          <div>
-                            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block">{locale === "pt" ? "Data de Validade da Proposta" : "Proposal Validity Date"}</span>
-                            <p className="text-xs text-slate-700 font-semibold mt-0.5">{prop.proposal_validity || "N/A"}</p>
-                          </div>
-                        </div>
-                        <div className="space-y-3">
-                          <div>
-                            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block">{locale === "pt" ? "Termos de Pagamento e Crédito" : "Payment & Credit Terms"}</span>
-                            <p className="text-xs text-slate-700 italic mt-0.5">"{prop.payment_terms || "N/A"}"</p>
-                          </div>
-                          <div>
-                            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block">{locale === "pt" ? "Condições de Entrega Incoterms" : "Incoterms Delivery Conditions"}</span>
-                            <p className="text-xs text-slate-700 font-semibold mt-0.5">{prop.delivery_terms || "N/A"}</p>
-                          </div>
-                        </div>
-                      </div>
-
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <Proposals
+              locale={locale}
+              hasPermission={hasPermission}
+              proposals={proposals}
+              selectedProjectId={selectedProjectId}
+              fetchGlobalConfigs={fetchGlobalConfigs}
+              fetchProjectDetails={fetchProjectDetails}
+              handleReleaseProposal={handleReleaseProposal}
+            />
           )}
 
           {/* TAB 3: TENDER TEMPLATES */}
           {activeTab === "templates" && (
-            <div className="flex-1 p-6 overflow-y-auto space-y-6">
-              <div className="flex justify-between items-center">
-                <h2 className="text-lg font-light text-slate-900">{locale === "pt" ? "Gestor de Modelos de Licitação" : "Bid Template Configuration Manager"}</h2>
-                <span className="text-xs text-slate-400">{locale === "pt" ? "Configure estruturas corporativas, variáveis e esquemas em conformidade" : "Configure compliant corporate structures, variables and schemas"}</span>
-              </div>
-
-              <div className="space-y-4">
-                {proposalTemplates.map(tpl => (
-                  <div key={tpl.id} className="p-4 bg-white border border-slate-200 rounded-lg shadow-sm flex flex-col gap-3 hover:border-slate-300 transition-all">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h4 className="text-sm font-bold text-slate-800 uppercase font-mono">{tpl.name}</h4>
-                          <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 rounded-full font-bold uppercase font-mono">{tpl.file_type}</span>
-                          {tpl.default_template && (
-                            <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-100 px-1.5 rounded-full font-bold">{locale === "pt" ? "PADRÃO" : "DEFAULT"}</span>
-                          )}
-                        </div>
-                        <p className="text-xs text-slate-500 mt-1">{tpl.description}</p>
-                      </div>
-
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => {
-                            fetch(`/api/templates/proposals/${tpl.id}/validate`, { method: "POST" })
-                              .then(r => r.json())
-                              .then(res => alert(`Template validation diagnostics: Variables schema compliant! Loaded fields: ${res.variables.join(", ")}`));
-                          }}
-                          className="text-[11px] font-mono font-bold bg-slate-100 text-slate-600 border border-slate-200 px-2 py-1 rounded hover:bg-slate-200"
-                        >
-                          {locale === "pt" ? "Verificar Esquema" : "Compile Schema Check"}
-                        </button>
-                        {!tpl.default_template && (
-                          <button
-                            onClick={() => {
-                              fetch(`/api/templates/proposals/${tpl.id}/set-default`, { method: "POST" })
-                                .then(() => fetchGlobalConfigs());
-                            }}
-                            className="text-[11px] font-mono font-bold bg-emerald-600 text-white px-2 py-1 rounded hover:bg-emerald-700"
-                          >
-                            {locale === "pt" ? "Tornar Padrão" : "Assign Default"}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="text-[11px] font-mono bg-slate-50 p-2.5 rounded border border-slate-200">
-                      <span className="text-slate-400 font-bold block mb-1">{locale === "pt" ? "Esquema de Variáveis Dinâmicas Declaradas do Modelo:" : "Declared Dynamic Template Variables Schema:"}</span>
-                      <p className="text-slate-600 leading-normal">{tpl.variables_schema}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <Templates
+              locale={locale}
+              proposalTemplates={proposalTemplates}
+              fetchGlobalConfigs={fetchGlobalConfigs}
+            />
           )}
 
           {/* TAB 4: APPROVAL CENTER */}
           {activeTab === "approval" && (
-            <div className="flex-1 p-6 overflow-y-auto space-y-6">
-              <div className="flex justify-between items-center">
-                <h2 className="text-lg font-light text-slate-900">{locale === "pt" ? "Fluxo de Aprovação de Pré-Vendas Corporativo" : "Enterprise Pre-Sales Approval Pipeline"}</h2>
-                <span className="text-xs text-slate-400">{locale === "pt" ? "Valide limites comerciais, margens e conformidade técnica antes do envio" : "Validate commercial limits, margins and technical compliance before submission"}</span>
-              </div>
-
-              {/* Dynamic list of proposals and their approval workflow milestones */}
-              {proposals.length === 0 ? (
-                <div className="bg-slate-50 border border-slate-200 rounded-xl p-8 text-center py-16">
-                  <AlertTriangle className="text-amber-500 mx-auto mb-2" size={32} />
-                  <h4 className="text-sm font-bold text-slate-800 uppercase font-mono">{locale === "pt" ? "Nenhuma Proposta Enviada" : "No Proposals Submitted"}</h4>
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  {proposals.map(prop => {
-                    const workflow = (Array.isArray(approvalWorkflows) ? approvalWorkflows : []).find(w => w.id === prop.approval_workflow_id);
-                    return (
-                      <div key={prop.id} className="bg-white border border-slate-200 rounded-lg p-5 shadow-sm flex flex-col gap-4">
-                        <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-                          <div>
-                            <span className="text-xs font-bold font-mono text-slate-400">{locale === "pt" ? "ID DE REFERÊNCIA DA PROPOSTA:" : "PROPOSAL REFERENCE ID:"} {prop.id}</span>
-                            <h3 className="text-sm font-bold text-slate-800 uppercase font-mono mt-0.5">{prop.proposal_type === "technical" ? (locale === "pt" ? "TÉCNICA" : "TECHNICAL") : (locale === "pt" ? "COMERCIAL" : "COMMERCIAL")} PROPOSAL BID v1.0</h3>
-                          </div>
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${
-                            prop.status === "released" ? "text-purple-700 bg-purple-50 border-purple-200" :
-                            prop.status === "approved" ? "text-emerald-700 bg-emerald-50 border-emerald-200" :
-                            prop.status === "submitted" ? "text-blue-700 bg-blue-50 border-blue-200" :
-                            prop.status === "rejected" ? "text-red-700 bg-red-50 border-red-200" :
-                            "text-amber-700 bg-amber-50 border-amber-200"
-                          }`}>
-                            {locale === "pt" ? (
-                              prop.status === "released" ? "LIBERADA" :
-                              prop.status === "approved" ? "APROVADA" :
-                              prop.status === "submitted" ? "ENVIADA" :
-                              prop.status === "rejected" ? "REJEITADA" : "RASCUNHO"
-                            ) : prop.status}
-                          </span>
-                        </div>
-
-                        {prop.status === "approved" && hasPermission("proposal:approve") && (
-                          <div className="flex justify-end">
-                            <button
-                              onClick={() => handleReleaseProposal(prop.id)}
-                              className="bg-purple-600 hover:bg-purple-700 text-white font-mono text-[11px] font-bold px-3 py-1.5 rounded shadow-sm transition-all cursor-pointer"
-                            >
-                              {locale === "pt" ? "Liberar Versão Final" : "Release Final Version"}
-                            </button>
-                          </div>
-                        )}
-
-                        {/* Approval Stage Timeline */}
-                        {workflow && (
-                          <div className="space-y-4">
-                            <h4 className="text-xs uppercase font-bold text-slate-500 tracking-wider font-mono">{locale === "pt" ? "Checklist de Etapas de Aprovação:" : "Milestone Approval Stages Checklist:"}</h4>
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                              {workflow.stages.map((stage) => {
-                                const matchedDecision = (Array.isArray(approvalDecisions) ? approvalDecisions : []).find(d => d.proposal_id === prop.id && d.stage_id === stage.id);
-                                return (
-                                  <div key={stage.id} className={`p-4 rounded-lg border ${
-                                    matchedDecision ? (matchedDecision.decision === "approved" ? "bg-emerald-50/50 border-emerald-200" : "bg-red-50/50 border-red-200") : "bg-slate-50 border-slate-200"
-                                  }`}>
-                                    <div className="flex justify-between items-start mb-2">
-                                      <span className="text-[10px] font-mono text-slate-400 uppercase font-bold">{locale === "pt" ? "Etapa" : "Stage"} {stage.order}</span>
-                                      {matchedDecision ? (
-                                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
-                                          matchedDecision.decision === "approved" ? "text-emerald-700 bg-emerald-50" : "text-red-700 bg-red-50"
-                                        }`}>{matchedDecision.decision}</span>
-                                      ) : (
-                                        <span className="text-[9px] font-bold bg-slate-200 text-slate-500 px-1.5 py-0.5 rounded uppercase">{tx("PENDING", "PENDENTE")}</span>
-                                      )}
-                                    </div>
-                                    <h5 className="text-xs font-bold text-slate-800 uppercase leading-none font-mono mb-1">{stage.name}</h5>
-                                    <p className="text-[11px] text-slate-500 leading-snug">{tx("Approver Target", "Aprovador Alvo")}: <span className="font-semibold">{getApprovalStageTargetLabel(stage)}</span></p>
-
-                                    {/* Action inside timeline stage */}
-                                    {!matchedDecision && prop.status === "submitted" && canReviewApprovalStage(stage) && (
-                                      <div className="mt-3 pt-3 border-t border-slate-200 flex gap-1">
-                                        <button
-                                          onClick={() => handleApprovalDecision(prop.id, stage, "approved", "Pre-Sales specs verified and margins approved.")}
-                                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-[9px] font-bold py-1 px-2 rounded cursor-pointer"
-                                        >
-                                          Approve
-                                        </button>
-                                        <button
-                                          onClick={() => handleApprovalDecision(prop.id, stage, "rejected", "Requires compliance revision.")}
-                                          className="bg-red-600 hover:bg-red-700 text-white font-mono text-[9px] font-bold py-1 px-2 rounded cursor-pointer"
-                                        >
-                                          Reject
-                                        </button>
-                                      </div>
-                                    )}
-
-                                    {matchedDecision && (
-                                      <p className="text-[11px] text-slate-600 italic mt-2 border-t border-slate-100 pt-1.5">
-                                        "{matchedDecision.comments}"
-                                      </p>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
-
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+            <Approval
+              locale={locale}
+              tx={tx}
+              hasPermission={hasPermission}
+              currentSessionUser={currentSessionUser}
+              proposals={proposals}
+              approvalWorkflows={approvalWorkflows}
+              approvalDecisions={approvalDecisions}
+              users={users}
+              roles={roles}
+              selectedProjectId={selectedProjectId}
+              fetchGlobalConfigs={fetchGlobalConfigs}
+              fetchProjectDetails={fetchProjectDetails}
+              handleReleaseProposal={handleReleaseProposal}
+            />
           )}
+
 
           {/* TAB 5: ADMIN CONSOLE */}
           {activeTab === "admin" && canAccessAdminConsole() && (
