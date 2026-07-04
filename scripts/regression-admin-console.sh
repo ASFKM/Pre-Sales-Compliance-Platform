@@ -435,9 +435,29 @@ expect_save 200 "admin audit csv" /tmp/admin_reg_audit.csv \
 
 grep -q "Timestamp" /tmp/admin_reg_audit.csv || fail "audit csv invalid"
 
+expect 403 "manager cannot view system status" \
+  -H "Authorization: Bearer $MANAGER_TOKEN" \
+  http://127.0.0.1:3000/api/admin/system/status
+
+expect 403 "manager cannot download diagnostics" \
+  -H "Authorization: Bearer $MANAGER_TOKEN" \
+  http://127.0.0.1:3000/api/admin/diagnostics/package/download
+
 expect 200 "admin system status" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   http://127.0.0.1:3000/api/admin/system/status
+
+expect_save 200 "admin diagnostics package json" /tmp/admin_reg_diag.json \
+  -X POST http://127.0.0.1:3000/api/admin/diagnostics/package \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "X-Correlation-Id: regression/unsafe correlation id" \
+  -H "Content-Type: application/json" \
+  -d "{}"
+
+grep -q "correlation_id" /tmp/admin_reg_diag.json || fail "diagnostics json missing correlation id"
+if grep -q "regression/unsafe correlation id" /tmp/admin_reg_diag.json; then
+  fail "diagnostics correlation id was not sanitized"
+fi
 
 expect_save 200 "admin diagnostics download" /tmp/admin_reg_diag.txt \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
