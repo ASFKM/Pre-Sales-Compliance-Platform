@@ -176,6 +176,30 @@ expect 200 "manager updates settings" \
   -H "Content-Type: application/json" \
   -d '{"default_log_level":"DEBUG"}'
 
+expect 400 "invalid global language is blocked" \
+  -X PUT http://127.0.0.1:3000/api/settings \
+  -H "Authorization: Bearer $MANAGER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"default_language\":\"German\"}"
+
+expect 400 "invalid global log level is blocked" \
+  -X PUT http://127.0.0.1:3000/api/settings \
+  -H "Authorization: Bearer $MANAGER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"default_log_level\":\"TRACE\"}"
+
+expect 400 "global settings reject ai scoped field" \
+  -X PUT http://127.0.0.1:3000/api/settings \
+  -H "Authorization: Bearer $MANAGER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"ai_provider\":\"Bypass Provider\"}"
+
+expect 400 "global settings reject storage scoped field" \
+  -X PUT http://127.0.0.1:3000/api/settings \
+  -H "Authorization: Bearer $MANAGER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"storage_mode\":\"s3\"}"
+
 expect 403 "manager cannot update ai settings" \
   -X PUT http://127.0.0.1:3000/api/settings/ai \
   -H "Authorization: Bearer $MANAGER_TOKEN" \
