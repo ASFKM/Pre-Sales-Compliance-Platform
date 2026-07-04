@@ -13,9 +13,13 @@
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:migrate-from-json": "tsx prisma/migrate-from-json.ts",
+    "prisma:seed": "tsx prisma/seed.ts",
     "regression:approval-rbac": "bash scripts/regression-approval-rbac.sh",
     "regression:workspace-documents": "bash scripts/regression-workspace-documents.sh",
     "regression:admin-console": "bash scripts/regression-admin-console.sh"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.699.0",
