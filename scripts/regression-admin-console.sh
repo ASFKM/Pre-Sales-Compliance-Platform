@@ -212,6 +212,30 @@ expect 200 "admin updates branding" \
   -H "Content-Type: application/json" \
   -d '{"company_name":"Assistant AI Regression"}'
 
+expect 400 "empty company name is blocked" \
+  -X PUT http://127.0.0.1:3000/api/branding \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"company_name\":\"\"}"
+
+expect 400 "invalid branding color is blocked" \
+  -X PUT http://127.0.0.1:3000/api/branding \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"primary_color\":\"green\"}"
+
+expect 400 "invalid branding theme is blocked" \
+  -X PUT http://127.0.0.1:3000/api/branding \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"default_theme\":\"auto\"}"
+
+expect 400 "unsafe branding logo path is blocked" \
+  -X PUT http://127.0.0.1:3000/api/branding \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"company_logo_path\":\"https://example.com/logo.png\"}"
+
 expect 403 "manager cannot test storage" \
   -H "Authorization: Bearer $MANAGER_TOKEN" \
   http://127.0.0.1:3000/api/settings/storage/status
