@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadBucketCommand } from "@aws-sdk/client-s3";
 import { Storage as GCSClient } from "@google-cloud/storage";
 import { decryptSecret } from "./security";
 
@@ -9,6 +9,8 @@ export interface StorageAdapter {
   uploadFile(projectId: string, fileBuffer: Buffer, originalFilename: string, mimeType: string): Promise<string>;
   deleteFile(storagePath: string): Promise<boolean>;
   readFile(storagePath: string): Promise<Buffer>;
+  // Cheap connectivity check (no data transfer) - safe to call on every readiness probe.
+  checkReachable(): Promise<boolean>;
 }
 
 // 1. Local Filesystem Storage Adapter
@@ -74,6 +76,15 @@ export class LocalStorageAdapter implements StorageAdapter {
     const fullPath = this.resolveStoragePath(storagePath);
     return await fs.promises.readFile(fullPath);
   }
+
+  async checkReachable(): Promise<boolean> {
+    try {
+      fs.accessSync(this.baseUploadDir, fs.constants.W_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  }
 }
 
 // 2. AWS S3 Storage Adapter
@@ -127,6 +138,15 @@ export class S3StorageAdapter implements StorageAdapter {
     }
     return Buffer.concat(chunks);
   }
+
+  async checkReachable(): Promise<boolean> {
+    try {
+      await this.client.send(new HeadBucketCommand({ Bucket: this.bucketName }));
+      return true;
+    } catch {
+      return false;
+    }
+  }
 }
 
 // 3. Google Cloud Storage Adapter
@@ -171,6 +191,15 @@ export class GCSStorageAdapter implements StorageAdapter {
   async readFile(storagePath: string): Promise<Buffer> {
     const [content] = await this.client.bucket(this.bucketName).file(this.parseObjectName(storagePath)).download();
     return content;
+  }
+
+  async checkReachable(): Promise<boolean> {
+    try {
+      const [exists] = await this.client.bucket(this.bucketName).exists();
+      return exists;
+    } catch {
+      return false;
+    }
   }
 }
 

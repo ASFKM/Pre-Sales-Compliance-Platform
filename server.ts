@@ -2,6 +2,10 @@ import express, { Request, Response, NextFunction } from "express";
 import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
+import { prisma } from "./src/prisma";
+import { redis } from "./src/redis";
+import { dbStore } from "./src/dbStore";
+import { createStorageAdapter } from "./server/utils/storage";
 
 // Middleware Imports
 import { 
@@ -63,12 +67,28 @@ app.get("/api/health", (req: Request, res: Response) => {
   });
 });
 
-app.get("/api/health/readiness", (req: Request, res: Response) => {
-  res.json({ 
-    success: true, 
-    status: "ready", 
-    database: "connected", 
-    storage: "accessible" 
+app.get("/api/health/readiness", async (req: Request, res: Response) => {
+  const [databaseOk, redisOk] = await Promise.all([
+    prisma.$queryRaw`SELECT 1`.then(() => true).catch(() => false),
+    redis.ping().then((reply) => reply === "PONG").catch(() => false),
+  ]);
+
+  let storageOk = false;
+  try {
+    const settings = await dbStore.getSettings();
+    storageOk = await createStorageAdapter(settings).checkReachable();
+  } catch {
+    storageOk = false;
+  }
+
+  const ready = databaseOk && redisOk && storageOk;
+
+  res.status(ready ? 200 : 503).json({
+    success: ready,
+    status: ready ? "ready" : "not_ready",
+    database: databaseOk ? "connected" : "unreachable",
+    redis: redisOk ? "connected" : "unreachable",
+    storage: storageOk ? "accessible" : "unreachable"
   });
 });
 
