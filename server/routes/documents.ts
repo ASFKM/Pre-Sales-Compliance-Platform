@@ -219,4 +219,38 @@ router.post("/documents/:id/reclassify", requirePermission("document:upload"), a
   }
 });
 
+// Rename document display name
+router.put("/documents/:id/rename", requirePermission("document:upload"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const newName = String(req.body?.original_filename || "").trim();
+    const doc = await dbStore.getDocument(req.params.id);
+
+    if (!doc) {
+      return res.status(404).json({ success: false, message: "Document not found" });
+    }
+
+    if (!newName) {
+      return res.status(400).json({ success: false, message: "A non-empty name is required." });
+    }
+
+    const updatedDoc = await dbStore.updateDocument(req.params.id, { original_filename: newName });
+
+    const userId = (req.headers["x-user-id"] as string) || "u1";
+    await dbStore.addAuditLog({
+      user_id: userId,
+      action: "Rename Document",
+      entity_type: "Document",
+      entity_id: req.params.id,
+      project_id: doc.project_id,
+      ip_address: req.ip || "127.0.0.1",
+      user_agent: req.headers["user-agent"] || "unknown",
+      metadata: JSON.stringify({ previous_name: doc.original_filename, new_name: newName })
+    });
+
+    res.json(updatedDoc);
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

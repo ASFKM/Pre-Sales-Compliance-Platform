@@ -498,4 +498,106 @@ router.get("/projects/:projectId/jobs", requirePermission("analysis:read"), asyn
   }
 });
 
+// GET persisted specification chat history for a project
+router.get("/projects/:projectId/chat", requirePermission("analysis:read"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const history = await dbStore.getConversationHistory(req.params.projectId);
+    res.json(history.map(m => ({ role: m.role, message: m.message })));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST a question to the real Gemini-backed specification copilot chat
+router.post("/projects/:projectId/chat", requirePermission("analysis:read"), async (req: Request, res: Response, next: NextFunction) => {
+  const projectId = req.params.projectId;
+  const userMessage = String(req.body?.message || "").trim();
+
+  try {
+    if (!userMessage) {
+      return res.status(400).json({ success: false, message: "Message is required." });
+    }
+
+    const project = await dbStore.getProject(projectId);
+    if (!project) {
+      return res.status(404).json({ success: false, message: "Project not found." });
+    }
+
+    const analysis = await dbStore.getAnalysisResult(projectId);
+    const docs = await dbStore.getDocuments(projectId);
+
+    let combinedExtractedText = "";
+    for (const doc of docs) {
+      const text = await dbStore.getDocumentContent(doc.id);
+      if (text) {
+        combinedExtractedText += `\n--- ${doc.filename} ---\n${text.substring(0, 6000)}\n`;
+      }
+    }
+
+    const platformSettings = await dbStore.getSettings();
+    const chatModel = platformSettings.default_model || "gemini-3.5-flash";
+
+    const prompt = `You are a Pre-Sales Solution Architect copilot answering a colleague's question about a specific bid.
+
+PROJECT: ${project.name} (${project.customer_name}, ${project.vertical})
+
+EXTRACTED DOCUMENT TEXT:
+${combinedExtractedText || "No document text extracted yet."}
+
+STRUCTURED ANALYSIS RESULT (JSON, may be empty if analysis hasn't run yet):
+${analysis ? JSON.stringify({
+  executive_summary: analysis.executive_summary,
+  critical_requirements: analysis.critical_requirements,
+  risks: analysis.risks,
+  bom: analysis.bom
+}) : "null"}
+
+QUESTION: ${userMessage}
+
+Answer concisely and specifically, citing the source document/section when the answer comes from the
+extracted text or analysis above. If the answer isn't covered by the material provided, say so plainly
+instead of inventing information.`;
+
+    const ai = await getGeminiClient();
+    const response = await ai.models.generateContent({ model: chatModel, contents: prompt });
+    const answer = response.text || "No response generated.";
+
+    const userId = (req.headers["x-user-id"] as string) || "u1";
+    const usage = (response as any).usageMetadata || {};
+
+    await dbStore.addConversationMessage({
+      project_id: projectId,
+      user_id: userId,
+      role: "user",
+      message: userMessage,
+      ai_provider: "Google Gemini",
+      ai_model: chatModel,
+      prompt_template_version: "chat-v1",
+      input_summary: userMessage.slice(0, 200),
+      output_summary: "",
+      token_input: usage.promptTokenCount || 0,
+      token_output: 0
+    });
+
+    await dbStore.addConversationMessage({
+      project_id: projectId,
+      user_id: userId,
+      role: "model",
+      message: answer,
+      ai_provider: "Google Gemini",
+      ai_model: chatModel,
+      prompt_template_version: "chat-v1",
+      input_summary: userMessage.slice(0, 200),
+      output_summary: answer.slice(0, 200),
+      token_input: 0,
+      token_output: usage.candidatesTokenCount || 0
+    });
+
+    res.json({ success: true, answer });
+  } catch (err: any) {
+    console.error("Chat copilot request failed:", err);
+    res.status(500).json({ success: false, message: `Gemini API execution failed: ${err.message}` });
+  }
+});
+
 export default router;

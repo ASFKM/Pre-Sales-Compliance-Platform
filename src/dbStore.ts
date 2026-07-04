@@ -620,7 +620,11 @@ class DBStore {
     if (!exists) return undefined;
     const d = await prisma.document.update({
       where: { id },
-      data: { manualDocumentType: updates.manual_document_type, detectedDocumentType: updates.detected_document_type },
+      data: {
+        manualDocumentType: updates.manual_document_type,
+        detectedDocumentType: updates.detected_document_type,
+        originalFilename: updates.original_filename,
+      },
     });
     return mapDocument(d);
   }

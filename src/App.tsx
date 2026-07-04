@@ -76,7 +76,6 @@ const translations = {
     specifications: "Specifications",
     tenderDocs: "Tender Docs",
     clickToImport: "Click to import specification",
-    simulatedDoc: "Simulated Doc Upload",
     noDocs: "No documents uploaded yet",
     runAi: "Run AI Analysis",
     compiling: "Compiling Specifications...",
@@ -134,7 +133,6 @@ const translations = {
     specifications: "Especificações",
     tenderDocs: "Docs de Licitação",
     clickToImport: "Clique para importar especificação",
-    simulatedDoc: "Simulação de Upload de Doc",
     noDocs: "Nenhum documento enviado ainda",
     runAi: "Executar Análise IA",
     compiling: "Compilando Especificações...",
@@ -346,10 +344,6 @@ export default function App() {
 
   const tx = (en: string, pt: string) => locale === "pt" ? pt : en;
 
-  // Admin authentication state for debug/export access
-  const [isAdminUnlocked, setIsAdminUnlocked] = useState(false);
-  const [adminPasswordInput, setAdminPasswordInput] = useState("");
-  const [adminAuthError, setAdminAuthError] = useState("");
 
   // Subscription & Licensing Management States
   const [licenseTier, setLicenseTier] = useState<"enterprise" | "professional" | "free">("enterprise");
@@ -559,6 +553,7 @@ export default function App() {
   // Chat Assistant Input
   const [chatMessage, setChatMessage] = useState<string>("");
   const [chatHistory, setChatHistory] = useState<{role: string, message: string}[]>([]);
+  const [isChatSending, setIsChatSending] = useState<boolean>(false);
 
   // Admin Console States
   const [showNewConnectorForm, setShowNewConnectorForm] = useState<boolean>(false);
@@ -927,6 +922,19 @@ export default function App() {
       const pRes = await fetch(`/api/projects/${projId}/proposals`);
       const pData = await pRes.json();
       setProposals(Array.isArray(pData) ? pData : []);
+
+      // Specification chat history
+      const cRes = await fetch(`/api/projects/${projId}/chat`);
+      const cData = await cRes.json();
+      setChatHistory(Array.isArray(cData) && cData.length > 0 ? cData : [
+        {
+          role: "model",
+          message: tx(
+            "Hi, I'm your Technical Pre-Sales Assistant. Ask me questions about this project's specifications, or run the AI analysis first for deeper context.",
+            "Olá, sou seu Assistente Técnico de Pré-Vendas. Pergunte sobre as especificações deste projeto, ou rode a análise de IA primeiro para um contexto mais completo."
+          )
+        }
+      ]);
     } catch (e) {
       console.error("Error fetching project specifications detail", e);
     }
@@ -945,12 +953,6 @@ export default function App() {
   useEffect(() => {
     if (selectedProjectId) {
       fetchProjectDetails(selectedProjectId);
-      setChatHistory([
-        {
-          role: "model",
-          message: `Hello Elena! I am your Technical Pre-Sales Assistant. I have read the active project details. Click 'RUN AI ANALYSIS' on the sidebar or ask me questions about your specifications.`
-        }
-      ]);
     }
   }, [selectedProjectId]);
 
@@ -1588,31 +1590,33 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
   // Interactive specification chat discussion
   const handleSendChatMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!chatMessage.trim()) return;
+    if (!chatMessage.trim() || !selectedProjectId) return;
 
     const userMsg = chatMessage;
     setChatHistory(prev => [...prev, { role: "user", message: userMsg }]);
     setChatMessage("");
+    setIsChatSending(true);
 
     try {
-      // Simulate Gemini model query response based on the active project specifications & extracted context
-      setTimeout(() => {
-        let answer = "";
-        const lower = userMsg.toLowerCase();
-        if (lower.includes("temperatura") || lower.includes("temperature") || lower.includes("calor")) {
-          answer = `The extracted environmental specifications (Section 7.1) state that roadside cabinet devices must operate natively between -10°C and +55°C ambient environment. I flagged a Risk regarding high-temperature saturation inside uncooled enclosures. We proposed hardened fanless switches rated to +75°C to alleviate this.`;
-        } else if (lower.includes("câmera") || lower.includes("camera") || lower.includes("alpr") || lower.includes("plate")) {
-          answer = `Our analysis found a mandatory high-speed license plate capture requirement (Section 4.2) for up to 180 km/h with 95% accuracy. To comply with this under low ambient lighting, we added 45 units of CAM-ALPR-10X (global shutter edge-AI sensors) to your Bill of Materials.`;
-        } else if (lower.includes("fibra") || lower.includes("fiber") || lower.includes("rede") || lower.includes("network")) {
-          answer = `Section Annex C restricts physical conduit work to weekend night windows (01:00 to 05:00) to prevent freeway traffic disruption. This carries a critical scheduling risk with a 45% potential labor cost increase.`;
-        } else {
-          answer = `Based on the active project '${activeProject?.name || "Proposal"}', I've extracted ${analysisResult?.critical_requirements.length || 0} critical requirements, ${analysisResult?.risks.length || 0} risks, and ${analysisResult?.bom.length || 0} suggested hardware lines. Please ask me to elaborate on environmental risks, hardware manufacturer compliance, or schedule phases.`;
-        }
-        setChatHistory(prev => [...prev, { role: "model", message: answer }]);
-      }, 700);
+      const res = await fetch(`/api/projects/${selectedProjectId}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: userMsg })
+      });
+      const data = await res.json();
 
+      setChatHistory(prev => [...prev, {
+        role: "model",
+        message: res.ok ? data.answer : (data.message || tx("Sorry, I couldn't process that question.", "Desculpe, não consegui processar essa pergunta."))
+      }]);
     } catch (err) {
       console.error(err);
+      setChatHistory(prev => [...prev, {
+        role: "model",
+        message: tx("Sorry, I couldn't reach the assistant right now.", "Desculpe, não consegui contatar o assistente agora.")
+      }]);
+    } finally {
+      setIsChatSending(false);
     }
   };
 
@@ -2472,7 +2476,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               <span className="text-emerald-600 text-xs font-semibold">{t("tenderDocs")}</span>
             </h3>
 
-             {/* Real & Simulated File Input */}
+             {/* File Input */}
              <div className="relative border-2 border-dashed border-slate-200 hover:border-emerald-500 rounded p-3 mb-2 text-center transition-all">
                <input
                  type="file"
@@ -3893,11 +3897,26 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                                               className="text-xs font-bold text-slate-800 p-0.5 border border-emerald-500 rounded focus:outline-none w-full"
                                               onKeyDown={async (e) => {
                                                 if (e.key === "Enter") {
-                                                  if (!editingFileNameValue.trim()) return;
+                                                  const newName = editingFileNameValue.trim();
+                                                  if (!newName) return;
 
-                                                  // Mock local rename for client list
-                                                  const updatedDocs = documents.map(d => d.id === doc.id ? { ...d, original_filename: editingFileNameValue.trim() } : d);
-                                                  setDocuments(updatedDocs);
+                                                  try {
+                                                    const res = await fetch(`/api/documents/${doc.id}/rename`, {
+                                                      method: "PUT",
+                                                      headers: { "Content-Type": "application/json" },
+                                                      body: JSON.stringify({ original_filename: newName })
+                                                    });
+                                                    if (res.ok) {
+                                                      const updated = await res.json();
+                                                      setDocuments(documents.map(d => d.id === doc.id ? updated : d));
+                                                    } else {
+                                                      alert(locale === "pt" ? "Não foi possível renomear o documento." : "Could not rename the document.");
+                                                    }
+                                                  } catch (err) {
+                                                    console.error(err);
+                                                    alert(locale === "pt" ? "Erro ao renomear o documento." : "Error renaming the document.");
+                                                  }
+
                                                   setEditingFileNameId(null);
                                                 }
                                               }}
@@ -4252,14 +4271,16 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                       type="text"
                       value={chatMessage}
                       onChange={(e) => setChatMessage(e.target.value)}
+                      disabled={isChatSending}
                       placeholder={tx("Ask about cabinet temperature, ALPR accuracy, fiber conduits...", "Pergunte sobre temperatura de gabinete, precisão ALPR, dutos de fibra...")}
-                      className="flex-1 text-xs px-3 py-1.5 border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-slate-50"
+                      className="flex-1 text-xs px-3 py-1.5 border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-slate-50 disabled:opacity-60"
                     />
                     <button
                       type="submit"
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono font-bold text-xs px-3 rounded shadow-sm transition-all cursor-pointer"
+                      disabled={isChatSending}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono font-bold text-xs px-3 rounded shadow-sm transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                     >
-                      SEND
+                      {isChatSending ? (locale === "pt" ? "..." : "...") : "SEND"}
                     </button>
                   </form>
                 </div>
@@ -6173,8 +6194,8 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
       {/* 4. DIAGNOSTIC SYSTEM FOOTER */}
       <footer className="h-8 bg-slate-900 border-t border-slate-800 px-3 lg:px-6 flex items-center justify-between gap-4 text-[10px] font-mono text-slate-400 shrink-0 shadow-lg overflow-x-auto whitespace-nowrap">
         <div className="flex gap-6 items-center">
-          <span>{tx("Active Session", "Sessão Ativa")}: <span className="text-emerald-400 uppercase">active-442x</span></span>
-          <span>{tx("DB Instance", "Instância do Banco")}: <span className="text-emerald-400">PostgreSQL / 15.4</span></span>
+          <span>{tx("Session", "Sessão")}: <span className="text-emerald-400">{currentSessionUser.name || "-"}</span> <span className="text-slate-500">({currentSessionUser.role || "-"})</span></span>
+          <span>{tx("Database", "Banco de Dados")}: <span className="text-emerald-400">PostgreSQL</span></span>
           <span>{tx("Workspace Storage", "Armazenamento do Workspace")}: <span className="text-emerald-400 uppercase">
             {platformSettings?.storage_mode === "s3"
               ? `S3: ${platformSettings?.s3_bucket || "not configured"}`
@@ -6188,19 +6209,22 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
           </span>
         </div>
         <div className="flex gap-4">
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500"></span> 200 SUCCESS OK</span>
-          <button
-            onClick={() => setShowAuditModal(true)}
-            className="text-slate-300 hover:text-emerald-400 hover:underline cursor-pointer transition-colors"
-          >
-            Audit Logs ({auditLogs.length})
-          </button>
-          <button
-            onClick={() => setShowDebugConsole(true)}
-            className="text-slate-300 hover:text-emerald-400 hover:underline cursor-pointer font-bold transition-colors"
-          >
-            Debug Console
-          </button>
+          {hasPermission("admin:audit") && (
+            <button
+              onClick={() => setShowAuditModal(true)}
+              className="text-slate-300 hover:text-emerald-400 hover:underline cursor-pointer transition-colors"
+            >
+              Audit Logs ({auditLogs.length})
+            </button>
+          )}
+          {hasAnyPermission(["admin:debug", "admin:diagnostics"]) && (
+            <button
+              onClick={() => setShowDebugConsole(true)}
+              className="text-slate-300 hover:text-emerald-400 hover:underline cursor-pointer font-bold transition-colors"
+            >
+              Debug Console
+            </button>
+          )}
         </div>
       </footer>
 
@@ -6501,70 +6525,10 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                   {locale === "pt" ? "Logs de Rastreamento da Orquestração de IA" : "Pre-Sales AI Orchestration Trace logs"}
                 </h3>
               </div>
-              <button onClick={() => {
-                setShowDebugConsole(false);
-                setIsAdminUnlocked(false);
-                setAdminPasswordInput("");
-                setAdminAuthError("");
-              }} className="text-slate-400 hover:text-white cursor-pointer"><X size={16} /></button>
+              <button onClick={() => setShowDebugConsole(false)} className="text-slate-400 hover:text-white cursor-pointer"><X size={16} /></button>
             </div>
 
-            {!isAdminUnlocked ? (
-              <div className="flex-1 flex flex-col items-center justify-center p-8 bg-slate-950 text-white space-y-4 font-sans">
-                <div className="w-12 h-12 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center border border-emerald-500/20">
-                  <Cpu size={24} className="animate-spin" />
-                </div>
-                <div className="text-center space-y-1 max-w-sm">
-                  <h4 className="text-sm font-bold uppercase font-mono tracking-wider text-emerald-400">
-                    {locale === "pt" ? "Console de diagnóstico técnico" : "Technical Diagnostic Console"}
-                  </h4>
-                  <p className="text-[11px] text-slate-400">
-                    {locale === "pt" ? "Logs administrativos, status do sistema e pacote de diagnóstico sanitizado são carregados diretamente dos endpoints protegidos." : "Administrative logs, system status and sanitized diagnostic package are loaded directly from protected endpoints."}
-                  </p>
-                </div>
-
-                <div className="w-64 space-y-2 pt-2">
-                  <input
-                    type="password"
-                    placeholder={locale === "pt" ? "Senha de Administrador" : "Admin Passcode"}
-                    value={adminPasswordInput}
-                    onChange={(e) => {
-                      setAdminPasswordInput(e.target.value);
-                      setAdminAuthError("");
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        if (adminPasswordInput.toLowerCase() === "admin" || adminPasswordInput === "admin123") {
-                          setIsAdminUnlocked(true);
-                        } else {
-                          setAdminAuthError(locale === "pt" ? "Senha inválida." : "Invalid master password.");
-                        }
-                      }
-                    }}
-                    className="w-full p-2.5 rounded bg-slate-900 border border-slate-800 text-xs font-mono text-center focus:ring-1 focus:ring-emerald-500 focus:outline-none text-white placeholder-slate-600"
-                  />
-                  {adminAuthError && (
-                    <p className="text-[10px] text-red-500 text-center font-mono">{adminAuthError}</p>
-                  )}
-                  <button
-                    onClick={() => {
-                      if (adminPasswordInput.toLowerCase() === "admin" || adminPasswordInput === "admin123") {
-                        setIsAdminUnlocked(true);
-                      } else {
-                        setAdminAuthError(locale === "pt" ? "Senha inválida." : "Invalid master password.");
-                      }
-                    }}
-                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-2 rounded transition-all cursor-pointer shadow-md"
-                  >
-                    {locale === "pt" ? "Conectar e Autenticar" : "Connect & Decrypt"}
-                  </button>
-                </div>
-                <p className="text-[10px] text-slate-600 font-mono">
-                  {locale === "pt" ? "Dica de demonstração: use 'admin'" : "Demo secret: type 'admin'"}
-                </p>
-              </div>
-            ) : (
-              <>
+            <>
                 <div className="p-4 bg-slate-900 border-b border-slate-800 flex justify-between items-center shrink-0">
                   <div className="flex gap-4 text-xs font-mono text-slate-400">
                     <span>{tx("Debug Records", "Registros de Debug")}: <span className="text-emerald-400 font-bold">{debugLogs.length}</span></span>
@@ -6603,8 +6567,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                     </div>
                   ))}
                 </div>
-              </>
-            )}
+            </>
           </div>
         </div>
       )}
