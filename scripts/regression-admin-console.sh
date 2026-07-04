@@ -220,6 +220,30 @@ expect 200 "admin tests storage" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   http://127.0.0.1:3000/api/settings/storage/status
 
+expect 403 "manager cannot update storage" \
+  -X PUT http://127.0.0.1:3000/api/settings/storage \
+  -H "Authorization: Bearer $MANAGER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"storage_mode\":\"local\"}"
+
+expect 400 "invalid storage mode is blocked" \
+  -X PUT http://127.0.0.1:3000/api/settings/storage \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"storage_mode\":\"ftp\"}"
+
+expect 400 "invalid local storage path is blocked" \
+  -X PUT http://127.0.0.1:3000/api/settings/storage \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"local_storage_path\":\"/\"}"
+
+expect 400 "storage bucket url is blocked" \
+  -X PUT http://127.0.0.1:3000/api/settings/storage \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"storage_mode\":\"s3\",\"s3_bucket\":\"https://example.com/bucket\"}"
+
 echo "Templates/Workflows/Integrations"
 expect_save 201 "admin creates template" /tmp/admin_reg_template.json \
   -X POST http://127.0.0.1:3000/api/templates/proposals \
