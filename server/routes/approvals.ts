@@ -29,6 +29,49 @@ const ApprovalWorkflowSchema = z.object({
 
 const UpdateApprovalWorkflowSchema = ApprovalWorkflowSchema.partial();
 
+function hasDuplicateWorkflowName(name: string, ignoreId?: string) {
+  return dbStore.getApprovalWorkflows().some(workflow =>
+    workflow.id !== ignoreId &&
+    workflow.name.toLowerCase().trim() === name.toLowerCase().trim()
+  );
+}
+
+function validateApprovalWorkflowStages(stages: any[]) {
+  const roles = dbStore.getData().roles || [];
+  const users = dbStore.getData().users || [];
+  const stageNames = new Set<string>();
+
+  for (const stage of stages || []) {
+    const stageName = String(stage.name || "").trim().toLowerCase();
+
+    if (stageNames.has(stageName)) {
+      return { valid: false, message: "Approval workflow contains duplicate stage names." };
+    }
+
+    stageNames.add(stageName);
+
+    if (stage.approver_type === "user") {
+      if (!stage.approver_user_id) {
+        return { valid: false, message: "User approver stage requires approver_user_id." };
+      }
+
+      if (!users.some(user => user.id === stage.approver_user_id)) {
+        return { valid: false, message: "Approval stage user approver does not exist." };
+      }
+    } else {
+      if (!stage.approver_role_id) {
+        return { valid: false, message: "Role approver stage requires approver_role_id." };
+      }
+
+      if (!roles.some(role => role.id === stage.approver_role_id)) {
+        return { valid: false, message: "Approval stage role approver does not exist." };
+      }
+    }
+  }
+
+  return { valid: true, message: "" };
+}
+
 function auditApprovalChange(req: Request, action: string, entityType: string, entityId: string, metadata: any, projectId?: string) {
   const userId = (req.headers["x-user-id"] as string) || "u1";
   dbStore.addAuditLog({
@@ -54,6 +97,16 @@ router.get("/approval-workflows", requireAuth, (req: Request, res: Response, nex
 router.post("/approval-workflows", requirePermission("approval:manage"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const validated = ApprovalWorkflowSchema.parse(req.body);
+
+    if (hasDuplicateWorkflowName(validated.name)) {
+      return res.status(409).json({ success: false, message: "Approval workflow name already exists." });
+    }
+
+    const stageValidation = validateApprovalWorkflowStages(validated.stages);
+    if (!stageValidation.valid) {
+      return res.status(400).json({ success: false, message: stageValidation.message });
+    }
+
     const workflow = dbStore.createApprovalWorkflow(validated);
 
     auditApprovalChange(req, "Create Approval Workflow", "ApprovalWorkflow", workflow.id, validated);
@@ -67,11 +120,23 @@ router.post("/approval-workflows", requirePermission("approval:manage"), (req: R
 router.put("/approval-workflows/:id", requirePermission("approval:manage"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const validated = UpdateApprovalWorkflowSchema.parse(req.body);
-    const workflow = dbStore.updateApprovalWorkflow(req.params.id, validated);
+    const currentWorkflow = dbStore.getApprovalWorkflows().find(w => w.id === req.params.id);
 
-    if (!workflow) {
+    if (!currentWorkflow) {
       return res.status(404).json({ success: false, message: "Approval workflow not found." });
     }
+
+    if (validated.name && hasDuplicateWorkflowName(validated.name, req.params.id)) {
+      return res.status(409).json({ success: false, message: "Approval workflow name already exists." });
+    }
+
+    const effectiveStages = validated.stages || currentWorkflow.stages || [];
+    const stageValidation = validateApprovalWorkflowStages(effectiveStages);
+    if (!stageValidation.valid) {
+      return res.status(400).json({ success: false, message: stageValidation.message });
+    }
+
+    const workflow = dbStore.updateApprovalWorkflow(req.params.id, validated);
 
     auditApprovalChange(req, "Update Approval Workflow", "ApprovalWorkflow", req.params.id, validated);
 
