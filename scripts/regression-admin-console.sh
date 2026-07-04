@@ -257,6 +257,18 @@ expect_save 201 "admin creates workflow" /tmp/admin_reg_workflow.json \
 
 WF_ID="$(node -e 'const fs=require("fs"); const j=JSON.parse(fs.readFileSync("/tmp/admin_reg_workflow.json","utf8")); console.log(j.id)')"
 
+expect 409 "duplicate workflow name is blocked" \
+  -X POST http://127.0.0.1:3000/api/approval-workflows \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"name\":\"Regression Workflow $SUFFIX\",\"active\":true,\"stages\":[{\"name\":\"Review\",\"approver_type\":\"role\",\"approver_role_id\":\"r3\",\"mandatory\":true}]}"
+
+expect 400 "workflow invalid role approver is blocked" \
+  -X POST http://127.0.0.1:3000/api/approval-workflows \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"name\":\"Invalid Workflow $SUFFIX\",\"active\":true,\"stages\":[{\"name\":\"Review\",\"approver_type\":\"role\",\"approver_role_id\":\"role_missing\",\"mandatory\":true}]}"
+
 expect 200 "admin deletes workflow" \
   -X DELETE "http://127.0.0.1:3000/api/approval-workflows/$WF_ID" \
   -H "Authorization: Bearer $ADMIN_TOKEN"
