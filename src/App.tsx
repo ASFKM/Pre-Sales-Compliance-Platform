@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from "react";
 import ApiClient from "./lib/api";
 import Login from "./components/Login";
+import CreateProjectModal from "./components/modals/CreateProjectModal";
+import ClassifyDocumentModal from "./components/modals/ClassifyDocumentModal";
+import AuditLogsModal from "./components/modals/AuditLogsModal";
+import DebugConsoleModal from "./components/modals/DebugConsoleModal";
 import {
   FileText,
   Plus,
@@ -178,11 +182,6 @@ const translations = {
     apiModelsHelp: "Configuração de Modelos: Adicione Anthropic, OpenAI, DeepSeek e chaves de API para rodar análises concorrentes.",
   }
 };
-
-// Reusable HelpTooltip Component (Removed as requested by the user)
-function HelpTooltip({ content }: { content: string }) {
-  return null;
-}
 
 // Global window fetch interceptor to inject Authorization header
 if (typeof window !== "undefined") {
@@ -588,25 +587,6 @@ export default function App() {
   const [showDebugConsole, setShowDebugConsole] = useState<boolean>(false);
   const [showAuditModal, setShowAuditModal] = useState<boolean>(false);
 
-  // New Project Form Data
-  const [newProject, setNewProject] = useState({
-    name: "",
-    customer_name: "",
-    opportunity_name: "",
-    vertical: "Infrastructure",
-    description: "",
-    deadline: "2026-08-30",
-    proposal_validity_date: "2026-11-30",
-    output_language: "English" as "English" | "Spanish" | "Portuguese",
-    proposal_language: "English" as "English" | "Spanish" | "Portuguese",
-    ai_orientation_mode: "Vendor-neutral" as any,
-    ai_orientation_text: "",
-    selected_approval_workflow_id: "w1",
-    procurement_modality: "Licitação",
-    procurement_subtype: "Pregão",
-    custom_modality: ""
-  });
-
   // Helper to translate project data dynamically
   const getTranslatedProject = (proj: any) => {
     if (!proj) return proj;
@@ -937,42 +917,11 @@ export default function App() {
     }
   }, [selectedProjectId]);
 
-  // Handle Project Creation
-  const handleCreateProject = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const res = await fetch("/api/projects", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newProject)
-      });
-      if (res.ok) {
-        const created = await res.json();
-        setProjects([created, ...projects]);
-        setSelectedProjectId(created.id);
-        setShowNewProjectModal(false);
-        setNewProject({
-          name: "",
-          customer_name: "",
-          opportunity_name: "",
-          vertical: "Infrastructure",
-          description: "",
-          deadline: "2026-08-30",
-          proposal_validity_date: "2026-11-30",
-          output_language: "English",
-          proposal_language: "English",
-          ai_orientation_mode: "Vendor-neutral",
-          ai_orientation_text: "",
-          selected_approval_workflow_id: "w1",
-          procurement_modality: "Licitação",
-          procurement_subtype: "Pregão",
-          custom_modality: ""
-        });
-        fetchGlobalConfigs(); // update audits
-      }
-    } catch (e) {
-      console.error("Could not create project node", e);
-    }
+  // Handle Project Creation (form state/submit now owned by CreateProjectModal)
+  const handleProjectCreated = (created: Project) => {
+    setProjects([created, ...projects]);
+    setSelectedProjectId(created.id);
+    fetchGlobalConfigs(); // update audits
   };
 
   // Handle Document Delete
@@ -6209,348 +6158,41 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
         </div>
       </footer>
 
-      {/* ================= MODAL: CREATE PROJECT ================= */}
       {showNewProjectModal && (
-        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl border border-slate-200 w-[550px] overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
-            <div className="bg-slate-950 text-white p-4 flex justify-between items-center shrink-0">
-              <h3 className="text-sm font-bold uppercase font-mono tracking-wider">{locale === "pt" ? "Inicializar Proposta de Pré-Vendas" : "Initialize Pre-Sales Bid"}</h3>
-              <button onClick={() => setShowNewProjectModal(false)} className="text-slate-400 hover:text-white cursor-pointer"><X size={16} /></button>
-            </div>
-
-            <form onSubmit={handleCreateProject} className="p-6 overflow-y-auto space-y-4 text-xs text-slate-700 flex-1">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{locale === "pt" ? "Título do Projeto de Proposta" : "Bid Project Title"}</label>
-                  <input
-                    type="text" required
-                    value={newProject.name}
-                    onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
-                    placeholder={locale === "pt" ? "ex: Modernização de Rodovias ITS" : "e.g. Highway ITS Modernization"}
-                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{locale === "pt" ? "Cliente" : "Customer / Client"}</label>
-                  <input
-                    type="text" required
-                    value={newProject.customer_name}
-                    onChange={(e) => setNewProject({ ...newProject, customer_name: e.target.value })}
-                    placeholder={locale === "pt" ? "ex: Concessionária de Rodovias" : "e.g. Metropolitan Transit Authority"}
-                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{locale === "pt" ? "Código da Oportunidade" : "Opportunity Code"}</label>
-                  <input
-                    type="text" required
-                    value={newProject.opportunity_name}
-                    onChange={(e) => setNewProject({ ...newProject, opportunity_name: e.target.value })}
-                    placeholder="e.g. ITS-MTA-2026"
-                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none animate-pulse"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{locale === "pt" ? "Vertical do Setor" : "Industry Vertical"}</label>
-                  <select
-                    value={newProject.vertical}
-                    onChange={(e) => setNewProject({ ...newProject, vertical: e.target.value })}
-                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
-                  >
-                    <option value="Infrastructure">{locale === "pt" ? "Infraestrutura" : "Infrastructure"}</option>
-                    <option value="Critical Infrastructure">{locale === "pt" ? "Infraestrutura Crítica" : "Critical Infrastructure"}</option>
-                    <option value="Smart Cities">{locale === "pt" ? "Cidades Inteligentes" : "Smart Cities"}</option>
-                    <option value="Retail">{locale === "pt" ? "Varejo" : "Retail"}</option>
-                    <option value="Finance">{locale === "pt" ? "Finanças" : "Finance"}</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{locale === "pt" ? "Descrição do Escopo do Edital" : "Tender Scope Description"}</label>
-                <textarea
-                  value={newProject.description} required
-                  onChange={(e) => setNewProject({ ...newProject, description: e.target.value })}
-                  placeholder={locale === "pt" ? "Detalhe o escopo de entregáveis de alto nível..." : "Detail high level deliverables scope..."}
-                  className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none h-20"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{locale === "pt" ? "Prazo Final de Envio" : "Tender Submission Deadline"}</label>
-                  <input
-                    type="date" required
-                    value={newProject.deadline}
-                    onChange={(e) => setNewProject({ ...newProject, deadline: e.target.value })}
-                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{locale === "pt" ? "Idioma de Saída de Conformidade da IA" : "AI Output Compliance Language"}</label>
-                  <select
-                    value={newProject.output_language}
-                    onChange={(e) => setNewProject({ ...newProject, output_language: e.target.value as any })}
-                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
-                  >
-                    <option value="English">{locale === "pt" ? "Inglês" : "English"}</option>
-                    <option value="Spanish">{locale === "pt" ? "Espanhol" : "Spanish"}</option>
-                    <option value="Portuguese">{locale === "pt" ? "Português" : "Portuguese"}</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Procurement Modality (Modalidade de Contratação) */}
-              <div className="border-t border-slate-200 pt-3 space-y-2">
-                <div className="flex items-center gap-1">
-                  <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block">
-                    {locale === "pt" ? "Modalidade de Contratação" : "Procurement Modality"}
-                  </label>
-                  <HelpTooltip content={locale === "pt" ? "Selecione o tipo de concorrência ou leilão aplicável à licitação para orientar a IA nas regras de compliance." : "Select the contract procurement type or auction mode to guide the AI compliance checks."} />
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <select
-                      value={newProject.procurement_modality}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setNewProject({
-                          ...newProject,
-                          procurement_modality: val,
-                          procurement_subtype: val === "Leilão" ? "Leilão Inglês" : (val === "Licitação" ? "Pregão" : ""),
-                        });
-                      }}
-                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none font-semibold text-slate-800"
-                    >
-                      <option value="Licitação">{locale === "pt" ? "Licitação" : "Bidding / Tender"}</option>
-                      <option value="Leilão">{locale === "pt" ? "Leilão" : "Auction"}</option>
-                      <option value="Outra modalidade">{locale === "pt" ? "Outra Modalidade" : "Other Modality"}</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    {newProject.procurement_modality === "Leilão" && (
-                      <select
-                        value={newProject.procurement_subtype}
-                        onChange={(e) => setNewProject({ ...newProject, procurement_subtype: e.target.value })}
-                        className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none font-semibold text-slate-800"
-                      >
-                        <option value="Leilão Inglês">{locale === "pt" ? "Leilão Inglês" : "English Auction"}</option>
-                        <option value="Leilão Holandês">{locale === "pt" ? "Leilão Holandês" : "Dutch Auction"}</option>
-                        <option value="Leilão Japonês">{locale === "pt" ? "Leilão Japonês" : "Japanese Auction"}</option>
-                        <option value="Primeiro Preço">{locale === "pt" ? "Primeiro Preço" : "First Price"}</option>
-                        <option value="Vickrey (Segundo Preço)">{locale === "pt" ? "Vickrey (Segundo Preço)" : "Vickrey (Second Price)"}</option>
-                        <option value="Reverso">{locale === "pt" ? "Reverso" : "Reverse"}</option>
-                      </select>
-                    )}
-
-                    {newProject.procurement_modality === "Licitação" && (
-                      <select
-                        value={newProject.procurement_subtype}
-                        onChange={(e) => setNewProject({ ...newProject, procurement_subtype: e.target.value })}
-                        className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none font-semibold text-slate-800"
-                      >
-                        <option value="Pregão">Pregão</option>
-                        <option value="Concorrência">Concorrência</option>
-                        <option value="Concurso">Concurso</option>
-                        <option value="Leilão">Leilão</option>
-                        <option value="Diálogo Competitivo">Diálogo Competitivo</option>
-                        <option value="Tomada de Preço">Tomada de Preço</option>
-                      </select>
-                    )}
-
-                    {newProject.procurement_modality === "Outra modalidade" && (
-                      <input
-                        type="text" required
-                        value={newProject.custom_modality}
-                        onChange={(e) => setNewProject({ ...newProject, custom_modality: e.target.value })}
-                        placeholder={locale === "pt" ? "Especifique a modalidade..." : "Specify custom modality..."}
-                        className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none font-semibold text-slate-800"
-                      />
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="border-t border-slate-200 pt-3">
-                <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{locale === "pt" ? "Regras de Orientação de Design da IA" : "AI Design Orientation Rules"}</label>
-                <div className="space-y-2">
-                  <select
-                    value={newProject.ai_orientation_mode}
-                    onChange={(e) => setNewProject({ ...newProject, ai_orientation_mode: e.target.value as any })}
-                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none font-bold text-slate-800"
-                  >
-                    <option value="Vendor-neutral">{locale === "pt" ? "Fabricante Neutro (foco em estrita conformidade)" : "Vendor-neutral (strict compliance focus)"}</option>
-                    <option value="Preferred manufacturer">{locale === "pt" ? "Fabricante Preferencial (marcas recomendadas)" : "Preferred manufacturer (recommended brands)"}</option>
-                    <option value="Mandatory manufacturer">{locale === "pt" ? "Fabricante Obrigatório (especificações críticas de contrato)" : "Mandatory manufacturer (contract-critical specs)"}</option>
-                    <option value="Existing customer standard">{locale === "pt" ? "Padrão de Cliente Existente" : "Existing customer standard"}</option>
-                    <option value="Free AI recommendation">{locale === "pt" ? "Recomendação Livre da IA" : "Free AI recommendation"}</option>
-                  </select>
-                  <input
-                    type="text" required
-                    value={newProject.ai_orientation_text}
-                    onChange={(e) => setNewProject({ ...newProject, ai_orientation_text: e.target.value })}
-                    placeholder={locale === "pt" ? "Especifique regras de marcas, ex: Recomendar leitores faciais homologados..." : "Specify brand rules e.g., Recommend certified facial readers..."}
-                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none font-semibold text-slate-800"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-4 border-t border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => setShowNewProjectModal(false)}
-                  className="px-3 py-1.5 border border-slate-300 rounded hover:bg-slate-100 font-mono text-xs cursor-pointer text-slate-500"
-                >
-                  {locale === "pt" ? "Cancelar" : "Cancel"}
-                </button>
-                <button
-                  type="submit"
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer"
-                >
-                  {locale === "pt" ? "Confirmar Configuração de Especificações" : "Confirm Specifications Setup"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <CreateProjectModal
+          locale={locale}
+          onClose={() => setShowNewProjectModal(false)}
+          onCreated={handleProjectCreated}
+        />
       )}
 
-      {/* ================= MODAL: CLASSIFY DOCUMENT ================= */}
       {showDocumentTypeModal && (
-        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl border border-slate-200 w-[400px] overflow-hidden shadow-2xl">
-            <div className="bg-slate-950 text-white p-4 flex justify-between items-center">
-              <h3 className="text-sm font-bold uppercase font-mono tracking-wider">{tx("Override Classification", "Sobrescrever Classificação")}</h3>
-              <button onClick={() => setShowDocumentTypeModal(null)} className="text-slate-400 hover:text-white cursor-pointer"><X size={16} /></button>
-            </div>
-            <div className="p-6 space-y-4 text-xs text-slate-700">
-              <p className="font-semibold">{tx("Modify manual document category metadata for", "Modificar manualmente a categoria do documento para")} <span className="font-mono bg-slate-100 px-1 rounded">{showDocumentTypeModal.original_filename}</span>:</p>
-
-              <div className="space-y-2">
-                <button
-                  onClick={() => handleReclassifyDoc(showDocumentTypeModal.id, "Public tender / edital")}
-                  className="w-full p-2.5 text-left bg-slate-50 border border-slate-200 hover:border-emerald-500 rounded font-bold hover:bg-slate-100 block cursor-pointer text-xs"
-                >
-                  📜 Public tender / edital
-                </button>
-                <button
-                  onClick={() => handleReclassifyDoc(showDocumentTypeModal.id, "Technical specification")}
-                  className="w-full p-2.5 text-left bg-slate-50 border border-slate-200 hover:border-emerald-500 rounded font-bold hover:bg-slate-100 block cursor-pointer text-xs"
-                >
-                  🔧 Technical specification
-                </button>
-                <button
-                  onClick={() => handleReclassifyDoc(showDocumentTypeModal.id, "Customer requirements")}
-                  className="w-full p-2.5 text-left bg-slate-50 border border-slate-200 hover:border-emerald-500 rounded font-bold hover:bg-slate-100 block cursor-pointer text-xs"
-                >
-                  📝 Customer requirements
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <ClassifyDocumentModal
+          document={showDocumentTypeModal}
+          tx={tx}
+          onClose={() => setShowDocumentTypeModal(null)}
+          onReclassify={handleReclassifyDoc}
+        />
       )}
 
-      {/* ================= MODAL: AUDIT LOGS OVERLAY ================= */}
       {showAuditModal && (
-        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl border border-slate-200 w-[800px] h-[600px] overflow-hidden shadow-2xl flex flex-col">
-            <div className="bg-slate-950 text-white p-4 flex justify-between items-center shrink-0">
-              <div className="flex items-center gap-2">
-                <ShieldAlert size={16} className="text-emerald-500" />
-                <h3 className="text-sm font-bold uppercase font-mono tracking-wider">{tx("Enterprise Compliance Audit Log Ledger", "Livro de Auditoria de Compliance Empresarial")}</h3>
-              </div>
-              <button onClick={() => setShowAuditModal(false)} className="text-slate-400 hover:text-white cursor-pointer"><X size={16} /></button>
-            </div>
-
-            <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center shrink-0">
-              <span className="text-xs text-slate-500 font-mono">{tx("Filter: All Pre-Sales Operations Logs", "Filtro: Todos os Logs de Operações de Pré-Vendas")}</span>
-              <button
-                onClick={handleExportCSV}
-                className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold px-3 py-1.5 rounded shadow-sm transition-all cursor-pointer"
-              >
-                <Download size={13} /> Export Ledger (CSV)
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-4 space-y-2 font-mono text-[11px] leading-relaxed bg-slate-950 text-slate-300">
-              {auditLogs.map(log => (
-                <div key={log.id} className="p-2 border-b border-slate-800 flex justify-between items-start">
-                  <div>
-                    <span className="text-emerald-400 font-bold block">[{new Date(log.created_at).toISOString()}] {log.action}</span>
-                    <p className="text-slate-400 mt-0.5">Executor: {log.user_id} | Entity: {log.entity_type} ({log.entity_id})</p>
-                    {log.metadata && (
-                      <span className="text-slate-500 text-[10px] block">Metadata: {log.metadata}</span>
-                    )}
-                  </div>
-                  <span className="text-slate-500 text-[10px]">IP: {log.ip_address}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <AuditLogsModal
+          auditLogs={auditLogs}
+          tx={tx}
+          onClose={() => setShowAuditModal(false)}
+          onExportCSV={handleExportCSV}
+        />
       )}
 
-      {/* ================= MODAL: DEBUG CONSOLE OVERLAY ================= */}
       {showDebugConsole && (
-        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl border border-slate-200 w-[850px] h-[650px] overflow-hidden shadow-2xl flex flex-col">
-            <div className="bg-slate-950 text-white p-4 flex justify-between items-center shrink-0">
-              <div className="flex items-center gap-2">
-                <Cpu size={16} className="text-emerald-500" />
-                <h3 className="text-sm font-bold uppercase font-mono tracking-wider">
-                  {locale === "pt" ? "Logs de Rastreamento da Orquestração de IA" : "Pre-Sales AI Orchestration Trace logs"}
-                </h3>
-              </div>
-              <button onClick={() => setShowDebugConsole(false)} className="text-slate-400 hover:text-white cursor-pointer"><X size={16} /></button>
-            </div>
-
-            <>
-                <div className="p-4 bg-slate-900 border-b border-slate-800 flex justify-between items-center shrink-0">
-                  <div className="flex gap-4 text-xs font-mono text-slate-400">
-                    <span>{tx("Debug Records", "Registros de Debug")}: <span className="text-emerald-400 font-bold">{debugLogs.length}</span></span>
-                    <span>{tx("Diagnostics", "Diagnóstico")}: <span className="text-emerald-400 font-bold">{tx("Sanitized", "Sanitizado")}</span></span>
-                  </div>
-                  <button
-                    onClick={() => {
-                      if (currentSessionUser.role !== "Administrator") {
-                        alert(locale === "pt" ? "Acesso negado pela API administrativa. Verifique as permissões do usuário." : "Access denied by the administrative API. Check the current user's permissions.");
-                        return;
-                      }
-                      handleExportDiagnosticsPackage();
-                    }}
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-3 rounded shadow-sm transition-all cursor-pointer"
-                  >
-                    {locale === "pt" ? "Baixar Pacote de Diagnóstico" : "Download Diagnostic Package"}
-                  </button>
-                </div>
-
-                <div className="flex-1 overflow-y-auto p-4 space-y-2 font-mono text-[11px] leading-relaxed bg-slate-950 text-slate-400">
-                  {debugLogs.map(dbg => (
-                    <div key={dbg.id} className="p-2.5 bg-slate-900/50 rounded border border-slate-850 hover:bg-slate-900 transition-colors">
-                      <div className="flex justify-between items-start mb-1">
-                        <span className={`font-bold uppercase tracking-wider text-[10px] px-1.5 rounded ${
-                          dbg.log_level === "ERROR" ? "bg-red-500/20 text-red-400" : (dbg.log_level === "WARN" ? "bg-amber-500/20 text-amber-400" : "bg-emerald-500/20 text-emerald-400")
-                        }`}>{dbg.log_level}</span>
-                        <span className="text-slate-500 text-[10px]">{dbg.timestamp}</span>
-                      </div>
-                      <p className="text-slate-200 font-semibold">{dbg.operation} - {dbg.message}</p>
-                      <div className="grid grid-cols-4 gap-2 text-[10px] text-slate-500 mt-1">
-                        <span><strong>{tx("Module", "Módulo")}:</strong> {dbg.module_name}</span>
-                        <span><strong>{tx("Service", "Serviço")}:</strong> {dbg.service_name}</span>
-                        <span><strong>{tx("Latency", "Latência")}:</strong> {dbg.duration_ms}ms</span>
-                        <span><strong>{tx("Status", "Status")}:</strong> {dbg.status}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-            </>
-          </div>
-        </div>
+        <DebugConsoleModal
+          debugLogs={debugLogs}
+          locale={locale}
+          tx={tx}
+          currentUserRole={currentSessionUser.role}
+          onClose={() => setShowDebugConsole(false)}
+          onExportDiagnostics={handleExportDiagnosticsPackage}
+        />
       )}
 
     </div>
