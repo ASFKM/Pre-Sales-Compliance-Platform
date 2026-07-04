@@ -435,6 +435,13 @@ export interface IntegrationConnector {
   type: string; // e.g., "CRM", "ERP", "Notification", etc.
   status: "connected" | "disconnected" | "error";
   configuration: string; // JSON configuration
+  // Derived by the API from `configuration` for display/editing convenience - not stored as-is.
+  url?: string;
+  sync_frequency?: string;
+  // Masked (never raw) once a credential is configured.
+  token?: string;
+  api_key?: string;
+  webhook_secret?: string;
   last_sync_status: string;
   last_sync_date?: string;
   error_message?: string;

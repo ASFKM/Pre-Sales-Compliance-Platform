@@ -58,7 +58,9 @@ import {
   PromptTemplate,
   PlatformSettings,
   IntegrationConnector,
-  PricingRow
+  PricingRow,
+  Role,
+  ApprovalWorkflow
 } from "./types";
 
 const translations = {
@@ -333,7 +335,9 @@ export default function App() {
       id: "",
       name: "",
       email: "",
-      role: ""
+      role_id: "",
+      role: "",
+      permissions: []
     });
   };
 
@@ -562,7 +566,7 @@ export default function App() {
   const [newConnectorUrl, setNewConnectorUrl] = useState<string>("");
   const [newConnectorToken, setNewConnectorToken] = useState<string>("");
   const [users, setUsers] = useState<any[]>([]);
-  const [roles, setRoles] = useState<any[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [debugLogs, setDebugLogs] = useState<DebugLog[]>([]);
   const [platformSettings, setPlatformSettings] = useState<PlatformSettings | null>(null);
@@ -572,7 +576,7 @@ export default function App() {
   const [proposalTemplates, setProposalTemplates] = useState<any[]>([]);
   const [selectedTechnicalTemplateId, setSelectedTechnicalTemplateId] = useState("");
   const [selectedCommercialTemplateId, setSelectedCommercialTemplateId] = useState("");
-  const [approvalWorkflows, setApprovalWorkflows] = useState<any[]>([]);
+  const [approvalWorkflows, setApprovalWorkflows] = useState<ApprovalWorkflow[]>([]);
   const [approvalDecisions, setApprovalDecisions] = useState<any[]>([]);
   const [showNewApprovalWorkflowForm, setShowNewApprovalWorkflowForm] = useState<boolean>(false);
   const [newApprovalWorkflowName, setNewApprovalWorkflowName] = useState<string>("");
@@ -636,7 +640,7 @@ export default function App() {
     return proj;
   };
 
-  const getTranslatedAnalysisResult = (res: any) => {
+  const getTranslatedAnalysisResult = (res: AnalysisResult | null) => {
     if (!res) return res;
     if (locale === "en") return res;
     return {
@@ -651,25 +655,37 @@ export default function App() {
       },
       preliminary_schedule: [
         {
+          phase_id: "ph_pt_1",
           phase_name: "Pesquisa de Campo & Design de Engenharia",
           estimated_duration: "3 semanas",
           activities: ["Validar integridade dos postes de energia", "Mapear nós de emenda de fibra escura existentes", "Gerar planilhas de cálculo térmico do gabinete"],
-          responsible_area: "Engenharia de Campo"
+          dependencies: [],
+          responsible_area: "Engenharia de Campo",
+          assumptions: "",
+          risks: ""
         },
         {
+          phase_id: "ph_pt_2",
           phase_name: "Montagem de Hardware na Via & Fusão de Fibra",
           estimated_duration: "5 semanas",
           activities: ["Instalar câmeras ALPR", "Fundir conectores de fibra", "Configurar cabeamento de energia industrial"],
-          responsible_area: "Equipe de Instalação"
+          dependencies: ["ph_pt_1"],
+          responsible_area: "Equipe de Instalação",
+          assumptions: "",
+          risks: ""
         },
         {
+          phase_id: "ph_pt_3",
           phase_name: "Integração de Software & Validatees de Aceitação",
           estimated_duration: "2 semanas",
           activities: ["Conectar API gateway", "Executar teste de velocidade de veículos a 180 km/h", "Emitir termo de encerramento da MTA"],
-          responsible_area: "Engenharia de Software"
+          dependencies: ["ph_pt_2"],
+          responsible_area: "Engenharia de Software",
+          assumptions: "",
+          risks: ""
         }
-      ],
-      point_to_point_table: res.point_to_point_table?.map((p: any) => {
+      ] as PreliminarySchedulePhase[],
+      point_to_point_table: res.point_to_point_table?.map((p: PointToPointRow) => {
         if (p.item_id === "ptp1") {
           return {
             ...p,
@@ -699,7 +715,7 @@ export default function App() {
         }
         return p;
       }),
-      bom: res.bom?.map((b: any) => {
+      bom: res.bom?.map((b: BOMItem) => {
         if (b.item_id === "bom1") {
           return {
             ...b,
@@ -729,7 +745,7 @@ export default function App() {
         }
         return b;
       }),
-      critical_requirements: res.critical_requirements?.map((req: any) => {
+      critical_requirements: res.critical_requirements?.map((req: CriticalRequirement) => {
         const reqMap: Record<string, string> = {
           "req-1": "O equipamento de via deve operar estavelmente sob temperatura ambiente de +55°C.",
           "req-2": "Reconhecimento automático de placas de veículos em velocidades de até 180 km/h.",
@@ -746,7 +762,7 @@ export default function App() {
           notes: notesMap[req.requirement_id] || req.notes
         };
       }),
-      risks: res.risks?.map((risk: any) => {
+      risks: res.risks?.map((risk: ProjectRisk) => {
         const titleMap: Record<string, string> = {
           "Roadside thermal dissipation constraints": "Restrições de Dissipação Térmica na Via",
           "High speed shutter exposure blur": "Desfoque de Exposição em Alta Velocidade",
@@ -769,7 +785,7 @@ export default function App() {
           mitigation: mitMap[risk.title] || risk.mitigation
         };
       }),
-      opportunities: res.opportunities?.map((opp: any) => {
+      opportunities: res.opportunities?.map((opp: ProjectOpportunity) => {
         const titleMap: Record<string, string> = {
           "Software licensing upsell model": "Modelo de Upsell de Licenciamento de Software",
           "Professional site survey services retainer": "Retenção de Serviços de Pesquisa de Campo Profissional"
@@ -784,7 +800,7 @@ export default function App() {
           description: descMap[opp.title] || opp.description
         };
       }),
-      clarification_questions: res.clarification_questions?.map((q: any) => {
+      clarification_questions: res.clarification_questions?.map((q: ClarificationQuestion & { question_text?: string; context_or_reason?: string }) => {
         const textMap: Record<string, string> = {
           "Can MTA provide dark fiber attenuation parameters before field delivery?": "A MTA pode fornecer os parâmetros de atenuação de fibra escura antes da entrega em campo?",
           "Is the REST dispatch API endpoint hosted inside MTA intranet?": "O endpoint da API REST de despacho está hospedado dentro da intranet da MTA?"
@@ -3000,7 +3016,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                       </div>
                     )}
 
-                    {!analysisResult ? (
+                    {!displayAnalysisResult ? (
                       <div className="bg-slate-50 border border-slate-200 rounded-xl p-8 text-center flex flex-col items-center justify-center py-16">
                         <AlertTriangle className="text-amber-500 mb-2" size={32} />
                         <h4 className="text-sm font-bold text-slate-800 uppercase font-mono">{tx("Specifications Awaiting Analysis", "Especificações Aguardando Análise")}</h4>
@@ -3125,7 +3141,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                       <span className="text-xs text-slate-400">{tx("Updates sync in real-time with the central model", "Atualizações sincronizadas em tempo real com o modelo central")}</span>
                     </div>
 
-                    {!analysisResult ? (
+                    {!displayAnalysisResult ? (
                       <div className="text-center py-12 text-slate-400 italic">{tx("No analysis conducted yet. Run analysis to populate requirements grid.", "Nenhuma análise realizada ainda. Execute a análise para preencher a grade de requisitos.")}</div>
                     ) : (
                       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
@@ -3212,7 +3228,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                         <span className="text-xs text-slate-400">{tx("Risk rating matrix extracted via compliance analysis", "Matriz de riscos extraída pela análise de conformidade")}</span>
                       </div>
 
-                      {!analysisResult ? (
+                      {!displayAnalysisResult ? (
                         <div className="text-center py-12 text-slate-400 italic">{tx("No analysis conducted yet. Run analysis to display risks.", "Nenhuma análise realizada ainda. Execute a análise para exibir os riscos.")}</div>
                       ) : (
                         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
@@ -3282,7 +3298,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                         <span className="text-xs text-slate-400">{tx("Value added propositions parsed from specifications", "Propostas de valor extraídas das especificações")}</span>
                       </div>
 
-                      {!analysisResult ? (
+                      {!displayAnalysisResult ? (
                         <div className="text-center py-12 text-slate-400 italic">{tx("No analysis conducted.", "Nenhuma análise realizada.")}</div>
                       ) : (
                         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
@@ -3366,7 +3382,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                         </button>
                       </div>
 
-                      {!analysisResult ? (
+                      {!displayAnalysisResult ? (
                         <div className="text-center py-12 text-slate-400 italic">{tx("No analysis conducted.", "Nenhuma análise realizada.")}</div>
                       ) : (
                         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
@@ -3393,7 +3409,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                                       type="text"
                                       value={item.product_or_service}
                                       onChange={(e) => {
-                                        const updatedBOM = analysisResult.bom.map(b => b.item_id === item.item_id ? { ...b, product_or_service: e.target.value } : b);
+                                        const updatedBOM = analysisResult!.bom.map(b => b.item_id === item.item_id ? { ...b, product_or_service: e.target.value } : b);
                                         fetch(`/api/projects/${selectedProjectId}/analysis-result`, {
                                           method: "PUT",
                                           headers: { "Content-Type": "application/json" },
@@ -3407,7 +3423,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                                     <textarea
                                       value={item.description}
                                       onChange={(e) => {
-                                        const updatedBOM = analysisResult.bom.map(b => b.item_id === item.item_id ? { ...b, description: e.target.value } : b);
+                                        const updatedBOM = analysisResult!.bom.map(b => b.item_id === item.item_id ? { ...b, description: e.target.value } : b);
                                         fetch(`/api/projects/${selectedProjectId}/analysis-result`, {
                                           method: "PUT",
                                           headers: { "Content-Type": "application/json" },
@@ -3438,7 +3454,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                                   <td className="p-3">
                                     <button
                                       onClick={() => {
-                                        const updatedBOM = analysisResult.bom.filter(b => b.item_id !== item.item_id);
+                                        const updatedBOM = analysisResult!.bom.filter(b => b.item_id !== item.item_id);
                                         fetch(`/api/projects/${selectedProjectId}/analysis-result`, {
                                           method: "PUT",
                                           headers: { "Content-Type": "application/json" },

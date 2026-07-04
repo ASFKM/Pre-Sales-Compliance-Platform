@@ -325,7 +325,7 @@ function mapWorkflow(w: any): ApprovalWorkflow {
     description: w.description,
     active: w.active,
     applies_to: w.appliesTo,
-    stages: (w.stages || []).map(mapStage).sort((a, b) => a.order - b.order),
+    stages: (w.stages || []).map(mapStage).sort((a: { order: number }, b: { order: number }) => a.order - b.order),
     created_at: w.createdAt.toISOString(),
     updated_at: w.updatedAt.toISOString(),
   } as ApprovalWorkflow;

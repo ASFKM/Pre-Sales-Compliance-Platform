@@ -6,29 +6,33 @@ import { dbStore } from "../../src/dbStore";
 import { requireAuth, requirePermission } from "./auth";
 import { generateDocxFromTemplate, generatePdfFromProposal } from "../utils/docx";
 import { logDebugMessage } from "../middleware/security";
+import { ProposalTemplate } from "../../src/types";
 
 const router = express.Router();
 
-async function resolveRegisteredTemplate(templateId: string, proposalType: "technical" | "commercial") {
+async function resolveRegisteredTemplate(
+  templateId: string,
+  proposalType: "technical" | "commercial"
+): Promise<{ errorStatus: number; errorMessage: string } | { template: ProposalTemplate }> {
   const templates = await dbStore.getProposalTemplates();
   const template = templates.find(t => t.id === templateId);
 
   if (!template) {
-    return { errorStatus: 404, errorMessage: "Proposal template not found." } as const;
+    return { errorStatus: 404, errorMessage: "Proposal template not found." };
   }
 
   if (!template.active) {
-    return { errorStatus: 400, errorMessage: "Proposal template is inactive." } as const;
+    return { errorStatus: 400, errorMessage: "Proposal template is inactive." };
   }
 
   if (template.template_type !== proposalType) {
     return {
       errorStatus: 400,
       errorMessage: `Selected template type '${template.template_type}' is not valid for '${proposalType}' proposal.`
-    } as const;
+    };
   }
 
-  return { template } as const;
+  return { template };
 }
 
 function resolveTemplatePath(filePath: string): string {
