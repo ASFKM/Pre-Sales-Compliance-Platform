@@ -109,6 +109,13 @@ expect 403 "engineer cannot create role" \
   -H "Content-Type: application/json" \
   -d "{\"name\":\"Blocked Role $SUFFIX\",\"permissions\":[\"project:read\"]}"
 
+
+expect 400 "invalid role permission is blocked" \
+  -X POST http://127.0.0.1:3000/api/roles \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"name\":\"Invalid Permission Role $SUFFIX\",\"permissions\":[\"project:read\",\"invalid:permission\"]}"
+
 expect_save 201 "admin creates role" /tmp/admin_reg_role.json \
   -X POST http://127.0.0.1:3000/api/roles \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
@@ -124,6 +131,23 @@ expect_save 201 "admin creates user" /tmp/admin_reg_user.json \
   -d "{\"name\":\"Regression User $SUFFIX\",\"email\":\"regression_$SUFFIX@example.com\",\"role_id\":\"$ROLE_ID\",\"initial_password\":\"ChangeMe123!\"}"
 
 USER_ID="$(node -e 'const fs=require("fs"); const j=JSON.parse(fs.readFileSync("/tmp/admin_reg_user.json","utf8")); console.log(j.id)')"
+
+
+expect 409 "duplicate user email is blocked" \
+  -X POST http://127.0.0.1:3000/api/users \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"name\":\"Duplicate User $SUFFIX\",\"email\":\"regression_$SUFFIX@example.com\",\"role_id\":\"$ROLE_ID\",\"initial_password\":\"ChangeMe123\"}"
+
+expect 400 "missing user role is blocked" \
+  -X POST http://127.0.0.1:3000/api/users \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"name\":\"Missing Role User $SUFFIX\",\"email\":\"missing_role_$SUFFIX@example.com\",\"role_id\":\"role_missing\",\"initial_password\":\"ChangeMe123\"}"
+
+expect 400 "self delete is blocked" \
+  -X DELETE http://127.0.0.1:3000/api/users/u1 \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
 
 expect 200 "admin updates user" \
   -X PUT "http://127.0.0.1:3000/api/users/$USER_ID" \
