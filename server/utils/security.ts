@@ -1,5 +1,7 @@
 import crypto from "crypto";
+import jwt from "jsonwebtoken";
 import { isProductionRuntime } from "../config/runtime";
+import { redis } from "../../src/redis";
 
 const PASSWORD_HASH_ALGORITHM = "scrypt";
 const PASSWORD_HASH_KEY_LENGTH = 64;
@@ -64,7 +66,13 @@ function getSessionTtlMs(): number {
   return parsed * 60 * 1000;
 }
 
-// Memory-based session store mapping session tokens to user records
+// Sessions: a signed JWT carries only an opaque session id (sid). The actual session
+// state (who, which role, whether MFA is verified) lives in Redis keyed by that sid,
+// with a TTL matching the JWT expiry. This lets the client keep reusing the same token
+// across the pre-MFA and post-MFA phases (mfaVerified flips server-side in Redis),
+// lets logout truly revoke a token (delete the Redis key), and lets sessions survive
+// an app restart / work across multiple instances - none of which a bare in-memory
+// Map nor a fully stateless JWT (which can't be revoked or mutated) could do.
 export interface Session {
   token: string;
   userId: string;
@@ -74,44 +82,99 @@ export interface Session {
   expiresAt: Date;
 }
 
-const sessionStore = new Map<string, Session>();
+interface SessionRecord {
+  userId: string;
+  roleId: string;
+  mfaVerified: boolean;
+  createdAt: string;
+  expiresAt: string;
+}
 
-export function createSession(userId: string, roleId: string, mfaRequired: boolean): Session {
-  const token = crypto.randomBytes(32).toString("hex");
-  const expiresAt = new Date(Date.now() + getSessionTtlMs());
-  const session: Session = {
-    token,
+function getJwtSecret(): string {
+  const secret = process.env.JWT_SESSION_SECRET;
+  if (!secret || secret.length < 16) {
+    throw new Error("JWT_SESSION_SECRET must be configured with a strong value.");
+  }
+  return secret;
+}
+
+function sessionRedisKey(sid: string): string {
+  return `session:${sid}`;
+}
+
+function decodeSid(token: string): string | null {
+  try {
+    const payload = jwt.verify(token, getJwtSecret()) as { sid?: string };
+    return payload.sid || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function createSession(userId: string, roleId: string, mfaRequired: boolean): Promise<Session> {
+  const sid = crypto.randomUUID();
+  const ttlMs = getSessionTtlMs();
+  const createdAt = new Date();
+  const expiresAt = new Date(createdAt.getTime() + ttlMs);
+
+  const record: SessionRecord = {
     userId,
     roleId,
     mfaVerified: !mfaRequired,
-    createdAt: new Date(),
-    expiresAt,
+    createdAt: createdAt.toISOString(),
+    expiresAt: expiresAt.toISOString(),
   };
-  sessionStore.set(token, session);
-  return session;
+
+  await redis.set(sessionRedisKey(sid), JSON.stringify(record), "PX", ttlMs);
+
+  const token = jwt.sign({ sid }, getJwtSecret(), { expiresIn: Math.floor(ttlMs / 1000) });
+
+  return { token, userId, roleId, mfaVerified: record.mfaVerified, createdAt, expiresAt };
 }
 
-export function getSession(token: string): Session | undefined {
-  const session = sessionStore.get(token);
-  if (!session) return undefined;
-  if (session.expiresAt < new Date()) {
-    sessionStore.delete(token);
-    return undefined;
+export async function getSession(token: string): Promise<Session | undefined> {
+  const sid = decodeSid(token);
+  if (!sid) return undefined;
+
+  const raw = await redis.get(sessionRedisKey(sid));
+  if (!raw) return undefined;
+
+  const record: SessionRecord = JSON.parse(raw);
+  return {
+    token,
+    userId: record.userId,
+    roleId: record.roleId,
+    mfaVerified: record.mfaVerified,
+    createdAt: new Date(record.createdAt),
+    expiresAt: new Date(record.expiresAt),
+  };
+}
+
+export async function deleteSession(token: string): Promise<void> {
+  const sid = decodeSid(token);
+  if (!sid) return;
+  await redis.del(sessionRedisKey(sid));
+}
+
+export async function verifySessionMfa(token: string): Promise<boolean> {
+  const sid = decodeSid(token);
+  if (!sid) return false;
+
+  const key = sessionRedisKey(sid);
+  const raw = await redis.get(key);
+  if (!raw) return false;
+
+  const record: SessionRecord = JSON.parse(raw);
+  record.mfaVerified = true;
+
+  const remainingTtlMs = await redis.pttl(key);
+  if (remainingTtlMs > 0) {
+    await redis.set(key, JSON.stringify(record), "PX", remainingTtlMs);
+  } else {
+    await redis.set(key, JSON.stringify(record));
   }
-  return session;
-}
 
-export function deleteSession(token: string): void {
-  sessionStore.delete(token);
-}
-
-export function verifySessionMfa(token: string): boolean {
-  const session = sessionStore.get(token);
-  if (session) {
-    session.mfaVerified = true;
-    return true;
-  }
-  return false;
+  return true;
 }
 
 // Encrypt and mask sensitive keys

@@ -42,7 +42,7 @@ function buildSessionUser(user: any, role: any) {
 }
 
 // Session validation middleware to protect modular endpoints
-export function requireAuth(req: Request, res: Response, next: NextFunction) {
+export async function requireAuth(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers["authorization"];
   const correlationId = (req.headers["x-correlation-id"] as string) || "corr-unknown";
 
@@ -50,28 +50,32 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
     return res.status(401).json({ success: false, message: "Authorization token required." });
   }
 
-  const token = authHeader.split(" ")[1];
-  const session = getSession(token);
+  try {
+    const token = authHeader.split(" ")[1];
+    const session = await getSession(token);
 
-  if (!session) {
-    return res.status(401).json({ success: false, message: "Invalid or expired session token.", correlationId });
+    if (!session) {
+      return res.status(401).json({ success: false, message: "Invalid or expired session token.", correlationId });
+    }
+
+    if (!session.mfaVerified) {
+      return res.status(401).json({
+        success: false,
+        code: "MFA_REQUIRED",
+        message: "MFA verification is required before accessing this endpoint.",
+        correlationId
+      });
+    }
+
+    // Bind session info to request headers for downstream endpoint use
+    req.headers["x-user-id"] = session.userId;
+    req.headers["x-role-id"] = session.roleId;
+    req.headers["x-session-token"] = token;
+
+    next();
+  } catch (err) {
+    next(err);
   }
-
-  if (!session.mfaVerified) {
-    return res.status(401).json({
-      success: false,
-      code: "MFA_REQUIRED",
-      message: "MFA verification is required before accessing this endpoint.",
-      correlationId
-    });
-  }
-
-  // Bind session info to request headers for downstream endpoint use
-  req.headers["x-user-id"] = session.userId;
-  req.headers["x-role-id"] = session.roleId;
-  req.headers["x-session-token"] = token;
-
-  next();
 }
 
 // Admin validation middleware
@@ -179,7 +183,7 @@ router.post("/login", async (req: Request, res: Response, next: NextFunction) =>
 
     // Generate secure session token (MFA required if user profile has mfa_enabled = true)
     const mfaRequired = user.mfa_enabled;
-    const session = createSession(user.id, user.role_id, mfaRequired);
+    const session = await createSession(user.id, user.role_id, mfaRequired);
     const role = await dbStore.getRoleById(user.role_id);
 
     logDebugMessage({
@@ -227,7 +231,7 @@ router.post("/mfa/verify", async (req: Request, res: Response, next: NextFunctio
     }
 
     // Real MFA verification step: Accept placeholder valid code '123456' or '000000'
-    const session = getSession(token);
+    const session = await getSession(token);
     if (!session) {
       return res.status(401).json({ success: false, message: "Invalid or expired login session." });
     }
@@ -235,7 +239,7 @@ router.post("/mfa/verify", async (req: Request, res: Response, next: NextFunctio
     const demoMfaAccepted = isDemoRuntime() && (code === "123456" || code === "000000" || code === "111111");
 
     if (demoMfaAccepted) {
-      verifySessionMfa(token);
+      await verifySessionMfa(token);
 
       const user = await dbStore.getUserById(session.userId);
       if (user) {
@@ -288,7 +292,7 @@ router.post("/logout", requireAuth, async (req: Request, res: Response, next: Ne
 
   try {
     const user = await dbStore.getUserById(userId);
-    deleteSession(token);
+    await deleteSession(token);
 
     await dbStore.addAuditLog({
       user_id: user?.name || "Unknown",
@@ -307,30 +311,42 @@ router.post("/logout", requireAuth, async (req: Request, res: Response, next: Ne
 });
 
 // GET CURRENT SESSION PROFILE
-router.get("/me", async (req: Request, res: Response) => {
+router.get("/me", async (req: Request, res: Response, next: NextFunction) => {
   const authHeader = req.headers["authorization"];
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({ success: false, message: "Unauthenticated." });
   }
 
-  const token = authHeader.split(" ")[1];
-  const session = getSession(token);
+  try {
+    const token = authHeader.split(" ")[1];
+    const session = await getSession(token);
 
-  if (!session) {
-    return res.status(401).json({ success: false, message: "Session expired or invalid." });
+    if (!session) {
+      return res.status(401).json({ success: false, message: "Session expired or invalid." });
+    }
+
+    if (!session.mfaVerified) {
+      return res.status(401).json({
+        success: false,
+        code: "MFA_REQUIRED",
+        message: "MFA verification is required before accessing this endpoint."
+      });
+    }
+
+    const user = await dbStore.getUserById(session.userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+
+    const role = await dbStore.getRoleById(user.role_id);
+
+    res.json({
+      success: true,
+      user: buildSessionUser(user, role)
+    });
+  } catch (err) {
+    next(err);
   }
-
-  const user = await dbStore.getUserById(session.userId);
-  if (!user) {
-    return res.status(404).json({ success: false, message: "User not found." });
-  }
-
-  const role = await dbStore.getRoleById(user.role_id);
-
-  res.json({
-    success: true,
-    user: buildSessionUser(user, role)
-  });
 });
 
 export default router;
