@@ -178,6 +178,47 @@ router.put("/settings/ai", requirePermission("ai:settings"), (req: Request, res:
   }
 });
 
+function validateStorageSettings(updates: any, currentSettings: any) {
+  const effectiveMode = updates.storage_mode || currentSettings.storage_mode || "local";
+  const effectiveLocalPath = updates.local_storage_path || currentSettings.local_storage_path;
+  const effectiveS3Bucket = updates.s3_bucket || currentSettings.s3_bucket;
+  const effectiveGcsBucket = updates.gcs_bucket || currentSettings.gcs_bucket;
+
+  if (!["local", "s3", "gcs"].includes(effectiveMode)) {
+    return { valid: false, message: "Invalid storage mode." };
+  }
+
+  if (updates.local_storage_path !== undefined) {
+    const localPath = String(updates.local_storage_path);
+    if (!localPath.trim() || localPath.includes("\0") || localPath.trim() === "/" || localPath.trim() === ".") {
+      return { valid: false, message: "Invalid local storage path." };
+    }
+  }
+
+  for (const key of ["s3_bucket", "gcs_bucket"]) {
+    if (updates[key] !== undefined) {
+      const bucket = String(updates[key]).trim();
+      if (!bucket || bucket.includes("://") || bucket.includes("/") || /\s/.test(bucket)) {
+        return { valid: false, message: `${key} must be a bucket name, not a URL or path.` };
+      }
+    }
+  }
+
+  if (effectiveMode === "local" && !String(effectiveLocalPath || "").trim()) {
+    return { valid: false, message: "Local storage mode requires local_storage_path." };
+  }
+
+  if (effectiveMode === "s3" && !String(effectiveS3Bucket || "").trim()) {
+    return { valid: false, message: "S3 storage mode requires s3_bucket." };
+  }
+
+  if (effectiveMode === "gcs" && !String(effectiveGcsBucket || "").trim()) {
+    return { valid: false, message: "GCS storage mode requires gcs_bucket." };
+  }
+
+  return { valid: true, message: "" };
+}
+
 function updateStorageSettings(req: Request, res: Response, next: NextFunction) {
   try {
     const allowedFields = [
@@ -195,14 +236,9 @@ function updateStorageSettings(req: Request, res: Response, next: NextFunction) 
       return res.status(400).json({ success: false, message: "No valid storage fields provided." });
     }
 
-    if (updates.storage_mode && !["local", "s3", "gcs"].includes(updates.storage_mode)) {
-      return res.status(400).json({ success: false, message: "Invalid storage mode." });
-    }
-
-    for (const key of ["local_storage_path", "s3_bucket", "gcs_bucket"]) {
-      if (updates[key] !== undefined && !String(updates[key]).trim()) {
-        return res.status(400).json({ success: false, message: `${key} cannot be empty.` });
-      }
+    const storageValidation = validateStorageSettings(updates, dbStore.getSettings());
+    if (!storageValidation.valid) {
+      return res.status(400).json({ success: false, message: storageValidation.message });
     }
 
     const settings = dbStore.updateSettings(updates);
