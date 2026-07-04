@@ -52,7 +52,6 @@ import {
   ProjectOpportunity,
   BOMItem,
   PointToPointRow,
-  PreliminarySchedulePhase,
   ClarificationQuestion,
   BrandingSettings,
   PromptTemplate,
@@ -645,46 +644,12 @@ export default function App() {
     if (locale === "en") return res;
     return {
       ...res,
-      executive_summary: {
-        project_overview: "A AI Pre-Sales Solutions LLC tem a honra de enviar esta proposta técnica para o projeto de Modernização de Rodovias da Autoridade de Trânsito Metropolitano (MTA). Nossa solução garante a implementação de Sistemas Inteligentes de Transporte (ITS) de última geração que operam sob condições ambientais estritas, fornecendo rastreamento de veículos, reconhecimento de placas em tempo real e alertas de despacho eficientes.",
-        customer_context: "A infraestrutura de transporte atual da MTA exige detecção automatizada de velocidade e gerenciamento de incidentes com atrasos reduzidos para evitar congestionamentos crônicos e vazamento de receita.",
-        main_requirements: "Hardware robusto classificado para alta temperatura (+55°C), câmeras com obturador global de alta frequência de quadro (FPS) para detectar veículos a até 180 km/h e integração com latência menor que 500ms.",
-        recommended_strategy: "Destacar a adesão irrestrita aos padrões abertos ONVIF Perfil T e a durabilidade térmica certificada do Switch Industrial RuggedCOM para total interoperabilidade.",
-        assumptions: "A rede de fibra óptica existente da MTA possui largura de banda suficiente para transmissão de vídeo IP sem necessidade de escavação civil adicional.",
-        next_steps: "Assinar a planilha de precificação da BOM homologada, testar a integridade térmica do RuggedCOM e avançar para o Estúdio de Propostas."
-      },
-      preliminary_schedule: [
-        {
-          phase_id: "ph_pt_1",
-          phase_name: "Pesquisa de Campo & Design de Engenharia",
-          estimated_duration: "3 semanas",
-          activities: ["Validar integridade dos postes de energia", "Mapear nós de emenda de fibra escura existentes", "Gerar planilhas de cálculo térmico do gabinete"],
-          dependencies: [],
-          responsible_area: "Engenharia de Campo",
-          assumptions: "",
-          risks: ""
-        },
-        {
-          phase_id: "ph_pt_2",
-          phase_name: "Montagem de Hardware na Via & Fusão de Fibra",
-          estimated_duration: "5 semanas",
-          activities: ["Instalar câmeras ALPR", "Fundir conectores de fibra", "Configurar cabeamento de energia industrial"],
-          dependencies: ["ph_pt_1"],
-          responsible_area: "Equipe de Instalação",
-          assumptions: "",
-          risks: ""
-        },
-        {
-          phase_id: "ph_pt_3",
-          phase_name: "Integração de Software & Validatees de Aceitação",
-          estimated_duration: "2 semanas",
-          activities: ["Conectar API gateway", "Executar teste de velocidade de veículos a 180 km/h", "Emitir termo de encerramento da MTA"],
-          dependencies: ["ph_pt_2"],
-          responsible_area: "Engenharia de Software",
-          assumptions: "",
-          risks: ""
-        }
-      ] as PreliminarySchedulePhase[],
+      // executive_summary and preliminary_schedule are AI-generated free text specific to each
+      // project - there's no safe per-project key to translate them by (unlike the fields below,
+      // which only ever substitute when the English text matches this fixed demo project exactly,
+      // and otherwise fall back to the original untouched). Leaving them out of this override
+      // lets them pass through unchanged via the `...res` spread above, in English, rather than
+      // silently replacing a real project's content with this demo project's hardcoded text.
       point_to_point_table: res.point_to_point_table?.map((p: PointToPointRow) => {
         if (p.item_id === "ptp1") {
           return {
