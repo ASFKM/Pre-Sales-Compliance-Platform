@@ -5,6 +5,33 @@ import { requirePermission } from "./auth";
 
 const router = express.Router();
 
+const ALLOWED_PERMISSIONS = new Set<string>([
+  "project:create", "project:read", "project:update", "project:delete",
+  "document:upload", "document:read", "document:delete",
+  "analysis:run", "analysis:read", "analysis:edit", "analysis:approve",
+  "proposal:generate", "proposal:edit", "proposal:approve", "proposal:export",
+  "template:manage",
+  "approval:manage",
+  "admin:users", "admin:roles", "admin:settings", "admin:audit", "admin:debug", "admin:diagnostics",
+  "ai:settings",
+  "branding:manage",
+  "storage:manage",
+  "integrations:manage"
+]);
+
+function validatePermissions(permissions: string[]) {
+  const normalized = Array.from(new Set(
+    permissions.map(permission => String(permission).trim()).filter(Boolean)
+  ));
+  const invalid = normalized.filter(permission => !ALLOWED_PERMISSIONS.has(permission));
+
+  return {
+    valid: invalid.length === 0,
+    permissions: normalized,
+    invalid
+  };
+}
+
 const RoleSchema = z.object({
   name: z.string().min(2, "Role name must be at least 2 characters long"),
   description: z.string().optional().default(""),
@@ -28,6 +55,15 @@ router.get("/", requirePermission("admin:roles"), (req: Request, res: Response, 
 router.post("/", requirePermission("admin:roles"), (req: Request, res: Response, next: NextFunction) => {
   try {
     const validated = RoleSchema.parse(req.body);
+    const permissionValidation = validatePermissions(validated.permissions);
+
+    if (!permissionValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        message: "Role contains invalid permissions.",
+        invalid_permissions: permissionValidation.invalid
+      });
+    }
 
     const duplicated = dbStore.getRoles().some((r) => r.name.toLowerCase() === validated.name.toLowerCase());
     if (duplicated) {
@@ -37,7 +73,7 @@ router.post("/", requirePermission("admin:roles"), (req: Request, res: Response,
     const role = dbStore.createRole({
       name: validated.name.trim(),
       description: validated.description || "",
-      permissions: Array.from(new Set(validated.permissions)),
+      permissions: permissionValidation.permissions,
     });
 
     dbStore.addAuditLog({
@@ -67,9 +103,22 @@ router.put("/:id", requirePermission("admin:roles"), (req: Request, res: Respons
     }
 
     const validated = UpdateRoleSchema.parse(req.body);
+
+    const permissionValidation = validated.permissions
+      ? validatePermissions(validated.permissions)
+      : undefined;
+
+    if (permissionValidation && !permissionValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        message: "Role contains invalid permissions.",
+        invalid_permissions: permissionValidation.invalid
+      });
+    }
+
     const role = dbStore.updateRole(req.params.id, {
       ...validated,
-      permissions: validated.permissions ? Array.from(new Set(validated.permissions)) : undefined,
+      permissions: permissionValidation ? permissionValidation.permissions : undefined,
     });
 
     if (!role) {
