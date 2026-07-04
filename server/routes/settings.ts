@@ -4,26 +4,35 @@ import path from "path";
 import { dbStore } from "../../src/dbStore";
 import { requireAuth, requirePermission } from "./auth";
 import { encryptSecret, decryptSecret, maskSecret } from "../utils/security";
+import { createStorageAdapter } from "../utils/storage";
 
 const router = express.Router();
 
 async function getSafePlatformSettings() {
   const settings = await dbStore.getSettings() as any;
-  const { ai_api_key_encrypted, ...safeSettings } = settings;
+  const {
+    ai_api_key_encrypted,
+    s3_secret_access_key_encrypted,
+    gcs_service_account_key_encrypted,
+    ...safeSettings
+  } = settings;
 
-  let aiApiKeyMasked = "";
-  if (ai_api_key_encrypted) {
+  const maskOrFallback = (encrypted?: string) => {
+    if (!encrypted) return "";
     try {
-      aiApiKeyMasked = maskSecret(decryptSecret(ai_api_key_encrypted));
+      return maskSecret(decryptSecret(encrypted));
     } catch {
-      aiApiKeyMasked = "********";
+      return "********";
     }
-  }
+  };
 
   return {
     ...safeSettings,
     ai_api_key_configured: Boolean(ai_api_key_encrypted),
-    ai_api_key_masked: aiApiKeyMasked
+    ai_api_key_masked: maskOrFallback(ai_api_key_encrypted),
+    s3_secret_access_key_configured: Boolean(s3_secret_access_key_encrypted),
+    s3_secret_access_key_masked: maskOrFallback(s3_secret_access_key_encrypted),
+    gcs_service_account_key_configured: Boolean(gcs_service_account_key_encrypted)
   };
 }
 
@@ -317,6 +326,14 @@ function validateStorageSettings(updates: any, currentSettings: any) {
     }
   }
 
+  if (updates.gcs_service_account_key !== undefined && updates.gcs_service_account_key !== "") {
+    try {
+      JSON.parse(updates.gcs_service_account_key);
+    } catch {
+      return { valid: false, message: "gcs_service_account_key must be valid JSON (the service account key file content)." };
+    }
+  }
+
   if (effectiveMode === "local" && !String(effectiveLocalPath || "").trim()) {
     return { valid: false, message: "Local storage mode requires local_storage_path." };
   }
@@ -338,26 +355,50 @@ async function updateStorageSettings(req: Request, res: Response, next: NextFunc
       "storage_mode",
       "local_storage_path",
       "s3_bucket",
-      "gcs_bucket"
+      "s3_region",
+      "s3_access_key_id",
+      "gcs_bucket",
+      "gcs_project_id"
     ];
 
-    const updates = Object.fromEntries(
+    const updates: any = Object.fromEntries(
       Object.entries(req.body || {}).filter(([key]) => allowedFields.includes(key))
-    ) as any;
+    );
+
+    if (typeof req.body?.s3_secret_access_key === "string" && req.body.s3_secret_access_key.trim()) {
+      updates.s3_secret_access_key_encrypted = encryptSecret(req.body.s3_secret_access_key.trim());
+    }
+    if (req.body?.clear_s3_secret_access_key === true) {
+      updates.s3_secret_access_key_encrypted = "";
+    }
+
+    if (typeof req.body?.gcs_service_account_key === "string" && req.body.gcs_service_account_key.trim()) {
+      updates.gcs_service_account_key_encrypted = encryptSecret(req.body.gcs_service_account_key.trim());
+    }
+    if (req.body?.clear_gcs_service_account_key === true) {
+      updates.gcs_service_account_key_encrypted = "";
+    }
 
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ success: false, message: "No valid storage fields provided." });
     }
 
     const currentSettings = await dbStore.getSettings();
-    const storageValidation = validateStorageSettings(updates, currentSettings);
+    const storageValidation = validateStorageSettings(
+      { ...updates, gcs_service_account_key: req.body?.gcs_service_account_key },
+      currentSettings
+    );
     if (!storageValidation.valid) {
       return res.status(400).json({ success: false, message: storageValidation.message });
     }
 
     await dbStore.updateSettings(updates);
 
-    await auditSettingsChange(req, "Change Storage Provider Settings", "PlatformSettings", "global-storage", updates);
+    await auditSettingsChange(req, "Change Storage Provider Settings", "PlatformSettings", "global-storage", sanitizeSettingsAudit({
+      ...updates,
+      s3_secret_access_key: req.body?.s3_secret_access_key ? "[secret-updated]" : undefined,
+      gcs_service_account_key: req.body?.gcs_service_account_key ? "[secret-updated]" : undefined
+    }));
 
     res.json(await getSafePlatformSettings());
   } catch (err) {
@@ -387,30 +428,34 @@ router.get("/settings/storage/status", requirePermission("storage:manage"), asyn
         mode,
         target: targetPath,
         writable: true,
-        scaffolded: false,
         message: "Local storage path is available and writable."
       });
     }
 
-    if (mode === "s3") {
+    // For s3/gcs, actually probe the bucket instead of assuming it's reachable.
+    const adapter = createStorageAdapter(settings);
+    const probeKey = `__storage_health_check_${Date.now()}.txt`;
+
+    try {
+      const storagePath = await adapter.uploadFile("__health", Buffer.from("ok"), probeKey, "text/plain");
+      await adapter.deleteFile(storagePath);
+
       return res.json({
         success: true,
         mode,
-        target: settings.s3_bucket,
+        target: mode === "s3" ? settings.s3_bucket : settings.gcs_bucket,
         writable: true,
-        scaffolded: true,
-        message: "S3 adapter is configured in scaffold mode."
+        message: `${mode.toUpperCase()} bucket is reachable and writable.`
+      });
+    } catch (probeErr: any) {
+      return res.json({
+        success: false,
+        mode,
+        target: mode === "s3" ? settings.s3_bucket : settings.gcs_bucket,
+        writable: false,
+        message: `${mode.toUpperCase()} bucket is not reachable: ${probeErr.message || "unknown error"}`
       });
     }
-
-    return res.json({
-      success: true,
-      mode,
-      target: settings.gcs_bucket,
-      writable: true,
-      scaffolded: true,
-      message: "GCS adapter is configured in scaffold mode."
-    });
   } catch (err) {
     next(err);
   }

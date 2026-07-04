@@ -347,7 +347,12 @@ model PlatformSettings {
   storageMode              StorageProvider @default(local) @map("storage_mode")
   localStoragePath         String   @map("local_storage_path")
   s3Bucket                 String   @map("s3_bucket")
+  s3Region                 String?  @map("s3_region")
+  s3AccessKeyId            String?  @map("s3_access_key_id")
+  s3SecretAccessKeyEncrypted String? @map("s3_secret_access_key_encrypted") @db.Text
   gcsBucket                String   @map("gcs_bucket")
+  gcsProjectId             String?  @map("gcs_project_id")
+  gcsServiceAccountKeyEncrypted String? @map("gcs_service_account_key_encrypted") @db.Text
   defaultLanguage          Language @map("default_language")
   defaultLogLevel          LogLevel @map("default_log_level")
   createdAt                DateTime @default(now()) @map("created_at")

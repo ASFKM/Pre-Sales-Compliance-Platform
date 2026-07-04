@@ -287,7 +287,15 @@ export interface PlatformSettings {
   storage_mode: "local" | "s3" | "gcs";
   local_storage_path: string;
   s3_bucket: string;
+  s3_region?: string;
+  s3_access_key_id?: string;
+  s3_secret_access_key_encrypted?: string;
+  s3_secret_access_key_configured?: boolean;
+  s3_secret_access_key_masked?: string;
   gcs_bucket: string;
+  gcs_project_id?: string;
+  gcs_service_account_key_encrypted?: string;
+  gcs_service_account_key_configured?: boolean;
   default_language: "Portuguese" | "English" | "Spanish";
   default_log_level: "DEBUG" | "INFO" | "WARN" | "ERROR";
   created_at: string;

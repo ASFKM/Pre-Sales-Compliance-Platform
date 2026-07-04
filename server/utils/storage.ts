@@ -1,6 +1,9 @@
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { Storage as GCSClient } from "@google-cloud/storage";
+import { decryptSecret } from "./security";
 
 export interface StorageAdapter {
   uploadFile(projectId: string, fileBuffer: Buffer, originalFilename: string, mimeType: string): Promise<string>;
@@ -73,61 +76,101 @@ export class LocalStorageAdapter implements StorageAdapter {
   }
 }
 
-// 2. AWS S3 Storage Adapter scaffold
+// 2. AWS S3 Storage Adapter
 export class S3StorageAdapter implements StorageAdapter {
   private bucketName: string;
+  private client: S3Client;
 
-  constructor(bucketName: string) {
+  constructor(bucketName: string, region?: string, accessKeyId?: string, secretAccessKey?: string) {
     this.bucketName = bucketName;
+    this.client = new S3Client({
+      region: region || "us-east-1",
+      credentials: accessKeyId && secretAccessKey ? { accessKeyId, secretAccessKey } : undefined,
+    });
   }
 
   async uploadFile(projectId: string, fileBuffer: Buffer, originalFilename: string, mimeType: string): Promise<string> {
-    void fileBuffer;
-    void mimeType;
-
-    console.log(`[S3 Scaffold] Uploading ${originalFilename} to S3 bucket ${this.bucketName}`);
     const extension = path.extname(originalFilename).toLowerCase();
     const key = `${projectId}/${crypto.randomBytes(16).toString("hex")}${extension}`;
+
+    await this.client.send(new PutObjectCommand({
+      Bucket: this.bucketName,
+      Key: key,
+      Body: fileBuffer,
+      ContentType: mimeType,
+    }));
+
     return `s3://${this.bucketName}/${key}`;
   }
 
+  private parseKey(storagePath: string): string {
+    const withoutScheme = storagePath.replace(/^s3:\/\//, "");
+    const slashIndex = withoutScheme.indexOf("/");
+    return slashIndex >= 0 ? withoutScheme.slice(slashIndex + 1) : withoutScheme;
+  }
+
   async deleteFile(storagePath: string): Promise<boolean> {
-    console.log(`[S3 Scaffold] Deleting object from S3: ${storagePath}`);
-    return true;
+    try {
+      await this.client.send(new DeleteObjectCommand({ Bucket: this.bucketName, Key: this.parseKey(storagePath) }));
+      return true;
+    } catch (err) {
+      console.error("Failed to delete S3 object:", err);
+      return false;
+    }
   }
 
   async readFile(storagePath: string): Promise<Buffer> {
-    console.log(`[S3 Scaffold] Reading object from S3: ${storagePath}`);
-    return Buffer.from("S3 Mock Extracted Content");
+    const response = await this.client.send(new GetObjectCommand({ Bucket: this.bucketName, Key: this.parseKey(storagePath) }));
+    const chunks: Buffer[] = [];
+    for await (const chunk of response.Body as any) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks);
   }
 }
 
-// 3. Google Cloud Storage Adapter scaffold
+// 3. Google Cloud Storage Adapter
 export class GCSStorageAdapter implements StorageAdapter {
   private bucketName: string;
+  private client: GCSClient;
 
-  constructor(bucketName: string) {
+  constructor(bucketName: string, projectId?: string, serviceAccountKeyJson?: string) {
     this.bucketName = bucketName;
+    this.client = new GCSClient({
+      projectId: projectId || undefined,
+      credentials: serviceAccountKeyJson ? JSON.parse(serviceAccountKeyJson) : undefined,
+    });
+  }
+
+  private parseObjectName(storagePath: string): string {
+    const withoutScheme = storagePath.replace(/^gs:\/\//, "");
+    const slashIndex = withoutScheme.indexOf("/");
+    return slashIndex >= 0 ? withoutScheme.slice(slashIndex + 1) : withoutScheme;
   }
 
   async uploadFile(projectId: string, fileBuffer: Buffer, originalFilename: string, mimeType: string): Promise<string> {
-    void fileBuffer;
-    void mimeType;
-
-    console.log(`[GCS Scaffold] Uploading ${originalFilename} to GCS bucket ${this.bucketName}`);
     const extension = path.extname(originalFilename).toLowerCase();
     const objectName = `${projectId}/${crypto.randomBytes(16).toString("hex")}${extension}`;
+
+    const file = this.client.bucket(this.bucketName).file(objectName);
+    await file.save(fileBuffer, { contentType: mimeType });
+
     return `gs://${this.bucketName}/${objectName}`;
   }
 
   async deleteFile(storagePath: string): Promise<boolean> {
-    console.log(`[GCS Scaffold] Deleting object from GCS: ${storagePath}`);
-    return true;
+    try {
+      await this.client.bucket(this.bucketName).file(this.parseObjectName(storagePath)).delete();
+      return true;
+    } catch (err) {
+      console.error("Failed to delete GCS object:", err);
+      return false;
+    }
   }
 
   async readFile(storagePath: string): Promise<Buffer> {
-    console.log(`[GCS Scaffold] Reading object from GCS: ${storagePath}`);
-    return Buffer.from("GCS Mock Extracted Content");
+    const [content] = await this.client.bucket(this.bucketName).file(this.parseObjectName(storagePath)).download();
+    return content;
   }
 }
 
@@ -135,16 +178,38 @@ export function createStorageAdapter(settings?: {
   storage_mode?: "local" | "s3" | "gcs";
   local_storage_path?: string;
   s3_bucket?: string;
+  s3_region?: string;
+  s3_access_key_id?: string;
+  s3_secret_access_key_encrypted?: string;
   gcs_bucket?: string;
+  gcs_project_id?: string;
+  gcs_service_account_key_encrypted?: string;
 }): StorageAdapter {
   const mode = settings?.storage_mode || "local";
 
   if (mode === "s3") {
-    return new S3StorageAdapter(settings?.s3_bucket || "commercial-assistant-s3");
+    const secretAccessKey = settings?.s3_secret_access_key_encrypted
+      ? decryptSecret(settings.s3_secret_access_key_encrypted)
+      : undefined;
+
+    return new S3StorageAdapter(
+      settings?.s3_bucket || "commercial-assistant-s3",
+      settings?.s3_region,
+      settings?.s3_access_key_id,
+      secretAccessKey
+    );
   }
 
   if (mode === "gcs") {
-    return new GCSStorageAdapter(settings?.gcs_bucket || "commercial-assistant-gcs");
+    const serviceAccountKeyJson = settings?.gcs_service_account_key_encrypted
+      ? decryptSecret(settings.gcs_service_account_key_encrypted)
+      : undefined;
+
+    return new GCSStorageAdapter(
+      settings?.gcs_bucket || "commercial-assistant-gcs",
+      settings?.gcs_project_id,
+      serviceAccountKeyJson
+    );
   }
 
   return new LocalStorageAdapter(settings?.local_storage_path || "./uploads");
