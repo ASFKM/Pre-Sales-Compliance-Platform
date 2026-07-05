@@ -127,7 +127,11 @@ há algo em andamento e leva de volta ao contexto dela.
 
 ## Fase 2 — Autenticação robusta
 
-**Status**: desenho fechado.
+**Status**: ✅ implementada e verificada (commit `98c5337`, 2026-07-05). Rotação de
+refresh/access token com detecção de reuso (revoga a família inteira), limite absoluto de
+sessão de 7 dias, bloqueio de conta (5/15min, conta+IP, contadores separados senha/MFA),
+refresh silencioso no frontend. Refresh token em cookie httpOnly, parse manual (sem
+cookie-parser).
 
 **Estado hoje** (verificado em código): sessão é um único JWT de TTL fixo guardado no Redis
 (`server/utils/security.ts`, `createSession`) — sem rotação de refresh token, sem bloqueio de
