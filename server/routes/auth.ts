@@ -12,13 +12,37 @@ import {
   buildTotpQrCodeDataUrl,
   verifyTotpCode,
   encryptSecret,
-  decryptSecret
+  decryptSecret,
+  createRefreshFamily,
+  rotateRefreshToken,
+  revokeRefreshToken,
+  REFRESH_TOKEN_COOKIE_NAME
 } from "../utils/security";
 import { logDebugMessage } from "../middleware/security";
 import { isProductionRuntime, isDemoRuntime } from "../config/runtime";
 import { runWithTenant } from "../../src/tenantContext";
+import { isLockedOut, recordFailedAttempt, clearFailedAttempts } from "../utils/lockout";
 
 const router = express.Router();
+
+const REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+function setRefreshCookie(res: Response, token: string) {
+  res.cookie(REFRESH_TOKEN_COOKIE_NAME, token, {
+    httpOnly: true,
+    secure: isProductionRuntime(),
+    sameSite: "lax",
+    maxAge: REFRESH_COOKIE_MAX_AGE_MS,
+    path: "/api/auth",
+  });
+}
+
+function readRefreshCookie(req: Request): string | undefined {
+  const header = req.headers.cookie;
+  if (!header) return undefined;
+  const match = header.split(";").map((c) => c.trim()).find((c) => c.startsWith(`${REFRESH_TOKEN_COOKIE_NAME}=`));
+  return match ? decodeURIComponent(match.slice(REFRESH_TOKEN_COOKIE_NAME.length + 1)) : undefined;
+}
 
 // Seed password hashes for initial users if they do not exist
 async function ensurePasswordHashes() {
@@ -154,15 +178,28 @@ router.post("/login", async (req: Request, res: Response, next: NextFunction) =>
   try {
     await ensurePasswordHashes();
     const { email, password } = req.body;
+    const ip = req.ip || "127.0.0.1";
 
     if (!email || !password) {
       return res.status(400).json({ success: false, message: "Email and password are required." });
+    }
+
+    if (await isLockedOut("pwd", email, ip)) {
+      logDebugMessage({
+        operation: "User Authentication",
+        message: `Login blocked: account+IP locked out after repeated failures for email: ${email}`,
+        status: "WARN",
+        durationMs: Date.now() - startTime,
+        correlationId
+      });
+      return res.status(429).json({ success: false, message: "Too many failed login attempts. Try again in 15 minutes." });
     }
 
     const user = await dbStore.getUserByEmail(email.toLowerCase().trim());
     const passwordHash = user ? await dbStore.getUserPasswordHash(user.id) : null;
 
     if (!user || !comparePasswords(password, passwordHash || "")) {
+      await recordFailedAttempt("pwd", email, ip);
       logDebugMessage({
         operation: "User Authentication",
         message: `Failed login attempt for email: ${email}`,
@@ -172,6 +209,8 @@ router.post("/login", async (req: Request, res: Response, next: NextFunction) =>
       });
       return res.status(401).json({ success: false, message: "Invalid credentials." });
     }
+
+    await clearFailedAttempts("pwd", email, ip);
 
     // Everything from here on knows the user, and therefore the tenant.
     await runWithTenant({ tenantId: user.tenant_id }, async () => {
@@ -235,6 +274,14 @@ router.post("/login", async (req: Request, res: Response, next: NextFunction) =>
         user_agent: req.headers["user-agent"] || "unknown",
         metadata: JSON.stringify({ email: user.email, mfa_required: mfaRequired })
       });
+
+      // No MFA needed - the user is fully authenticated right now, so start the refresh token
+      // family here. If MFA IS required, the family only starts once /mfa/verify succeeds -
+      // a password alone shouldn't grant a renewable session.
+      if (!mfaRequired) {
+        const refreshToken = await createRefreshFamily(user.id, user.role_id);
+        setRefreshCookie(res, refreshToken);
+      }
 
       res.json({
         success: true,
@@ -328,6 +375,22 @@ router.post("/mfa/verify", async (req: Request, res: Response, next: NextFunctio
       return res.status(401).json({ success: false, message: "Invalid or expired login session." });
     }
 
+    const ip = req.ip || "127.0.0.1";
+    const sessionUser = await dbStore.getUserById(session.userId);
+    const lockoutEmail = sessionUser?.email || session.userId;
+
+    if (await isLockedOut("mfa", lockoutEmail, ip)) {
+      logDebugMessage({
+        operation: "MFA Verification",
+        message: `MFA verification blocked: account+IP locked out after repeated failures for user: ${session.userId}`,
+        status: "WARN",
+        durationMs: Date.now() - startTime,
+        correlationId,
+        userId: session.userId
+      });
+      return res.status(429).json({ success: false, message: "Too many failed MFA attempts. Try again in 15 minutes." });
+    }
+
     // Real TOTP if the account has enrolled a secret; demo codes only remain valid as a
     // bootstrapping/testing fallback for accounts that haven't enrolled a real secret yet.
     const encryptedSecret = await dbStore.getUserMfaSecretEncrypted(session.userId);
@@ -339,10 +402,18 @@ router.post("/mfa/verify", async (req: Request, res: Response, next: NextFunctio
       mfaAccepted = code === "123456" || code === "000000" || code === "111111";
     }
 
-    if (mfaAccepted) {
+    if (!mfaAccepted) {
+      await recordFailedAttempt("mfa", lockoutEmail, ip);
+    } else {
+      await clearFailedAttempts("mfa", lockoutEmail, ip);
       await verifySessionMfa(token);
 
       const user = await dbStore.getUserById(session.userId);
+
+      if (user) {
+        const refreshToken = await createRefreshFamily(user.id, user.role_id);
+        setRefreshCookie(res, refreshToken);
+      }
 
       const result = await (user ? runWithTenant({ tenantId: user.tenant_id }, async () => {
         await dbStore.setUserLastLogin(user.id);
@@ -397,6 +468,12 @@ router.post("/logout", requireAuth, async (req: Request, res: Response, next: Ne
     const user = await dbStore.getUserById(userId);
     await deleteSession(token);
 
+    const refreshToken = readRefreshCookie(req);
+    if (refreshToken) {
+      await revokeRefreshToken(refreshToken);
+    }
+    res.clearCookie(REFRESH_TOKEN_COOKIE_NAME, { path: "/api/auth" });
+
     await dbStore.addAuditLog({
       user_id: user?.name || "Unknown",
       action: "Session Terminated",
@@ -408,6 +485,29 @@ router.post("/logout", requireAuth, async (req: Request, res: Response, next: Ne
     });
 
     res.json({ success: true, message: "Logged out successfully." });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Silent refresh: the frontend calls this before the short-lived access token expires. The
+// refresh token itself is never visible to the frontend - it travels only as the httpOnly
+// cookie set at login/MFA-verify, sent automatically by the browser.
+router.post("/refresh", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const refreshToken = readRefreshCookie(req);
+    if (!refreshToken) {
+      return res.status(401).json({ success: false, message: "No refresh token present." });
+    }
+
+    const rotated = await rotateRefreshToken(refreshToken);
+    if (!rotated) {
+      res.clearCookie(REFRESH_TOKEN_COOKIE_NAME, { path: "/api/auth" });
+      return res.status(401).json({ success: false, message: "Refresh token is invalid, reused, or expired. Please log in again." });
+    }
+
+    setRefreshCookie(res, rotated.refreshToken);
+    res.json({ success: true, token: rotated.session.token });
   } catch (err) {
     next(err);
   }

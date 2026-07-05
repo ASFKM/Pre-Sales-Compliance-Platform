@@ -9,6 +9,7 @@ import Templates from "./components/Templates";
 import Approval from "./components/Approval";
 import NewProjectWizard from "./components/modals/NewProjectWizard";
 import { useBackgroundTasks } from "./hooks/useBackgroundTasks";
+import { useSilentRefresh } from "./hooks/useSilentRefresh";
 import ClassifyDocumentModal from "./components/modals/ClassifyDocumentModal";
 import AuditLogsModal from "./components/modals/AuditLogsModal";
 import DebugConsoleModal from "./components/modals/DebugConsoleModal";
@@ -221,6 +222,11 @@ export default function App() {
 
   // Phase 1: real-time background task progress (analysis, proposal generation, ...)
   const { activeTasks, waitForTask } = useBackgroundTasks(isAuthenticated);
+
+  // Phase 2: keeps the short-lived access token renewed in the background via the httpOnly
+  // refresh cookie - same "unauthorized" event every other 401 already triggers if it fails.
+  useSilentRefresh(isAuthenticated, () => window.dispatchEvent(new Event("unauthorized")));
+
   const [currentSessionUser, setCurrentSessionUser] = useState({
     id: "",
     name: "",
