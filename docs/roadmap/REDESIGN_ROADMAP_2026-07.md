@@ -34,7 +34,13 @@ multi-tenancy com Prisma), pesquisa real foi feita antes de propor as opções.
 
 ## Fase 0 — Fundação multi-tenant
 
-**Status**: desenho fechado, implementação em andamento.
+**Status**: ✅ implementada e verificada (commit `f7ec4f3`, 2026-07-05). Migration
+`20260705033530_add_multi_tenancy` aplicada no banco real (com backup prévio), dados
+íntegros após (3 usuários, 4 projetos, 1053 logs de auditoria, todos com tenant_id correto),
+CI verde tanto contra Postgres com dados históricos quanto contra Postgres vazio do zero.
+Achado durante a implementação: a extensão Prisma não intercepta creates aninhados (tipo
+`stages: { create: [...] }`) - só o único lugar do código real que fazia isso
+(`createApprovalWorkflow`) precisou de injeção manual de `tenant_id`.
 
 **O que muda**: nova tabela `Tenant` (nome, modo de deployment `saas`/`onprem`, status
 `active`/`suspended`). Coluna `tenant_id` adicionada a praticamente todas as ~20 tabelas do schema
