@@ -86,13 +86,19 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       return res.status(401).json({ success: false, message: "Invalid or expired session token.", correlationId });
     }
 
+    const role = await dbStore.getRoleById(session.roleId);
+    const canSeeAllProjects = role?.permissions.includes("project:read_all") ?? false;
+
     // Bind session info to request headers for downstream endpoint use
     req.headers["x-user-id"] = session.userId;
     req.headers["x-role-id"] = session.roleId;
     req.headers["x-session-token"] = token;
     req.headers["x-tenant-id"] = user.tenant_id;
 
-    runWithTenant({ tenantId: user.tenant_id }, () => next());
+    runWithTenant(
+      { tenantId: user.tenant_id, userId: session.userId, roleId: session.roleId, canSeeAllProjects },
+      () => next()
+    );
   } catch (err) {
     next(err);
   }

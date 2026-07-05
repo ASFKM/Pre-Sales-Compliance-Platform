@@ -102,6 +102,54 @@ router.put("/:id", requirePermission("project:update"), async (req: Request, res
   }
 });
 
+// Phase 3 (RBAC + record ownership): reassign a project's owner. Deliberately narrower than the
+// general project:update permission - only whoever can see every project (project:read_all,
+// e.g. Administrator) or the project's current owner may hand it off, per the roadmap decision.
+router.patch("/:id/owner", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { new_owner_user_id } = z.object({ new_owner_user_id: z.string().min(1) }).parse(req.body);
+
+    const project = await dbStore.getProject(req.params.id);
+    if (!project) {
+      return res.status(404).json({ success: false, message: "Project not found" });
+    }
+
+    const userId = req.headers["x-user-id"] as string;
+    const roleId = req.headers["x-role-id"] as string;
+    const role = await dbStore.getRoleById(roleId);
+    const canReassignAny = role?.permissions.includes("project:read_all") ?? false;
+    const isCurrentOwner = project.owner_user_id === userId;
+
+    if (!canReassignAny && !isCurrentOwner) {
+      return res.status(403).json({ success: false, message: "Only the current owner or an administrator can reassign this project." });
+    }
+
+    const newOwner = await dbStore.getUserById(new_owner_user_id);
+    if (!newOwner) {
+      return res.status(400).json({ success: false, message: "New owner user not found." });
+    }
+
+    const updated = await dbStore.updateProject(req.params.id, { owner_user_id: new_owner_user_id });
+
+    await dbStore.addAuditLog({
+      user_id: userId,
+      action: "Reassign Project Owner",
+      entity_type: "Project",
+      entity_id: req.params.id,
+      ip_address: req.ip || "127.0.0.1",
+      user_agent: req.headers["user-agent"] || "unknown",
+      metadata: JSON.stringify({ previous_owner: project.owner_user_id, new_owner: new_owner_user_id })
+    });
+
+    res.json(updated);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ success: false, message: err.issues[0].message });
+    }
+    next(err);
+  }
+});
+
 router.delete("/:id", requirePermission("project:delete"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const deleted = await dbStore.deleteProject(req.params.id);

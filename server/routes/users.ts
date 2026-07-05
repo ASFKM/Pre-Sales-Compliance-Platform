@@ -176,4 +176,81 @@ router.delete("/:id", requirePermission("admin:users"), async (req: Request, res
   }
 });
 
+// Phase 3 (RBAC + record ownership): Manager <-> Engineer team assignment. Drives which
+// projects a Manager can see (their team's), enforced centrally in the Prisma extension
+// (src/prisma.ts) - these routes only manage the membership rows themselves.
+const TeamMembershipSchema = z.object({
+  manager_id: z.string().min(1),
+  engineer_id: z.string().min(1),
+});
+
+router.get("/teams", requirePermission("admin:users"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const memberships = await dbStore.getTeamMemberships();
+    res.json(memberships);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/teams", requirePermission("admin:users"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { manager_id, engineer_id } = TeamMembershipSchema.parse(req.body);
+
+    const manager = await dbStore.getUserById(manager_id);
+    const engineer = await dbStore.getUserById(engineer_id);
+    if (!manager || !engineer) {
+      return res.status(404).json({ success: false, message: "Manager or engineer user not found." });
+    }
+
+    const membership = await dbStore.addTeamMembership(manager_id, engineer_id);
+
+    const actorUserId = (req.headers["x-user-id"] as string) || "u1";
+    await dbStore.addAuditLog({
+      user_id: actorUserId,
+      action: "Add Team Membership",
+      entity_type: "TeamMembership",
+      entity_id: membership.id,
+      ip_address: req.ip || "127.0.0.1",
+      user_agent: req.headers["user-agent"] || "unknown",
+      metadata: JSON.stringify({ manager_id, engineer_id })
+    });
+
+    res.json(membership);
+  } catch (err: any) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ success: false, message: err.issues[0].message });
+    }
+    // Unique constraint on (manager_id, engineer_id) - membership already exists.
+    if (err?.code === "P2002") {
+      return res.status(409).json({ success: false, message: "This engineer is already on this manager's team." });
+    }
+    next(err);
+  }
+});
+
+router.delete("/teams/:id", requirePermission("admin:users"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const removed = await dbStore.removeTeamMembership(req.params.id);
+    if (!removed) {
+      return res.status(404).json({ success: false, message: "Team membership not found." });
+    }
+
+    const actorUserId = (req.headers["x-user-id"] as string) || "u1";
+    await dbStore.addAuditLog({
+      user_id: actorUserId,
+      action: "Remove Team Membership",
+      entity_type: "TeamMembership",
+      entity_id: req.params.id,
+      ip_address: req.ip || "127.0.0.1",
+      user_agent: req.headers["user-agent"] || "unknown",
+      metadata: JSON.stringify({ team_membership_id: req.params.id })
+    });
+
+    res.json({ success: true, message: "Team membership removed." });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

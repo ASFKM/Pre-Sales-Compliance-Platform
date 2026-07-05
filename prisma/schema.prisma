@@ -176,6 +176,7 @@ model Tenant {
   approvalDecisions    ApprovalDecision[]
   tasks                Task[]
   brandingSettings     BrandingSettings?
+  teamMemberships      TeamMembership[]
   integrationConnectors IntegrationConnector[]
 
   @@map("tenants")
@@ -198,9 +199,28 @@ model User {
   lastLoginAt    DateTime?  @map("last_login_at")
 
   ownedProjects   Project[]        @relation("ProjectOwner")
+  managedEngineers TeamMembership[] @relation("TeamManager")
+  teamMemberships  TeamMembership[] @relation("TeamEngineer")
 
   @@index([tenantId])
   @@map("users")
+}
+
+// N:N, not a simple "reports to" column - an Engineer can belong to more than one Manager's
+// team (confirmed: multiple Managers run separate teams that can overlap).
+model TeamMembership {
+  id         String   @id
+  tenantId   String   @map("tenant_id")
+  tenant     Tenant   @relation(fields: [tenantId], references: [id])
+  managerId  String   @map("manager_id")
+  manager    User     @relation("TeamManager", fields: [managerId], references: [id])
+  engineerId String   @map("engineer_id")
+  engineer   User     @relation("TeamEngineer", fields: [engineerId], references: [id])
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@unique([managerId, engineerId])
+  @@index([tenantId])
+  @@map("team_memberships")
 }
 
 model Role {

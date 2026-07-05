@@ -8,6 +8,14 @@ export interface TenantContext {
   // entry when it's true. The actual support workflow/UI is built in a later phase;
   // this flag just keeps the door open without weakening scoping today.
   crossTenantSupport?: boolean;
+  // Phase 3 (RBAC + record ownership): who's making the request, needed by the Prisma
+  // extension to apply the project-visibility rule (owner, manager-of-owner, or approver).
+  userId?: string;
+  roleId?: string;
+  // True bypasses the visibility rule entirely (currently granted via the "project:read_all"
+  // permission - seeded on Administrator, but not hardcoded to that role name since roles are
+  // tenant-customizable).
+  canSeeAllProjects?: boolean;
 }
 
 const storage = new AsyncLocalStorage<TenantContext>();

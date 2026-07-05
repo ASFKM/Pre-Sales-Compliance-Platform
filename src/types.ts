@@ -25,6 +25,14 @@ export interface Role {
   permissions: string[];
 }
 
+export interface TeamMembership {
+  id: string;
+  tenant_id: string;
+  manager_id: string;
+  engineer_id: string;
+  created_at: string;
+}
+
 export type ProjectStatus = "draft" | "analysis_in_progress" | "waiting_customer" | "waiting_internal" | "completed" | "canceled";
 
 export interface Project {

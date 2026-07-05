@@ -35,7 +35,7 @@ async function main() {
       name: "Administrator",
       description: "Full administrative access to all workspace settings, configurations, logs, and users.",
       permissions: [
-        "project:create", "project:read", "project:update", "project:delete",
+        "project:create", "project:read", "project:read_all", "project:update", "project:delete",
         "document:upload", "document:read", "document:delete",
         "analysis:run", "analysis:read", "analysis:edit", "analysis:approve",
         "proposal:generate", "proposal:edit", "proposal:approve", "proposal:export",

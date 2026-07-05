@@ -20,6 +20,7 @@ import {
   Task,
   BrandingSettings,
   IntegrationConnector,
+  TeamMembership,
 } from "./types";
 
 function randomId(prefix: string): string {
@@ -58,6 +59,10 @@ function mapUser(u: any): User {
 
 function mapRole(r: any): Role {
   return { id: r.id, tenant_id: r.tenantId, name: r.name, description: r.description, permissions: r.permissions };
+}
+
+function mapTeamMembership(t: any): TeamMembership {
+  return { id: t.id, tenant_id: t.tenantId, manager_id: t.managerId, engineer_id: t.engineerId, created_at: t.createdAt.toISOString() };
 }
 
 function mapProject(p: any): Project {
@@ -513,6 +518,29 @@ class DBStore {
 
     try {
       await prisma.role.delete({ where: { id } });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // Manager <-> Engineer teams (Phase 3 RBAC): N:N, an Engineer can belong to more than one
+  // Manager's team - drives the "Manager sees their team's projects" visibility rule embedded
+  // in the Prisma extension (src/prisma.ts), not enforced here.
+  public async getTeamMemberships(): Promise<TeamMembership[]> {
+    return (await prisma.teamMembership.findMany({ orderBy: { createdAt: "desc" } })).map(mapTeamMembership);
+  }
+
+  public async addTeamMembership(managerId: string, engineerId: string): Promise<TeamMembership> {
+    const t = await prisma.teamMembership.create({
+      data: { id: randomId("tm"), tenantId: requireTenantId(), managerId, engineerId },
+    });
+    return mapTeamMembership(t);
+  }
+
+  public async removeTeamMembership(id: string): Promise<boolean> {
+    try {
+      await prisma.teamMembership.delete({ where: { id } });
       return true;
     } catch {
       return false;
