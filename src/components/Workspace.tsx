@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { AnalysisResult, BOMItem, Document } from "../types";
 import { useWorkspace } from "../hooks/useWorkspace";
+import { BackgroundTask } from "../hooks/useBackgroundTasks";
 
 type SubTab = "summary" | "requirements" | "risks" | "bom" | "proposal_builder" | "explorer";
 
@@ -38,6 +39,7 @@ interface WorkspaceProps {
   setSelectedCommercialTemplateId: Dispatch<SetStateAction<string>>;
   chatHistory: { role: string; message: string }[];
   setChatHistory: Dispatch<SetStateAction<{ role: string; message: string }[]>>;
+  waitForTask: (taskId: string) => Promise<BackgroundTask>;
 }
 
 export default function Workspace({
@@ -48,7 +50,7 @@ export default function Workspace({
   setActiveTab, setActiveAdminSection, canAccessAdminSection, handleDeleteDocument, getDocTag,
   selectedTechnicalTemplateId, setSelectedTechnicalTemplateId,
   selectedCommercialTemplateId, setSelectedCommercialTemplateId,
-  chatHistory, setChatHistory,
+  chatHistory, setChatHistory, waitForTask,
 }: WorkspaceProps) {
   const [subTab, setSubTab] = useState<SubTab>("summary");
   const [currentFolder, setCurrentFolder] = useState<string>(""); // "" means root/raiz
@@ -80,7 +82,7 @@ export default function Workspace({
     getFilesForFolder,
   } = useWorkspace({
     locale, tx, hasPermission, selectedProjectId,
-    analysisResult, setAnalysisResult, fetchGlobalConfigs, fetchProjectDetails, setActiveTab,
+    analysisResult, setAnalysisResult, fetchGlobalConfigs, fetchProjectDetails, setActiveTab, waitForTask,
     proposalTemplates, selectedTechnicalTemplateId, selectedCommercialTemplateId,
     documents, projectFolders, setProjectFolders, docFolderMapping, setDocFolderMapping,
     virtualFiles, setVirtualFiles,

@@ -51,6 +51,19 @@ enum AnalysisJobStatus {
   failed
 }
 
+enum BackgroundTaskType {
+  document_analysis
+  proposal_generation
+  project_intake_analysis
+}
+
+enum BackgroundTaskStatus {
+  queued
+  running
+  completed
+  failed
+}
+
 enum ReviewStatus {
   pending
   reviewed
@@ -148,6 +161,7 @@ model Tenant {
   projects             Project[]
   documents            Document[]
   documentContents     DocumentContent[]
+  backgroundTasks      BackgroundTask[]
   analysisJobs         AIAnalysisJob[]
   analysisResults      AnalysisResult[]
   conversationMessages ConversationMessage[]
@@ -275,6 +289,29 @@ model DocumentContent {
 
   @@index([tenantId])
   @@map("document_contents")
+}
+
+model BackgroundTask {
+  id           String               @id
+  tenantId     String               @map("tenant_id")
+  tenant       Tenant               @relation(fields: [tenantId], references: [id])
+  userId       String               @map("user_id")
+  type         BackgroundTaskType
+  status       BackgroundTaskStatus @default(queued)
+  currentStep  String               @map("current_step")
+  progressPct  Int?                 @map("progress_pct")
+  errorMessage String?              @map("error_message") @db.Text
+  // Generic pointer to whatever the task produced (e.g. "analysis_result"/<project id>,
+  // "proposal"/<proposal id>) - lets the frontend know what to fetch once status is completed,
+  // without this table needing a column per possible result type.
+  resultType   String?              @map("result_type")
+  resultId     String?              @map("result_id")
+  createdAt    DateTime             @default(now()) @map("created_at")
+  updatedAt    DateTime             @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@index([userId])
+  @@map("background_tasks")
 }
 
 model AIAnalysisJob {

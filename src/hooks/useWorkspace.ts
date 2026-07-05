@@ -1,5 +1,6 @@
 import { Dispatch, SetStateAction } from "react";
 import { AnalysisResult, Document, PricingRow } from "../types";
+import { BackgroundTask } from "./useBackgroundTasks";
 
 interface UseWorkspaceParams {
   locale: string;
@@ -11,6 +12,7 @@ interface UseWorkspaceParams {
   fetchGlobalConfigs: () => Promise<void> | void;
   fetchProjectDetails: (projectId: string) => Promise<void> | void;
   setActiveTab: (tab: "home" | "workspace" | "proposals" | "templates" | "approval" | "admin") => void;
+  waitForTask: (taskId: string) => Promise<BackgroundTask>;
   proposalTemplates: any[];
   selectedTechnicalTemplateId: string;
   selectedCommercialTemplateId: string;
@@ -32,7 +34,7 @@ interface UseWorkspaceParams {
 export function useWorkspace(params: UseWorkspaceParams) {
   const {
     locale, tx, hasPermission, selectedProjectId, analysisResult, setAnalysisResult,
-    fetchGlobalConfigs, fetchProjectDetails, setActiveTab,
+    fetchGlobalConfigs, fetchProjectDetails, setActiveTab, waitForTask,
     proposalTemplates, selectedTechnicalTemplateId, selectedCommercialTemplateId,
     documents, projectFolders, setProjectFolders, docFolderMapping, setDocFolderMapping,
     virtualFiles, setVirtualFiles,
@@ -144,12 +146,17 @@ export function useWorkspace(params: UseWorkspaceParams) {
         })
       });
 
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const errorBody = await res.json().catch(() => ({}));
-        throw new Error(errorBody.message || "Failed to generate technical proposal.");
+        throw new Error(data.message || "Failed to generate technical proposal.");
       }
 
-      fetchProjectDetails(selectedProjectId);
+      const finished = await waitForTask(data.task_id);
+      if (finished.status === "failed") {
+        throw new Error(finished.error_message || "Failed to generate technical proposal.");
+      }
+
+      await fetchProjectDetails(selectedProjectId);
       fetchGlobalConfigs();
       setActiveTab("proposals");
     } catch (e) {
@@ -207,12 +214,17 @@ export function useWorkspace(params: UseWorkspaceParams) {
         })
       });
 
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const errorBody = await res.json().catch(() => ({}));
-        throw new Error(errorBody.message || "Failed to generate commercial proposal.");
+        throw new Error(data.message || "Failed to generate commercial proposal.");
       }
 
-      fetchProjectDetails(selectedProjectId);
+      const finished = await waitForTask(data.task_id);
+      if (finished.status === "failed") {
+        throw new Error(finished.error_message || "Failed to generate commercial proposal.");
+      }
+
+      await fetchProjectDetails(selectedProjectId);
       fetchGlobalConfigs();
       setActiveTab("proposals");
     } catch (e) {

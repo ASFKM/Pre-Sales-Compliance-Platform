@@ -8,6 +8,7 @@ import Proposals from "./components/Proposals";
 import Templates from "./components/Templates";
 import Approval from "./components/Approval";
 import CreateProjectModal from "./components/modals/CreateProjectModal";
+import { useBackgroundTasks } from "./hooks/useBackgroundTasks";
 import ClassifyDocumentModal from "./components/modals/ClassifyDocumentModal";
 import AuditLogsModal from "./components/modals/AuditLogsModal";
 import DebugConsoleModal from "./components/modals/DebugConsoleModal";
@@ -217,6 +218,9 @@ export default function App() {
   // Real authentication & session states
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [authChecking, setAuthChecking] = useState<boolean>(true);
+
+  // Phase 1: real-time background task progress (analysis, proposal generation, ...)
+  const { activeTasks, waitForTask } = useBackgroundTasks(isAuthenticated);
   const [currentSessionUser, setCurrentSessionUser] = useState({
     id: "",
     name: "",
@@ -351,8 +355,6 @@ export default function App() {
     localStorage.setItem("ca_brand_primary_color", brandPrimaryColor);
     localStorage.setItem("ca_brand_accent_color", brandAccentColor);
   }, [brandLogoDataUrl, brandPrimaryColor, brandAccentColor]);
-
-  const [subTab, setSubTab] = useState<"summary" | "requirements" | "risks" | "bom" | "proposal_builder" | "explorer">("summary");
 
   // Core Data State
   const [projects, setProjects] = useState<Project[]>([]);
@@ -857,14 +859,27 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
         }
 
         setAnalysisError(friendlyMessage);
-        setSubTab("summary");
+        setActiveTab("workspace");
+        setIsAnalyzing(false);
         return;
       }
 
-      setAnalysisResult(data.result);
-      setAnalysisError("");
-      fetchProjectDetails(selectedProjectId);
+      // /analyze now responds immediately with a task id (Phase 1) - the real result comes
+      // once the background task reaches a terminal state, watched over the SSE stream.
+      const finished = await waitForTask(data.task_id);
+
+      if (finished.status === "failed") {
+        setAnalysisError(finished.error_message || (locale === "pt"
+          ? "Erro inesperado ao executar a análise. Verifique os logs de diagnóstico."
+          : "Unexpected error while running analysis. Check diagnostic logs."));
+        setActiveTab("workspace");
+        setIsAnalyzing(false);
+        return;
+      }
+
+      await fetchProjectDetails(selectedProjectId);
       fetchGlobalConfigs();
+      setAnalysisError("");
     } catch (e) {
       console.error(e);
       setAnalysisError(locale === "pt"
@@ -1137,6 +1152,24 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
           </div>
 
           <div className="flex items-center gap-3">
+            {activeTasks.length > 0 && (
+              <button
+                onClick={() => setActiveTab("workspace")}
+                className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 px-2.5 py-1.5 rounded-lg border border-emerald-700/50 transition-colors cursor-pointer"
+                title={activeTasks[0].current_step}
+              >
+                <span className="relative flex h-2 w-2 shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <span className="hidden md:inline text-[11px] text-slate-300 font-mono max-w-[160px] truncate">
+                  {activeTasks[0].current_step}
+                </span>
+                {activeTasks.length > 1 && (
+                  <span className="text-[9px] bg-emerald-600 text-white rounded-full px-1.5 font-bold">{activeTasks.length}</span>
+                )}
+              </button>
+            )}
             <div
               className="flex items-center gap-2 bg-slate-800 p-1.5 rounded-lg border border-slate-700/80 transition-colors"
             >
@@ -1344,6 +1377,42 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               setSelectedProjectId={setSelectedProjectId}
               setActiveTab={setActiveTab}
               setShowNewProjectModal={setShowNewProjectModal}
+            />
+          )}
+
+          {/* TAB 1: WORKSPACE TAB */}
+          {activeTab === "workspace" && (
+            <Workspace
+              locale={locale}
+              tx={tx}
+              t={t}
+              hasPermission={hasPermission}
+              selectedProjectId={selectedProjectId}
+              documents={documents}
+              setDocuments={setDocuments}
+              analysisResult={analysisResult}
+              setAnalysisResult={setAnalysisResult}
+              displayAnalysisResult={displayAnalysisResult}
+              analysisError={analysisError}
+              docsCount={docsCount}
+              reqsCount={reqsCount}
+              risksCount={risksCount}
+              oppsCount={oppsCount}
+              proposalTemplates={proposalTemplates}
+              fetchGlobalConfigs={fetchGlobalConfigs}
+              fetchProjectDetails={fetchProjectDetails}
+              setActiveTab={setActiveTab}
+              setActiveAdminSection={setActiveAdminSection}
+              canAccessAdminSection={canAccessAdminSection}
+              handleDeleteDocument={handleDeleteDocument}
+              getDocTag={getDocTag}
+              selectedTechnicalTemplateId={selectedTechnicalTemplateId}
+              setSelectedTechnicalTemplateId={setSelectedTechnicalTemplateId}
+              selectedCommercialTemplateId={selectedCommercialTemplateId}
+              setSelectedCommercialTemplateId={setSelectedCommercialTemplateId}
+              chatHistory={chatHistory}
+              setChatHistory={setChatHistory}
+              waitForTask={waitForTask}
             />
           )}
 

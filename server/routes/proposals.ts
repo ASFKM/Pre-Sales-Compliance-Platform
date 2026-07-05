@@ -7,6 +7,7 @@ import { requireAuth, requirePermission } from "./auth";
 import { generateDocxFromTemplate, generatePdfFromProposal } from "../utils/docx";
 import { logDebugMessage } from "../middleware/security";
 import { ProposalTemplate } from "../../src/types";
+import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
 
 const router = express.Router();
 
@@ -152,54 +153,78 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
       }
     };
 
-    // 2. Generate a valid DOCX package from the selected registered template metadata
-    await generateDocxFromTemplate(templateFile, docxPath, templateData);
+    // Document generation runs in the background from here - respond immediately with the
+    // task id, same pattern as document analysis (server/routes/analysis.ts).
+    const task = await createTask({ userId, type: "proposal_generation", currentStep: "Gerando documento..." });
+    res.status(202).json({ success: true, task_id: task.id });
 
-    // 3. Render PDF companion file from the same proposal data
-    await generatePdfFromProposal(docxPath, pdfPath, templateData);
+    void (async () => {
+    try {
+      // 2. Generate a valid DOCX package from the selected registered template metadata
+      await updateTaskProgress(task.id, { status: "running", currentStep: "Gerando DOCX", progressPct: 30 });
+      await generateDocxFromTemplate(templateFile, docxPath, templateData);
 
-    // 4. Save proposal to database
-    const proposal = await dbStore.createProposal({
-      project_id: projectId,
-      proposal_type: proposalType,
-      template_id: validated.template_id,
-      template_version: template.version,
-      status: "draft",
-      language: validated.language,
-      docx_file_path: `/uploads/${projectId}/${docxFilename}`,
-      pdf_file_path: `/uploads/${projectId}/${pdfFilename}`,
-      version: 1,
-      approval_workflow_id: project.selected_approval_workflow_id || "w1",
-      generated_by: userName,
-      manual_pricing_table: validated.manual_pricing_table,
-      payment_terms: validated.payment_terms,
-      delivery_terms: validated.delivery_terms,
-      proposal_validity: validated.proposal_validity,
-      commercial_assumptions: validated.commercial_assumptions,
-      exclusions: validated.exclusions
-    });
+      // 3. Render PDF companion file from the same proposal data
+      await updateTaskProgress(task.id, { currentStep: "Gerando PDF", progressPct: 65 });
+      await generatePdfFromProposal(docxPath, pdfPath, templateData);
 
-    logDebugMessage({
-      operation: "Proposal Generation",
-      message: `Generated DOCX & PDF proposal using template ${template.id} for project ${projectId}`,
-      status: "SUCCESS",
-      durationMs: Date.now() - startTime,
-      correlationId,
-      projectId
-    });
+      // 4. Save proposal to database
+      await updateTaskProgress(task.id, { currentStep: "Salvando proposta", progressPct: 90 });
+      const proposal = await dbStore.createProposal({
+        project_id: projectId,
+        proposal_type: proposalType,
+        template_id: validated.template_id,
+        template_version: template.version,
+        status: "draft",
+        language: validated.language,
+        docx_file_path: `/uploads/${projectId}/${docxFilename}`,
+        pdf_file_path: `/uploads/${projectId}/${pdfFilename}`,
+        version: 1,
+        approval_workflow_id: project.selected_approval_workflow_id || "w1",
+        generated_by: userName,
+        manual_pricing_table: validated.manual_pricing_table,
+        payment_terms: validated.payment_terms,
+        delivery_terms: validated.delivery_terms,
+        proposal_validity: validated.proposal_validity,
+        commercial_assumptions: validated.commercial_assumptions,
+        exclusions: validated.exclusions
+      });
 
-    await dbStore.addAuditLog({
-      user_id: userName,
-      action: "Generate Proposal Docs",
-      entity_type: "Proposal",
-      entity_id: proposal.id,
-      project_id: projectId,
-      ip_address: req.ip || "127.0.0.1",
-      user_agent: req.headers["user-agent"] || "unknown",
-      metadata: JSON.stringify({ type: proposalType, template_id: template.id, template_version: template.version, docx: proposal.docx_file_path })
-    });
+      logDebugMessage({
+        operation: "Proposal Generation",
+        message: `Generated DOCX & PDF proposal using template ${template.id} for project ${projectId}`,
+        status: "SUCCESS",
+        durationMs: Date.now() - startTime,
+        correlationId,
+        projectId
+      });
 
-    res.status(211).json(proposal);
+      await dbStore.addAuditLog({
+        user_id: userName,
+        action: "Generate Proposal Docs",
+        entity_type: "Proposal",
+        entity_id: proposal.id,
+        project_id: projectId,
+        ip_address: req.ip || "127.0.0.1",
+        user_agent: req.headers["user-agent"] || "unknown",
+        metadata: JSON.stringify({ type: proposalType, template_id: template.id, template_version: template.version, docx: proposal.docx_file_path })
+      });
+
+      await completeTask(task.id, { resultType: "proposal", resultId: proposal.id });
+    } catch (genErr: any) {
+      console.error("Proposal generation failed:", genErr);
+      logDebugMessage({
+        operation: "Proposal Generation Failure",
+        message: `Proposal generation failed: ${genErr.message}`,
+        status: "ERROR",
+        durationMs: Date.now() - startTime,
+        correlationId,
+        projectId,
+        error: genErr
+      });
+      await failTask(task.id, genErr.message || "Unknown error during proposal generation");
+    }
+    })();
 
   } catch (err) {
     if (err instanceof z.ZodError) {

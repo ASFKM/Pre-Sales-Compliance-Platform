@@ -53,12 +53,18 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   const authHeader = req.headers["authorization"];
   const correlationId = (req.headers["x-correlation-id"] as string) || "corr-unknown";
 
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+  // EventSource (used for the Phase 1 task-progress stream) can't set custom headers, so it's
+  // the one legitimate case for passing the token as a query param instead of Authorization.
+  // Every other client already sends it via the header, so this fallback doesn't change
+  // behavior for them.
+  const queryToken = typeof req.query.token === "string" ? req.query.token : undefined;
+  const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : queryToken;
+
+  if (!token) {
     return res.status(401).json({ success: false, message: "Authorization token required." });
   }
 
   try {
-    const token = authHeader.split(" ")[1];
     const session = await getSession(token);
 
     if (!session) {

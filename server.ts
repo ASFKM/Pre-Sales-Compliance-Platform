@@ -29,6 +29,7 @@ import settingsRouter from "./server/routes/settings";
 import integrationsRouter from "./server/routes/integrations";
 import auditRouter from "./server/routes/audit";
 import diagnosticsRouter from "./server/routes/diagnostics";
+import tasksRouter from "./server/routes/tasks";
 
 const app = express();
 
@@ -56,6 +57,7 @@ app.use("/api", settingsRouter);
 app.use("/api/integrations", integrationsRouter);
 app.use("/api", auditRouter);
 app.use("/api", diagnosticsRouter);
+app.use("/api", tasksRouter);
 
 // 5. Basic Observability / Health Endpoints
 app.get("/api/health", (req: Request, res: Response) => {

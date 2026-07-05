@@ -6,6 +6,7 @@ import { requirePermission } from "./auth";
 import { logDebugMessage } from "../middleware/security";
 import { decryptSecret } from "../utils/security";
 import { AnalysisResult } from "../../src/types";
+import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
 
 const router = express.Router();
 
@@ -248,25 +249,35 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
     metadata: JSON.stringify({ ai_model: job.ai_model, prompt_template: job.prompt_template_version })
   });
 
-  // 2. Fetch all project documents and retrieve their real extracted text
-  const docs = await dbStore.getDocuments(projectId);
+  // Analysis runs in the background from here - respond immediately with the task id and
+  // let the frontend watch progress over the Phase 1 SSE stream instead of holding the
+  // request open for the whole Gemini call.
+  const task = await createTask({ userId, type: "document_analysis", currentStep: "Iniciando análise..." });
+  res.status(202).json({ success: true, task_id: task.id, job_id: job.id });
 
-  let combinedExtractedText = "";
-  for (let idx = 0; idx < docs.length; idx++) {
-    const doc = docs[idx];
-    const text = await dbStore.getDocumentContent(doc.id);
-    if (text) {
-      combinedExtractedText += `\n--- START DOCUMENT ${idx + 1}: ${doc.filename} (${doc.detected_document_type}) ---\n`;
-      combinedExtractedText += text.substring(0, 10000); // Send first 10,000 characters per document to avoid token overflow in basic tier
-      combinedExtractedText += `\n--- END DOCUMENT ${idx + 1} ---\n`;
-    }
-  }
-
-  if (!combinedExtractedText) {
-    combinedExtractedText = "No document text was extracted. Standard project description fallback is used.";
-  }
-
+  void (async () => {
   try {
+    await updateTaskProgress(task.id, { status: "running", currentStep: "Lendo documentos", progressPct: 15 });
+
+    // 2. Fetch all project documents and retrieve their real extracted text
+    const docs = await dbStore.getDocuments(projectId);
+
+    let combinedExtractedText = "";
+    for (let idx = 0; idx < docs.length; idx++) {
+      const doc = docs[idx];
+      const text = await dbStore.getDocumentContent(doc.id);
+      if (text) {
+        combinedExtractedText += `\n--- START DOCUMENT ${idx + 1}: ${doc.filename} (${doc.detected_document_type}) ---\n`;
+        combinedExtractedText += text.substring(0, 10000); // Send first 10,000 characters per document to avoid token overflow in basic tier
+        combinedExtractedText += `\n--- END DOCUMENT ${idx + 1} ---\n`;
+      }
+    }
+
+    if (!combinedExtractedText) {
+      combinedExtractedText = "No document text was extracted. Standard project description fallback is used.";
+    }
+
+    await updateTaskProgress(task.id, { currentStep: "Analisando com IA", progressPct: 40 });
     const ai = await getGeminiClient();
 
     const prompt = `You are an expert Pre-Sales Solution Architect analyzing bid, RFP, and specification documents to design commercial and technical proposals.
@@ -438,6 +449,7 @@ Write all generated content fields strictly in ${project.proposal_language}. Mai
       updated_at: new Date().toISOString()
     };
 
+    await updateTaskProgress(task.id, { currentStep: "Salvando resultado", progressPct: 85 });
     await dbStore.saveAnalysisResult(analysisResult);
 
     // Update job to completed
@@ -458,7 +470,7 @@ Write all generated content fields strictly in ${project.proposal_language}. Mai
       projectId
     });
 
-    res.json({ success: true, result: analysisResult });
+    await completeTask(task.id, { resultType: "analysis_result", resultId: projectId });
 
   } catch (err: any) {
     // 4. Proper error handling. No mock fallback silently marked as complete.
@@ -480,12 +492,9 @@ Write all generated content fields strictly in ${project.proposal_language}. Mai
       error: err
     });
 
-    res.status(500).json({
-      success: false,
-      message: `Gemini API execution failed: ${err.message}. The analysis job was marked as failed in the log history.`,
-      correlationId
-    });
+    await failTask(task.id, err.message || "Unknown error during AI synthesis");
   }
+  })();
 });
 
 // GET persistent job history

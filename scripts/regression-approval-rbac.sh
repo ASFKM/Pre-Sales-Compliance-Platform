@@ -103,9 +103,30 @@ CREATE_RESPONSE="$(curl -s -X POST "http://127.0.0.1:3000/api/projects/$PROJECT_
   -H "Content-Type: application/json" \
   -d "{\"template_id\":\"$TEMPLATE_ID\",\"language\":\"Portuguese\",\"payment_terms\":\"Net 30\",\"delivery_terms\":\"Delivery after approval\",\"proposal_validity\":\"90 days\"}")"
 
-PROPOSAL_ID="$(echo "$CREATE_RESPONSE" | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{const j=JSON.parse(s); if(!j.id){console.error(s); process.exit(1)} console.log(j.id)})')"
-GENERATED_DOCX_PATH="$(echo "$CREATE_RESPONSE" | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{const j=JSON.parse(s); const p=String(j.docx_file_path || ""); console.log(p.startsWith("/") ? p.slice(1) : p)})')"
-GENERATED_PDF_PATH="$(echo "$CREATE_RESPONSE" | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{const j=JSON.parse(s); const p=String(j.pdf_file_path || ""); console.log(p.startsWith("/") ? p.slice(1) : p)})')"
+# Proposal generation runs in the background (Phase 1) - the endpoint above only hands back a
+# task id, so poll it until the task reaches a terminal state before reading the proposal.
+TASK_ID="$(echo "$CREATE_RESPONSE" | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{const j=JSON.parse(s); if(!j.task_id){console.error(s); process.exit(1)} console.log(j.task_id)})')"
+
+TASK_STATUS=""
+for i in $(seq 1 30); do
+  TASK_RESPONSE="$(curl -s "http://127.0.0.1:3000/api/tasks/$TASK_ID" -H "Authorization: Bearer $ENGINEER_TOKEN")"
+  TASK_STATUS="$(echo "$TASK_RESPONSE" | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{const j=JSON.parse(s); console.log(j.task?.status || "")})')"
+  if [ "$TASK_STATUS" = "completed" ] || [ "$TASK_STATUS" = "failed" ]; then
+    break
+  fi
+  sleep 1
+done
+
+if [ "$TASK_STATUS" != "completed" ]; then
+  echo "Proposal generation task did not complete: $TASK_RESPONSE"
+  exit 1
+fi
+
+PROPOSAL_ID="$(echo "$TASK_RESPONSE" | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{const j=JSON.parse(s); console.log(j.task.result_id)})')"
+
+PROJECT_PROPOSALS="$(curl -s "http://127.0.0.1:3000/api/projects/$PROJECT_ID/proposals" -H "Authorization: Bearer $ENGINEER_TOKEN")"
+GENERATED_DOCX_PATH="$(echo "$PROJECT_PROPOSALS" | PROPOSAL_ID="$PROPOSAL_ID" node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{const list=JSON.parse(s); const p=list.find(x=>x.id===process.env.PROPOSAL_ID); const path=String(p?.docx_file_path || ""); console.log(path.startsWith("/") ? path.slice(1) : path)})')"
+GENERATED_PDF_PATH="$(echo "$PROJECT_PROPOSALS" | PROPOSAL_ID="$PROPOSAL_ID" node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{const list=JSON.parse(s); const p=list.find(x=>x.id===process.env.PROPOSAL_ID); const path=String(p?.pdf_file_path || ""); console.log(path.startsWith("/") ? path.slice(1) : path)})')"
 echo "Created proposal: $PROPOSAL_ID"
 echo "Generated files: $GENERATED_DOCX_PATH $GENERATED_PDF_PATH"
 
