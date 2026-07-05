@@ -200,7 +200,11 @@ bastante o trabalho de schema desta fase.
 
 ## Fase 4 — Criação de projeto: upload primeiro
 
-**Status**: desenho fechado.
+**Status**: ✅ implementada e verificada (commit `6267cc5`, 2026-07-05). Assistente de 2 etapas
+no ar (upload → staging Redis com TTL → análise IA em background → validação totalmente
+editável → confirmação materializa o projeto de verdade), fallback manual preservado.
+Bug encontrado no caminho (hotfix separado, commit `adc8f06`): a Fase 3 tinha quebrado
+silenciosamente o SSE `/tasks/stream` por ordem de rotas no Express - corrigido.
 
 **Fluxo atual**: clicar em "+ Nova Proposta" abre um formulário (nome, cliente, vertical,
 descrição, prazo, etc.) e *só depois* o usuário sobe documentos e roda a análise.
