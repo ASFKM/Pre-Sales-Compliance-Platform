@@ -92,7 +92,12 @@ a Fase 7 (licenciamento/cobrança).
 
 ## Fase 1 — Infraestrutura de tarefas em tempo real
 
-**Status**: desenho fechado.
+**Status**: ✅ implementada e verificada (commit `6532638`, 2026-07-05). BackgroundTask +
+Redis pub/sub + SSE (`/api/tasks/stream`) no ar; análise de IA e geração de propostas já rodam
+sobre esse sistema; indicador persistente na barra superior. Achado no caminho: um bug crítico
+pré-existente (não relacionado a esta fase) - a aba Área de Trabalho estava completamente em
+branco em produção desde o split do App.tsx, só descoberto via smoke test real de navegador -
+foi corrigido no mesmo commit.
 
 **Princípio, não só um detalhe de UX**: qualquer operação longa do produto — análise de IA no
 Workspace (já existe hoje), geração de proposta, o futuro orquestrador de IA (Fase 5) — passa a
