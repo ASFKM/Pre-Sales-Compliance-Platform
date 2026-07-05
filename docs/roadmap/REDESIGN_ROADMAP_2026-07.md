@@ -160,7 +160,13 @@ conta por tentativas falhas.
 
 ## Fase 3 — RBAC + dono do registro
 
-**Status**: desenho fechado.
+**Status**: ✅ implementada e verificada (commit `93c6f02`, 2026-07-05). Regra de visibilidade
+embutida na extensão Prisma (Project/Proposal/ApprovalDecision), tabela TeamMembership,
+permissão `project:read_all`, reatribuição de dono, gestão de equipe. Achado técnico no
+caminho: `findUnique`/`update`/`delete` singulares do Prisma exigem o campo único na raiz do
+`where` - não aceitam ficar dentro de um `AND` junto com a regra de visibilidade. Corrigido
+redirecionando reads pra `findFirst` e update/delete pra `updateMany`/`deleteMany` + re-fetch
+quando a visibilidade se aplica.
 
 **Achado útil**: o schema já tem um campo `owner_user_id` no Projeto (rastreamento de quem
 criou/é responsável), só nunca foi usado para controle de acesso — só para exibição. Isso reduz
