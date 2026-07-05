@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { getCurrentTenantId } from "./tenantContext";
 import {
   User,
   UserStatus,
@@ -25,12 +26,25 @@ function randomId(prefix: string): string {
   return `${prefix}_` + Math.random().toString(36).substring(2, 11);
 }
 
+// The Prisma extension (src/prisma.ts) auto-injects tenant_id from context at runtime for
+// every create/upsert, but Prisma's generated types don't know that - they still require the
+// field explicitly. Passing it here keeps the compiler honest; the extension is the actual
+// runtime safety net if a call site is ever added without going through this.
+function requireTenantId(): string {
+  const tenantId = getCurrentTenantId();
+  if (!tenantId) {
+    throw new Error("No tenant context set - this operation must run inside runWithTenant().");
+  }
+  return tenantId;
+}
+
 // Prisma rows use camelCase/Date; the rest of the app speaks the original
 // snake_case/ISO-string shape from types.ts. These mappers keep every route
 // file's existing field names working unchanged.
 function mapUser(u: any): User {
   return {
     id: u.id,
+    tenant_id: u.tenantId,
     name: u.name,
     email: u.email,
     mfa_enabled: u.mfaEnabled,
@@ -43,7 +57,7 @@ function mapUser(u: any): User {
 }
 
 function mapRole(r: any): Role {
-  return { id: r.id, name: r.name, description: r.description, permissions: r.permissions };
+  return { id: r.id, tenant_id: r.tenantId, name: r.name, description: r.description, permissions: r.permissions };
 }
 
 function mapProject(p: any): Project {
@@ -411,6 +425,7 @@ class DBStore {
     const u = await prisma.user.create({
       data: {
         id: randomId("u"),
+        tenantId: requireTenantId(),
         name: data.name,
         email: data.email.toLowerCase().trim(),
         roleId: data.role_id,
@@ -472,9 +487,9 @@ class DBStore {
     return r ? mapRole(r) : undefined;
   }
 
-  public async createRole(role: Omit<Role, "id">): Promise<Role> {
+  public async createRole(role: Omit<Role, "id" | "tenant_id">): Promise<Role> {
     const r = await prisma.role.create({
-      data: { id: randomId("r"), name: role.name, description: role.description, permissions: role.permissions },
+      data: { id: randomId("r"), tenantId: requireTenantId(), name: role.name, description: role.description, permissions: role.permissions },
     });
     return mapRole(r);
   }
@@ -518,6 +533,7 @@ class DBStore {
     const p = await prisma.project.create({
       data: {
         id: randomId("p"),
+        tenantId: requireTenantId(),
         name: project.name,
         customerName: project.customer_name,
         opportunityName: project.opportunity_name,
@@ -597,6 +613,7 @@ class DBStore {
     const d = await prisma.document.create({
       data: {
         id: randomId("doc"),
+        tenantId: requireTenantId(),
         projectId: doc.project_id,
         filename: doc.filename,
         originalFilename: doc.original_filename,
@@ -648,7 +665,7 @@ class DBStore {
   public async setDocumentContent(documentId: string, content: string): Promise<void> {
     await prisma.documentContent.upsert({
       where: { documentId },
-      create: { documentId, content },
+      create: { documentId, tenantId: requireTenantId(), content },
       update: { content },
     });
   }
@@ -664,6 +681,7 @@ class DBStore {
       where: { projectId: result.project_id },
       create: {
         id: result.id || randomId("ar"),
+        tenantId: requireTenantId(),
         projectId: result.project_id,
         jobId: result.job_id,
         executiveSummary: result.executive_summary as any,
@@ -713,6 +731,7 @@ class DBStore {
     const j = await prisma.aIAnalysisJob.create({
       data: {
         id: randomId("job"),
+        tenantId: requireTenantId(),
         projectId: job.project_id,
         status: job.status,
         aiProvider: job.ai_provider,
@@ -766,6 +785,7 @@ class DBStore {
     const p = await prisma.proposal.create({
       data: {
         id: randomId("prop"),
+        tenantId: requireTenantId(),
         projectId: prop.project_id,
         proposalType: prop.proposal_type,
         templateId: prop.template_id,
@@ -844,6 +864,7 @@ class DBStore {
     await prisma.auditLog.create({
       data: {
         id: randomId("aud"),
+        tenantId: requireTenantId(),
         userId: log.user_id,
         action: log.action,
         entityType: log.entity_type,
@@ -864,6 +885,9 @@ class DBStore {
     await prisma.debugLog.create({
       data: {
         id: randomId("dbg"),
+        // Optional: some diagnostic events (e.g. failed login for a nonexistent email)
+        // genuinely happen before any tenant is known.
+        tenantId: getCurrentTenantId(),
         logLevel: log.log_level,
         serviceName: log.service_name,
         moduleName: log.module_name,
@@ -992,6 +1016,7 @@ class DBStore {
     const t = await prisma.proposalTemplate.create({
       data: {
         id: randomId("tpl"),
+        tenantId: requireTenantId(),
         name: tpl.name,
         description: tpl.description,
         templateType: tpl.template_type,
@@ -1073,8 +1098,12 @@ class DBStore {
 
   public async createApprovalWorkflow(workflow: any): Promise<ApprovalWorkflow> {
     const id = randomId("w");
+    // Nested creates aren't seen by the Prisma tenant-scoping extension (it only
+    // intercepts top-level model operations), so tenantId has to be set explicitly here.
+    const tenantId = getCurrentTenantId();
     const stages = (workflow.stages || []).map((stage: any, index: number) => ({
       id: stage.id || `${id}-s${index + 1}`,
+      tenantId,
       name: stage.name,
       order: index + 1,
       approverType: stage.approver_type,
@@ -1087,6 +1116,7 @@ class DBStore {
     const w = await prisma.approvalWorkflow.create({
       data: {
         id,
+        tenantId: requireTenantId(),
         name: workflow.name,
         description: workflow.description,
         active: workflow.active ?? true,
@@ -1146,6 +1176,7 @@ class DBStore {
     const dec = await prisma.approvalDecision.create({
       data: {
         id: randomId("dec"),
+        tenantId: requireTenantId(),
         proposalId: decision.proposal_id,
         stageId: decision.stage_id,
         approverUserId: decision.approver_user_id,
@@ -1180,6 +1211,7 @@ class DBStore {
     const t = await prisma.task.create({
       data: {
         id: randomId("task"),
+        tenantId: requireTenantId(),
         projectId: task.project_id,
         title: task.title,
         description: task.description,
@@ -1232,6 +1264,7 @@ class DBStore {
     const c = await prisma.conversationMessage.create({
       data: {
         id: randomId("msg"),
+        tenantId: requireTenantId(),
         projectId: msg.project_id,
         userId: msg.user_id,
         role: msg.role,
@@ -1277,6 +1310,7 @@ class DBStore {
     const i = await prisma.integrationConnector.create({
       data: {
         id: randomId("int"),
+        tenantId: requireTenantId(),
         name: conn.name,
         type: conn.type,
         status: conn.status,

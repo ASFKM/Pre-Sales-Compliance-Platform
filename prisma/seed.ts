@@ -1,9 +1,10 @@
 // Bootstraps a fresh database (CI, new deployment, or local dev) with the minimal canonical
-// dataset the app and the regression scripts assume exists: default roles, demo users, one
-// project, proposal templates, and an approval workflow with role-targeted stages. Safe to
-// re-run (every write is an upsert).
+// dataset the app and the regression scripts assume exists: a default tenant, default roles,
+// demo users, one project, proposal templates, and an approval workflow with role-targeted
+// stages. Safe to re-run (every write is an upsert).
 import crypto from "crypto";
 import { prisma } from "../src/prisma";
+import { runWithTenant } from "../src/tenantContext";
 
 function hashPassword(password: string): string {
   const salt = crypto.randomBytes(16).toString("hex");
@@ -11,7 +12,22 @@ function hashPassword(password: string): string {
   return `scrypt$${salt}$${derived}`;
 }
 
+const DEFAULT_TENANT_ID = "tenant_default";
+
 async function main() {
+  console.log("Seeding default tenant...");
+  const tenant = await prisma.tenant.upsert({
+    where: { id: DEFAULT_TENANT_ID },
+    create: {
+      id: DEFAULT_TENANT_ID,
+      name: "AI Pre-Sales Solutions LLC",
+      deploymentMode: "onprem",
+      status: "active"
+    },
+    update: {}
+  });
+
+  await runWithTenant({ tenantId: tenant.id }, async () => {
   console.log("Seeding roles...");
   const roles = [
     {
@@ -54,7 +70,7 @@ async function main() {
   ];
 
   for (const role of roles) {
-    await prisma.role.upsert({ where: { id: role.id }, create: role, update: role });
+    await prisma.role.upsert({ where: { id: role.id }, create: { ...role, tenantId: tenant.id }, update: role });
   }
 
   console.log("Seeding users (password: password123)...");
@@ -68,7 +84,7 @@ async function main() {
   for (const user of users) {
     await prisma.user.upsert({
       where: { id: user.id },
-      create: { ...user, status: "ACTIVE", passwordHash },
+      create: { ...user, tenantId: tenant.id, status: "ACTIVE", passwordHash },
       update: { name: user.name, email: user.email, roleId: user.roleId, mfaEnabled: user.mfaEnabled }
     });
   }
@@ -78,6 +94,7 @@ async function main() {
     where: { id: "p1" },
     create: {
       id: "p1",
+      tenantId: tenant.id,
       name: "Highway ITS Modernization",
       customerName: "Metropolitan Transit Authority",
       opportunityName: "ITS-MTA-2026",
@@ -143,7 +160,7 @@ async function main() {
   ];
 
   for (const tpl of templates) {
-    await prisma.proposalTemplate.upsert({ where: { id: tpl.id }, create: tpl, update: tpl });
+    await prisma.proposalTemplate.upsert({ where: { id: tpl.id }, create: { ...tpl, tenantId: tenant.id }, update: tpl });
   }
 
   console.log("Seeding approval workflows w1/w2...");
@@ -151,15 +168,16 @@ async function main() {
     where: { id: "w1" },
     create: {
       id: "w1",
+      tenantId: tenant.id,
       name: "High-Value Infrastructure Approval Workflow",
       description: "Rigorous 3-stage validation required for public tenders, infrastructure vertical bids, or any proposal valued over USD 50,000.",
       active: true,
       appliesTo: "all",
       stages: {
         create: [
-          { id: "w1-s1", name: "Pre-Sales Technical Verification", order: 1, approverType: "role", approverRoleId: "r3", mandatory: true, conditions: "Always mandatory" },
-          { id: "w1-s2", name: "Commercial & Margin Validation", order: 2, approverType: "role", approverRoleId: "r2", mandatory: true, conditions: "Valued > $10,000" },
-          { id: "w1-s3", name: "Executive & Director Sign-off", order: 3, approverType: "role", approverRoleId: "r1", mandatory: true, conditions: "Valued > $50,000" }
+          { id: "w1-s1", tenantId: tenant.id, name: "Pre-Sales Technical Verification", order: 1, approverType: "role", approverRoleId: "r3", mandatory: true, conditions: "Always mandatory" },
+          { id: "w1-s2", tenantId: tenant.id, name: "Commercial & Margin Validation", order: 2, approverType: "role", approverRoleId: "r2", mandatory: true, conditions: "Valued > $10,000" },
+          { id: "w1-s3", tenantId: tenant.id, name: "Executive & Director Sign-off", order: 3, approverType: "role", approverRoleId: "r1", mandatory: true, conditions: "Valued > $50,000" }
         ]
       }
     },
@@ -170,14 +188,15 @@ async function main() {
     where: { id: "w2" },
     create: {
       id: "w2",
+      tenantId: tenant.id,
       name: "Standard Smart City Bid Flow",
       description: "Fast-tracked 2-stage verification for smart city vertical contracts.",
       active: true,
       appliesTo: "Smart Cities",
       stages: {
         create: [
-          { id: "w2-s1", name: "Technical Specification Verification", order: 1, approverType: "role", approverRoleId: "r3", mandatory: true, conditions: "Always mandatory" },
-          { id: "w2-s2", name: "Commercial Approvals", order: 2, approverType: "role", approverRoleId: "r2", mandatory: true, conditions: "Always mandatory" }
+          { id: "w2-s1", tenantId: tenant.id, name: "Technical Specification Verification", order: 1, approverType: "role", approverRoleId: "r3", mandatory: true, conditions: "Always mandatory" },
+          { id: "w2-s2", tenantId: tenant.id, name: "Commercial Approvals", order: 2, approverType: "role", approverRoleId: "r2", mandatory: true, conditions: "Always mandatory" }
         ]
       }
     },
@@ -209,14 +228,15 @@ async function main() {
   ];
 
   for (const prompt of prompts) {
-    await prisma.promptTemplate.upsert({ where: { id: prompt.id }, create: prompt, update: {} });
+    await prisma.promptTemplate.upsert({ where: { id: prompt.id }, create: { ...prompt, tenantId: tenant.id }, update: {} });
   }
 
   console.log("Seeding platform settings...");
   await prisma.platformSettings.upsert({
-    where: { id: "settings-global" },
+    where: { tenantId: tenant.id },
     create: {
       id: "settings-global",
+      tenantId: tenant.id,
       aiProvider: "Google Gemini",
       defaultModel: "gemini-3.5-flash",
       documentAnalysisModel: "gemini-3.5-flash",
@@ -235,9 +255,10 @@ async function main() {
 
   console.log("Seeding branding settings...");
   await prisma.brandingSettings.upsert({
-    where: { id: "branding-global" },
+    where: { tenantId: tenant.id },
     create: {
       id: "branding-global",
+      tenantId: tenant.id,
       companyName: "Commercial Assistant AI",
       companyLogoPath: "",
       loginLogoPath: "",
@@ -262,6 +283,7 @@ async function main() {
   });
 
   console.log("Seed complete.");
+  });
 }
 
 main()

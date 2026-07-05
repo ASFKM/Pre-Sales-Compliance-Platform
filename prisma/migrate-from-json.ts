@@ -6,6 +6,11 @@ import path from "path";
 import { prisma } from "../src/prisma";
 
 const DB_FILE = path.join(process.cwd(), "db_state.json");
+// This script pre-dates multi-tenancy entirely (it migrates from the old single-tenant JSON
+// store, retired once Postgres became the real store). It only runs at all if db_state.json
+// still exists, which it never will again - kept for historical/audit purposes. Everything it
+// creates is attributed to the same default tenant the current prisma/seed.ts creates.
+const DEFAULT_TENANT_ID = "tenant_default";
 
 const d = (v?: string | null): Date | undefined => (v ? new Date(v) : undefined);
 const dReq = (v: string): Date => new Date(v);
@@ -22,7 +27,7 @@ async function main() {
   for (const r of raw.roles || []) {
     await prisma.role.upsert({
       where: { id: r.id },
-      create: { id: r.id, name: r.name, description: r.description, permissions: r.permissions || [] },
+      create: { id: r.id, tenantId: DEFAULT_TENANT_ID, name: r.name, description: r.description, permissions: r.permissions || [] },
       update: {},
     });
   }
@@ -33,6 +38,7 @@ async function main() {
       where: { id: u.id },
       create: {
         id: u.id,
+        tenantId: DEFAULT_TENANT_ID,
         name: u.name,
         email: u.email,
         passwordHash: u.password_hash || null,
@@ -54,6 +60,7 @@ async function main() {
       where: { id: p.id },
       create: {
         id: p.id,
+        tenantId: DEFAULT_TENANT_ID,
         name: p.name,
         customerName: p.customer_name,
         opportunityName: p.opportunity_name,
@@ -84,6 +91,7 @@ async function main() {
       where: { id: doc.id },
       create: {
         id: doc.id,
+        tenantId: DEFAULT_TENANT_ID,
         projectId: doc.project_id,
         filename: doc.filename,
         originalFilename: doc.original_filename,
@@ -107,7 +115,7 @@ async function main() {
   for (const [documentId, content] of Object.entries(raw.document_contents || {})) {
     await prisma.documentContent.upsert({
       where: { documentId },
-      create: { documentId, content: content as string },
+      create: { documentId, tenantId: DEFAULT_TENANT_ID, content: content as string },
       update: {},
     });
   }
@@ -118,6 +126,7 @@ async function main() {
       where: { id: j.id },
       create: {
         id: j.id,
+        tenantId: DEFAULT_TENANT_ID,
         projectId: j.project_id,
         status: j.status,
         aiProvider: j.ai_provider,
@@ -142,6 +151,7 @@ async function main() {
       where: { id: ar.id },
       create: {
         id: ar.id,
+        tenantId: DEFAULT_TENANT_ID,
         projectId: ar.project_id,
         jobId: ar.job_id,
         executiveSummary: ar.executive_summary,
@@ -170,6 +180,7 @@ async function main() {
       where: { id: c.id },
       create: {
         id: c.id,
+        tenantId: DEFAULT_TENANT_ID,
         projectId: c.project_id,
         userId: c.user_id,
         role: c.role,
@@ -193,6 +204,7 @@ async function main() {
       where: { id: t.id },
       create: {
         id: t.id,
+        tenantId: DEFAULT_TENANT_ID,
         name: t.name,
         description: t.description,
         templateType: t.template_type,
@@ -217,6 +229,7 @@ async function main() {
       where: { id: w.id },
       create: {
         id: w.id,
+        tenantId: DEFAULT_TENANT_ID,
         name: w.name,
         description: w.description,
         active: !!w.active,
@@ -232,6 +245,7 @@ async function main() {
         where: { id: s.id },
         create: {
           id: s.id,
+          tenantId: DEFAULT_TENANT_ID,
           workflowId: w.id,
           name: s.name,
           order: s.order,
@@ -254,6 +268,7 @@ async function main() {
       where: { id: p.id },
       create: {
         id: p.id,
+        tenantId: DEFAULT_TENANT_ID,
         projectId: p.project_id,
         proposalType: p.proposal_type,
         templateId: p.template_id,
@@ -283,6 +298,7 @@ async function main() {
       where: { id: dec.id },
       create: {
         id: dec.id,
+        tenantId: DEFAULT_TENANT_ID,
         proposalId: dec.proposal_id,
         stageId: dec.stage_id,
         approverUserId: dec.approver_user_id,
@@ -300,6 +316,7 @@ async function main() {
       where: { id: t.id },
       create: {
         id: t.id,
+        tenantId: DEFAULT_TENANT_ID,
         projectId: t.project_id,
         title: t.title,
         description: t.description,
@@ -322,6 +339,7 @@ async function main() {
       where: { id: pt.id },
       create: {
         id: pt.id,
+        tenantId: DEFAULT_TENANT_ID,
         name: pt.name,
         type: pt.type,
         content: pt.content,
@@ -343,6 +361,7 @@ async function main() {
       where: { id: s.id },
       create: {
         id: s.id,
+        tenantId: DEFAULT_TENANT_ID,
         aiProvider: s.ai_provider,
         defaultModel: s.default_model,
         documentAnalysisModel: s.document_analysis_model,
@@ -370,6 +389,7 @@ async function main() {
       where: { id: b.id },
       create: {
         id: b.id,
+        tenantId: DEFAULT_TENANT_ID,
         companyName: b.company_name,
         companyLogoPath: b.company_logo_path,
         loginLogoPath: b.login_logo_path,
@@ -407,6 +427,7 @@ async function main() {
       where: { id: i.id },
       create: {
         id: i.id,
+        tenantId: DEFAULT_TENANT_ID,
         name: i.name,
         type: i.type,
         status: i.status,
@@ -427,6 +448,7 @@ async function main() {
       where: { id: a.id },
       create: {
         id: a.id,
+        tenantId: DEFAULT_TENANT_ID,
         userId: a.user_id,
         action: a.action,
         entityType: a.entity_type,
@@ -447,6 +469,7 @@ async function main() {
       where: { id: g.id },
       create: {
         id: g.id,
+        tenantId: DEFAULT_TENANT_ID,
         timestamp: dReq(g.timestamp),
         logLevel: g.log_level,
         serviceName: g.service_name,

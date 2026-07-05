@@ -6,6 +6,7 @@ export enum UserStatus {
 
 export interface User {
   id: string;
+  tenant_id: string;
   name: string;
   email: string;
   mfa_enabled: boolean;
@@ -18,6 +19,7 @@ export interface User {
 
 export interface Role {
   id: string;
+  tenant_id: string;
   name: string;
   description: string;
   permissions: string[];

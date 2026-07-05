@@ -16,6 +16,7 @@ import {
 } from "../utils/security";
 import { logDebugMessage } from "../middleware/security";
 import { isProductionRuntime, isDemoRuntime } from "../config/runtime";
+import { runWithTenant } from "../../src/tenantContext";
 
 const router = express.Router();
 
@@ -73,12 +74,19 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       });
     }
 
+    // Unscoped lookup: we don't know the tenant until we resolve the session's user.
+    const user = await dbStore.getUserById(session.userId);
+    if (!user) {
+      return res.status(401).json({ success: false, message: "Invalid or expired session token.", correlationId });
+    }
+
     // Bind session info to request headers for downstream endpoint use
     req.headers["x-user-id"] = session.userId;
     req.headers["x-role-id"] = session.roleId;
     req.headers["x-session-token"] = token;
+    req.headers["x-tenant-id"] = user.tenant_id;
 
-    next();
+    runWithTenant({ tenantId: user.tenant_id }, () => next());
   } catch (err) {
     next(err);
   }
@@ -153,70 +161,75 @@ router.post("/login", async (req: Request, res: Response, next: NextFunction) =>
       return res.status(401).json({ success: false, message: "Invalid credentials." });
     }
 
-    if (user.status && user.status !== "ACTIVE") {
+    // Everything from here on knows the user, and therefore the tenant.
+    await runWithTenant({ tenantId: user.tenant_id }, async () => {
+      if (user.status && user.status !== "ACTIVE") {
+        await dbStore.addAuditLog({
+          user_id: user.id,
+          action: "Blocked Login For Non-Active User",
+          entity_type: "Authentication",
+          entity_id: user.id,
+          ip_address: req.ip || "127.0.0.1",
+          user_agent: req.headers["user-agent"] || "unknown",
+          metadata: JSON.stringify({ email: user.email, status: user.status })
+        });
+
+        res.status(403).json({
+          success: false,
+          message: "User account is not active."
+        });
+        return;
+      }
+
+      if (isProductionRuntime() && comparePasswords("password123", passwordHash || "")) {
+        await dbStore.addAuditLog({
+          user_id: user.id,
+          action: "Blocked Default Demo Credential Login",
+          entity_type: "Authentication",
+          entity_id: user.id,
+          ip_address: req.ip || "127.0.0.1",
+          user_agent: req.headers["user-agent"] || "unknown",
+          metadata: JSON.stringify({ email: user.email })
+        });
+
+        res.status(403).json({
+          success: false,
+          message: "Default demo credentials are disabled in production runtime."
+        });
+        return;
+      }
+
+      // Generate secure session token (MFA required if user profile has mfa_enabled = true)
+      const mfaRequired = user.mfa_enabled;
+      const session = await createSession(user.id, user.role_id, mfaRequired);
+      const role = await dbStore.getRoleById(user.role_id);
+
+      logDebugMessage({
+        operation: "User Authentication",
+        message: `Successful credentials check for ${user.name}. MFA Required: ${mfaRequired}`,
+        status: "SUCCESS",
+        durationMs: Date.now() - startTime,
+        correlationId,
+        userId: user.id
+      });
+
+      // Create Audit Log
       await dbStore.addAuditLog({
-        user_id: user.id,
-        action: "Blocked Login For Non-Active User",
-        entity_type: "Authentication",
+        user_id: user.name,
+        action: "Credential Challenge Passed",
+        entity_type: "User",
         entity_id: user.id,
         ip_address: req.ip || "127.0.0.1",
         user_agent: req.headers["user-agent"] || "unknown",
-        metadata: JSON.stringify({ email: user.email, status: user.status })
+        metadata: JSON.stringify({ email: user.email, mfa_required: mfaRequired })
       });
 
-      return res.status(403).json({
-        success: false,
-        message: "User account is not active."
+      res.json({
+        success: true,
+        mfa_required: mfaRequired,
+        token: session.token,
+        user: buildSessionUser(user, role)
       });
-    }
-
-    if (isProductionRuntime() && comparePasswords("password123", passwordHash || "")) {
-      await dbStore.addAuditLog({
-        user_id: user.id,
-        action: "Blocked Default Demo Credential Login",
-        entity_type: "Authentication",
-        entity_id: user.id,
-        ip_address: req.ip || "127.0.0.1",
-        user_agent: req.headers["user-agent"] || "unknown",
-        metadata: JSON.stringify({ email: user.email })
-      });
-
-      return res.status(403).json({
-        success: false,
-        message: "Default demo credentials are disabled in production runtime."
-      });
-    }
-
-    // Generate secure session token (MFA required if user profile has mfa_enabled = true)
-    const mfaRequired = user.mfa_enabled;
-    const session = await createSession(user.id, user.role_id, mfaRequired);
-    const role = await dbStore.getRoleById(user.role_id);
-
-    logDebugMessage({
-      operation: "User Authentication",
-      message: `Successful credentials check for ${user.name}. MFA Required: ${mfaRequired}`,
-      status: "SUCCESS",
-      durationMs: Date.now() - startTime,
-      correlationId,
-      userId: user.id
-    });
-
-    // Create Audit Log
-    await dbStore.addAuditLog({
-      user_id: user.name,
-      action: "Credential Challenge Passed",
-      entity_type: "User",
-      entity_id: user.id,
-      ip_address: req.ip || "127.0.0.1",
-      user_agent: req.headers["user-agent"] || "unknown",
-      metadata: JSON.stringify({ email: user.email, mfa_required: mfaRequired })
-    });
-
-    res.json({
-      success: true,
-      mfa_required: mfaRequired,
-      token: session.token,
-      user: buildSessionUser(user, role)
     });
 
   } catch (err) {
@@ -248,35 +261,39 @@ router.post("/mfa/enroll", async (req: Request, res: Response, next: NextFunctio
       return res.status(404).json({ success: false, message: "User not found." });
     }
 
-    if (!user.mfa_enabled) {
-      return res.status(400).json({ success: false, message: "MFA is not enabled for this account." });
-    }
+    await runWithTenant({ tenantId: user.tenant_id }, async () => {
+      if (!user.mfa_enabled) {
+        res.status(400).json({ success: false, message: "MFA is not enabled for this account." });
+        return;
+      }
 
-    const existingSecret = await dbStore.getUserMfaSecretEncrypted(user.id);
-    if (existingSecret && !session.mfaVerified) {
-      return res.status(403).json({
-        success: false,
-        message: "MFA is already configured for this account. Complete MFA verification to re-enroll, or ask an administrator to reset it."
+      const existingSecret = await dbStore.getUserMfaSecretEncrypted(user.id);
+      if (existingSecret && !session.mfaVerified) {
+        res.status(403).json({
+          success: false,
+          message: "MFA is already configured for this account. Complete MFA verification to re-enroll, or ask an administrator to reset it."
+        });
+        return;
+      }
+
+      const secret = generateTotpSecret();
+      const otpauthUrl = buildTotpEnrollmentUri(user.email, secret);
+      const qrCode = await buildTotpQrCodeDataUrl(otpauthUrl);
+
+      await dbStore.setUserMfaSecret(user.id, encryptSecret(secret));
+
+      await dbStore.addAuditLog({
+        user_id: user.name,
+        action: existingSecret ? "MFA TOTP Re-enrolled" : "MFA TOTP Enrolled",
+        entity_type: "User",
+        entity_id: user.id,
+        ip_address: req.ip || "127.0.0.1",
+        user_agent: req.headers["user-agent"] || "unknown",
+        metadata: JSON.stringify({})
       });
-    }
 
-    const secret = generateTotpSecret();
-    const otpauthUrl = buildTotpEnrollmentUri(user.email, secret);
-    const qrCode = await buildTotpQrCodeDataUrl(otpauthUrl);
-
-    await dbStore.setUserMfaSecret(user.id, encryptSecret(secret));
-
-    await dbStore.addAuditLog({
-      user_id: user.name,
-      action: existingSecret ? "MFA TOTP Re-enrolled" : "MFA TOTP Enrolled",
-      entity_type: "User",
-      entity_id: user.id,
-      ip_address: req.ip || "127.0.0.1",
-      user_agent: req.headers["user-agent"] || "unknown",
-      metadata: JSON.stringify({})
+      res.json({ success: true, secret, otpauth_url: otpauthUrl, qr_code: qrCode });
     });
-
-    res.json({ success: true, secret, otpauth_url: otpauthUrl, qr_code: qrCode });
   } catch (err) {
     next(err);
   }
@@ -314,9 +331,23 @@ router.post("/mfa/verify", async (req: Request, res: Response, next: NextFunctio
       await verifySessionMfa(token);
 
       const user = await dbStore.getUserById(session.userId);
-      if (user) {
+
+      const result = await (user ? runWithTenant({ tenantId: user.tenant_id }, async () => {
         await dbStore.setUserLastLogin(user.id);
-      }
+
+        await dbStore.addAuditLog({
+          user_id: user.name,
+          action: "MFA Multi-Factor Challenge Verified",
+          entity_type: "User",
+          entity_id: session.userId,
+          ip_address: req.ip || "127.0.0.1",
+          user_agent: req.headers["user-agent"] || "unknown",
+          metadata: JSON.stringify({ mfa_verified: true })
+        });
+
+        const role = await dbStore.getRoleById(user.role_id);
+        return buildSessionUser(user, role);
+      }) : Promise.resolve(null));
 
       logDebugMessage({
         operation: "MFA Verification",
@@ -327,22 +358,10 @@ router.post("/mfa/verify", async (req: Request, res: Response, next: NextFunctio
         userId: session.userId
       });
 
-      await dbStore.addAuditLog({
-        user_id: user?.name || session.userId,
-        action: "MFA Multi-Factor Challenge Verified",
-        entity_type: "User",
-        entity_id: session.userId,
-        ip_address: req.ip || "127.0.0.1",
-        user_agent: req.headers["user-agent"] || "unknown",
-        metadata: JSON.stringify({ mfa_verified: true })
-      });
-
-      const role = user ? await dbStore.getRoleById(user.role_id) : null;
-
       return res.json({
         success: true,
         verified: true,
-        user: user ? buildSessionUser(user, role) : null
+        user: result
       });
     }
 

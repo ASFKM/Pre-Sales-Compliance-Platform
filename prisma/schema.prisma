@@ -13,6 +13,16 @@ enum UserStatus {
   PENDING
 }
 
+enum DeploymentMode {
+  saas
+  onprem
+}
+
+enum TenantStatus {
+  active
+  suspended
+}
+
 enum Language {
   Portuguese
   English
@@ -125,8 +135,42 @@ enum Theme {
   dark
 }
 
+model Tenant {
+  id             String         @id
+  name           String
+  deploymentMode DeploymentMode @default(onprem) @map("deployment_mode")
+  status         TenantStatus   @default(active)
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  users                User[]
+  roles                Role[]
+  projects             Project[]
+  documents            Document[]
+  documentContents     DocumentContent[]
+  analysisJobs         AIAnalysisJob[]
+  analysisResults      AnalysisResult[]
+  conversationMessages ConversationMessage[]
+  auditLogs            AuditLog[]
+  debugLogs            DebugLog[]
+  platformSettings     PlatformSettings?
+  promptTemplates      PromptTemplate[]
+  proposalTemplates    ProposalTemplate[]
+  proposals            Proposal[]
+  approvalWorkflows    ApprovalWorkflow[]
+  approvalStages       ApprovalStage[]
+  approvalDecisions    ApprovalDecision[]
+  tasks                Task[]
+  brandingSettings     BrandingSettings?
+  integrationConnectors IntegrationConnector[]
+
+  @@map("tenants")
+}
+
 model User {
   id             String     @id
+  tenantId       String     @map("tenant_id")
+  tenant         Tenant     @relation(fields: [tenantId], references: [id])
   name           String
   email          String     @unique
   passwordHash   String?    @map("password_hash")
@@ -141,22 +185,28 @@ model User {
 
   ownedProjects   Project[]        @relation("ProjectOwner")
 
+  @@index([tenantId])
   @@map("users")
 }
 
 model Role {
   id          String   @id
+  tenantId    String   @map("tenant_id")
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
   name        String
   description String
   permissions String[]
 
   users User[]
 
+  @@index([tenantId])
   @@map("roles")
 }
 
 model Project {
   id                          String   @id
+  tenantId                    String   @map("tenant_id")
+  tenant                      Tenant   @relation(fields: [tenantId], references: [id])
   name                        String
   customerName                String   @map("customer_name")
   opportunityName             String   @map("opportunity_name")
@@ -185,11 +235,14 @@ model Project {
   tasks             Task[]
   conversationHistory ConversationMessage[]
 
+  @@index([tenantId])
   @@map("projects")
 }
 
 model Document {
   id                       String   @id
+  tenantId                 String   @map("tenant_id")
+  tenant                   Tenant   @relation(fields: [tenantId], references: [id])
   projectId                String   @map("project_id")
   project                  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   filename                 String
@@ -209,19 +262,25 @@ model Document {
 
   content DocumentContent?
 
+  @@index([tenantId])
   @@map("documents")
 }
 
 model DocumentContent {
   documentId String   @id @map("document_id")
+  tenantId   String   @map("tenant_id")
+  tenant     Tenant   @relation(fields: [tenantId], references: [id])
   document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
   content    String   @db.Text
 
+  @@index([tenantId])
   @@map("document_contents")
 }
 
 model AIAnalysisJob {
   id                     String    @id
+  tenantId               String    @map("tenant_id")
+  tenant                 Tenant    @relation(fields: [tenantId], references: [id])
   projectId              String    @map("project_id")
   project                Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   status                 AnalysisJobStatus
@@ -240,11 +299,14 @@ model AIAnalysisJob {
 
   results AnalysisResult[]
 
+  @@index([tenantId])
   @@map("analysis_jobs")
 }
 
 model AnalysisResult {
   id                       String   @id
+  tenantId                 String   @map("tenant_id")
+  tenant                   Tenant   @relation(fields: [tenantId], references: [id])
   projectId                String   @map("project_id")
   project                  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   jobId                    String   @map("job_id")
@@ -270,11 +332,14 @@ model AnalysisResult {
   updatedAt                DateTime @updatedAt @map("updated_at")
 
   @@unique([projectId])
+  @@index([tenantId])
   @@map("analysis_results")
 }
 
 model ConversationMessage {
   id                    String   @id
+  tenantId              String   @map("tenant_id")
+  tenant                Tenant   @relation(fields: [tenantId], references: [id])
   projectId             String   @map("project_id")
   project               Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   // Not a User FK: field is unused by current routes; kept loose like the other actor fields above.
@@ -290,11 +355,14 @@ model ConversationMessage {
   tokenOutput           Int      @map("token_output")
   createdAt             DateTime @default(now()) @map("created_at")
 
+  @@index([tenantId])
   @@map("conversation_messages")
 }
 
 model AuditLog {
   id         String   @id
+  tenantId   String   @map("tenant_id")
+  tenant     Tenant   @relation(fields: [tenantId], references: [id])
   userId     String   @map("user_id")
   action     String
   entityType String   @map("entity_type")
@@ -306,11 +374,16 @@ model AuditLog {
   createdAt  DateTime @default(now()) @map("created_at")
 
   @@index([createdAt])
+  @@index([tenantId])
   @@map("audit_logs")
 }
 
 model DebugLog {
   id             String   @id
+  // Nullable: some diagnostic events (e.g. a failed login attempt for an email that
+  // doesn't exist) genuinely happen before any tenant is known.
+  tenantId       String?  @map("tenant_id")
+  tenant         Tenant?  @relation(fields: [tenantId], references: [id])
   timestamp      DateTime @default(now())
   logLevel       LogLevel @map("log_level")
   serviceName    String   @map("service_name")
@@ -332,11 +405,14 @@ model DebugLog {
   safeMetadata   String   @map("safe_metadata") @db.Text
 
   @@index([timestamp])
+  @@index([tenantId])
   @@map("debug_logs")
 }
 
 model PlatformSettings {
-  id                       String   @id @default("singleton")
+  id                       String   @id
+  tenantId                 String   @map("tenant_id")
+  tenant                   Tenant   @relation(fields: [tenantId], references: [id])
   aiProvider               String   @map("ai_provider")
   defaultModel             String   @map("default_model")
   documentAnalysisModel    String   @map("document_analysis_model")
@@ -358,11 +434,14 @@ model PlatformSettings {
   createdAt                DateTime @default(now()) @map("created_at")
   updatedAt                DateTime @updatedAt @map("updated_at")
 
+  @@unique([tenantId])
   @@map("platform_settings")
 }
 
 model PromptTemplate {
   id        String   @id
+  tenantId  String   @map("tenant_id")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
   name      String
   type      String
   content   String   @db.Text
@@ -373,11 +452,14 @@ model PromptTemplate {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  @@index([tenantId])
   @@map("prompt_templates")
 }
 
 model ProposalTemplate {
   id               String   @id
+  tenantId         String   @map("tenant_id")
+  tenant           Tenant   @relation(fields: [tenantId], references: [id])
   name             String
   description      String
   templateType     ProposalTemplateType @map("template_type")
@@ -394,11 +476,14 @@ model ProposalTemplate {
 
   proposals Proposal[]
 
+  @@index([tenantId])
   @@map("proposal_templates")
 }
 
 model Proposal {
   id                    String   @id
+  tenantId              String   @map("tenant_id")
+  tenant                Tenant   @relation(fields: [tenantId], references: [id])
   projectId             String   @map("project_id")
   project               Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   proposalType          ProposalType @map("proposal_type")
@@ -423,11 +508,14 @@ model Proposal {
 
   decisions ApprovalDecision[]
 
+  @@index([tenantId])
   @@map("proposals")
 }
 
 model ApprovalWorkflow {
   id          String   @id
+  tenantId    String   @map("tenant_id")
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
   name        String
   description String
   active      Boolean  @default(true)
@@ -438,11 +526,14 @@ model ApprovalWorkflow {
   stages    ApprovalStage[]
   proposals Proposal[]
 
+  @@index([tenantId])
   @@map("approval_workflows")
 }
 
 model ApprovalStage {
   id              String   @id
+  tenantId        String   @map("tenant_id")
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
   workflowId      String   @map("workflow_id")
   workflow        ApprovalWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
   name            String
@@ -457,11 +548,14 @@ model ApprovalStage {
 
   decisions ApprovalDecision[]
 
+  @@index([tenantId])
   @@map("approval_stages")
 }
 
 model ApprovalDecision {
   id              String   @id
+  tenantId        String   @map("tenant_id")
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
   proposalId      String   @map("proposal_id")
   proposal        Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
   stageId         String   @map("stage_id")
@@ -471,11 +565,14 @@ model ApprovalDecision {
   comments        String   @db.Text
   createdAt       DateTime @default(now()) @map("created_at")
 
+  @@index([tenantId])
   @@map("approval_decisions")
 }
 
 model Task {
   id                   String   @id
+  tenantId             String   @map("tenant_id")
+  tenant               Tenant   @relation(fields: [tenantId], references: [id])
   projectId            String   @map("project_id")
   project              Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   title                String
@@ -489,11 +586,14 @@ model Task {
   createdAt            DateTime @default(now()) @map("created_at")
   updatedAt            DateTime @updatedAt @map("updated_at")
 
+  @@index([tenantId])
   @@map("tasks")
 }
 
 model BrandingSettings {
-  id                   String   @id @default("singleton")
+  id                   String   @id
+  tenantId             String   @map("tenant_id")
+  tenant               Tenant   @relation(fields: [tenantId], references: [id])
   companyName          String   @map("company_name")
   companyLogoPath      String   @map("company_logo_path")
   loginLogoPath        String   @map("login_logo_path")
@@ -516,11 +616,14 @@ model BrandingSettings {
   createdAt            DateTime @default(now()) @map("created_at")
   updatedAt            DateTime @updatedAt @map("updated_at")
 
+  @@unique([tenantId])
   @@map("branding_settings")
 }
 
 model IntegrationConnector {
   id                    String   @id
+  tenantId              String   @map("tenant_id")
+  tenant                Tenant   @relation(fields: [tenantId], references: [id])
   name                  String
   type                  String
   status                IntegrationStatus
@@ -534,5 +637,6 @@ model IntegrationConnector {
   createdAt             DateTime @default(now()) @map("created_at")
   updatedAt             DateTime @updatedAt @map("updated_at")
 
+  @@index([tenantId])
   @@map("integration_connectors")
 }
