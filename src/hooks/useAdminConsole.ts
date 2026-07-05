@@ -621,8 +621,13 @@ export function useAdminConsole(params: UseAdminConsoleParams) {
       "default_model",
       "document_analysis_model",
       "proposal_generation_model",
-      "summarization_model",
-      "risk_analysis_model",
+      "document_analysis_provider",
+      "critical_extraction_model",
+      "critical_extraction_provider",
+      "web_grounding_model",
+      "web_grounding_provider",
+      "proposal_generation_provider",
+      "monthly_cost_cap_usd",
       "default_language",
       "default_log_level"
     ];

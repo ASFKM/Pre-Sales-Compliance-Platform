@@ -20,6 +20,10 @@ export interface BackgroundTask {
   error_message: string | null;
   result_type: string | null;
   result_id: string | null;
+  estimated_cost_usd: number | null;
+  ai_provider: string | null;
+  intended_provider: string | null;
+  is_provider_fallback: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -36,6 +40,10 @@ function mapTask(t: any): BackgroundTask {
     error_message: t.errorMessage ?? null,
     result_type: t.resultType ?? null,
     result_id: t.resultId ?? null,
+    estimated_cost_usd: t.estimatedCostUsd ?? null,
+    ai_provider: t.aiProvider ?? null,
+    intended_provider: t.intendedProvider ?? null,
+    is_provider_fallback: t.isProviderFallback ?? false,
     created_at: t.createdAt.toISOString(),
     updated_at: t.updatedAt.toISOString(),
   };
@@ -95,7 +103,14 @@ export async function updateTaskProgress(id: string, updates: {
   return task;
 }
 
-export async function completeTask(id: string, result: { resultType: string; resultId: string }): Promise<BackgroundTask> {
+export async function completeTask(id: string, result: {
+  resultType: string;
+  resultId: string;
+  estimatedCostUsd?: number;
+  aiProvider?: string;
+  intendedProvider?: string;
+  isProviderFallback?: boolean;
+}): Promise<BackgroundTask> {
   const t = await prisma.backgroundTask.update({
     where: { id },
     data: {
@@ -104,6 +119,10 @@ export async function completeTask(id: string, result: { resultType: string; res
       progressPct: 100,
       resultType: result.resultType,
       resultId: result.resultId,
+      estimatedCostUsd: result.estimatedCostUsd,
+      aiProvider: result.aiProvider,
+      intendedProvider: result.intendedProvider,
+      isProviderFallback: result.isProviderFallback,
     },
   });
   const task = mapTask(t);

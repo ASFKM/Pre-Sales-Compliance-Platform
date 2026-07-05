@@ -201,13 +201,21 @@ router.put("/branding", requirePermission("branding:manage"), async (req: Reques
 
 
 
+const KNOWN_PROVIDERS = ["gemini", "anthropic", "openai", "deepseek"];
+
 function validateAISettingsUpdates(updates: any) {
   const modelFields = [
     "default_model",
     "document_analysis_model",
     "proposal_generation_model",
-    "summarization_model",
-    "risk_analysis_model"
+    "critical_extraction_model",
+    "web_grounding_model"
+  ];
+  const providerFields = [
+    "document_analysis_provider",
+    "critical_extraction_provider",
+    "web_grounding_provider",
+    "proposal_generation_provider"
   ];
   const allowedLanguages = ["Portuguese", "English", "Spanish"];
   const allowedLogLevels = ["DEBUG", "INFO", "WARN", "ERROR"];
@@ -219,6 +227,19 @@ function validateAISettingsUpdates(updates: any) {
   for (const field of modelFields) {
     if (updates[field] !== undefined && !String(updates[field]).trim()) {
       return { valid: false, message: `${field} cannot be empty.` };
+    }
+  }
+
+  for (const field of providerFields) {
+    if (updates[field] !== undefined && !KNOWN_PROVIDERS.includes(String(updates[field]))) {
+      return { valid: false, message: `${field} must be one of: ${KNOWN_PROVIDERS.join(", ")}.` };
+    }
+  }
+
+  if (updates.monthly_cost_cap_usd !== undefined && updates.monthly_cost_cap_usd !== null) {
+    const cap = Number(updates.monthly_cost_cap_usd);
+    if (!Number.isFinite(cap) || cap <= 0) {
+      return { valid: false, message: "Monthly cost cap must be a positive number, or null for uncapped." };
     }
   }
 
@@ -260,8 +281,13 @@ router.put("/settings/ai", requirePermission("ai:settings"), async (req: Request
       "default_model",
       "document_analysis_model",
       "proposal_generation_model",
-      "summarization_model",
-      "risk_analysis_model",
+      "document_analysis_provider",
+      "critical_extraction_model",
+      "critical_extraction_provider",
+      "web_grounding_model",
+      "web_grounding_provider",
+      "proposal_generation_provider",
+      "monthly_cost_cap_usd",
       "default_language",
       "default_log_level"
     ];

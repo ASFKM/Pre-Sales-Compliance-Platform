@@ -8,6 +8,7 @@ import { validateUploadedFile, createStorageAdapter } from "../utils/storage";
 import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
 import * as staging from "../../src/projectIntakeStaging";
 import { ProjectSchema } from "./projects";
+import { resolveProvider, checkCostCap, recordProviderFallback } from "../../src/aiOrchestrator";
 import multer from "multer";
 
 const router = express.Router();
@@ -138,6 +139,16 @@ router.post("/project-intake/:sessionId/analyze", requireAuth, async (req: Reque
       return res.status(400).json({ success: false, message: "Upload at least one document before analyzing." });
     }
 
+    const platformSettings = await dbStore.getSettings();
+    const tenantId = req.headers["x-tenant-id"] as string;
+    const costCap = await checkCostCap(tenantId, platformSettings.monthly_cost_cap_usd ?? null);
+    if (costCap.blocked) {
+      return res.status(402).json({
+        success: false,
+        message: `Monthly AI cost cap reached ($${costCap.currentSpendUsd.toFixed(2)} of $${costCap.capUsd?.toFixed(2)}). Try again next month or raise the cap in Admin > AI, Prompts e Custos.`
+      });
+    }
+
     const userId = req.headers["x-user-id"] as string;
     const task = await createTask({ userId, type: "project_intake_analysis", currentStep: "Iniciando análise..." });
     res.status(202).json({ success: true, task_id: task.id });
@@ -145,6 +156,19 @@ router.post("/project-intake/:sessionId/analyze", requireAuth, async (req: Reque
     void (async () => {
       try {
         await updateTaskProgress(task.id, { status: "running", currentStep: "Lendo documentos", progressPct: 20 });
+
+        // Project-intake extraction reuses the document_analysis task-type mapping - it's the
+        // same kind of "read documents, extract structured data" work, just lighter-weight, and
+        // doesn't have its own slot in the 4-task roadmap framework.
+        const providerResolution = resolveProvider("document_analysis", platformSettings);
+        if (providerResolution.isFallback) {
+          await recordProviderFallback({
+            tenantId,
+            taskType: "document_analysis",
+            intendedProvider: providerResolution.intendedProvider,
+            userId,
+          });
+        }
 
         let combinedText = "";
         for (let idx = 0; idx < session.files.length; idx++) {
@@ -191,7 +215,14 @@ Respond with ONLY a strictly parsable JSON object, no markdown, matching this sh
         await updateTaskProgress(task.id, { currentStep: "Salvando sugestões", progressPct: 90 });
         await staging.setSuggestedFields(req.params.sessionId, validated);
 
-        await completeTask(task.id, { resultType: "project_intake_session", resultId: req.params.sessionId });
+        await completeTask(task.id, {
+          resultType: "project_intake_session",
+          resultId: req.params.sessionId,
+          estimatedCostUsd: 0.006,
+          aiProvider: providerResolution.provider,
+          intendedProvider: providerResolution.intendedProvider,
+          isProviderFallback: providerResolution.isFallback,
+        });
       } catch (err: any) {
         console.error("Project intake analysis failed:", err);
         await failTask(task.id, err.message || "Unknown error during project intake analysis");

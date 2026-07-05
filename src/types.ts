@@ -289,11 +289,17 @@ export interface PlatformSettings {
   default_model: string;
   document_analysis_model: string;
   proposal_generation_model: string;
-  summarization_model: string;
-  risk_analysis_model: string;
   ai_api_key_encrypted?: string;
   ai_api_key_configured?: boolean;
   ai_api_key_masked?: string;
+  // Phase 5 (AI orchestrator): intended provider per task type - see src/aiOrchestrator.ts.
+  document_analysis_provider: string;
+  critical_extraction_model: string;
+  critical_extraction_provider: string;
+  web_grounding_model: string;
+  web_grounding_provider: string;
+  proposal_generation_provider: string;
+  monthly_cost_cap_usd?: number | null;
   storage_mode: "local" | "s3" | "gcs";
   local_storage_path: string;
   s3_bucket: string;

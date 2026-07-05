@@ -944,6 +944,61 @@ export default function AdminConsole({
                         </div>
                       </div>
 
+                      <div className="pt-3 border-t border-slate-100 space-y-3">
+                        <div>
+                          <h4 className="text-xs font-bold text-slate-700">
+                            {locale === "pt" ? "Orquestrador de IA: Mapa Tarefa → Provedor" : "AI Orchestrator: Task → Provider Map"}
+                          </h4>
+                          <p className="text-[10px] text-slate-400 mt-0.5">
+                            {locale === "pt"
+                              ? "Somente o Gemini está de fato conectado hoje. Tarefas configuradas para outro provedor usam Gemini como fallback, registrado em auditoria."
+                              : "Only Gemini is actually connected today. Tasks configured for another provider fall back to Gemini, logged in the audit trail."}
+                          </p>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {[
+                            { field: "document_analysis_provider", label: locale === "pt" ? "Análise de Documentos" : "Document Analysis" },
+                            { field: "critical_extraction_provider", label: locale === "pt" ? "Extração Crítica" : "Critical Extraction" },
+                            { field: "web_grounding_provider", label: locale === "pt" ? "Pesquisa com Grounding Web" : "Web-Grounded Research" },
+                            { field: "proposal_generation_provider", label: locale === "pt" ? "Redação de Propostas" : "Proposal Writing" },
+                          ].map(({ field, label }) => (
+                            <div key={field}>
+                              <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{label}</label>
+                              <select
+                                value={(platformSettings as any)?.[field] || "gemini"}
+                                onChange={(e) => handleSavePlatformSettings(field, e.target.value)}
+                                className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-semibold text-slate-700"
+                              >
+                                <option value="gemini">Google Gemini</option>
+                                <option value="anthropic">Anthropic Claude {locale === "pt" ? "(não conectado)" : "(not connected)"}</option>
+                                <option value="openai">OpenAI ChatGPT {locale === "pt" ? "(não conectado)" : "(not connected)"}</option>
+                                <option value="deepseek">DeepSeek {locale === "pt" ? "(não conectado)" : "(not connected)"}</option>
+                              </select>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div>
+                          <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">
+                            {locale === "pt" ? "Teto Mensal de Custo de IA (USD)" : "Monthly AI Cost Cap (USD)"}
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder={locale === "pt" ? "Sem teto" : "Uncapped"}
+                            value={platformSettings?.monthly_cost_cap_usd ?? ""}
+                            onChange={(e) => handleSavePlatformSettings("monthly_cost_cap_usd", e.target.value ? parseFloat(e.target.value) : null)}
+                            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-semibold text-slate-700"
+                          />
+                          <p className="text-[10px] text-slate-400 mt-1">
+                            {locale === "pt"
+                              ? "Bloqueia novas análises de IA ao atingir o teto (aviso automático em 80%). Deixe em branco para não limitar."
+                              : "Blocks new AI analyses once reached (automatic warning at 80%). Leave blank for no limit."}
+                          </p>
+                        </div>
+                      </div>
+
                       <div className="space-y-3 pt-3 border-t border-slate-100">
                         {modelProviders.map((prov, pIdx) => (
                           <div key={prov.id} className="p-3 rounded-lg border border-slate-100 bg-slate-50 space-y-2">

@@ -366,8 +366,6 @@ async function main() {
         defaultModel: s.default_model,
         documentAnalysisModel: s.document_analysis_model,
         proposalGenerationModel: s.proposal_generation_model,
-        summarizationModel: s.summarization_model,
-        riskAnalysisModel: s.risk_analysis_model,
         aiApiKeyEncrypted: s.ai_api_key_encrypted || null,
         storageMode: s.storage_mode,
         localStoragePath: s.local_storage_path,

@@ -1,0 +1,138 @@
+import { prisma } from "./prisma";
+import { dbStore } from "./dbStore";
+import { BackgroundTaskType } from "@prisma/client";
+
+// Phase 5: which providers actually have a real, connected integration today. Only Gemini does -
+// connecting Claude/GPT for real is explicitly future implementation work, out of this phase's
+// scope. Every other provider in the task->provider map below is a *researched, configured
+// intent* that always resolves to this fallback until it's connected.
+const CONNECTED_PROVIDERS = new Set(["gemini"]);
+
+export type AiTaskType = "document_analysis" | "critical_extraction" | "web_grounding" | "proposal_generation";
+
+export interface ProviderResolution {
+  provider: string;
+  model: string;
+  intendedProvider: string;
+  isFallback: boolean;
+}
+
+interface TaskProviderSettings {
+  document_analysis_model: string;
+  document_analysis_provider: string;
+  critical_extraction_model: string;
+  critical_extraction_provider: string;
+  web_grounding_model: string;
+  web_grounding_provider: string;
+  proposal_generation_model: string;
+  proposal_generation_provider: string;
+}
+
+// Resolves the intended provider/model for a task type against tenant settings, falling back
+// to Gemini (logged as such) when the intended provider isn't actually connected. Always
+// returns a usable provider - callers never need their own "what if it's not connected" branch.
+export function resolveProvider(taskType: AiTaskType, settings: TaskProviderSettings): ProviderResolution {
+  const intendedProvider = (settings as any)[`${taskType}_provider`] as string;
+  const intendedModel = (settings as any)[`${taskType}_model`] as string;
+
+  if (CONNECTED_PROVIDERS.has(intendedProvider)) {
+    return { provider: intendedProvider, model: intendedModel, intendedProvider, isFallback: false };
+  }
+
+  return {
+    provider: "gemini",
+    model: settings.document_analysis_model,
+    intendedProvider,
+    isFallback: true,
+  };
+}
+
+function startOfCurrentMonth(): Date {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), 1);
+}
+
+const AI_CALLING_TASK_TYPES: BackgroundTaskType[] = ["document_analysis", "project_intake_analysis"];
+
+export interface CostCapCheck {
+  blocked: boolean;
+  warningThresholdReached: boolean;
+  currentSpendUsd: number;
+  capUsd: number | null;
+}
+
+// Checked before starting an AI-calling task - the cap is a real block, not just a dashboard
+// number. 80% is a warning (task still runs) so nobody discovers the cap mid-emergency.
+export async function checkCostCap(tenantId: string, capUsd: number | null): Promise<CostCapCheck> {
+  if (capUsd === null) {
+    return { blocked: false, warningThresholdReached: false, currentSpendUsd: 0, capUsd: null };
+  }
+
+  const rows = await prisma.backgroundTask.findMany({
+    where: {
+      tenantId,
+      type: { in: AI_CALLING_TASK_TYPES },
+      createdAt: { gte: startOfCurrentMonth() },
+      estimatedCostUsd: { not: null },
+    },
+    select: { estimatedCostUsd: true },
+  });
+
+  const currentSpendUsd = rows.reduce((sum, r) => sum + (r.estimatedCostUsd || 0), 0);
+
+  return {
+    blocked: currentSpendUsd >= capUsd,
+    warningThresholdReached: currentSpendUsd >= capUsd * 0.8,
+    currentSpendUsd,
+    capUsd,
+  };
+}
+
+const FALLBACK_ALERT_WINDOW_MS = 60 * 60 * 1000;
+const FALLBACK_ALERT_THRESHOLD = 3;
+
+// Every fallback is audited unconditionally; 3+ fallbacks to the same intended provider within
+// an hour additionally raises an Admin-visible alert - a real signal that the desired provider
+// should be connected, not an isolated one-off.
+export async function recordProviderFallback(params: {
+  tenantId: string;
+  taskType: AiTaskType;
+  intendedProvider: string;
+  userId: string;
+}): Promise<void> {
+  await dbStore.addAuditLog({
+    user_id: params.userId,
+    action: "AI Provider Fallback",
+    entity_type: "BackgroundTask",
+    entity_id: "",
+    ip_address: "system",
+    user_agent: "ai-orchestrator",
+    metadata: JSON.stringify({ task_type: params.taskType, intended_provider: params.intendedProvider, used_provider: "gemini" }),
+  });
+
+  const recentFallbacks = await prisma.auditLog.count({
+    where: {
+      tenantId: params.tenantId,
+      action: "AI Provider Fallback",
+      createdAt: { gte: new Date(Date.now() - FALLBACK_ALERT_WINDOW_MS) },
+      metadata: { contains: `"intended_provider":"${params.intendedProvider}"` },
+    },
+  });
+
+  if (recentFallbacks >= FALLBACK_ALERT_THRESHOLD) {
+    await dbStore.addAuditLog({
+      user_id: params.userId,
+      action: "AI Provider Fallback Alert",
+      entity_type: "BackgroundTask",
+      entity_id: "",
+      ip_address: "system",
+      user_agent: "ai-orchestrator",
+      metadata: JSON.stringify({
+        task_type: params.taskType,
+        intended_provider: params.intendedProvider,
+        occurrences_in_window: recentFallbacks,
+        window_minutes: FALLBACK_ALERT_WINDOW_MS / 60000,
+      }),
+    });
+  }
+}

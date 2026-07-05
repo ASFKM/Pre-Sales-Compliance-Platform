@@ -326,6 +326,13 @@ model BackgroundTask {
   // without this table needing a column per possible result type.
   resultType   String?              @map("result_type")
   resultId     String?              @map("result_id")
+  // Phase 5 (AI orchestrator): cost/provider bookkeeping for AI-calling task types
+  // (document_analysis, project_intake_analysis). Null for task types that don't call an AI
+  // provider at all (e.g. proposal_generation is template/DOCX filling, not its own AI call).
+  estimatedCostUsd   Float?   @map("estimated_cost_usd")
+  aiProvider         String?  @map("ai_provider")
+  intendedProvider   String?  @map("intended_provider")
+  isProviderFallback Boolean  @default(false) @map("is_provider_fallback")
   createdAt    DateTime             @default(now()) @map("created_at")
   updatedAt    DateTime             @updatedAt @map("updated_at")
 
@@ -474,9 +481,20 @@ model PlatformSettings {
   defaultModel             String   @map("default_model")
   documentAnalysisModel    String   @map("document_analysis_model")
   proposalGenerationModel  String   @map("proposal_generation_model")
-  summarizationModel       String   @map("summarization_model")
-  riskAnalysisModel        String   @map("risk_analysis_model")
   aiApiKeyEncrypted        String?  @map("ai_api_key_encrypted") @db.Text
+  // Phase 5 (AI orchestrator): which provider is the intended target for each task type,
+  // researched per-task (docs/roadmap/REDESIGN_ROADMAP_2026-07.md). Only "gemini" is actually
+  // connected today - connecting Claude/GPT for real is future work, out of this phase's scope -
+  // so any task whose intended provider isn't gemini always falls back to it, logged as such.
+  documentAnalysisProvider    String  @default("gemini") @map("document_analysis_provider")
+  criticalExtractionModel     String  @default("gemini-3.5-flash") @map("critical_extraction_model")
+  criticalExtractionProvider  String  @default("anthropic") @map("critical_extraction_provider")
+  webGroundingModel           String  @default("gemini-3.5-flash") @map("web_grounding_model")
+  webGroundingProvider        String  @default("gemini") @map("web_grounding_provider")
+  proposalGenerationProvider  String  @default("anthropic") @map("proposal_generation_provider")
+  // Per-tenant monthly AI spend cap - null means uncapped. Enforced (hard block once reached,
+  // not just tracked), with an 80%-of-cap warning logged before that point.
+  monthlyCostCapUsd        Float?   @map("monthly_cost_cap_usd")
   storageMode              StorageProvider @default(local) @map("storage_mode")
   localStoragePath         String   @map("local_storage_path")
   s3Bucket                 String   @map("s3_bucket")

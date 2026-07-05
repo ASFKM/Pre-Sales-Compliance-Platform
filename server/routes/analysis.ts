@@ -6,6 +6,8 @@ import { logDebugMessage } from "../middleware/security";
 import { AnalysisResult } from "../../src/types";
 import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
 import { getGeminiClient } from "../utils/gemini";
+import { resolveProvider, checkCostCap, recordProviderFallback } from "../../src/aiOrchestrator";
+import { getCurrentTenantId } from "../../src/tenantContext";
 
 const router = express.Router();
 
@@ -183,6 +185,17 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
   const platformSettings = await dbStore.getSettings();
   const analysisModel = platformSettings.document_analysis_model || platformSettings.default_model || "gemini-3.5-flash";
 
+  // Phase 5 (AI orchestrator): the monthly cap is a real block, not just a number on a
+  // dashboard - checked before any AI-calling task starts, not just tracked after the fact.
+  const tenantId = getCurrentTenantId()!;
+  const costCap = await checkCostCap(tenantId, platformSettings.monthly_cost_cap_usd ?? null);
+  if (costCap.blocked) {
+    return res.status(402).json({
+      success: false,
+      message: `Monthly AI cost cap reached ($${costCap.currentSpendUsd.toFixed(2)} of $${costCap.capUsd?.toFixed(2)}). Analysis blocked until next month or the cap is raised in Admin > AI, Prompts e Custos.`
+    });
+  }
+
   // 1. Create Background AI Analysis Job and log it
   const userId = (req.headers["x-user-id"] as string) || "u1";
   const user = await dbStore.getUserById(userId);
@@ -239,6 +252,17 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
     }
 
     await updateTaskProgress(task.id, { currentStep: "Analisando com IA", progressPct: 40 });
+
+    const providerResolution = resolveProvider("document_analysis", platformSettings);
+    if (providerResolution.isFallback) {
+      await recordProviderFallback({
+        tenantId,
+        taskType: "document_analysis",
+        intendedProvider: providerResolution.intendedProvider,
+        userId,
+      });
+    }
+
     const ai = await getGeminiClient();
 
     const prompt = `You are an expert Pre-Sales Solution Architect analyzing bid, RFP, and specification documents to design commercial and technical proposals.
@@ -431,7 +455,14 @@ Write all generated content fields strictly in ${project.proposal_language}. Mai
       projectId
     });
 
-    await completeTask(task.id, { resultType: "analysis_result", resultId: projectId });
+    await completeTask(task.id, {
+      resultType: "analysis_result",
+      resultId: projectId,
+      estimatedCostUsd: 0.019,
+      aiProvider: providerResolution.provider,
+      intendedProvider: providerResolution.intendedProvider,
+      isProviderFallback: providerResolution.isFallback,
+    });
 
   } catch (err: any) {
     // 4. Proper error handling. No mock fallback silently marked as complete.

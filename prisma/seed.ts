@@ -241,8 +241,6 @@ async function main() {
       defaultModel: "gemini-3.5-flash",
       documentAnalysisModel: "gemini-3.5-flash",
       proposalGenerationModel: "gemini-3.5-flash",
-      summarizationModel: "gemini-3.5-flash",
-      riskAnalysisModel: "gemini-3.5-flash",
       storageMode: "local",
       localStoragePath: "./uploads",
       s3Bucket: "",
