@@ -242,8 +242,16 @@ descrição, prazo, etc.) e *só depois* o usuário sobe documentos e roda a an�
 
 ## Fase 5 — Orquestrador de IA
 
-**Status**: desenho fechado (pesquisa e arquitetura). Conectar novos provedores de verdade
-(OpenAI/Anthropic além do Gemini) é trabalho de implementação futura, fora desta fase.
+**Status**: ✅ implementada e verificada (commit `ae349ac`, 2026-07-05). Mapa tarefa→provedor
+pros 4 tipos de tarefa, teto de custo mensal com bloqueio real (HTTP 402) + aviso em 80%,
+fallback pro Gemini com auditoria + alerta de repetição, tela de configuração no Admin
+Console. Conectar novos provedores de verdade (OpenAI/Anthropic além do Gemini) continua
+sendo trabalho de implementação futura, fora desta fase - a camada de orquestração em si já
+está pronta pra quando isso acontecer.
+
+**Esta foi a última das 6 fases centrais do roadmap (0, 1, 3, 4, 2, 5) - todas completas.**
+Restam apenas as Fases 6 (POC/CRM) e 7 (licenciamento/fleet/vulnerabilidades), deliberadamente
+adiadas para uma sessão de discussão dedicada futura.
 
 **Estado hoje** (verificado em código): só o Google Gemini está de fato conectado no backend
 (`server/routes/analysis.ts`), apesar do Admin Console mostrar OpenAI/Anthropic/DeepSeek como
