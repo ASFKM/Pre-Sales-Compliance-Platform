@@ -5,7 +5,7 @@ import { requireAuth, requirePermission } from "./auth";
 
 const router = express.Router();
 
-const ProjectSchema = z.object({
+export const ProjectSchema = z.object({
   name: z.string().min(3, "Name must be at least 3 characters"),
   customer_name: z.string().min(2, "Customer name is required"),
   opportunity_name: z.string().min(2, "Opportunity name is required"),

@@ -1,12 +1,11 @@
 import express, { Request, Response, NextFunction } from "express";
 import { z } from "zod";
-import { GoogleGenAI } from "@google/genai";
 import { dbStore } from "../../src/dbStore";
 import { requirePermission } from "./auth";
 import { logDebugMessage } from "../middleware/security";
-import { decryptSecret } from "../utils/security";
 import { AnalysisResult } from "../../src/types";
 import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
+import { getGeminiClient } from "../utils/gemini";
 
 const router = express.Router();
 
@@ -129,44 +128,6 @@ const AnalysisResultSchema = z.object({
   commercial_proposal_draft: z.string()
 });
 
-// Lazy Gemini client initialization with standard modern SDK and user-agent telemetry
-let aiClient: GoogleGenAI | null = null;
-let aiClientFingerprint = "";
-
-async function getConfiguredGeminiApiKey(): Promise<string> {
-  const envKey = [
-    process.env.GEMINI_API_KEY,
-    process.env.GOOGLE_API_KEY,
-    process.env.GOOGLE_GENERATIVE_AI_API_KEY
-  ].find((key) => typeof key === "string" && key.trim().length > 0)?.trim();
-
-  if (envKey) return envKey;
-
-  const settings = await dbStore.getSettings() as any;
-  const encryptedKey = settings.ai_api_key_encrypted;
-  if (!encryptedKey) {
-    throw new Error("Gemini API key is not configured. Configure it in Admin > IA, Prompts e Custos.");
-  }
-
-  return decryptSecret(encryptedKey);
-}
-
-async function getGeminiClient(): Promise<GoogleGenAI> {
-  const key = await getConfiguredGeminiApiKey();
-  const fingerprint = `${key.length}:${key.slice(0, 4)}:${key.slice(-4)}`;
-
-  if (!aiClient || aiClientFingerprint !== fingerprint) {
-    aiClient = new GoogleGenAI({
-      apiKey: key,
-      httpOptions: {
-        headers: { "User-Agent": "aistudio-build" }
-      }
-    });
-    aiClientFingerprint = fingerprint;
-  }
-
-  return aiClient;
-}
 
 // GET latest analysis result
 router.get("/projects/:projectId/analysis-result", requirePermission("analysis:read"), async (req: Request, res: Response, next: NextFunction) => {

@@ -30,6 +30,7 @@ import integrationsRouter from "./server/routes/integrations";
 import auditRouter from "./server/routes/audit";
 import diagnosticsRouter from "./server/routes/diagnostics";
 import tasksRouter from "./server/routes/tasks";
+import projectIntakeRouter from "./server/routes/projectIntake";
 
 const app = express();
 
@@ -58,6 +59,7 @@ app.use("/api/integrations", integrationsRouter);
 app.use("/api", auditRouter);
 app.use("/api", diagnosticsRouter);
 app.use("/api", tasksRouter);
+app.use("/api", projectIntakeRouter);
 
 // 5. Basic Observability / Health Endpoints
 app.get("/api/health", (req: Request, res: Response) => {

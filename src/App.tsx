@@ -7,7 +7,7 @@ import Home from "./components/Home";
 import Proposals from "./components/Proposals";
 import Templates from "./components/Templates";
 import Approval from "./components/Approval";
-import CreateProjectModal from "./components/modals/CreateProjectModal";
+import NewProjectWizard from "./components/modals/NewProjectWizard";
 import { useBackgroundTasks } from "./hooks/useBackgroundTasks";
 import ClassifyDocumentModal from "./components/modals/ClassifyDocumentModal";
 import AuditLogsModal from "./components/modals/AuditLogsModal";
@@ -1538,10 +1538,11 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
       </footer>
 
       {showNewProjectModal && (
-        <CreateProjectModal
+        <NewProjectWizard
           locale={locale}
           onClose={() => setShowNewProjectModal(false)}
           onCreated={handleProjectCreated}
+          waitForTask={waitForTask}
         />
       )}
 
