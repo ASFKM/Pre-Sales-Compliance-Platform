@@ -1,5 +1,11 @@
 # Roadmap Técnico - Pre-Sales Compliance Platform
 
+> **SUPERSEDIDO (2026-07-05)**: as seções de roadmap futuro abaixo (Subscrição e Licença,
+> Observabilidade/Logs/Debug) foram incorporadas e expandidas no redesenho completo em
+> [`docs/roadmap/REDESIGN_ROADMAP_2026-07.md`](./roadmap/REDESIGN_ROADMAP_2026-07.md), que é a
+> fonte de verdade atual para todo planejamento em andamento (8 fases, decisões técnicas e status
+> de cada uma). Este arquivo é mantido só por histórico.
+
 ## Status atual
 
 A plataforma já possui os principais módulos administrativos funcionais:
