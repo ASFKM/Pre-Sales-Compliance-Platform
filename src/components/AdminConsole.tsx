@@ -1,4 +1,4 @@
-import { Dispatch, SetStateAction, useState } from "react";
+import { Dispatch, SetStateAction, useEffect, useState } from "react";
 import { Trash2 } from "lucide-react";
 import {
   AuditLog,
@@ -12,6 +12,18 @@ import {
   Role,
 } from "../types";
 import { useAdminConsole } from "../hooks/useAdminConsole";
+import ApiClient from "../lib/api";
+
+interface FleetLicenseStatus {
+  connected: boolean;
+  status: "active" | "suspended" | null;
+  block_mode: "full_lockout" | "read_only" | null;
+  modules: string[];
+  plan_name: string | null;
+  contract_start_date: string | null;
+  contract_end_date: string | null;
+  last_verified_at: string | null;
+}
 
 type AdminSection =
   | "overview" | "users" | "ai" | "templates" | "approval_flow"
@@ -67,14 +79,17 @@ export default function AdminConsole({
   brandPrimaryColor, setBrandPrimaryColor,
   brandAccentColor, setBrandAccentColor,
 }: AdminConsoleProps) {
-  // Subscription & Licensing (display only - deliberately left as a known non-functional
-  // placeholder pending a future licensing phase, see project memory)
-  const [licenseTier, setLicenseTier] = useState<"enterprise" | "professional" | "free">("enterprise");
-  const [licenseKey, setLicenseKey] = useState("CA-ENT-778X-992K-2026");
-  const [licenseExpiry] = useState("2027-12-31");
-  const [licenseStatus, setLicenseStatus] = useState<"Active" | "Expired" | "Pending">("Active");
-  const [inputLicenseKey, setInputLicenseKey] = useState("");
-  const [licenseMessage, setLicenseMessage] = useState("");
+  // Real subscription/license state - reflects the last signature-verified heartbeat from the
+  // Fleet Manager (see server/utils/fleetLicense.ts). Not a local simulation: this installation
+  // has no way to "activate" itself, plan/status/contract term are only ever set on the Fleet
+  // Manager side.
+  const [fleetLicenseStatus, setFleetLicenseStatus] = useState<FleetLicenseStatus | null>(null);
+
+  useEffect(() => {
+    ApiClient.get<FleetLicenseStatus>("/api/settings/fleet-license-status")
+      .then(setFleetLicenseStatus)
+      .catch(() => setFleetLicenseStatus(null));
+  }, []);
 
   const [costUSD] = useState(14.28);
   const exchangeRate = 5.15; // 1 USD = 5.15 BRL (realistic exchange rate)
@@ -538,7 +553,11 @@ export default function AdminConsole({
                         <div className="space-y-2 text-xs text-slate-600">
                           <div className="p-2.5 bg-slate-50 border border-slate-100 rounded-lg">
                             <p className="text-[9px] uppercase font-mono text-slate-400">{locale === "pt" ? "Licença" : "License"}</p>
-                            <p className="font-bold text-slate-800 mt-1">{licenseTier} / {licenseStatus}</p>
+                            <p className="font-bold text-slate-800 mt-1">
+                              {fleetLicenseStatus?.connected
+                                ? `${fleetLicenseStatus.plan_name || (locale === "pt" ? "Sem plano" : "No plan")} / ${fleetLicenseStatus.status === "active" ? (locale === "pt" ? "Ativa" : "Active") : (locale === "pt" ? "Suspensa" : "Suspended")}`
+                                : locale === "pt" ? "Não conectado" : "Not connected"}
+                            </p>
                           </div>
 
                           <div className="p-2.5 bg-slate-50 border border-slate-100 rounded-lg">
@@ -1388,47 +1407,63 @@ export default function AdminConsole({
                 {activeAdminSection === "subscription" && canAccessAdminSection("subscription") && (
                   <div className="w-full bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
                     <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
-                      {locale === "pt" ? "Gestão de Subscrição e Licença" : "Subscription & Licensing Manager"}
+                      {locale === "pt" ? "Plano e Contrato" : "Plan & Contract"}
                     </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                      <div className="p-3 bg-slate-50 border border-slate-100 rounded-lg">
-                        <span className="text-[10px] text-slate-400 font-mono block uppercase">{locale === "pt" ? "Plano Atual" : "License Plan"}</span>
-                        <span className="text-sm font-extrabold text-emerald-600 capitalize font-mono block mt-1">{licenseTier} Edition</span>
-                      </div>
-                      <div className="p-3 bg-slate-50 border border-slate-100 rounded-lg">
-                        <span className="text-[10px] text-slate-400 font-mono block uppercase">{locale === "pt" ? "Status da Assinatura" : "Subscription Status"}</span>
-                        <span className="text-sm font-extrabold text-emerald-600 font-mono mt-1 block">{licenseStatus}</span>
-                      </div>
-                    </div>
-                    <input type="text" disabled value={licenseKey} className="w-full p-2 rounded bg-slate-100 font-mono text-slate-600 border border-slate-200 cursor-not-allowed text-xs" />
-                    <div className="flex gap-2">
-                      <input type="text" placeholder="XXXX-XXXX-XXXX-XXXX" value={inputLicenseKey} onChange={(e) => setInputLicenseKey(e.target.value)} className="flex-1 p-2 bg-white border border-slate-200 rounded text-xs font-mono" />
-                      <button
-                        onClick={() => {
-                          if (!inputLicenseKey.trim()) {
-                            setLicenseMessage(locale === "pt" ? "Insira uma chave válida." : "Insert a valid key.");
-                            return;
-                          }
-                          if (inputLicenseKey.includes("PRO")) {
-                            setLicenseTier("professional");
-                            setLicenseKey(inputLicenseKey);
-                            setLicenseStatus("Active");
-                            setLicenseMessage(locale === "pt" ? "Licença Professional Ativada!" : "Professional License Activated!");
-                          } else if (inputLicenseKey.includes("ENT")) {
-                            setLicenseTier("enterprise");
-                            setLicenseKey(inputLicenseKey);
-                            setLicenseStatus("Active");
-                            setLicenseMessage(locale === "pt" ? "Licença Enterprise Ativada!" : "Enterprise License Activated!");
-                          } else {
-                            setLicenseMessage(locale === "pt" ? "Código de licença inválido ou expirado." : "Invalid or expired license code.");
-                          }
-                        }}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold px-4 rounded"
-                      >
-                        {locale === "pt" ? "Ativar" : "Activate"}
-                      </button>
-                    </div>
-                    {licenseMessage && <p className="text-xs font-semibold text-emerald-700 font-mono">{licenseMessage}</p>}
+                    {!fleetLicenseStatus?.connected ? (
+                      <p className="text-xs text-slate-400">
+                        {locale === "pt"
+                          ? "Ainda não conectado ao Fleet Manager - configure a URL e a chave de API abaixo para que o plano, status e vigência do contrato apareçam aqui."
+                          : "Not connected to the Fleet Manager yet - configure the URL and API key below so the plan, status and contract term appear here."}
+                      </p>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                          <div className="p-3 bg-slate-50 border border-slate-100 rounded-lg">
+                            <span className="text-[10px] text-slate-400 font-mono block uppercase">{locale === "pt" ? "Plano Contratado" : "Contracted Plan"}</span>
+                            <span className="text-sm font-extrabold text-emerald-600 font-mono block mt-1">
+                              {fleetLicenseStatus.plan_name || (locale === "pt" ? "Sem plano (módulos avulsos)" : "No plan (individual modules)")}
+                            </span>
+                          </div>
+                          <div className="p-3 bg-slate-50 border border-slate-100 rounded-lg">
+                            <span className="text-[10px] text-slate-400 font-mono block uppercase">{locale === "pt" ? "Status da Assinatura" : "Subscription Status"}</span>
+                            <span className={`text-sm font-extrabold font-mono mt-1 block ${fleetLicenseStatus.status === "active" ? "text-emerald-600" : "text-red-600"}`}>
+                              {fleetLicenseStatus.status === "active" ? (locale === "pt" ? "Ativa" : "Active") : (locale === "pt" ? "Suspensa" : "Suspended")}
+                            </span>
+                          </div>
+                          <div className="p-3 bg-slate-50 border border-slate-100 rounded-lg">
+                            <span className="text-[10px] text-slate-400 font-mono block uppercase">{locale === "pt" ? "Vigência do Contrato" : "Contract Term"}</span>
+                            <span className="text-sm font-extrabold text-slate-800 font-mono mt-1 block">
+                              {fleetLicenseStatus.contract_start_date && fleetLicenseStatus.contract_end_date
+                                ? `${new Date(fleetLicenseStatus.contract_start_date).toLocaleDateString(locale === "pt" ? "pt-BR" : "en-US")} - ${new Date(fleetLicenseStatus.contract_end_date).toLocaleDateString(locale === "pt" ? "pt-BR" : "en-US")}`
+                                : locale === "pt" ? "Não definida" : "Not set"}
+                            </span>
+                          </div>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 font-mono block uppercase mb-1">{locale === "pt" ? "Módulos Habilitados" : "Enabled Modules"}</span>
+                          <div className="flex gap-1.5 flex-wrap">
+                            {fleetLicenseStatus.modules.length > 0 ? (
+                              fleetLicenseStatus.modules.map((m) => (
+                                <span key={m} className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100">
+                                  {m}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-xs text-slate-400">{locale === "pt" ? "Nenhum" : "None"}</span>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-[10px] text-slate-400 font-mono">
+                          {locale === "pt" ? "Última verificação: " : "Last verified: "}
+                          {fleetLicenseStatus.last_verified_at ? new Date(fleetLicenseStatus.last_verified_at).toLocaleString(locale === "pt" ? "pt-BR" : "en-US") : "-"}
+                        </p>
+                        <p className="text-[10px] text-slate-400">
+                          {locale === "pt"
+                            ? "Plano, status e vigência são geridos pela AI Pre-Sales Solutions no Fleet Manager - não são editáveis por aqui."
+                            : "Plan, status and contract term are managed by AI Pre-Sales Solutions in the Fleet Manager - not editable from here."}
+                        </p>
+                      </>
+                    )}
                   </div>
                 )}
 

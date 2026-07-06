@@ -5,6 +5,8 @@ import { dbStore } from "../../src/dbStore";
 import { requireAuth, requirePermission } from "./auth";
 import { encryptSecret, decryptSecret, maskSecret } from "../utils/security";
 import { createStorageAdapter } from "../utils/storage";
+import { getFleetLicenseStatus } from "../utils/fleetLicense";
+import { getCurrentTenantId } from "../../src/tenantContext";
 
 const router = express.Router();
 
@@ -112,6 +114,18 @@ function validateBrandingUpdates(updates: any) {
 router.get("/settings", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
     res.json(await getSafePlatformSettings());
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/settings/fleet-license-status", requirePermission("admin:settings"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = getCurrentTenantId();
+    if (!tenantId) {
+      return res.status(400).json({ success: false, message: "No tenant context." });
+    }
+    res.json(await getFleetLicenseStatus(tenantId));
   } catch (err) {
     next(err);
   }

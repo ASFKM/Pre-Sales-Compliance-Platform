@@ -17,6 +17,9 @@ interface LicenseStatusPayload {
   status: "active" | "suspended";
   block_mode: "full_lockout" | "read_only" | null;
   modules: string[];
+  plan_name: string | null;
+  contract_start_date: string | null;
+  contract_end_date: string | null;
   issued_at: string;
   valid_until: string;
 }
@@ -202,6 +205,52 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
       console.error(`Fleet manager heartbeat error for tenant ${tenantId}:`, err);
     }
   });
+}
+
+export interface FleetLicenseStatus {
+  connected: boolean;
+  status: "active" | "suspended" | null;
+  block_mode: "full_lockout" | "read_only" | null;
+  modules: string[];
+  plan_name: string | null;
+  contract_start_date: string | null;
+  contract_end_date: string | null;
+  last_verified_at: string | null;
+}
+
+// What the admin console actually shows in "Assinatura e Licença" - the real cached status from
+// the last successful, signature-verified heartbeat. Never throws; no cache (fleet reporting
+// disabled, never checked in, or a stale/unverifiable entry) just reads as "not connected" rather
+// than exposing raw cache-miss/expiry details the customer's admin has no use for.
+export async function getFleetLicenseStatus(tenantId: string): Promise<FleetLicenseStatus> {
+  const disconnected: FleetLicenseStatus = {
+    connected: false,
+    status: null,
+    block_mode: null,
+    modules: [],
+    plan_name: null,
+    contract_start_date: null,
+    contract_end_date: null,
+    last_verified_at: null,
+  };
+  try {
+    const raw = await redis.get(licenseCacheKey(tenantId));
+    if (!raw) return disconnected;
+    const cached: CachedLicense = JSON.parse(raw);
+    if (!verifyPayload(cached.payload, cached.signature)) return disconnected;
+    return {
+      connected: true,
+      status: cached.payload.status,
+      block_mode: cached.payload.block_mode,
+      modules: cached.payload.modules,
+      plan_name: cached.payload.plan_name,
+      contract_start_date: cached.payload.contract_start_date,
+      contract_end_date: cached.payload.contract_end_date,
+      last_verified_at: cached.verifiedAt,
+    };
+  } catch {
+    return disconnected;
+  }
 }
 
 export type EnforcementResult = { blocked: boolean; readOnly: boolean; message?: string };
