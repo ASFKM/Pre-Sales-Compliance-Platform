@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import os from "os";
 import { dbStore } from "../../src/dbStore";
 import { redis } from "../../src/redis";
 import { runWithTenant } from "../../src/tenantContext";
@@ -89,6 +90,26 @@ async function runVulnerabilityScan(): Promise<{ report: Record<string, any>; cr
   }
 }
 
+function collectSystemInfo() {
+  return {
+    os_platform: `${os.platform()} ${os.release()}`,
+    cpu_cores: os.cpus().length,
+    total_memory_mb: Math.round(os.totalmem() / (1024 * 1024)),
+    node_version: process.version,
+  };
+}
+
+// Strips every *_encrypted field before the snapshot ever leaves this server - the Fleet Manager
+// stores this purely as a recovery/diff aid, it should never receive even an encrypted secret.
+function sanitizeSettingsForBackup(settings: Record<string, any>): Record<string, any> {
+  const sanitized: Record<string, any> = {};
+  for (const [key, value] of Object.entries(settings)) {
+    if (key.endsWith("_encrypted")) continue;
+    sanitized[key] = value;
+  }
+  return sanitized;
+}
+
 // Called periodically (every 15-60 min) for every tenant with fleet reporting enabled. Never
 // throws - a fleet manager outage or network failure must not disrupt the Pre-Sales Compliance
 // Platform itself (fail-open is the whole point).
@@ -107,7 +128,12 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
       const res = await fetch(`${settings.fleet_manager_url}/api/heartbeat`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ logs, vulnerabilities: vulnerabilities || undefined }),
+        body: JSON.stringify({
+          logs,
+          vulnerabilities: vulnerabilities || undefined,
+          system_info: collectSystemInfo(),
+          config_snapshot: sanitizeSettingsForBackup(settings as unknown as Record<string, any>),
+        }),
         signal: AbortSignal.timeout(10000),
       });
 
