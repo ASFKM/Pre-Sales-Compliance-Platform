@@ -22,6 +22,7 @@ import { logDebugMessage } from "../middleware/security";
 import { isProductionRuntime, isDemoRuntime } from "../config/runtime";
 import { runWithTenant } from "../../src/tenantContext";
 import { isLockedOut, recordFailedAttempt, clearFailedAttempts } from "../utils/lockout";
+import { checkLicenseEnforcement } from "../utils/fleetLicense";
 
 const router = express.Router();
 
@@ -112,6 +113,17 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
     const role = await dbStore.getRoleById(session.roleId);
     const canSeeAllProjects = role?.permissions.includes("project:read_all") ?? false;
+
+    // Phase 7 (fleet/license management): only ever blocks on an explicit, currently-valid,
+    // signature-verified "suspended" status from the fleet manager - no cached status (never
+    // registered, or the fleet manager has been unreachable) always allows through (fail-open).
+    const enforcement = await checkLicenseEnforcement(user.tenant_id);
+    if (enforcement.blocked) {
+      return res.status(403).json({ success: false, code: "LICENSE_SUSPENDED", message: enforcement.message });
+    }
+    if (enforcement.readOnly && !["GET", "HEAD", "OPTIONS"].includes(req.method)) {
+      return res.status(403).json({ success: false, code: "LICENSE_READ_ONLY", message: enforcement.message });
+    }
 
     // Bind session info to request headers for downstream endpoint use
     req.headers["x-user-id"] = session.userId;

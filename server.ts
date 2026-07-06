@@ -141,6 +141,13 @@ async function bootstrap() {
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Enterprise App Server listening on http://0.0.0.0:${PORT}`);
   });
+
+  // Phase 7 (fleet/license management): reports to the vendor's fleet manager and picks up any
+  // pending admin commands - client-initiated, since on-prem installs sit behind NAT/firewalls
+  // that block inbound but allow outbound. Runs once shortly after boot, then every 20 minutes.
+  const { runHeartbeatForAllEnabledTenants } = await import("./server/utils/fleetLicense");
+  setTimeout(() => runHeartbeatForAllEnabledTenants().catch((err) => console.error("Initial fleet heartbeat failed:", err)), 30000);
+  setInterval(() => runHeartbeatForAllEnabledTenants().catch((err) => console.error("Fleet heartbeat failed:", err)), 20 * 60 * 1000);
 }
 
 bootstrap().catch((err) => {

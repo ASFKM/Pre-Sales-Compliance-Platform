@@ -225,6 +225,9 @@ function mapSettings(s: any): PlatformSettings {
     web_grounding_provider: s.webGroundingProvider,
     proposal_generation_provider: s.proposalGenerationProvider,
     monthly_cost_cap_usd: s.monthlyCostCapUsd ?? null,
+    fleet_manager_url: s.fleetManagerUrl ?? null,
+    fleet_manager_api_key_encrypted: s.fleetManagerApiKeyEncrypted ?? undefined,
+    fleet_manager_enabled: s.fleetManagerEnabled,
     storage_mode: s.storageMode,
     local_storage_path: s.localStoragePath,
     s3_bucket: s.s3Bucket,
@@ -950,6 +953,13 @@ class DBStore {
     return mapSettings(s);
   }
 
+  // Phase 7 (fleet/license management): cross-tenant by design - called from the system-level
+  // heartbeat scheduler (no request, no single tenant in context), never from a request handler.
+  public async getAllTenantIdsWithFleetReportingEnabled(): Promise<string[]> {
+    const rows = await prisma.platformSettings.findMany({ where: { fleetManagerEnabled: true }, select: { tenantId: true } });
+    return rows.map((r) => r.tenantId);
+  }
+
   public async updateSettings(updates: Partial<PlatformSettings>): Promise<PlatformSettings> {
     const current = await prisma.platformSettings.findFirst();
     if (!current) throw new Error("Platform settings row missing - seed data was not migrated correctly.");
@@ -968,6 +978,9 @@ class DBStore {
         webGroundingProvider: updates.web_grounding_provider,
         proposalGenerationProvider: updates.proposal_generation_provider,
         monthlyCostCapUsd: updates.monthly_cost_cap_usd,
+        fleetManagerUrl: updates.fleet_manager_url,
+        fleetManagerApiKeyEncrypted: updates.fleet_manager_api_key_encrypted,
+        fleetManagerEnabled: updates.fleet_manager_enabled,
         storageMode: updates.storage_mode,
         localStoragePath: updates.local_storage_path,
         s3Bucket: updates.s3_bucket,

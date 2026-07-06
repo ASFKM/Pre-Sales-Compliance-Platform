@@ -495,6 +495,13 @@ model PlatformSettings {
   // Per-tenant monthly AI spend cap - null means uncapped. Enforced (hard block once reached,
   // not just tracked), with an 80%-of-cap warning logged before that point.
   monthlyCostCapUsd        Float?   @map("monthly_cost_cap_usd")
+  // Phase 7 (fleet/license management): this installation's connection to the vendor's fleet
+  // manager (a separate server - see docs/roadmap). Empty/disabled means no heartbeat runs and
+  // the installation is always treated as active (fail-open) - matches the on-prem reality of
+  // not every install necessarily being registered yet.
+  fleetManagerUrl          String?  @map("fleet_manager_url")
+  fleetManagerApiKeyEncrypted String? @map("fleet_manager_api_key_encrypted") @db.Text
+  fleetManagerEnabled      Boolean  @default(false) @map("fleet_manager_enabled")
   storageMode              StorageProvider @default(local) @map("storage_mode")
   localStoragePath         String   @map("local_storage_path")
   s3Bucket                 String   @map("s3_bucket")

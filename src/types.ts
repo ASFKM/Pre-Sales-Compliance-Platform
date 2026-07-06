@@ -300,6 +300,11 @@ export interface PlatformSettings {
   web_grounding_provider: string;
   proposal_generation_provider: string;
   monthly_cost_cap_usd?: number | null;
+  // Phase 7 (fleet/license management): this tenant's registration with the vendor's fleet
+  // manager (a separate server). See src/fleetLicense.ts.
+  fleet_manager_url?: string | null;
+  fleet_manager_api_key_encrypted?: string;
+  fleet_manager_enabled: boolean;
   storage_mode: "local" | "s3" | "gcs";
   local_storage_path: string;
   s3_bucket: string;

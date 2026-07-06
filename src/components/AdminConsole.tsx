@@ -1432,6 +1432,51 @@ export default function AdminConsole({
                   </div>
                 )}
 
+                {activeAdminSection === "subscription" && canAccessAdminSection("subscription") && (
+                  <div className="w-full bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4 mt-4">
+                    <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
+                      {locale === "pt" ? "Conexão com o Fleet Manager" : "Fleet Manager Connection"}
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      {locale === "pt"
+                        ? "Conexão real com o servidor de gestão de licenças e módulos da AI Pre-Sales Solutions. Sem essa conexão (ou se o servidor estiver fora do ar), a plataforma continua funcionando normalmente."
+                        : "Real connection to the AI Pre-Sales Solutions license/module management server. Without it (or if that server is down), the platform keeps working normally."}
+                    </p>
+                    <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={platformSettings?.fleet_manager_enabled || false}
+                        onChange={(e) => handleSavePlatformSettings("fleet_manager_enabled", e.target.checked)}
+                        className="rounded text-emerald-600"
+                      />
+                      {locale === "pt" ? "Ativar relatório periódico ao Fleet Manager" : "Enable periodic reporting to Fleet Manager"}
+                    </label>
+                    <div>
+                      <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block mb-1">Fleet Manager URL</label>
+                      <input
+                        type="text"
+                        placeholder="https://fleet.aipresales.com"
+                        defaultValue={platformSettings?.fleet_manager_url || ""}
+                        onBlur={(e) => handleSavePlatformSettings("fleet_manager_url", e.target.value)}
+                        className="w-full p-2 rounded bg-slate-50 border border-slate-200 text-xs font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block mb-1">
+                        {locale === "pt" ? "Chave de API da Instalação" : "Installation API Key"}
+                      </label>
+                      <input
+                        type="password"
+                        placeholder="fleet_live_..."
+                        onBlur={(e) => {
+                          if (e.target.value.trim()) handleSavePlatformSettings("fleet_manager_api_key", e.target.value.trim());
+                        }}
+                        className="w-full p-2 rounded bg-slate-50 border border-slate-200 text-xs font-mono"
+                      />
+                    </div>
+                  </div>
+                )}
+
                 {activeAdminSection === "branding" && canAccessAdminSection("branding") && (
                   <div className="w-full grid grid-cols-1 xl:grid-cols-2 gap-6">
                     <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">

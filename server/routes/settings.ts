@@ -14,6 +14,7 @@ async function getSafePlatformSettings() {
     ai_api_key_encrypted,
     s3_secret_access_key_encrypted,
     gcs_service_account_key_encrypted,
+    fleet_manager_api_key_encrypted,
     ...safeSettings
   } = settings;
 
@@ -32,7 +33,9 @@ async function getSafePlatformSettings() {
     ai_api_key_masked: maskOrFallback(ai_api_key_encrypted),
     s3_secret_access_key_configured: Boolean(s3_secret_access_key_encrypted),
     s3_secret_access_key_masked: maskOrFallback(s3_secret_access_key_encrypted),
-    gcs_service_account_key_configured: Boolean(gcs_service_account_key_encrypted)
+    gcs_service_account_key_configured: Boolean(gcs_service_account_key_encrypted),
+    fleet_manager_api_key_configured: Boolean(fleet_manager_api_key_encrypted),
+    fleet_manager_api_key_masked: maskOrFallback(fleet_manager_api_key_encrypted)
   };
 }
 
@@ -43,6 +46,12 @@ function sanitizeSettingsAudit(updates: any) {
   }
   if (safe.ai_api_key_encrypted) {
     safe.ai_api_key_encrypted = "[encrypted-secret]";
+  }
+  if (safe.fleet_manager_api_key) {
+    safe.fleet_manager_api_key = "[secret-updated]";
+  }
+  if (safe.fleet_manager_api_key_encrypted) {
+    safe.fleet_manager_api_key_encrypted = "[encrypted-secret]";
   }
   return safe;
 }
@@ -110,10 +119,14 @@ router.get("/settings", requireAuth, async (req: Request, res: Response, next: N
 
 router.put("/settings", requirePermission("admin:settings"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const allowedFields = ["default_language", "default_log_level"];
-    const updates = Object.fromEntries(
+    const allowedFields = ["default_language", "default_log_level", "fleet_manager_url", "fleet_manager_enabled"];
+    const updates: any = Object.fromEntries(
       Object.entries(req.body || {}).filter(([key]) => allowedFields.includes(key))
     );
+
+    if (typeof req.body?.fleet_manager_api_key === "string" && req.body.fleet_manager_api_key.trim()) {
+      updates.fleet_manager_api_key_encrypted = encryptSecret(req.body.fleet_manager_api_key.trim());
+    }
 
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ success: false, message: "No valid global settings fields provided." });
@@ -126,7 +139,7 @@ router.put("/settings", requirePermission("admin:settings"), async (req: Request
 
     await dbStore.updateSettings(updates);
 
-    await auditSettingsChange(req, "Update Global Platform Settings", "PlatformSettings", "global", updates);
+    await auditSettingsChange(req, "Update Global Platform Settings", "PlatformSettings", "global", sanitizeSettingsAudit(updates));
 
     res.json(await getSafePlatformSettings());
   } catch (err) {
@@ -249,6 +262,10 @@ function validateAISettingsUpdates(updates: any) {
 
   if (updates.default_log_level !== undefined && !allowedLogLevels.includes(String(updates.default_log_level))) {
     return { valid: false, message: "Invalid default log level." };
+  }
+
+  if (updates.fleet_manager_url !== undefined && updates.fleet_manager_url !== "" && !/^https?:\/\//.test(String(updates.fleet_manager_url))) {
+    return { valid: false, message: "Fleet Manager URL must start with http:// or https://." };
   }
 
   return { valid: true, message: "" };
