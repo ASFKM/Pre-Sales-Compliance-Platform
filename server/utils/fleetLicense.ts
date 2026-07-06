@@ -56,32 +56,59 @@ async function collectRecentLogs(tenantId: string): Promise<Record<string, any>[
     .map((l) => ({ timestamp: l.timestamp, operation: l.operation, level: l.log_level, message: l.message }));
 }
 
-async function runVulnerabilityScan(): Promise<{ report: Record<string, any>; critical_count: number; high_count: number; medium_count: number; low_count: number } | null> {
+interface VulnerabilityFinding {
+  package_name: string;
+  severity: string;
+  title: string;
+  url: string;
+}
+
+// Each key in npm audit's `vulnerabilities` object is a distinct package - a stable-enough
+// identifier to correlate the same finding across scans (present -> still open, absent from a
+// later scan -> resolved). `via` entries are either a string (an indirect dependency name) or an
+// object carrying the actual advisory title/url - only the object form has that detail.
+function extractFindings(vulnerabilities: Record<string, any>): VulnerabilityFinding[] {
+  return Object.entries(vulnerabilities || {}).map(([packageName, info]: [string, any]) => {
+    const advisory = (info.via || []).find((v: any) => typeof v === "object");
+    return {
+      package_name: packageName,
+      severity: info.severity || "unknown",
+      title: advisory?.title || "",
+      url: advisory?.url || "",
+    };
+  });
+}
+
+function parseAuditOutput(raw: string) {
+  const parsed = JSON.parse(raw);
+  const counts = parsed.metadata?.vulnerabilities || {};
+  return {
+    report: parsed.metadata || {},
+    critical_count: counts.critical || 0,
+    high_count: counts.high || 0,
+    medium_count: counts.moderate || 0,
+    low_count: counts.low || 0,
+    findings: extractFindings(parsed.vulnerabilities),
+  };
+}
+
+async function runVulnerabilityScan(): Promise<{
+  report: Record<string, any>;
+  critical_count: number;
+  high_count: number;
+  medium_count: number;
+  low_count: number;
+  findings: VulnerabilityFinding[];
+} | null> {
   try {
     const { execSync } = await import("child_process");
     const output = execSync("npm audit --json", { cwd: process.cwd(), timeout: 60000 }).toString();
-    const parsed = JSON.parse(output);
-    const counts = parsed.metadata?.vulnerabilities || {};
-    return {
-      report: parsed.metadata || {},
-      critical_count: counts.critical || 0,
-      high_count: counts.high || 0,
-      medium_count: counts.moderate || 0,
-      low_count: counts.low || 0,
-    };
+    return parseAuditOutput(output);
   } catch (err: any) {
     // npm audit exits non-zero when vulnerabilities are found - stdout still has valid JSON.
     if (err.stdout) {
       try {
-        const parsed = JSON.parse(err.stdout.toString());
-        const counts = parsed.metadata?.vulnerabilities || {};
-        return {
-          report: parsed.metadata || {},
-          critical_count: counts.critical || 0,
-          high_count: counts.high || 0,
-          medium_count: counts.moderate || 0,
-          low_count: counts.low || 0,
-        };
+        return parseAuditOutput(err.stdout.toString());
       } catch {
         return null;
       }
@@ -91,10 +118,19 @@ async function runVulnerabilityScan(): Promise<{ report: Record<string, any>; cr
 }
 
 function collectSystemInfo() {
+  const totalMemoryMb = Math.round(os.totalmem() / (1024 * 1024));
+  const usedMemoryMb = Math.round((os.totalmem() - os.freemem()) / (1024 * 1024));
+  const cores = os.cpus().length || 1;
+  // 1-minute load average as a % of total cores - a simple, dependency-free approximation of
+  // CPU utilization (load average isn't a precise "% busy" figure, but it's good enough for a
+  // fleet-wide trend chart and doesn't need a sampling window like a true CPU% measurement would).
+  const cpuLoadPercent = Math.min(100, Math.round((os.loadavg()[0] / cores) * 100));
   return {
     os_platform: `${os.platform()} ${os.release()}`,
-    cpu_cores: os.cpus().length,
-    total_memory_mb: Math.round(os.totalmem() / (1024 * 1024)),
+    cpu_cores: cores,
+    cpu_load_percent: cpuLoadPercent,
+    total_memory_mb: totalMemoryMb,
+    memory_used_mb: usedMemoryMb,
     node_version: process.version,
   };
 }
