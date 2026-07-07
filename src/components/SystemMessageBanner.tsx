@@ -8,6 +8,7 @@ interface SystemMessage {
   audience: "admin_only" | "all_users";
   body: string;
   created_at: string;
+  expires_at: string | null;
 }
 
 const DISMISSED_KEY = "ca_dismissed_system_messages";
@@ -25,15 +26,19 @@ interface Props {
   hasPermission: (permission: string) => boolean;
 }
 
-// Notices relayed from the Fleet Manager (maintenance windows, etc.) or created locally by this
-// installation's own super admin - dismissal is per-browser (localStorage), no server-side
-// per-user read state, kept deliberately simple.
+// A small scrolling ticker at the bottom of the app, above the diagnostic footer - notices
+// relayed from the Fleet Manager (maintenance windows, etc.) or created locally by this
+// installation's own super admin. Dismissal is per-browser (localStorage), no server-side
+// per-user read state, kept deliberately simple. Server already filters out expired messages.
 export default function SystemMessageBanner({ locale, hasPermission }: Props) {
   const [messages, setMessages] = useState<SystemMessage[]>([]);
   const [dismissed, setDismissed] = useState<string[]>(getDismissed());
 
   useEffect(() => {
-    ApiClient.get<SystemMessage[]>("/api/messages").then(setMessages).catch(() => setMessages([]));
+    const load = () => ApiClient.get<SystemMessage[]>("/api/messages").then(setMessages).catch(() => setMessages([]));
+    load();
+    const interval = setInterval(load, 60000);
+    return () => clearInterval(interval);
   }, []);
 
   const canSeeAdminOnly = hasPermission("admin:settings");
@@ -47,19 +52,34 @@ export default function SystemMessageBanner({ locale, hasPermission }: Props) {
     localStorage.setItem(DISMISSED_KEY, JSON.stringify(next));
   };
 
+  const combinedText = visible.map((m) => m.body).join("      •      ");
+
   return (
-    <div className="shrink-0 z-20">
-      {visible.map((m) => (
-        <div key={m.id} className="flex items-center justify-between gap-3 px-4 py-2 bg-amber-50 border-b border-amber-200 text-amber-900 text-xs">
-          <div className="flex items-center gap-2">
-            <Megaphone size={14} className="shrink-0" />
-            <span>{m.body}</span>
-          </div>
-          <button onClick={() => dismiss(m.id)} className="shrink-0 text-amber-500 hover:text-amber-800">
-            <X size={14} />
-          </button>
+    <div
+      className="shrink-0 h-7 flex items-center gap-2 px-3 overflow-hidden relative"
+      style={{ background: "#78350f", borderTop: "1px solid #92400e" }}
+    >
+      <Megaphone size={13} className="shrink-0 text-amber-300" />
+      <div className="flex-1 overflow-hidden whitespace-nowrap relative">
+        <div className="inline-block animate-ticker-scroll text-amber-100 text-[11px] font-medium">
+          {combinedText}
         </div>
-      ))}
+      </div>
+      <button onClick={() => visible.forEach((m) => dismiss(m.id))} className="shrink-0 text-amber-300 hover:text-white" title={locale === "pt" ? "Dispensar avisos" : "Dismiss notices"}>
+        <X size={13} />
+      </button>
+      <style>{`
+        @keyframes ticker-scroll {
+          0% { transform: translateX(100vw); }
+          100% { transform: translateX(-100%); }
+        }
+        .animate-ticker-scroll {
+          animation: ticker-scroll 22s linear infinite;
+        }
+        .animate-ticker-scroll:hover {
+          animation-play-state: paused;
+        }
+      `}</style>
     </div>
   );
 }

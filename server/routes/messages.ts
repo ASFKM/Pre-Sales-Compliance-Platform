@@ -13,7 +13,11 @@ router.get("/messages", requireAuth, async (req: Request, res: Response, next: N
   try {
     const tenantId = getCurrentTenantId()!;
     const messages = await prisma.systemMessage.findMany({
-      where: { tenantId, createdAt: { gte: new Date(Date.now() - MESSAGE_WINDOW_MS) } },
+      where: {
+        tenantId,
+        createdAt: { gte: new Date(Date.now() - MESSAGE_WINDOW_MS) },
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
       orderBy: { createdAt: "desc" },
       take: 50,
     });
@@ -25,6 +29,7 @@ router.get("/messages", requireAuth, async (req: Request, res: Response, next: N
         body: m.body,
         created_by: m.createdBy,
         created_at: m.createdAt,
+        expires_at: m.expiresAt,
       }))
     );
   } catch (err) {
@@ -32,9 +37,11 @@ router.get("/messages", requireAuth, async (req: Request, res: Response, next: N
   }
 });
 
+// null = never expires. Otherwise, minutes from now until the message stops being shown.
 const SendMessageSchema = z.object({
   audience: z.enum(["admin_only", "all_users"]),
   body: z.string().min(1),
+  expires_in_minutes: z.number().int().positive().nullable().optional(),
 });
 
 router.post("/messages", requirePermission("admin:settings"), async (req: Request, res: Response, next: NextFunction) => {
@@ -42,6 +49,7 @@ router.post("/messages", requirePermission("admin:settings"), async (req: Reques
     const validated = SendMessageSchema.parse(req.body);
     const tenantId = getCurrentTenantId()!;
     const userId = (req.headers["x-user-id"] as string) || "u1";
+    const expiresAt = validated.expires_in_minutes ? new Date(Date.now() + validated.expires_in_minutes * 60_000) : null;
 
     const message = await prisma.systemMessage.create({
       data: {
@@ -51,6 +59,7 @@ router.post("/messages", requirePermission("admin:settings"), async (req: Reques
         audience: validated.audience,
         body: validated.body,
         createdBy: userId,
+        expiresAt,
       },
     });
     res.status(201).json({ id: message.id });

@@ -589,6 +589,9 @@ model SystemMessage {
   body          String                 @db.Text
   createdBy     String                 @map("created_by")
   createdAt     DateTime               @default(now()) @map("created_at")
+  // Null = never expires. For source=fleet_manager this is relayed as-is from the FleetMessage;
+  // for source=local it's set from the duration chosen when the super admin composed it.
+  expiresAt     DateTime?              @map("expires_at")
 
   @@index([tenantId])
   @@map("system_messages")

@@ -217,6 +217,7 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
             audience: msg.audience,
             body: msg.body,
             createdBy: "AI Pre-Sales Solutions",
+            expiresAt: msg.expires_at ? new Date(msg.expires_at) : null,
           },
           update: {},
         });

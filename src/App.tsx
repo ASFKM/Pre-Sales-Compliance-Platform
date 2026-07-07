@@ -1006,7 +1006,6 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
 
   return (
     <div className="flex flex-col h-screen w-full bg-[#f8fafc] text-slate-900 font-sans overflow-hidden">
-      <SystemMessageBanner locale={locale} hasPermission={hasPermission} />
 
       {/* 1. TOP NAV BAR */}
       <nav className="h-auto min-h-14 bg-slate-900 text-white flex items-center justify-between px-3 lg:px-6 shrink-0 z-10 shadow-md flex-wrap lg:flex-nowrap gap-2">
@@ -1514,6 +1513,8 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
 
         </section>
       </main>
+
+      <SystemMessageBanner locale={locale} hasPermission={hasPermission} />
 
       {/* 4. DIAGNOSTIC SYSTEM FOOTER */}
       <footer className="h-8 bg-slate-900 border-t border-slate-800 px-3 lg:px-6 flex items-center justify-between gap-4 text-[10px] font-mono text-slate-400 shrink-0 shadow-lg overflow-x-auto whitespace-nowrap">

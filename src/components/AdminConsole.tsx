@@ -115,6 +115,7 @@ export default function AdminConsole({
   const [verticals, setVerticals] = useState<{ id: string; name: string; is_active: boolean }[]>([]);
   const [newVerticalName, setNewVerticalName] = useState("");
   const [newBroadcastMessage, setNewBroadcastMessage] = useState("");
+  const [newBroadcastExpiryMinutes, setNewBroadcastExpiryMinutes] = useState("1440");
 
   const loadVerticals = () => {
     ApiClient.get<{ id: string; name: string; is_active: boolean }[]>("/api/verticals").then(setVerticals).catch(() => setVerticals([]));
@@ -530,10 +531,10 @@ export default function AdminConsole({
                     </h3>
                     <p className="text-xs text-slate-500">
                       {locale === "pt"
-                        ? "Aparece como um aviso no topo do sistema para todos que acessarem enquanto estiver ativo."
-                        : "Shows as a banner at the top of the app for everyone while it's active."}
+                        ? "Aparece como uma faixa rolante no rodapé do sistema para todos que acessarem enquanto estiver ativo."
+                        : "Shows as a scrolling ticker at the bottom of the app for everyone while it's active."}
                     </p>
-                    <div className="flex gap-2">
+                    <div className="flex flex-col sm:flex-row gap-2">
                       <input
                         type="text"
                         value={newBroadcastMessage}
@@ -541,18 +542,34 @@ export default function AdminConsole({
                         placeholder={locale === "pt" ? "Ex: Manutenção programada hoje das 23h às 3h." : "e.g. Scheduled maintenance tonight 11pm-3am."}
                         className="flex-1 p-2 rounded bg-slate-50 border border-slate-200 text-xs"
                       />
+                      <select
+                        value={newBroadcastExpiryMinutes}
+                        onChange={(e) => setNewBroadcastExpiryMinutes(e.target.value)}
+                        className="p-2 rounded bg-slate-50 border border-slate-200 text-xs"
+                      >
+                        <option value="">{locale === "pt" ? "Nunca expira" : "Never expires"}</option>
+                        <option value="60">{locale === "pt" ? "1 hora" : "1 hour"}</option>
+                        <option value="240">{locale === "pt" ? "4 horas" : "4 hours"}</option>
+                        <option value="1440">{locale === "pt" ? "1 dia" : "1 day"}</option>
+                        <option value="4320">{locale === "pt" ? "3 dias" : "3 days"}</option>
+                        <option value="10080">{locale === "pt" ? "7 dias" : "7 days"}</option>
+                      </select>
                       <button
                         onClick={async () => {
                           if (!newBroadcastMessage.trim()) return;
                           try {
-                            await ApiClient.post("/api/messages", { audience: "all_users", body: newBroadcastMessage.trim() });
+                            await ApiClient.post("/api/messages", {
+                              audience: "all_users",
+                              body: newBroadcastMessage.trim(),
+                              expires_in_minutes: newBroadcastExpiryMinutes ? parseInt(newBroadcastExpiryMinutes, 10) : null,
+                            });
                             setNewBroadcastMessage("");
                             alert(locale === "pt" ? "Aviso enviado." : "Notice sent.");
                           } catch (err: any) {
                             alert(err.message || (locale === "pt" ? "Não foi possível enviar." : "Could not send."));
                           }
                         }}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 rounded"
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 rounded shrink-0"
                       >
                         {locale === "pt" ? "Enviar" : "Send"}
                       </button>
