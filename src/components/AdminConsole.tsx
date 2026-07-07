@@ -108,6 +108,7 @@ export default function AdminConsole({
   const [promptDrafts, setPromptDrafts] = useState<Record<string, string>>({});
   const [verticals, setVerticals] = useState<{ id: string; name: string; is_active: boolean }[]>([]);
   const [newVerticalName, setNewVerticalName] = useState("");
+  const [newBroadcastMessage, setNewBroadcastMessage] = useState("");
 
   const loadVerticals = () => {
     ApiClient.get<{ id: string; name: string; is_active: boolean }[]>("/api/verticals").then(setVerticals).catch(() => setVerticals([]));
@@ -512,6 +513,43 @@ export default function AdminConsole({
                           </div>
                         </div>
                       </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeAdminSection === "overview" && canAccessAdminSection("overview") && (
+                  <div className="w-full bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-3">
+                    <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
+                      {locale === "pt" ? "Enviar Aviso a Todos os Usuários" : "Send Notice to All Users"}
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      {locale === "pt"
+                        ? "Aparece como um aviso no topo do sistema para todos que acessarem enquanto estiver ativo."
+                        : "Shows as a banner at the top of the app for everyone while it's active."}
+                    </p>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={newBroadcastMessage}
+                        onChange={(e) => setNewBroadcastMessage(e.target.value)}
+                        placeholder={locale === "pt" ? "Ex: Manutenção programada hoje das 23h às 3h." : "e.g. Scheduled maintenance tonight 11pm-3am."}
+                        className="flex-1 p-2 rounded bg-slate-50 border border-slate-200 text-xs"
+                      />
+                      <button
+                        onClick={async () => {
+                          if (!newBroadcastMessage.trim()) return;
+                          try {
+                            await ApiClient.post("/api/messages", { audience: "all_users", body: newBroadcastMessage.trim() });
+                            setNewBroadcastMessage("");
+                            alert(locale === "pt" ? "Aviso enviado." : "Notice sent.");
+                          } catch (err: any) {
+                            alert(err.message || (locale === "pt" ? "Não foi possível enviar." : "Could not send."));
+                          }
+                        }}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 rounded"
+                      >
+                        {locale === "pt" ? "Enviar" : "Send"}
+                      </button>
                     </div>
                   </div>
                 )}

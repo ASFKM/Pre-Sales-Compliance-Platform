@@ -171,6 +171,7 @@ model Tenant {
   promptTemplates      PromptTemplate[]
   proposalTemplates    ProposalTemplate[]
   verticals            Vertical[]
+  systemMessages       SystemMessage[]
   proposals            Proposal[]
   approvalWorkflows    ApprovalWorkflow[]
   approvalStages       ApprovalStage[]
@@ -563,6 +564,34 @@ model ProposalTemplate {
 
   @@index([tenantId])
   @@map("proposal_templates")
+}
+
+enum SystemMessageSource {
+  fleet_manager
+  local
+}
+
+enum SystemMessageAudience {
+  admin_only
+  all_users
+}
+
+// Notices shown in-app - either relayed from the Fleet Manager over the heartbeat channel
+// (source=fleet_manager, fleetMessageId set so a re-delivered message doesn't get duplicated) or
+// created locally by this installation's own super admin (source=local).
+model SystemMessage {
+  id            String                 @id
+  tenantId      String                 @map("tenant_id")
+  tenant        Tenant                 @relation(fields: [tenantId], references: [id])
+  source        SystemMessageSource
+  fleetMessageId String?               @unique @map("fleet_message_id")
+  audience      SystemMessageAudience  @default(all_users)
+  body          String                 @db.Text
+  createdBy     String                 @map("created_by")
+  createdAt     DateTime               @default(now()) @map("created_at")
+
+  @@index([tenantId])
+  @@map("system_messages")
 }
 
 // Admin-managed list of industry verticals offered when creating a project - used to be a fixed

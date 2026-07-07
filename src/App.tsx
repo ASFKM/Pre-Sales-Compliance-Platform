@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import ApiClient from "./lib/api";
 import Login from "./components/Login";
+import SystemMessageBanner from "./components/SystemMessageBanner";
 import AdminConsole from "./components/AdminConsole";
 import Workspace from "./components/Workspace";
 import Home from "./components/Home";
@@ -1005,6 +1006,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
 
   return (
     <div className="flex flex-col h-screen w-full bg-[#f8fafc] text-slate-900 font-sans overflow-hidden">
+      <SystemMessageBanner locale={locale} hasPermission={hasPermission} />
 
       {/* 1. TOP NAV BAR */}
       <nav className="h-auto min-h-14 bg-slate-900 text-white flex items-center justify-between px-3 lg:px-6 shrink-0 z-10 shadow-md flex-wrap lg:flex-nowrap gap-2">

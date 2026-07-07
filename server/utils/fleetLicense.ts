@@ -3,6 +3,7 @@ import os from "os";
 import { dbStore } from "../../src/dbStore";
 import { redis } from "../../src/redis";
 import { runWithTenant } from "../../src/tenantContext";
+import { prisma } from "../../src/prisma";
 import { decryptSecret } from "./security";
 
 // Phase 7 (fleet/license management): the public half of the fleet manager's Ed25519 signing
@@ -200,6 +201,25 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
           headers: { Authorization: `Bearer ${apiKey}` },
           signal: AbortSignal.timeout(10000),
         }).catch(() => {});
+      }
+
+      for (const msg of data.messages || []) {
+        // fleetMessageId is unique, so a message somehow re-delivered across heartbeats (the
+        // Fleet Manager already tracks per-installation delivery, but this is cheap insurance)
+        // just no-ops on the second insert instead of showing the same notice twice.
+        await prisma.systemMessage.upsert({
+          where: { fleetMessageId: msg.id },
+          create: {
+            id: `sysmsg_${Math.random().toString(36).substring(2, 11)}`,
+            tenantId,
+            source: "fleet_manager",
+            fleetMessageId: msg.id,
+            audience: msg.audience,
+            body: msg.body,
+            createdBy: "AI Pre-Sales Solutions",
+          },
+          update: {},
+        });
       }
     } catch (err) {
       console.error(`Fleet manager heartbeat error for tenant ${tenantId}:`, err);
