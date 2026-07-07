@@ -43,6 +43,12 @@ router.post(
         return res.status(400).json({ success: false, message: "No file was uploaded." });
       }
 
+      // Captured immediately, before any other await - AsyncLocalStorage context can be dropped
+      // by all sorts of things downstream (the storage adapter, text extraction libraries, AI
+      // SDKs), not just the one call it was first traced to. Re-entered further down right before
+      // the first call that actually needs it.
+      const tenantContext = getTenantContext();
+
       // 1. Perform Secure File Validations (MIME, Extension, Size)
       const validation = validateUploadedFile(file.originalname, file.mimetype, file.size);
       if (!validation.valid) {
@@ -72,11 +78,7 @@ router.post(
 
       // 3b. Real AI classification (Admin > IA, Prompts e Custos > "Document Classification
       // Prompt") - replaces what used to be a hardcoded mimetype guess with a fixed fake
-      // confidence. The Gemini SDK's internal HTTP client doesn't reliably propagate
-      // AsyncLocalStorage context across its own await chain, so the tenant context set by
-      // requireAuth's middleware can be gone by the time this resolves - capture it first and
-      // explicitly re-enter it below so addDocument (which needs it) doesn't fail.
-      const tenantContext = getTenantContext();
+      // confidence.
       const classification = await classifyDocument(file.originalname, extraction.text);
 
       await runWithTenant(tenantContext!, async () => {

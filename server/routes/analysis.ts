@@ -181,6 +181,11 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
   const startTime = Date.now();
   const projectId = req.params.projectId;
 
+  // Captured immediately, before any other await - AsyncLocalStorage context can be dropped by
+  // all sorts of things downstream, not just the AI SDK call this was first traced to. Re-entered
+  // below for the whole detached background block.
+  const tenantContext = getTenantContext();
+
   const project = await dbStore.getProject(projectId);
   if (!project) {
     return res.status(404).json({ success: false, message: "Project not found." });
@@ -242,12 +247,9 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
   const task = await createTask({ userId, type: "document_analysis", currentStep: "Iniciando análise..." });
   res.status(202).json({ success: true, task_id: task.id, job_id: job.id });
 
-  // Everything from here runs detached from the request/response cycle, after an AI SDK call
-  // whose internal HTTP client doesn't reliably propagate AsyncLocalStorage context (same issue
-  // fixed in documents.ts's upload handler) - capture the tenant context now, while it's still
-  // guaranteed valid, and explicitly re-enter it for the whole background block.
-  const tenantContext = getTenantContext()!;
-  void runWithTenant(tenantContext, async () => {
+  // Everything from here runs detached from the request/response cycle - re-enter the tenant
+  // context captured at the top of this handler for the whole background block.
+  void runWithTenant(tenantContext!, async () => {
   try {
     await updateTaskProgress(task.id, { status: "running", currentStep: "Lendo documentos", progressPct: 15 });
 

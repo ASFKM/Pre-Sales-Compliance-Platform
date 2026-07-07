@@ -237,6 +237,11 @@ Respond with ONLY a strictly parsable JSON object, no markdown, matching this sh
 // validation step (even AI-filled fields) wins - the request body, not session.suggestedFields.
 router.post("/project-intake/:sessionId/confirm", requirePermission("project:create"), async (req: Request, res: Response, next: NextFunction) => {
   try {
+    // Captured immediately, before any other await - AsyncLocalStorage context can be dropped by
+    // all sorts of things downstream (the storage adapter, text extraction, AI SDKs), re-entered
+    // further down right before the first call that actually needs it.
+    const tenantContext = getTenantContext();
+
     const session = await getOwnedSession(req.params.sessionId, req.headers["x-tenant-id"] as string);
     if (!session) {
       return res.status(404).json({ success: false, message: "Upload session not found or expired. Please start again." });
@@ -265,9 +270,6 @@ router.post("/project-intake/:sessionId/confirm", requirePermission("project:cre
       if (!buffer) continue;
 
       const storagePath = await storageAdapter.uploadFile(project.id, buffer, f.filename, f.mimeType);
-      // classifyDocument's Gemini call can drop the AsyncLocalStorage tenant context (see the
-      // matching fix in documents.ts) - capture it first and explicitly re-enter it afterward.
-      const tenantContext = getTenantContext();
       const classification = await classifyDocument(f.filename, f.extractedText);
 
       await runWithTenant(tenantContext!, async () => {
