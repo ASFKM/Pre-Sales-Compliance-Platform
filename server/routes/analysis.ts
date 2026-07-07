@@ -9,7 +9,7 @@ import { getGeminiClient } from "../utils/gemini";
 import { generateJsonWithProvider, ConnectedProvider } from "../utils/aiProviders";
 import { estimateCostUsd } from "../utils/aiPricing";
 import { resolveProvider, checkCostCap, recordProviderFallback } from "../../src/aiOrchestrator";
-import { getCurrentTenantId, getTenantContext, runWithTenant } from "../../src/tenantContext";
+import { runWithTenant } from "../../src/tenantContext";
 import { prisma } from "../../src/prisma";
 import { FACTORY_DEFAULT_ANALYSIS_PROMPT } from "../utils/promptDefaults";
 
@@ -181,10 +181,13 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
   const startTime = Date.now();
   const projectId = req.params.projectId;
 
-  // Captured immediately, before any other await - AsyncLocalStorage context can be dropped by
-  // all sorts of things downstream, not just the AI SDK call this was first traced to. Re-entered
-  // below for the whole detached background block.
-  const tenantContext = getTenantContext();
+  // AsyncLocalStorage context set by requireAuth's middleware isn't reliably reaching route
+  // handlers on this server (confirmed on the document upload route) - rebuilt directly from the
+  // tenant id requireAuth also stashes on the request headers, a plain object property not
+  // dependent on any async-context propagation. Captured now so it's available for the whole
+  // detached background block below.
+  const tenantId = req.headers["x-tenant-id"] as string;
+  const tenantContext = { tenantId };
 
   const project = await dbStore.getProject(projectId);
   if (!project) {
@@ -196,7 +199,6 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
 
   // Phase 5 (AI orchestrator): the monthly cap is a real block, not just a number on a
   // dashboard - checked before any AI-calling task starts, not just tracked after the fact.
-  const tenantId = getCurrentTenantId()!;
   const costCap = await checkCostCap(tenantId, platformSettings.monthly_cost_cap_usd ?? null);
   if (costCap.blocked) {
     return res.status(402).json({
@@ -249,7 +251,7 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
 
   // Everything from here runs detached from the request/response cycle - re-enter the tenant
   // context captured at the top of this handler for the whole background block.
-  void runWithTenant(tenantContext!, async () => {
+  void runWithTenant(tenantContext, async () => {
   try {
     await updateTaskProgress(task.id, { status: "running", currentStep: "Lendo documentos", progressPct: 15 });
 

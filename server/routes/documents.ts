@@ -6,7 +6,7 @@ import { createStorageAdapter, validateUploadedFile } from "../utils/storage";
 import { extractTextFromDocument } from "../utils/extraction";
 import { classifyDocument } from "../utils/documentClassification";
 import { logDebugMessage } from "../middleware/security";
-import { getTenantContext, runWithTenant } from "../../src/tenantContext";
+import { runWithTenant } from "../../src/tenantContext";
 
 const router = express.Router();
 
@@ -43,11 +43,13 @@ router.post(
         return res.status(400).json({ success: false, message: "No file was uploaded." });
       }
 
-      // Captured immediately, before any other await - AsyncLocalStorage context can be dropped
-      // by all sorts of things downstream (the storage adapter, text extraction libraries, AI
-      // SDKs), not just the one call it was first traced to. Re-entered further down right before
-      // the first call that actually needs it.
-      const tenantContext = getTenantContext();
+      // AsyncLocalStorage context set by requireAuth's middleware isn't reliably reaching this
+      // handler through multer's upload.single() (confirmed: even capturing it as the very first
+      // line here was already undefined) - rebuilt directly from the tenant id requireAuth also
+      // stashes on the request headers, which is a plain object property, not dependent on any
+      // async-context propagation.
+      const tenantId = req.headers["x-tenant-id"] as string;
+      const tenantContext = { tenantId };
 
       // 1. Perform Secure File Validations (MIME, Extension, Size)
       const validation = validateUploadedFile(file.originalname, file.mimetype, file.size);
@@ -81,7 +83,7 @@ router.post(
       // confidence.
       const classification = await classifyDocument(file.originalname, extraction.text);
 
-      await runWithTenant(tenantContext!, async () => {
+      await runWithTenant(tenantContext, async () => {
         // 4. Save to Database
         const userId = (req.headers["x-user-id"] as string) || "u1";
         const docRecord = await dbStore.addDocument({

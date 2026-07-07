@@ -11,7 +11,7 @@ import { resolveProvider, checkCostCap, recordProviderFallback } from "../../src
 import { generateJsonWithProvider, ConnectedProvider } from "../utils/aiProviders";
 import { estimateCostUsd } from "../utils/aiPricing";
 import { classifyDocument } from "../utils/documentClassification";
-import { getTenantContext, runWithTenant } from "../../src/tenantContext";
+import { runWithTenant } from "../../src/tenantContext";
 import multer from "multer";
 
 const router = express.Router();
@@ -237,12 +237,14 @@ Respond with ONLY a strictly parsable JSON object, no markdown, matching this sh
 // validation step (even AI-filled fields) wins - the request body, not session.suggestedFields.
 router.post("/project-intake/:sessionId/confirm", requirePermission("project:create"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    // Captured immediately, before any other await - AsyncLocalStorage context can be dropped by
-    // all sorts of things downstream (the storage adapter, text extraction, AI SDKs), re-entered
-    // further down right before the first call that actually needs it.
-    const tenantContext = getTenantContext();
+    // AsyncLocalStorage context set by requireAuth's middleware isn't reliably reaching route
+    // handlers on this server (confirmed on the sibling document upload route) - rebuilt directly
+    // from the tenant id requireAuth also stashes on the request headers, a plain object property
+    // not dependent on any async-context propagation.
+    const tenantId = req.headers["x-tenant-id"] as string;
+    const tenantContext = { tenantId };
 
-    const session = await getOwnedSession(req.params.sessionId, req.headers["x-tenant-id"] as string);
+    const session = await getOwnedSession(req.params.sessionId, tenantId);
     if (!session) {
       return res.status(404).json({ success: false, message: "Upload session not found or expired. Please start again." });
     }
@@ -272,7 +274,7 @@ router.post("/project-intake/:sessionId/confirm", requirePermission("project:cre
       const storagePath = await storageAdapter.uploadFile(project.id, buffer, f.filename, f.mimeType);
       const classification = await classifyDocument(f.filename, f.extractedText);
 
-      await runWithTenant(tenantContext!, async () => {
+      await runWithTenant(tenantContext, async () => {
         const docRecord = await dbStore.addDocument({
           project_id: project.id,
           filename: f.filename,
