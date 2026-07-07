@@ -8,6 +8,7 @@ import { createStorageAdapter } from "../utils/storage";
 import { getFleetLicenseStatus } from "../utils/fleetLicense";
 import { getCurrentTenantId } from "../../src/tenantContext";
 import { FACTORY_DEFAULT_CLASSIFICATION_PROMPT, FACTORY_DEFAULT_ANALYSIS_PROMPT } from "../utils/promptDefaults";
+import { getCurrentMonthSpendUsd } from "../../src/aiOrchestrator";
 
 const router = express.Router();
 
@@ -129,6 +130,16 @@ function validateBrandingUpdates(updates: any) {
 
   return { valid: true, message: "" };
 }
+
+router.get("/settings/ai-cost-summary", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = getCurrentTenantId()!;
+    const spendUsd = await getCurrentMonthSpendUsd(tenantId);
+    res.json({ spend_usd: spendUsd });
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.get("/settings", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {

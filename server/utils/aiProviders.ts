@@ -44,9 +44,16 @@ export async function isProviderConnected(provider: string): Promise<boolean> {
   }
 }
 
+export interface ProviderJsonResult {
+  text: string;
+  inputTokens: number;
+  outputTokens: number;
+}
+
 // Single JSON-generating entry point across all three connected providers - callers always get
-// back raw text they can JSON.parse, regardless of which provider actually served the request.
-export async function generateJsonWithProvider(provider: ConnectedProvider, model: string, prompt: string): Promise<string> {
+// back raw text they can JSON.parse (plus real token usage, for real cost tracking - see
+// aiPricing.ts), regardless of which provider actually served the request.
+export async function generateJsonWithProvider(provider: ConnectedProvider, model: string, prompt: string): Promise<ProviderJsonResult> {
   if (provider === "openai") {
     const apiKey = await getConfiguredOpenAiApiKey();
     const client = new OpenAI({ apiKey });
@@ -55,7 +62,11 @@ export async function generateJsonWithProvider(provider: ConnectedProvider, mode
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
     });
-    return response.choices[0]?.message?.content || "{}";
+    return {
+      text: response.choices[0]?.message?.content || "{}",
+      inputTokens: response.usage?.prompt_tokens || 0,
+      outputTokens: response.usage?.completion_tokens || 0,
+    };
   }
 
   if (provider === "anthropic") {
@@ -67,7 +78,11 @@ export async function generateJsonWithProvider(provider: ConnectedProvider, mode
       messages: [{ role: "user", content: `${prompt}\n\nRespond with ONLY a single valid JSON object - no markdown, no code fences, no extra text.` }],
     });
     const textBlock = response.content.find((block) => block.type === "text");
-    return textBlock && "text" in textBlock ? textBlock.text : "{}";
+    return {
+      text: textBlock && "text" in textBlock ? textBlock.text : "{}",
+      inputTokens: response.usage?.input_tokens || 0,
+      outputTokens: response.usage?.output_tokens || 0,
+    };
   }
 
   const ai = await getGeminiClient();
@@ -76,5 +91,9 @@ export async function generateJsonWithProvider(provider: ConnectedProvider, mode
     contents: prompt,
     config: { responseMimeType: "application/json" },
   });
-  return response.text || "{}";
+  return {
+    text: response.text || "{}",
+    inputTokens: response.usageMetadata?.promptTokenCount || 0,
+    outputTokens: response.usageMetadata?.candidatesTokenCount || 0,
+  };
 }

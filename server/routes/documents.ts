@@ -6,6 +6,7 @@ import { createStorageAdapter, validateUploadedFile } from "../utils/storage";
 import { extractTextFromDocument } from "../utils/extraction";
 import { classifyDocument } from "../utils/documentClassification";
 import { logDebugMessage } from "../middleware/security";
+import { getTenantContext, runWithTenant } from "../../src/tenantContext";
 
 const router = express.Router();
 
@@ -71,53 +72,59 @@ router.post(
 
       // 3b. Real AI classification (Admin > IA, Prompts e Custos > "Document Classification
       // Prompt") - replaces what used to be a hardcoded mimetype guess with a fixed fake
-      // confidence.
+      // confidence. The Gemini SDK's internal HTTP client doesn't reliably propagate
+      // AsyncLocalStorage context across its own await chain, so the tenant context set by
+      // requireAuth's middleware can be gone by the time this resolves - capture it first and
+      // explicitly re-enter it below so addDocument (which needs it) doesn't fail.
+      const tenantContext = getTenantContext();
       const classification = await classifyDocument(file.originalname, extraction.text);
 
-      // 4. Save to Database
-      const userId = (req.headers["x-user-id"] as string) || "u1";
-      const docRecord = await dbStore.addDocument({
-        project_id: projectId,
-        filename: file.originalname,
-        original_filename: file.originalname,
-        mime_type: file.mimetype,
-        file_size: file.size,
-        storage_provider: platformSettings.storage_mode,
-        storage_path: storagePath,
-        detected_document_type: classification.document_type,
-        manual_document_type: undefined,
-        ai_classification_confidence: classification.confidence,
-        version: 1,
-        language: "Portuguese",
-        uploaded_by: userId
+      await runWithTenant(tenantContext!, async () => {
+        // 4. Save to Database
+        const userId = (req.headers["x-user-id"] as string) || "u1";
+        const docRecord = await dbStore.addDocument({
+          project_id: projectId,
+          filename: file.originalname,
+          original_filename: file.originalname,
+          mime_type: file.mimetype,
+          file_size: file.size,
+          storage_provider: platformSettings.storage_mode,
+          storage_path: storagePath,
+          detected_document_type: classification.document_type,
+          manual_document_type: undefined,
+          ai_classification_confidence: classification.confidence,
+          version: 1,
+          language: "Portuguese",
+          uploaded_by: userId
+        });
+
+        // Save extracted text so it is persistent for Gemini analysis
+        await dbStore.setDocumentContent(docRecord.id, extraction.text);
+
+        logDebugMessage({
+          operation: "Document Upload & Extraction",
+          message: `Successfully processed, stored, and extracted ${file.originalname}. Size: ${file.size} bytes.`,
+          status: "SUCCESS",
+          durationMs: Date.now() - startTime,
+          correlationId,
+          projectId,
+          documentId: docRecord.id
+        });
+
+        // Audit Log
+        await dbStore.addAuditLog({
+          user_id: userId,
+          action: "Upload Document",
+          entity_type: "Document",
+          entity_id: docRecord.id,
+          project_id: projectId,
+          ip_address: req.ip || "127.0.0.1",
+          user_agent: req.headers["user-agent"] || "unknown",
+          metadata: JSON.stringify({ filename: docRecord.filename, path: storagePath, status: extraction.metadata.extractionStatus })
+        });
+
+        res.status(211).json(docRecord);
       });
-
-      // Save extracted text so it is persistent for Gemini analysis
-      await dbStore.setDocumentContent(docRecord.id, extraction.text);
-
-      logDebugMessage({
-        operation: "Document Upload & Extraction",
-        message: `Successfully processed, stored, and extracted ${file.originalname}. Size: ${file.size} bytes.`,
-        status: "SUCCESS",
-        durationMs: Date.now() - startTime,
-        correlationId,
-        projectId,
-        documentId: docRecord.id
-      });
-
-      // Audit Log
-      await dbStore.addAuditLog({
-        user_id: userId,
-        action: "Upload Document",
-        entity_type: "Document",
-        entity_id: docRecord.id,
-        project_id: projectId,
-        ip_address: req.ip || "127.0.0.1",
-        user_agent: req.headers["user-agent"] || "unknown",
-        metadata: JSON.stringify({ filename: docRecord.filename, path: storagePath, status: extraction.metadata.extractionStatus })
-      });
-
-      res.status(211).json(docRecord);
     } catch (err) {
       next(err);
     }

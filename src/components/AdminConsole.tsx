@@ -101,8 +101,14 @@ export default function AdminConsole({
       .catch(() => setFleetLicenseStatus(null));
   }, []);
 
-  const [costUSD] = useState(14.28);
-  const exchangeRate = 5.15; // 1 USD = 5.15 BRL (realistic exchange rate)
+  const [costUSD, setCostUSD] = useState(0);
+  const exchangeRate = 5.15; // 1 USD = 5.15 BRL (approximate, not live-fetched)
+
+  useEffect(() => {
+    ApiClient.get<{ spend_usd: number }>("/api/settings/ai-cost-summary")
+      .then((r) => setCostUSD(r.spend_usd))
+      .catch(() => setCostUSD(0));
+  }, []);
   const [aiKeyDrafts, setAiKeyDrafts] = useState<Record<string, string>>({ gemini: "", openai: "", anthropic: "" });
   const [editingPromptId, setEditingPromptId] = useState<string | null>(null);
   const [promptDrafts, setPromptDrafts] = useState<Record<string, string>>({});

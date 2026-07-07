@@ -9,7 +9,9 @@ import * as staging from "../../src/projectIntakeStaging";
 import { ProjectSchema } from "./projects";
 import { resolveProvider, checkCostCap, recordProviderFallback } from "../../src/aiOrchestrator";
 import { generateJsonWithProvider, ConnectedProvider } from "../utils/aiProviders";
+import { estimateCostUsd } from "../utils/aiPricing";
 import { classifyDocument } from "../utils/documentClassification";
+import { getTenantContext, runWithTenant } from "../../src/tenantContext";
 import multer from "multer";
 
 const router = express.Router();
@@ -203,7 +205,8 @@ Respond with ONLY a strictly parsable JSON object, no markdown, matching this sh
   "procurement_subtype": "A subtype consistent with the chosen modality"
 }`;
 
-        const rawText = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);
+        const { text: rawText, inputTokens, outputTokens } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);
+        const realEstimatedCostUsd = estimateCostUsd(providerResolution.model, inputTokens, outputTokens);
 
         const parsed = JSON.parse(rawText.trim());
         const validated = SuggestedFieldsSchema.parse(parsed);
@@ -214,7 +217,7 @@ Respond with ONLY a strictly parsable JSON object, no markdown, matching this sh
         await completeTask(task.id, {
           resultType: "project_intake_session",
           resultId: req.params.sessionId,
-          estimatedCostUsd: 0.006,
+          estimatedCostUsd: realEstimatedCostUsd,
           aiProvider: providerResolution.provider,
           intendedProvider: providerResolution.intendedProvider,
           isProviderFallback: providerResolution.isFallback,
@@ -262,33 +265,39 @@ router.post("/project-intake/:sessionId/confirm", requirePermission("project:cre
       if (!buffer) continue;
 
       const storagePath = await storageAdapter.uploadFile(project.id, buffer, f.filename, f.mimeType);
+      // classifyDocument's Gemini call can drop the AsyncLocalStorage tenant context (see the
+      // matching fix in documents.ts) - capture it first and explicitly re-enter it afterward.
+      const tenantContext = getTenantContext();
       const classification = await classifyDocument(f.filename, f.extractedText);
-      const docRecord = await dbStore.addDocument({
-        project_id: project.id,
-        filename: f.filename,
-        original_filename: f.filename,
-        mime_type: f.mimeType,
-        file_size: f.size,
-        storage_provider: platformSettings.storage_mode,
-        storage_path: storagePath,
-        detected_document_type: classification.document_type,
-        manual_document_type: undefined,
-        ai_classification_confidence: classification.confidence,
-        version: 1,
-        language: "Portuguese",
-        uploaded_by: userId,
-      });
-      await dbStore.setDocumentContent(docRecord.id, f.extractedText);
 
-      await dbStore.addAuditLog({
-        user_id: userId,
-        action: "Upload Document",
-        entity_type: "Document",
-        entity_id: docRecord.id,
-        project_id: project.id,
-        ip_address: req.ip || "127.0.0.1",
-        user_agent: req.headers["user-agent"] || "unknown",
-        metadata: JSON.stringify({ filename: f.filename, path: storagePath, source: "upload-first intake" }),
+      await runWithTenant(tenantContext!, async () => {
+        const docRecord = await dbStore.addDocument({
+          project_id: project.id,
+          filename: f.filename,
+          original_filename: f.filename,
+          mime_type: f.mimeType,
+          file_size: f.size,
+          storage_provider: platformSettings.storage_mode,
+          storage_path: storagePath,
+          detected_document_type: classification.document_type,
+          manual_document_type: undefined,
+          ai_classification_confidence: classification.confidence,
+          version: 1,
+          language: "Portuguese",
+          uploaded_by: userId,
+        });
+        await dbStore.setDocumentContent(docRecord.id, f.extractedText);
+
+        await dbStore.addAuditLog({
+          user_id: userId,
+          action: "Upload Document",
+          entity_type: "Document",
+          entity_id: docRecord.id,
+          project_id: project.id,
+          ip_address: req.ip || "127.0.0.1",
+          user_agent: req.headers["user-agent"] || "unknown",
+          metadata: JSON.stringify({ filename: f.filename, path: storagePath, source: "upload-first intake" }),
+        });
       });
     }
 

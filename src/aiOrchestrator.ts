@@ -97,6 +97,17 @@ export async function checkCostCap(tenantId: string, capUsd: number | null): Pro
   };
 }
 
+// Real current-month AI spend, independent of whether a cap is configured - used by the "Custos
+// de IA e Prompts" card, which used to show a hardcoded placeholder number unrelated to any real
+// usage.
+export async function getCurrentMonthSpendUsd(tenantId: string): Promise<number> {
+  const rows = await prisma.backgroundTask.findMany({
+    where: { tenantId, type: { in: AI_CALLING_TASK_TYPES }, createdAt: { gte: startOfCurrentMonth() }, estimatedCostUsd: { not: null } },
+    select: { estimatedCostUsd: true },
+  });
+  return rows.reduce((sum, r) => sum + (r.estimatedCostUsd || 0), 0);
+}
+
 const FALLBACK_ALERT_WINDOW_MS = 60 * 60 * 1000;
 const FALLBACK_ALERT_THRESHOLD = 3;
 

@@ -7,8 +7,9 @@ import { AnalysisResult } from "../../src/types";
 import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
 import { getGeminiClient } from "../utils/gemini";
 import { generateJsonWithProvider, ConnectedProvider } from "../utils/aiProviders";
+import { estimateCostUsd } from "../utils/aiPricing";
 import { resolveProvider, checkCostCap, recordProviderFallback } from "../../src/aiOrchestrator";
-import { getCurrentTenantId } from "../../src/tenantContext";
+import { getCurrentTenantId, getTenantContext, runWithTenant } from "../../src/tenantContext";
 import { prisma } from "../../src/prisma";
 import { FACTORY_DEFAULT_ANALYSIS_PROMPT } from "../utils/promptDefaults";
 
@@ -241,7 +242,12 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
   const task = await createTask({ userId, type: "document_analysis", currentStep: "Iniciando análise..." });
   res.status(202).json({ success: true, task_id: task.id, job_id: job.id });
 
-  void (async () => {
+  // Everything from here runs detached from the request/response cycle, after an AI SDK call
+  // whose internal HTTP client doesn't reliably propagate AsyncLocalStorage context (same issue
+  // fixed in documents.ts's upload handler) - capture the tenant context now, while it's still
+  // guaranteed valid, and explicitly re-enter it for the whole background block.
+  const tenantContext = getTenantContext()!;
+  void runWithTenant(tenantContext, async () => {
   try {
     await updateTaskProgress(task.id, { status: "running", currentStep: "Lendo documentos", progressPct: 15 });
 
@@ -403,7 +409,8 @@ You MUST respond with a strictly parsable JSON object. No markdown, no formattin
 Write all generated content fields strictly in ${project.proposal_language}. Maintain an expert, formal pre-sales engineering tone.
 `;
 
-    const rawText = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);
+    const { text: rawText, inputTokens, outputTokens } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);
+    const realEstimatedCostUsd = estimateCostUsd(providerResolution.model, inputTokens, outputTokens);
 
     // 3. Add Structured Output Validation using Zod
     const parsedJson = JSON.parse(rawText.trim());
@@ -436,9 +443,9 @@ Write all generated content fields strictly in ${project.proposal_language}. Mai
     await dbStore.updateJob(job.id, {
       status: "completed",
       completed_at: new Date().toISOString(),
-      token_input: 14200,
-      token_output: 4800,
-      estimated_cost: 0.019
+      token_input: inputTokens,
+      token_output: outputTokens,
+      estimated_cost: realEstimatedCostUsd
     });
 
     logDebugMessage({
@@ -453,7 +460,7 @@ Write all generated content fields strictly in ${project.proposal_language}. Mai
     await completeTask(task.id, {
       resultType: "analysis_result",
       resultId: projectId,
-      estimatedCostUsd: 0.019,
+      estimatedCostUsd: realEstimatedCostUsd,
       aiProvider: providerResolution.provider,
       intendedProvider: providerResolution.intendedProvider,
       isProviderFallback: providerResolution.isFallback,
@@ -481,7 +488,7 @@ Write all generated content fields strictly in ${project.proposal_language}. Mai
 
     await failTask(task.id, err.message || "Unknown error during AI synthesis");
   }
-  })();
+  });
 });
 
 // GET persistent job history
