@@ -2,13 +2,13 @@ import express, { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { dbStore } from "../../src/dbStore";
 import { requireAuth, requirePermission } from "./auth";
-import { getGeminiClient } from "../utils/gemini";
 import { extractTextFromDocument } from "../utils/extraction";
 import { validateUploadedFile, createStorageAdapter } from "../utils/storage";
 import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
 import * as staging from "../../src/projectIntakeStaging";
 import { ProjectSchema } from "./projects";
 import { resolveProvider, checkCostCap, recordProviderFallback } from "../../src/aiOrchestrator";
+import { generateJsonWithProvider, ConnectedProvider } from "../utils/aiProviders";
 import multer from "multer";
 
 const router = express.Router();
@@ -180,7 +180,6 @@ router.post("/project-intake/:sessionId/analyze", requireAuth, async (req: Reque
 
         await updateTaskProgress(task.id, { currentStep: "Extraindo dados do projeto com IA", progressPct: 50 });
 
-        const ai = await getGeminiClient();
         const today = new Date().toISOString().slice(0, 10);
         const prompt = `You are a pre-sales assistant that reads bid/RFP documents and extracts basic project metadata to pre-fill a new project intake form. Today's date is ${today}.
 
@@ -203,13 +202,9 @@ Respond with ONLY a strictly parsable JSON object, no markdown, matching this sh
   "procurement_subtype": "A subtype consistent with the chosen modality"
 }`;
 
-        const response = await ai.models.generateContent({
-          model: "gemini-3.5-flash",
-          contents: prompt,
-          config: { responseMimeType: "application/json" },
-        });
+        const rawText = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);
 
-        const parsed = JSON.parse((response.text || "{}").trim());
+        const parsed = JSON.parse(rawText.trim());
         const validated = SuggestedFieldsSchema.parse(parsed);
 
         await updateTaskProgress(task.id, { currentStep: "Salvando sugestões", progressPct: 90 });

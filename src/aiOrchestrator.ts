@@ -2,12 +2,6 @@ import { prisma } from "./prisma";
 import { dbStore } from "./dbStore";
 import { BackgroundTaskType } from "@prisma/client";
 
-// Phase 5: which providers actually have a real, connected integration today. Only Gemini does -
-// connecting Claude/GPT for real is explicitly future implementation work, out of this phase's
-// scope. Every other provider in the task->provider map below is a *researched, configured
-// intent* that always resolves to this fallback until it's connected.
-const CONNECTED_PROVIDERS = new Set(["gemini"]);
-
 export type AiTaskType = "document_analysis" | "critical_extraction" | "web_grounding" | "proposal_generation";
 
 export interface ProviderResolution {
@@ -26,6 +20,21 @@ interface TaskProviderSettings {
   web_grounding_provider: string;
   proposal_generation_model: string;
   proposal_generation_provider: string;
+  openai_api_key_encrypted?: string;
+  anthropic_api_key_encrypted?: string;
+}
+
+// Gemini's key is required platform-wide already (every install needs it for the Workspace
+// copilot chat, unrelated to this per-task provider selection), so it's always connected.
+// OpenAI/Anthropic are only connected once their own key has actually been configured - checked
+// against the same settings object passed in here (which env-var overrides aside, real callers
+// always get from dbStore.getSettings()), not a hardcoded list, so this reflects real state
+// instead of a fixed-at-code-time assumption.
+function isProviderConnected(provider: string, settings: TaskProviderSettings): boolean {
+  if (provider === "gemini") return true;
+  if (provider === "openai") return Boolean(process.env.OPENAI_API_KEY || settings.openai_api_key_encrypted);
+  if (provider === "anthropic") return Boolean(process.env.ANTHROPIC_API_KEY || settings.anthropic_api_key_encrypted);
+  return false;
 }
 
 // Resolves the intended provider/model for a task type against tenant settings, falling back
@@ -35,7 +44,7 @@ export function resolveProvider(taskType: AiTaskType, settings: TaskProviderSett
   const intendedProvider = (settings as any)[`${taskType}_provider`] as string;
   const intendedModel = (settings as any)[`${taskType}_model`] as string;
 
-  if (CONNECTED_PROVIDERS.has(intendedProvider)) {
+  if (isProviderConnected(intendedProvider, settings)) {
     return { provider: intendedProvider, model: intendedModel, intendedProvider, isFallback: false };
   }
 

@@ -93,12 +93,14 @@ export default function AdminConsole({
 
   const [costUSD] = useState(14.28);
   const exchangeRate = 5.15; // 1 USD = 5.15 BRL (realistic exchange rate)
-  const [modelProviders, setModelProviders] = useState([
-    { id: "gemini", name: "Google Gemini", activeModel: "Gemini 2.5 Flash", apiKey: "••••••••••••••••••••", enabled: true, models: ["Gemini 2.5 Flash", "Gemini 2.5 Pro"] },
-    { id: "openai", name: "OpenAI ChatGPT", activeModel: "GPT-4o", apiKey: "", enabled: false, models: ["GPT-4o", "GPT-3.5-Turbo", "o1-mini"] },
-    { id: "anthropic", name: "Anthropic Claude", activeModel: "Claude 3.5 Sonnet", apiKey: "", enabled: false, models: ["Claude 3.5 Sonnet", "Claude 3 Opus"] },
-    { id: "deepseek", name: "DeepSeek", activeModel: "DeepSeek-R1", apiKey: "", enabled: false, models: ["DeepSeek-R1", "DeepSeek-V3"] }
-  ]);
+  const [aiKeyDrafts, setAiKeyDrafts] = useState<Record<string, string>>({ gemini: "", openai: "", anthropic: "" });
+  // Real per-provider connection status, derived from platformSettings (never a locally-simulated
+  // list) - "PROVIDER_STATUS" reflects whether a key is actually configured on the backend.
+  const PROVIDER_STATUS: { id: "gemini" | "openai" | "anthropic"; name: string; configured: boolean; masked: string }[] = [
+    { id: "gemini", name: "Google Gemini", configured: Boolean(platformSettings?.ai_api_key_configured), masked: platformSettings?.ai_api_key_masked || "" },
+    { id: "openai", name: "OpenAI ChatGPT", configured: Boolean(platformSettings?.openai_api_key_configured), masked: platformSettings?.openai_api_key_masked || "" },
+    { id: "anthropic", name: "Anthropic Claude", configured: Boolean(platformSettings?.anthropic_api_key_configured), masked: platformSettings?.anthropic_api_key_masked || "" },
+  ];
 
   const [templateUploadFileName, setTemplateUploadFileName] = useState<string>("");
   const [templateUploadName, setTemplateUploadName] = useState<string>("");
@@ -166,7 +168,6 @@ export default function AdminConsole({
     fetchGlobalConfigs,
     setPlatformSettings,
     setBrandingSettings,
-    setModelProviders,
     setStorageValidateResult,
     setBrandLogoDataUrl,
     brandPrimaryColor,
@@ -462,7 +463,7 @@ export default function AdminConsole({
                         [locale === "pt" ? "Usuários" : "Users", users.length, locale === "pt" ? "contas" : "accounts"],
                         [locale === "pt" ? "Templates" : "Templates", proposalTemplates.length, locale === "pt" ? "modelos" : "templates"],
                         [locale === "pt" ? "Integrações" : "Integrations", integrations.length, locale === "pt" ? "conectores" : "connectors"],
-                        [locale === "pt" ? "IAs Ativas" : "Active AIs", modelProviders.filter(p => p.enabled).length, locale === "pt" ? "provedores" : "providers"],
+                        [locale === "pt" ? "IAs Ativas" : "Active AIs", PROVIDER_STATUS.filter(p => p.configured).length, locale === "pt" ? "provedores" : "providers"],
                       ].map(([label, value, desc]) => (
                         <div key={String(label)} className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
                           <div className="flex items-center justify-between">
@@ -531,15 +532,15 @@ export default function AdminConsole({
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {modelProviders.map(prov => (
+                          {PROVIDER_STATUS.map(prov => (
                             <div key={prov.id} className="p-2.5 bg-slate-50 border border-slate-100 rounded-lg">
                               <div className="flex justify-between items-center gap-2">
                                 <span className="font-semibold text-slate-700 text-xs truncate">{prov.name}</span>
-                                <span className={`text-[9px] font-bold ${prov.enabled ? "text-emerald-600" : "text-slate-400"}`}>
-                                  {prov.enabled ? (locale === "pt" ? "Ativo" : "Active") : (locale === "pt" ? "Inativo" : "Inactive")}
+                                <span className={`text-[9px] font-bold ${prov.configured ? "text-emerald-600" : "text-slate-400"}`}>
+                                  {prov.configured ? (locale === "pt" ? "Configurado" : "Configured") : (locale === "pt" ? "Não configurado" : "Not configured")}
                                 </span>
                               </div>
-                              <p className="text-[10px] text-slate-500 font-mono mt-1 truncate">{prov.activeModel}</p>
+                              <p className="text-[10px] text-slate-500 font-mono mt-1 truncate">{prov.masked || (locale === "pt" ? "Sem chave" : "No key")}</p>
                             </div>
                           ))}
                         </div>
@@ -909,57 +910,67 @@ export default function AdminConsole({
                       <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
                         {locale === "pt" ? "Modelos e Provedores de IA" : "AI Models and Providers"}
                       </h3>
-                      <div className="space-y-4 text-xs">
-                        <div className={`p-3 rounded-lg border ${platformSettings?.ai_api_key_configured ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-amber-50 border-amber-200 text-amber-800"}`}>
-                          <div className="flex items-center justify-between gap-3">
-                            <div>
-                              <p className="text-[10px] uppercase font-bold tracking-wider font-mono">
-                                {locale === "pt" ? "Chave da API Gemini" : "Gemini API Key"}
-                              </p>
-                              <p className="text-[11px] mt-1 font-semibold">
-                                {platformSettings?.ai_api_key_configured
-                                  ? `${locale === "pt" ? "Configurada" : "Configured"}: ${platformSettings?.ai_api_key_masked || "********"}`
-                                  : (locale === "pt" ? "Não configurada" : "Not configured")}
-                              </p>
-                            </div>
-                            {platformSettings?.ai_api_key_configured && (
-                              <button
-                                onClick={handleClearAiApiKey}
-                                className="bg-white/70 hover:bg-white border border-current px-2 py-1 rounded text-[10px] font-bold font-mono"
-                              >
-                                {locale === "pt" ? "Remover" : "Remove"}
-                              </button>
-                            )}
-                          </div>
-                        </div>
 
+                      <div className="space-y-3">
+                        {PROVIDER_STATUS.map((prov) => (
+                          <div key={prov.id} className={`p-3 rounded-lg border ${prov.configured ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-amber-50 border-amber-200 text-amber-800"}`}>
+                            <div className="flex items-center justify-between gap-3 mb-2">
+                              <div>
+                                <p className="text-[10px] uppercase font-bold tracking-wider font-mono">{prov.name}</p>
+                                <p className="text-[11px] mt-1 font-semibold">
+                                  {prov.configured
+                                    ? `${locale === "pt" ? "Configurada" : "Configured"}: ${prov.masked || "********"}`
+                                    : (locale === "pt" ? "Não configurada" : "Not configured")}
+                                </p>
+                              </div>
+                              {prov.configured && (
+                                <button
+                                  onClick={() => handleClearAiApiKey(prov.id)}
+                                  className="bg-white/70 hover:bg-white border border-current px-2 py-1 rounded text-[10px] font-bold font-mono shrink-0"
+                                >
+                                  {locale === "pt" ? "Remover" : "Remove"}
+                                </button>
+                              )}
+                            </div>
+                            <div className="flex gap-1">
+                              <input
+                                type="password"
+                                placeholder={prov.configured ? (locale === "pt" ? "deixe em branco para manter" : "leave blank to keep") : (locale === "pt" ? "Cole a API key" : "Paste the API key")}
+                                value={aiKeyDrafts[prov.id] || ""}
+                                onChange={(e) => setAiKeyDrafts((prev) => ({ ...prev, [prov.id]: e.target.value }))}
+                                className="w-full p-1.5 text-[11px] font-mono bg-white border border-current/30 rounded"
+                              />
+                              <button
+                                onClick={() => {
+                                  handleSaveAiApiKey(prov.id, aiKeyDrafts[prov.id] || "");
+                                  setAiKeyDrafts((prev) => ({ ...prev, [prov.id]: "" }));
+                                }}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 rounded text-[10px] font-bold font-mono shrink-0"
+                              >
+                                {locale === "pt" ? "Salvar" : "Save"}
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="pt-3 border-t border-slate-100 space-y-3">
                         <div>
                           <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">
-                            {locale === "pt" ? "Provedor NLP de IA Padrão" : "Default NLP AI Provider"}
+                            {locale === "pt" ? "Modelo de Análise de Documentos" : "Document Analysis Model"}
                           </label>
-                          <select
-                            value={platformSettings?.ai_provider || modelProviders.find(p => p.enabled)?.name || modelProviders[0]?.name || ""}
-                            onChange={(e) => handleSavePlatformSettings("ai_provider", e.target.value)}
-                            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-semibold text-slate-700"
-                          >
-                            {modelProviders.map(prov => (
-                              <option key={prov.id} value={prov.name}>{prov.name}{prov.enabled ? "" : " (inativo)"}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">
-                            {locale === "pt" ? "Modelo de Classificação de Documentos" : "Standard Document Classification Model"}
-                          </label>
-                          <select
-                            value={platformSettings?.document_analysis_model || modelProviders.find(p => p.name === platformSettings?.ai_provider)?.activeModel || "Gemini 2.5 Flash"}
-                            onChange={(e) => handleSavePlatformSettings("document_analysis_model", e.target.value)}
-                            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-semibold text-slate-700"
-                          >
-                            {(modelProviders.find(p => p.name === platformSettings?.ai_provider)?.models || modelProviders.flatMap(p => p.models)).map(model => (
-                              <option key={model} value={model}>{model}</option>
-                            ))}
-                          </select>
+                          <input
+                            type="text"
+                            defaultValue={platformSettings?.document_analysis_model || ""}
+                            onBlur={(e) => handleSavePlatformSettings("document_analysis_model", e.target.value)}
+                            placeholder="gemini-3.5-flash / gpt-5 / claude-sonnet-5..."
+                            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-mono text-slate-700"
+                          />
+                          <p className="text-[10px] text-slate-400 mt-1">
+                            {locale === "pt"
+                              ? "Precisa ser um modelo válido para o provedor selecionado abaixo em \"Análise de Documentos\"."
+                              : "Must be a valid model for the provider selected below under \"Document Analysis\"."}
+                          </p>
                         </div>
                       </div>
 
@@ -970,8 +981,8 @@ export default function AdminConsole({
                           </h4>
                           <p className="text-[10px] text-slate-400 mt-0.5">
                             {locale === "pt"
-                              ? "Somente o Gemini está de fato conectado hoje. Tarefas configuradas para outro provedor usam Gemini como fallback, registrado em auditoria."
-                              : "Only Gemini is actually connected today. Tasks configured for another provider fall back to Gemini, logged in the audit trail."}
+                              ? "Uma tarefa configurada para um provedor sem chave configurada usa Gemini como fallback, registrado em auditoria."
+                              : "A task configured for a provider without a configured key falls back to Gemini, logged in the audit trail."}
                           </p>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -989,8 +1000,8 @@ export default function AdminConsole({
                                 className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-semibold text-slate-700"
                               >
                                 <option value="gemini">Google Gemini</option>
-                                <option value="anthropic">Anthropic Claude {locale === "pt" ? "(não conectado)" : "(not connected)"}</option>
-                                <option value="openai">OpenAI ChatGPT {locale === "pt" ? "(não conectado)" : "(not connected)"}</option>
+                                <option value="anthropic">Anthropic Claude {!PROVIDER_STATUS.find(p => p.id === "anthropic")?.configured ? (locale === "pt" ? "(não conectado)" : "(not connected)") : ""}</option>
+                                <option value="openai">OpenAI ChatGPT {!PROVIDER_STATUS.find(p => p.id === "openai")?.configured ? (locale === "pt" ? "(não conectado)" : "(not connected)") : ""}</option>
                                 <option value="deepseek">DeepSeek {locale === "pt" ? "(não conectado)" : "(not connected)"}</option>
                               </select>
                             </div>
@@ -1016,64 +1027,6 @@ export default function AdminConsole({
                               : "Blocks new AI analyses once reached (automatic warning at 80%). Leave blank for no limit."}
                           </p>
                         </div>
-                      </div>
-
-                      <div className="space-y-3 pt-3 border-t border-slate-100">
-                        {modelProviders.map((prov, pIdx) => (
-                          <div key={prov.id} className="p-3 rounded-lg border border-slate-100 bg-slate-50 space-y-2">
-                            <div className="flex items-center justify-between">
-                              <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-700 text-xs">
-                                <input
-                                  type="checkbox"
-                                  checked={prov.enabled}
-                                  onChange={(e) => {
-                                    const updated = [...modelProviders];
-                                    updated[pIdx].enabled = e.target.checked;
-                                    setModelProviders(updated);
-                                  }}
-                                  className="rounded text-emerald-600 focus:ring-emerald-500"
-                                />
-                                {prov.name}
-                              </label>
-                              <span className={`text-[9px] px-1.5 py-0.5 rounded uppercase font-bold ${prov.enabled ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-500"}`}>
-                                {prov.enabled ? (locale === "pt" ? "Ativo" : "Active") : (locale === "pt" ? "Inativo" : "Inactive")}
-                              </span>
-                            </div>
-                            {prov.enabled && (
-                              <div className="grid grid-cols-2 gap-2 mt-1">
-                                <input
-                                  type="text"
-                                  value={prov.activeModel}
-                                  onChange={(e) => {
-                                    const updated = [...modelProviders];
-                                    updated[pIdx].activeModel = e.target.value;
-                                    setModelProviders(updated);
-                                  }}
-                                  className="w-full p-1.5 text-[11px] font-mono bg-white border border-slate-200 rounded"
-                                />
-                                <div className="flex gap-1">
-                                  <input
-                                    type="password"
-                                    placeholder={platformSettings?.ai_api_key_configured ? (platformSettings.ai_api_key_masked || "••••••••") : "Cole a API key"}
-                                    value={prov.apiKey}
-                                    onChange={(e) => {
-                                      const updated = [...modelProviders];
-                                      updated[pIdx].apiKey = e.target.value;
-                                      setModelProviders(updated);
-                                    }}
-                                    className="w-full p-1.5 text-[11px] font-mono bg-white border border-slate-200 rounded"
-                                  />
-                                  <button
-                                    onClick={() => handleSaveAiApiKey(prov.name, prov.apiKey)}
-                                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-2 rounded text-[10px] font-bold font-mono"
-                                  >
-                                    {locale === "pt" ? "Salvar" : "Save"}
-                                  </button>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        ))}
                       </div>
                     </div>
 

@@ -586,7 +586,9 @@ export default function App() {
     try {
       const sRes = await fetch("/api/settings");
       const sData = await sRes.json();
-      setPlatformSettings(sData.platform ?? sData ?? null);
+      if (sRes.ok) {
+        setPlatformSettings(sData.platform ?? sData ?? null);
+      }
 
       const bRes = await fetch("/api/branding");
       const bData = await bRes.json();
@@ -709,9 +711,14 @@ export default function App() {
   };
 
   useEffect(() => {
+    // Runs once on initial mount (before login, no session token yet) and again the moment
+    // login completes - without the isAuthenticated dependency this only ever ran pre-login,
+    // so platformSettings/roles/users/etc. stayed permanently stuck on that first 401 response
+    // (silently coerced into state, never null) for the rest of the session.
+    if (!isAuthenticated) return;
     fetchProjects();
     fetchGlobalConfigs();
-  }, []);
+  }, [isAuthenticated]);
 
   useEffect(() => {
     if (selectedProjectId) {

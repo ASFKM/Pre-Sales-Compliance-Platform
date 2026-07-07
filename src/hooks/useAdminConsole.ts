@@ -9,7 +9,6 @@ interface UseAdminConsoleParams {
   fetchGlobalConfigs: () => Promise<void> | void;
   setPlatformSettings: (settings: PlatformSettings) => void;
   setBrandingSettings: (settings: BrandingSettings) => void;
-  setModelProviders: (updater: (prev: any[]) => any[]) => void;
   setStorageValidateResult: (result: any) => void;
   setBrandLogoDataUrl: (url: string) => void;
   brandPrimaryColor: string;
@@ -67,7 +66,7 @@ interface UseAdminConsoleParams {
 export function useAdminConsole(params: UseAdminConsoleParams) {
   const {
     locale, currentUserName, roles, users, approvalWorkflows, fetchGlobalConfigs,
-    setPlatformSettings, setBrandingSettings, setModelProviders, setStorageValidateResult,
+    setPlatformSettings, setBrandingSettings, setStorageValidateResult,
     setBrandLogoDataUrl, brandPrimaryColor, brandAccentColor, setBrandPrimaryColor, setBrandAccentColor,
     newApprovalWorkflowName, newApprovalWorkflowDescription, newApprovalWorkflowAppliesTo,
     setShowNewApprovalWorkflowForm, setNewApprovalWorkflowName, setNewApprovalWorkflowDescription, setNewApprovalWorkflowAppliesTo,
@@ -667,7 +666,13 @@ export function useAdminConsole(params: UseAdminConsoleParams) {
     }
   };
 
-  const handleSaveAiApiKey = async (providerName: string, apiKey: string) => {
+  const AI_KEY_FIELD: Record<"gemini" | "openai" | "anthropic", string> = {
+    gemini: "ai_api_key",
+    openai: "openai_api_key",
+    anthropic: "anthropic_api_key",
+  };
+
+  const handleSaveAiApiKey = async (provider: "gemini" | "openai" | "anthropic", apiKey: string) => {
     const key = apiKey.trim();
 
     if (!key) {
@@ -679,10 +684,7 @@ export function useAdminConsole(params: UseAdminConsoleParams) {
       const res = await fetch("/api/settings/ai", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ai_provider: providerName,
-          ai_api_key: key
-        })
+        body: JSON.stringify({ [AI_KEY_FIELD[provider]]: key })
       });
 
       const data = await res.json();
@@ -693,10 +695,6 @@ export function useAdminConsole(params: UseAdminConsoleParams) {
       }
 
       setPlatformSettings(data);
-      setModelProviders(prev => prev.map(provider => (
-        provider.name === providerName ? { ...provider, apiKey: "" } : provider
-      )));
-
       alert(locale === "pt" ? "Chave de API salva com segurança." : "API key saved securely.");
     } catch (err) {
       console.error(err);
@@ -704,14 +702,14 @@ export function useAdminConsole(params: UseAdminConsoleParams) {
     }
   };
 
-  const handleClearAiApiKey = async () => {
-    if (!confirm(locale === "pt" ? "Remover a chave de API de IA salva?" : "Remove saved AI API key?")) return;
+  const handleClearAiApiKey = async (provider: "gemini" | "openai" | "anthropic") => {
+    if (!confirm(locale === "pt" ? "Remover a chave de API salva?" : "Remove saved API key?")) return;
 
     try {
       const res = await fetch("/api/settings/ai", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clear_ai_api_key: true })
+        body: JSON.stringify({ [`clear_${AI_KEY_FIELD[provider]}`]: true })
       });
 
       const data = await res.json();

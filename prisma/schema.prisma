@@ -482,10 +482,12 @@ model PlatformSettings {
   documentAnalysisModel    String   @map("document_analysis_model")
   proposalGenerationModel  String   @map("proposal_generation_model")
   aiApiKeyEncrypted        String?  @map("ai_api_key_encrypted") @db.Text
+  openaiApiKeyEncrypted    String?  @map("openai_api_key_encrypted") @db.Text
+  anthropicApiKeyEncrypted String?  @map("anthropic_api_key_encrypted") @db.Text
   // Phase 5 (AI orchestrator): which provider is the intended target for each task type,
-  // researched per-task (docs/roadmap/REDESIGN_ROADMAP_2026-07.md). Only "gemini" is actually
-  // connected today - connecting Claude/GPT for real is future work, out of this phase's scope -
-  // so any task whose intended provider isn't gemini always falls back to it, logged as such.
+  // researched per-task (docs/roadmap/REDESIGN_ROADMAP_2026-07.md). gemini/openai/anthropic are
+  // all really connected (see resolveProvider in src/aiOrchestrator.ts) - a task still falls back
+  // to gemini, logged as such, only if its intended provider's key isn't actually configured.
   documentAnalysisProvider    String  @default("gemini") @map("document_analysis_provider")
   criticalExtractionModel     String  @default("gemini-3.5-flash") @map("critical_extraction_model")
   criticalExtractionProvider  String  @default("anthropic") @map("critical_extraction_provider")

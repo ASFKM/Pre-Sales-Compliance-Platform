@@ -6,6 +6,7 @@ import { logDebugMessage } from "../middleware/security";
 import { AnalysisResult } from "../../src/types";
 import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
 import { getGeminiClient } from "../utils/gemini";
+import { generateJsonWithProvider, ConnectedProvider } from "../utils/aiProviders";
 import { resolveProvider, checkCostCap, recordProviderFallback } from "../../src/aiOrchestrator";
 import { getCurrentTenantId } from "../../src/tenantContext";
 
@@ -183,7 +184,7 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
   }
 
   const platformSettings = await dbStore.getSettings();
-  const analysisModel = platformSettings.document_analysis_model || platformSettings.default_model || "gemini-3.5-flash";
+  const providerResolution = resolveProvider("document_analysis", platformSettings);
 
   // Phase 5 (AI orchestrator): the monthly cap is a real block, not just a number on a
   // dashboard - checked before any AI-calling task starts, not just tracked after the fact.
@@ -201,11 +202,20 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
   const user = await dbStore.getUserById(userId);
   const userName = user ? user.name : "System User";
 
+  if (providerResolution.isFallback) {
+    await recordProviderFallback({
+      tenantId,
+      taskType: "document_analysis",
+      intendedProvider: providerResolution.intendedProvider,
+      userId,
+    });
+  }
+
   const job = await dbStore.createJob({
     project_id: projectId,
     status: "running",
-    ai_provider: "Google Gemini",
-    ai_model: analysisModel,
+    ai_provider: providerResolution.provider,
+    ai_model: providerResolution.model,
     prompt_template_version: "v3.0-structured",
     started_at: new Date().toISOString(),
     created_by: userName,
@@ -252,18 +262,6 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
     }
 
     await updateTaskProgress(task.id, { currentStep: "Analisando com IA", progressPct: 40 });
-
-    const providerResolution = resolveProvider("document_analysis", platformSettings);
-    if (providerResolution.isFallback) {
-      await recordProviderFallback({
-        tenantId,
-        taskType: "document_analysis",
-        intendedProvider: providerResolution.intendedProvider,
-        userId,
-      });
-    }
-
-    const ai = await getGeminiClient();
 
     const prompt = `You are an expert Pre-Sales Solution Architect analyzing bid, RFP, and specification documents to design commercial and technical proposals.
 Analyze the following project description and real extracted document texts:
@@ -400,15 +398,7 @@ You MUST respond with a strictly parsable JSON object. No markdown, no formattin
 Write all generated content fields strictly in ${project.proposal_language}. Maintain an expert, formal pre-sales engineering tone.
 `;
 
-    const response = await ai.models.generateContent({
-      model: analysisModel,
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json"
-      }
-    });
-
-    const rawText = response.text || "{}";
+    const rawText = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);
 
     // 3. Add Structured Output Validation using Zod
     const parsedJson = JSON.parse(rawText.trim());

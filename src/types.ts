@@ -292,6 +292,12 @@ export interface PlatformSettings {
   ai_api_key_encrypted?: string;
   ai_api_key_configured?: boolean;
   ai_api_key_masked?: string;
+  openai_api_key_encrypted?: string;
+  openai_api_key_configured?: boolean;
+  openai_api_key_masked?: string;
+  anthropic_api_key_encrypted?: string;
+  anthropic_api_key_configured?: boolean;
+  anthropic_api_key_masked?: string;
   // Phase 5 (AI orchestrator): intended provider per task type - see src/aiOrchestrator.ts.
   document_analysis_provider: string;
   critical_extraction_model: string;

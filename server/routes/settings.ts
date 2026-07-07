@@ -14,6 +14,8 @@ async function getSafePlatformSettings() {
   const settings = await dbStore.getSettings() as any;
   const {
     ai_api_key_encrypted,
+    openai_api_key_encrypted,
+    anthropic_api_key_encrypted,
     s3_secret_access_key_encrypted,
     gcs_service_account_key_encrypted,
     fleet_manager_api_key_encrypted,
@@ -33,6 +35,10 @@ async function getSafePlatformSettings() {
     ...safeSettings,
     ai_api_key_configured: Boolean(ai_api_key_encrypted),
     ai_api_key_masked: maskOrFallback(ai_api_key_encrypted),
+    openai_api_key_configured: Boolean(openai_api_key_encrypted),
+    openai_api_key_masked: maskOrFallback(openai_api_key_encrypted),
+    anthropic_api_key_configured: Boolean(anthropic_api_key_encrypted),
+    anthropic_api_key_masked: maskOrFallback(anthropic_api_key_encrypted),
     s3_secret_access_key_configured: Boolean(s3_secret_access_key_encrypted),
     s3_secret_access_key_masked: maskOrFallback(s3_secret_access_key_encrypted),
     gcs_service_account_key_configured: Boolean(gcs_service_account_key_encrypted),
@@ -48,6 +54,18 @@ function sanitizeSettingsAudit(updates: any) {
   }
   if (safe.ai_api_key_encrypted) {
     safe.ai_api_key_encrypted = "[encrypted-secret]";
+  }
+  if (safe.openai_api_key) {
+    safe.openai_api_key = "[secret-updated]";
+  }
+  if (safe.openai_api_key_encrypted) {
+    safe.openai_api_key_encrypted = "[encrypted-secret]";
+  }
+  if (safe.anthropic_api_key) {
+    safe.anthropic_api_key = "[secret-updated]";
+  }
+  if (safe.anthropic_api_key_encrypted) {
+    safe.anthropic_api_key_encrypted = "[encrypted-secret]";
   }
   if (safe.fleet_manager_api_key) {
     safe.fleet_manager_api_key = "[secret-updated]";
@@ -330,9 +348,22 @@ router.put("/settings/ai", requirePermission("ai:settings"), async (req: Request
     if (typeof req.body?.ai_api_key === "string" && req.body.ai_api_key.trim()) {
       updates.ai_api_key_encrypted = encryptSecret(req.body.ai_api_key.trim());
     }
-
     if (req.body?.clear_ai_api_key === true) {
       updates.ai_api_key_encrypted = "";
+    }
+
+    if (typeof req.body?.openai_api_key === "string" && req.body.openai_api_key.trim()) {
+      updates.openai_api_key_encrypted = encryptSecret(req.body.openai_api_key.trim());
+    }
+    if (req.body?.clear_openai_api_key === true) {
+      updates.openai_api_key_encrypted = "";
+    }
+
+    if (typeof req.body?.anthropic_api_key === "string" && req.body.anthropic_api_key.trim()) {
+      updates.anthropic_api_key_encrypted = encryptSecret(req.body.anthropic_api_key.trim());
+    }
+    if (req.body?.clear_anthropic_api_key === true) {
+      updates.anthropic_api_key_encrypted = "";
     }
 
     if (Object.keys(updates).length === 0) {
