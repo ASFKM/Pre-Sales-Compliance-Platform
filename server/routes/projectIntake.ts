@@ -9,6 +9,7 @@ import * as staging from "../../src/projectIntakeStaging";
 import { ProjectSchema } from "./projects";
 import { resolveProvider, checkCostCap, recordProviderFallback } from "../../src/aiOrchestrator";
 import { generateJsonWithProvider, ConnectedProvider } from "../utils/aiProviders";
+import { classifyDocument } from "../utils/documentClassification";
 import multer from "multer";
 
 const router = express.Router();
@@ -261,6 +262,7 @@ router.post("/project-intake/:sessionId/confirm", requirePermission("project:cre
       if (!buffer) continue;
 
       const storagePath = await storageAdapter.uploadFile(project.id, buffer, f.filename, f.mimeType);
+      const classification = await classifyDocument(f.filename, f.extractedText);
       const docRecord = await dbStore.addDocument({
         project_id: project.id,
         filename: f.filename,
@@ -269,9 +271,9 @@ router.post("/project-intake/:sessionId/confirm", requirePermission("project:cre
         file_size: f.size,
         storage_provider: platformSettings.storage_mode,
         storage_path: storagePath,
-        detected_document_type: f.mimeType.includes("pdf") ? "RFP / Bid Document" : "Contract/SLA",
+        detected_document_type: classification.document_type,
         manual_document_type: undefined,
-        ai_classification_confidence: 0.92,
+        ai_classification_confidence: classification.confidence,
         version: 1,
         language: "Portuguese",
         uploaded_by: userId,

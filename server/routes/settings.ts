@@ -7,6 +7,7 @@ import { encryptSecret, decryptSecret, maskSecret } from "../utils/security";
 import { createStorageAdapter } from "../utils/storage";
 import { getFleetLicenseStatus } from "../utils/fleetLicense";
 import { getCurrentTenantId } from "../../src/tenantContext";
+import { FACTORY_DEFAULT_CLASSIFICATION_PROMPT, FACTORY_DEFAULT_ANALYSIS_PROMPT } from "../utils/promptDefaults";
 
 const router = express.Router();
 
@@ -554,7 +555,13 @@ router.put("/settings/storage", requirePermission("storage:manage"), updateStora
 
 router.get("/settings/prompts", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    res.json(await dbStore.getPrompts());
+    const prompts = await dbStore.getPrompts();
+    res.json(
+      prompts.map((p) => ({
+        ...p,
+        factory_default: p.type === "classification" ? FACTORY_DEFAULT_CLASSIFICATION_PROMPT : p.type === "analysis" ? FACTORY_DEFAULT_ANALYSIS_PROMPT : "",
+      }))
+    );
   } catch (err) {
     next(err);
   }

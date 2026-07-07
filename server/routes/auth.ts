@@ -18,7 +18,7 @@ import {
   revokeRefreshToken,
   REFRESH_TOKEN_COOKIE_NAME
 } from "../utils/security";
-import { logDebugMessage } from "../middleware/security";
+import { logDebugMessage, loginRateLimiter } from "../middleware/security";
 import { isProductionRuntime, isDemoRuntime } from "../config/runtime";
 import { runWithTenant } from "../../src/tenantContext";
 import { isLockedOut, recordFailedAttempt, clearFailedAttempts } from "../utils/lockout";
@@ -183,7 +183,7 @@ export function requirePermission(permission: string) {
 }
 
 // LOGIN ENDPOINT
-router.post("/login", async (req: Request, res: Response, next: NextFunction) => {
+router.post("/login", loginRateLimiter, async (req: Request, res: Response, next: NextFunction) => {
   const correlationId = (req.headers["x-correlation-id"] as string) || "corr-auth";
   const startTime = Date.now();
 

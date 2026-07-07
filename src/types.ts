@@ -334,6 +334,7 @@ export interface PromptTemplate {
   name: string;
   type: string;
   content: string;
+  factory_default: string;
   language: "Portuguese" | "English" | "Spanish";
   version: string;
   is_active: boolean;

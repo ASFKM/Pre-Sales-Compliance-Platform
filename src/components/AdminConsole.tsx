@@ -25,6 +25,16 @@ interface FleetLicenseStatus {
   last_verified_at: string | null;
 }
 
+// Sensible default model per provider - applied automatically whenever a task's provider
+// dropdown changes, so the paired model field never keeps a stale value from a different
+// provider (e.g. a Gemini model name left behind after switching a task to OpenAI).
+const DEFAULT_MODEL_FOR_PROVIDER: Record<string, string> = {
+  gemini: "gemini-3.5-flash",
+  openai: "gpt-4o-mini",
+  anthropic: "claude-sonnet-5",
+  deepseek: "deepseek-v3",
+};
+
 type AdminSection =
   | "overview" | "users" | "ai" | "templates" | "approval_flow"
   | "subscription" | "branding" | "integrations" | "storage" | "audit";
@@ -94,6 +104,44 @@ export default function AdminConsole({
   const [costUSD] = useState(14.28);
   const exchangeRate = 5.15; // 1 USD = 5.15 BRL (realistic exchange rate)
   const [aiKeyDrafts, setAiKeyDrafts] = useState<Record<string, string>>({ gemini: "", openai: "", anthropic: "" });
+  const [editingPromptId, setEditingPromptId] = useState<string | null>(null);
+  const [promptDrafts, setPromptDrafts] = useState<Record<string, string>>({});
+  const [verticals, setVerticals] = useState<{ id: string; name: string; is_active: boolean }[]>([]);
+  const [newVerticalName, setNewVerticalName] = useState("");
+
+  const loadVerticals = () => {
+    ApiClient.get<{ id: string; name: string; is_active: boolean }[]>("/api/verticals").then(setVerticals).catch(() => setVerticals([]));
+  };
+
+  useEffect(() => {
+    loadVerticals();
+  }, []);
+
+  const handleCreateVertical = async () => {
+    if (!newVerticalName.trim()) return;
+    try {
+      await ApiClient.post("/api/verticals", { name: newVerticalName.trim() });
+      setNewVerticalName("");
+      loadVerticals();
+    } catch (err: any) {
+      alert(err.message || (locale === "pt" ? "Não foi possível adicionar a vertical." : "Could not add vertical."));
+    }
+  };
+
+  const handleToggleVertical = async (v: { id: string; is_active: boolean }) => {
+    await ApiClient.put(`/api/verticals/${v.id}`, { is_active: !v.is_active });
+    loadVerticals();
+  };
+
+  const handleDeleteVertical = async (id: string) => {
+    if (!confirm(locale === "pt" ? "Excluir esta vertical?" : "Delete this vertical?")) return;
+    try {
+      await ApiClient.delete(`/api/verticals/${id}`);
+      loadVerticals();
+    } catch (err: any) {
+      alert(err.message || (locale === "pt" ? "Não foi possível excluir." : "Could not delete."));
+    }
+  };
   // Real per-provider connection status, derived from platformSettings (never a locally-simulated
   // list) - "PROVIDER_STATUS" reflects whether a key is actually configured on the backend.
   const PROVIDER_STATUS: { id: "gemini" | "openai" | "anthropic"; name: string; configured: boolean; masked: string }[] = [
@@ -275,167 +323,7 @@ export default function AdminConsole({
                       {activeAdminSection === "overview" && canAccessAdminSection("overview") && (locale === "pt" ? "Visão Geral do Sistema" : "System Overview")}
                       {activeAdminSection === "users" && canAccessAdminSection("users") && (locale === "pt" ? "Usuários e Acessos" : "Users & Access")}
                       {activeAdminSection === "ai" && canAccessAdminSection("ai") && (locale === "pt" ? "IA, Prompts e Custos" : "AI, Prompts & Costs")}
-                      {activeAdminSection === "templates" && canAccessAdminSection("templates") && (
-                  <div className="w-full grid grid-cols-1 xl:grid-cols-3 gap-6">
-                    <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
-                      <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
-                        {locale === "pt" ? "Enviar Template" : "Upload Template"}
-                      </h3>
-
-                      <div className="p-4 border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 text-center space-y-3">
-                        <input
-                          type="file"
-                          accept=".doc,.docx,.pdf"
-                          onChange={(e) => {
-                            const fileName = e.target.files?.[0]?.name || "";
-                            setTemplateUploadFileName(fileName);
-                            if (fileName && !templateUploadName) {
-                              setTemplateUploadName(fileName.replace(/\.[^.]+$/, ""));
-                            }
-                          }}
-                          className="text-xs w-full"
-                        />
-                        <p className="text-[11px] text-slate-500">
-                          {locale === "pt" ? "Formatos: DOCX, DOC ou PDF. Recomendado: DOCX com variáveis {{cliente}}, {{escopo}}, {{bom}}, {{preco}}." : "Formats: DOCX, DOC or PDF."}
-                        </p>
-                      </div>
-
-                      <div className="space-y-3 text-xs">
-                        <div>
-                          <label className="text-[10px] uppercase font-bold text-slate-400 font-mono block mb-1">{locale === "pt" ? "Nome do Template" : "Template Name"}</label>
-                          <input
-                            value={templateUploadName}
-                            onChange={(e) => setTemplateUploadName(e.target.value)}
-                            placeholder={locale === "pt" ? "Ex.: Proposta Técnica ITS" : "E.g. ITS Technical Proposal"}
-                            className="w-full p-2 bg-slate-50 border border-slate-200 rounded"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="text-[10px] uppercase font-bold text-slate-400 font-mono block mb-1">{locale === "pt" ? "Descrição" : "Description"}</label>
-                          <textarea
-                            value={templateUploadDescription}
-                            onChange={(e) => setTemplateUploadDescription(e.target.value)}
-                            rows={3}
-                            placeholder={locale === "pt" ? "Descrição curta do uso do template" : "Short description of template usage"}
-                            className="w-full p-2 bg-slate-50 border border-slate-200 rounded"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                        <div>
-                          <label className="text-[10px] uppercase font-bold text-slate-400 font-mono block mb-1">{locale === "pt" ? "Tipo" : "Type"}</label>
-                          <select value={templateUploadType} onChange={(e) => setTemplateUploadType(e.target.value as any)} className="w-full p-2 bg-slate-50 border border-slate-200 rounded">
-                            <option value="technical">{locale === "pt" ? "Técnico" : "Technical"}</option>
-                            <option value="commercial">{locale === "pt" ? "Comercial" : "Commercial"}</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label className="text-[10px] uppercase font-bold text-slate-400 font-mono block mb-1">{locale === "pt" ? "Idioma" : "Language"}</label>
-                          <select value={templateUploadLanguage} onChange={(e) => setTemplateUploadLanguage(e.target.value as any)} className="w-full p-2 bg-slate-50 border border-slate-200 rounded">
-                            <option value="Portuguese">Português</option>
-                            <option value="English">English</option>
-                            <option value="Spanish">Español</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label className="text-[10px] uppercase font-bold text-slate-400 font-mono block mb-1">{locale === "pt" ? "Versão" : "Version"}</label>
-                          <input value={templateUploadVersion} onChange={(e) => setTemplateUploadVersion(e.target.value)} className="w-full p-2 bg-slate-50 border border-slate-200 rounded font-mono" />
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="text-[10px] uppercase font-bold text-slate-400 font-mono block mb-1">{locale === "pt" ? "Variáveis declaradas" : "Declared Variables"}</label>
-                        <textarea
-                          value={templateUploadVariables}
-                          onChange={(e) => setTemplateUploadVariables(e.target.value)}
-                          rows={3}
-                          className="w-full p-2 bg-slate-50 border border-slate-200 rounded text-xs font-mono"
-                        />
-                        <p className="text-[10px] text-slate-500 mt-1">
-                          {locale === "pt" ? "Separe as variáveis por vírgula." : "Separate variables with commas."}
-                        </p>
-                      </div>
-
-                      <div className="p-3 bg-slate-900 text-slate-300 rounded font-mono text-[11px] min-h-20">
-                        {templateUploadFileName ? (
-                          <>
-                            <p>{locale === "pt" ? "Arquivo selecionado" : "Selected file"}: <strong>{templateUploadFileName}</strong></p>
-                            <p>{locale === "pt" ? "Tipo" : "Type"}: {templateUploadType}</p>
-                            <p>{locale === "pt" ? "Versão" : "Version"}: {templateUploadVersion}</p>
-                          </>
-                        ) : (
-                          <p>{locale === "pt" ? "Nenhum arquivo selecionado para pré-visualização." : "No file selected for preview."}</p>
-                        )}
-                      </div>
-
-                      <button
-                        onClick={handleCreateProposalTemplate}
-                        className="w-full bg-slate-900 hover:bg-slate-800 text-white rounded py-2 text-xs font-bold"
-                      >
-                        {locale === "pt" ? "Salvar Template Versionado" : "Save Versioned Template"}
-                      </button>
-                    </div>
-
-                    <div className="xl:col-span-2 bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
-                      <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
-                        {locale === "pt" ? "Biblioteca e Versionamento" : "Library and Versioning"}
-                      </h3>
-
-                      <div className="space-y-3">
-                        {proposalTemplates.map(tpl => (
-                          <div key={tpl.id} className="p-4 bg-slate-50 border border-slate-200 rounded-lg">
-                            <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-3">
-                              <div className="min-w-0">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <h4 className="text-xs font-bold text-slate-800 uppercase font-mono">{tpl.name}</h4>
-                                  <span className="text-[10px] bg-white border border-slate-200 px-1.5 rounded-full font-bold uppercase">{tpl.file_type}</span>
-                                  {tpl.default_template && (
-                                    <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-100 px-1.5 rounded-full font-bold">{locale === "pt" ? "PADRÃO" : "DEFAULT"}</span>
-                                  )}
-                                  {!tpl.active && (
-                                    <span className="text-[10px] bg-red-50 text-red-700 border border-red-100 px-1.5 rounded-full font-bold">{locale === "pt" ? "INATIVO" : "INACTIVE"}</span>
-                                  )}
-                                </div>
-                                <p className="text-[11px] text-slate-500 mt-1">{tpl.description}</p>
-                                <p className="text-[10px] text-slate-400 font-mono mt-2">
-                                  {locale === "pt" ? "Tipo" : "Type"}: {tpl.template_type} • {locale === "pt" ? "Versão" : "Version"}: {tpl.version} • {locale === "pt" ? "Idioma" : "Language"}: {tpl.language}
-                                </p>
-                                <p className="text-[10px] text-slate-400 font-mono truncate mt-1">{tpl.file_path}</p>
-                              </div>
-
-                              <div className="flex flex-wrap gap-2">
-                                <button onClick={() => handleValidateProposalTemplate(tpl.id)} className="px-2 py-1 rounded bg-white border text-[10px] font-bold">
-                                  {locale === "pt" ? "Validar" : "Validate"}
-                                </button>
-                                {!tpl.default_template && (
-                                  <button onClick={() => handleSetDefaultProposalTemplate(tpl.id)} className="px-2 py-1 rounded bg-emerald-600 text-white text-[10px] font-bold">
-                                    {locale === "pt" ? "Tornar Padrão" : "Set Default"}
-                                  </button>
-                                )}
-                                <button
-                                  onClick={() => handleUpdateProposalTemplate(tpl.id, { active: !tpl.active })}
-                                  className="px-2 py-1 rounded bg-slate-900 text-white text-[10px] font-bold"
-                                >
-                                  {tpl.active ? (locale === "pt" ? "Inativar" : "Deactivate") : (locale === "pt" ? "Ativar" : "Activate")}
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteProposalTemplate(tpl.id)}
-                                  className="px-2 py-1 rounded bg-red-50 text-red-700 hover:bg-red-600 hover:text-white text-[10px] font-bold"
-                                >
-                                  {locale === "pt" ? "Apagar" : "Delete"}
-                                </button>
-                              </div>
-                            </div>
-
-                            <pre className="mt-3 p-3 bg-white border border-slate-200 rounded text-[10px] text-slate-500 overflow-x-auto">{tpl.variables_schema}</pre>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
+                      {activeAdminSection === "templates" && canAccessAdminSection("templates") && (locale === "pt" ? "Templates de Propostas" : "Proposal Templates")}
 
                 {activeAdminSection === "approval_flow" && canAccessAdminSection("approval_flow") && (locale === "pt" ? "Fluxo de Aprovação de Propostas" : "Proposal Approval Workflow")}
                       {activeAdminSection === "subscription" && canAccessAdminSection("subscription") && (locale === "pt" ? "Subscrição e Licença" : "Subscription & License")}
@@ -987,16 +875,23 @@ export default function AdminConsole({
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           {[
-                            { field: "document_analysis_provider", label: locale === "pt" ? "Análise de Documentos" : "Document Analysis" },
-                            { field: "critical_extraction_provider", label: locale === "pt" ? "Extração Crítica" : "Critical Extraction" },
-                            { field: "web_grounding_provider", label: locale === "pt" ? "Pesquisa com Grounding Web" : "Web-Grounded Research" },
-                            { field: "proposal_generation_provider", label: locale === "pt" ? "Redação de Propostas" : "Proposal Writing" },
-                          ].map(({ field, label }) => (
+                            { field: "document_analysis_provider", modelField: "document_analysis_model", label: locale === "pt" ? "Análise de Documentos" : "Document Analysis" },
+                            { field: "critical_extraction_provider", modelField: null, label: locale === "pt" ? "Extração Crítica" : "Critical Extraction" },
+                            { field: "web_grounding_provider", modelField: null, label: locale === "pt" ? "Pesquisa com Grounding Web" : "Web-Grounded Research" },
+                            { field: "proposal_generation_provider", modelField: null, label: locale === "pt" ? "Redação de Propostas" : "Proposal Writing" },
+                          ].map(({ field, modelField, label }) => (
                             <div key={field}>
                               <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{label}</label>
                               <select
                                 value={(platformSettings as any)?.[field] || "gemini"}
-                                onChange={(e) => handleSavePlatformSettings(field, e.target.value)}
+                                onChange={(e) => {
+                                  const newProvider = e.target.value;
+                                  handleSavePlatformSettings(field, newProvider);
+                                  // Keep the model field a valid pair for the newly selected provider -
+                                  // this is exactly what broke document analysis before: the provider
+                                  // dropdown changed but the model text field kept a Gemini model name.
+                                  if (modelField) handleSavePlatformSettings(modelField, DEFAULT_MODEL_FOR_PROVIDER[newProvider] || DEFAULT_MODEL_FOR_PROVIDER.gemini);
+                                }}
                                 className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-semibold text-slate-700"
                               >
                                 <option value="gemini">Google Gemini</option>
@@ -1045,33 +940,71 @@ export default function AdminConsole({
                         </div>
                       </div>
                       <div className="space-y-4 max-h-[520px] overflow-y-auto pr-1">
-                        {promptTemplates.map(prm => (
+                        {promptTemplates.map(prm => {
+                          const displayName =
+                            prm.type === "classification" ? tx("Document Classification Prompt", "Prompt de Classificação de Documentos")
+                            : prm.type === "analysis" ? tx("Pre-Sales Technical Specification Analyser", "Analisador de Especificação Técnica de Pré-Vendas")
+                            : prm.name;
+                          const isEditing = editingPromptId === prm.id;
+                          return (
                           <div key={prm.id} className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
                             <div className="flex justify-between items-center">
                               <div>
-                                <h4 className="text-xs font-bold text-slate-800 uppercase font-mono">{prm.name} ({prm.version})</h4>
+                                <h4 className="text-xs font-bold text-slate-800 uppercase font-mono">{displayName} ({prm.version})</h4>
                                 <span className="text-[10px] text-slate-400 uppercase font-mono">{tx("Language Target", "Idioma Alvo")}: {prm.language}</span>
                               </div>
                               <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-bold uppercase font-mono">{tx("ACTIVE INSTRUCTION", "INSTRUÇÃO ATIVA")}</span>
                             </div>
                             <textarea
-                              defaultValue={prm.content}
+                              value={promptDrafts[prm.id] ?? prm.content}
+                              onChange={(e) => setPromptDrafts((prev) => ({ ...prev, [prm.id]: e.target.value }))}
+                              disabled={!isEditing}
                               id={`textarea-prm-${prm.id}`}
-                              className="w-full h-24 p-3 rounded font-mono text-xs bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none leading-normal text-slate-700"
+                              className="w-full h-24 p-3 rounded font-mono text-xs bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none leading-normal text-slate-700 disabled:opacity-60 disabled:cursor-not-allowed"
                             />
-                            <div className="flex justify-end">
-                              <button
-                                onClick={() => {
-                                  const val = (document.getElementById(`textarea-prm-${prm.id}`) as HTMLTextAreaElement)?.value;
-                                  handleUpdatePromptTemplate(prm.id, val);
-                                }}
-                                className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-3 rounded shadow-sm transition-all cursor-pointer"
-                              >
-                                {locale === "pt" ? "Salvar Instruções" : "Save Instructions Override"}
-                              </button>
+                            <div className="flex justify-end gap-2">
+                              {!isEditing ? (
+                                <button
+                                  onClick={() => {
+                                    setEditingPromptId(prm.id);
+                                    setPromptDrafts((prev) => ({ ...prev, [prm.id]: prm.content }));
+                                  }}
+                                  className="bg-white border border-slate-300 text-slate-700 font-mono text-xs font-bold py-1.5 px-3 rounded"
+                                >
+                                  {locale === "pt" ? "Editar" : "Edit"}
+                                </button>
+                              ) : (
+                                <>
+                                  <button
+                                    onClick={() => setPromptDrafts((prev) => ({ ...prev, [prm.id]: prm.factory_default }))}
+                                    className="bg-white border border-slate-300 text-slate-700 font-mono text-xs font-bold py-1.5 px-3 rounded"
+                                  >
+                                    {locale === "pt" ? "Padrão de Fábrica" : "Factory Default"}
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setEditingPromptId(null);
+                                      setPromptDrafts((prev) => { const next = { ...prev }; delete next[prm.id]; return next; });
+                                    }}
+                                    className="bg-white border border-slate-300 text-slate-500 font-mono text-xs font-bold py-1.5 px-3 rounded"
+                                  >
+                                    {locale === "pt" ? "Cancelar" : "Cancel"}
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      handleUpdatePromptTemplate(prm.id, promptDrafts[prm.id] ?? prm.content);
+                                      setEditingPromptId(null);
+                                    }}
+                                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-3 rounded shadow-sm transition-all cursor-pointer"
+                                  >
+                                    {locale === "pt" ? "Salvar" : "Save"}
+                                  </button>
+                                </>
+                              )}
                             </div>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
@@ -1147,6 +1080,47 @@ export default function AdminConsole({
                           </div>
                         ))}
                       </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeAdminSection === "templates" && canAccessAdminSection("templates") && (
+                  <div className="w-full bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4 mt-6">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
+                        {locale === "pt" ? "Verticais de Setor" : "Industry Verticals"}
+                      </h3>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      {locale === "pt"
+                        ? "Lista usada no campo \"Vertical do Setor\" ao criar um projeto."
+                        : "List used by the \"Industry Vertical\" field when creating a project."}
+                    </p>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={newVerticalName}
+                        onChange={(e) => setNewVerticalName(e.target.value)}
+                        placeholder={locale === "pt" ? "Nova vertical..." : "New vertical..."}
+                        className="flex-1 p-2 rounded bg-slate-50 border border-slate-200 text-xs"
+                      />
+                      <button onClick={handleCreateVertical} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 rounded">
+                        {locale === "pt" ? "Adicionar" : "Add"}
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {verticals.map((v) => (
+                        <span key={v.id} className={`flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-full border ${v.is_active ? "bg-slate-50 border-slate-200 text-slate-700" : "bg-slate-100 border-slate-200 text-slate-400 line-through"}`}>
+                          {v.name}
+                          <button onClick={() => handleToggleVertical(v)} className="text-slate-400 hover:text-slate-700" title={v.is_active ? (locale === "pt" ? "Desativar" : "Deactivate") : (locale === "pt" ? "Ativar" : "Activate")}>
+                            {v.is_active ? "⏸" : "▶"}
+                          </button>
+                          <button onClick={() => handleDeleteVertical(v.id)} className="text-red-400 hover:text-red-700" title={locale === "pt" ? "Excluir" : "Delete"}>
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                      {verticals.length === 0 && <span className="text-xs text-slate-400 italic">{locale === "pt" ? "Nenhuma vertical cadastrada." : "No verticals registered."}</span>}
                     </div>
                   </div>
                 )}

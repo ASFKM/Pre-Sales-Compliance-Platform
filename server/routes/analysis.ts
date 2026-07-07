@@ -9,6 +9,8 @@ import { getGeminiClient } from "../utils/gemini";
 import { generateJsonWithProvider, ConnectedProvider } from "../utils/aiProviders";
 import { resolveProvider, checkCostCap, recordProviderFallback } from "../../src/aiOrchestrator";
 import { getCurrentTenantId } from "../../src/tenantContext";
+import { prisma } from "../../src/prisma";
+import { FACTORY_DEFAULT_ANALYSIS_PROMPT } from "../utils/promptDefaults";
 
 const router = express.Router();
 
@@ -263,7 +265,10 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
 
     await updateTaskProgress(task.id, { currentStep: "Analisando com IA", progressPct: 40 });
 
-    const prompt = `You are an expert Pre-Sales Solution Architect analyzing bid, RFP, and specification documents to design commercial and technical proposals.
+    const analysisPromptRow = await prisma.promptTemplate.findFirst({ where: { type: "analysis" } });
+    const analysisInstructions = analysisPromptRow?.content?.trim() || FACTORY_DEFAULT_ANALYSIS_PROMPT;
+
+    const prompt = `${analysisInstructions}
 Analyze the following project description and real extracted document texts:
 
 PROJECT METADATA:

@@ -170,6 +170,7 @@ model Tenant {
   platformSettings     PlatformSettings?
   promptTemplates      PromptTemplate[]
   proposalTemplates    ProposalTemplate[]
+  verticals            Vertical[]
   proposals            Proposal[]
   approvalWorkflows    ApprovalWorkflow[]
   approvalStages       ApprovalStage[]
@@ -562,6 +563,21 @@ model ProposalTemplate {
 
   @@index([tenantId])
   @@map("proposal_templates")
+}
+
+// Admin-managed list of industry verticals offered when creating a project - used to be a fixed
+// 5-option hardcoded <select>, no way to add one without a code change.
+model Vertical {
+  id        String   @id
+  tenantId  String   @map("tenant_id")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  name      String
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("verticals")
 }
 
 model Proposal {

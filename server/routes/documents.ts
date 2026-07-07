@@ -4,6 +4,7 @@ import { dbStore } from "../../src/dbStore";
 import { requireAuth, requirePermission } from "./auth";
 import { createStorageAdapter, validateUploadedFile } from "../utils/storage";
 import { extractTextFromDocument } from "../utils/extraction";
+import { classifyDocument } from "../utils/documentClassification";
 import { logDebugMessage } from "../middleware/security";
 
 const router = express.Router();
@@ -68,6 +69,11 @@ router.post(
       // 3. Extract text content through Text Extraction Pipelines
       const extraction = await extractTextFromDocument(file.buffer, file.originalname, file.mimetype);
 
+      // 3b. Real AI classification (Admin > IA, Prompts e Custos > "Document Classification
+      // Prompt") - replaces what used to be a hardcoded mimetype guess with a fixed fake
+      // confidence.
+      const classification = await classifyDocument(file.originalname, extraction.text);
+
       // 4. Save to Database
       const userId = (req.headers["x-user-id"] as string) || "u1";
       const docRecord = await dbStore.addDocument({
@@ -78,9 +84,9 @@ router.post(
         file_size: file.size,
         storage_provider: platformSettings.storage_mode,
         storage_path: storagePath,
-        detected_document_type: file.mimetype.includes("pdf") ? "RFP / Bid Document" : "Contract/SLA",
+        detected_document_type: classification.document_type,
         manual_document_type: undefined,
-        ai_classification_confidence: 0.92,
+        ai_classification_confidence: classification.confidence,
         version: 1,
         language: "Portuguese",
         uploaded_by: userId

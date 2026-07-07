@@ -1,3 +1,6 @@
+import { useEffect, useState } from "react";
+import ApiClient from "../../lib/api";
+
 export interface ProjectFieldsValues {
   name: string;
   customer_name: string;
@@ -44,6 +47,14 @@ interface ProjectFieldsFormProps {
 // wizard's validation step (Phase 4) - extracted once so both stay in sync instead of
 // duplicating ~150 lines of form JSX.
 export default function ProjectFieldsForm({ locale, values, onChange }: ProjectFieldsFormProps) {
+  const [verticals, setVerticals] = useState<{ id: string; name: string; is_active: boolean }[]>([]);
+
+  useEffect(() => {
+    ApiClient.get<{ id: string; name: string; is_active: boolean }[]>("/api/verticals")
+      .then((v) => setVerticals(v.filter((item) => item.is_active)))
+      .catch(() => setVerticals([]));
+  }, []);
+
   return (
     <div className="space-y-4 text-xs text-slate-700">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -87,11 +98,11 @@ export default function ProjectFieldsForm({ locale, values, onChange }: ProjectF
             onChange={(e) => onChange({ ...values, vertical: e.target.value })}
             className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
           >
-            <option value="Infrastructure">{locale === "pt" ? "Infraestrutura" : "Infrastructure"}</option>
-            <option value="Critical Infrastructure">{locale === "pt" ? "Infraestrutura Crítica" : "Critical Infrastructure"}</option>
-            <option value="Smart Cities">{locale === "pt" ? "Cidades Inteligentes" : "Smart Cities"}</option>
-            <option value="Retail">{locale === "pt" ? "Varejo" : "Retail"}</option>
-            <option value="Finance">{locale === "pt" ? "Finanças" : "Finance"}</option>
+            {verticals.map((v) => (
+              <option key={v.id} value={v.name}>
+                {v.name}
+              </option>
+            ))}
           </select>
         </div>
       </div>

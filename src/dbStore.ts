@@ -534,6 +534,34 @@ class DBStore {
     }
   }
 
+  public async getVerticals(): Promise<{ id: string; name: string; is_active: boolean }[]> {
+    const rows = await prisma.vertical.findMany({ orderBy: { createdAt: "asc" } });
+    return rows.map((v) => ({ id: v.id, name: v.name, is_active: v.isActive }));
+  }
+
+  public async createVertical(name: string): Promise<{ id: string; name: string; is_active: boolean }> {
+    const v = await prisma.vertical.create({ data: { id: randomId("vert"), tenantId: requireTenantId(), name } });
+    return { id: v.id, name: v.name, is_active: v.isActive };
+  }
+
+  public async updateVertical(id: string, updates: { name?: string; is_active?: boolean }): Promise<{ id: string; name: string; is_active: boolean } | undefined> {
+    const exists = await prisma.vertical.findUnique({ where: { id } });
+    if (!exists) return undefined;
+    const v = await prisma.vertical.update({ where: { id }, data: { name: updates.name, isActive: updates.is_active } });
+    return { id: v.id, name: v.name, is_active: v.isActive };
+  }
+
+  public async deleteVertical(id: string): Promise<boolean> {
+    const inUse = await prisma.project.count({ where: { vertical: (await prisma.vertical.findUnique({ where: { id } }))?.name || "__none__" } });
+    if (inUse > 0) return false;
+    try {
+      await prisma.vertical.delete({ where: { id } });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   // Manager <-> Engineer teams (Phase 3 RBAC): N:N, an Engineer can belong to more than one
   // Manager's team - drives the "Manager sees their team's projects" visibility rule embedded
   // in the Prisma extension (src/prisma.ts), not enforced here.
