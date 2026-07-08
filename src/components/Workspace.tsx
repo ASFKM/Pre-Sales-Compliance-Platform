@@ -75,6 +75,8 @@ export default function Workspace({
   const [subTab, setSubTab] = useState<SubTab>("summary");
   const [exportingQuestions, setExportingQuestions] = useState(false);
   const [showCopilotChat, setShowCopilotChat] = useState(false);
+  const [editingNotesReqId, setEditingNotesReqId] = useState<string | null>(null);
+  const [editingNotesDraft, setEditingNotesDraft] = useState("");
   const chatMessagesEndRef = useRef<HTMLDivElement>(null);
 
   // Was a plain <a href download> pointing at the API route - browser-navigated downloads never
@@ -442,13 +444,14 @@ export default function Workspace({
                                   </select>
                                 </td>
                                 <td className="p-3">
-                                  <input
-                                    type="text"
-                                    value={req.notes || ""}
-                                    placeholder={tx("Add engineering compliance remarks...", "Adicionar observações técnicas de conformidade...")}
-                                    onChange={(e) => handleUpdateRequirement(req.requirement_id, req.compliance_status, e.target.value)}
-                                    className="border border-slate-200 px-2 py-1 rounded text-xs w-full focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                                  />
+                                  <button
+                                    onClick={() => { setEditingNotesReqId(req.requirement_id); setEditingNotesDraft(req.notes || ""); }}
+                                    className={`text-[11px] font-bold px-2 py-1 rounded border transition-colors cursor-pointer whitespace-nowrap ${
+                                      req.notes ? "text-emerald-700 bg-emerald-50 border-emerald-200 hover:bg-emerald-100" : "text-slate-500 bg-slate-50 border-slate-200 hover:bg-slate-100"
+                                    }`}
+                                  >
+                                    {req.notes ? "Ver Notas de Engenharia" : "+ Notas de Engenharia"}
+                                  </button>
                                 </td>
                               </tr>
                             ))}
@@ -456,6 +459,51 @@ export default function Workspace({
                         </table>
                       </div>
                     )}
+
+                    {editingNotesReqId && (() => {
+                      const req = displayAnalysisResult?.critical_requirements.find((r) => r.requirement_id === editingNotesReqId);
+                      return (
+                        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
+                          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
+                            <div className="flex items-center justify-between p-4 border-b border-slate-100">
+                              <div>
+                                <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">Notas de Engenharia</h3>
+                                <p className="text-[11px] text-slate-400 font-mono mt-0.5">{editingNotesReqId} — {req?.description}</p>
+                              </div>
+                              <button onClick={() => setEditingNotesReqId(null)} className="text-slate-400 hover:text-slate-700 cursor-pointer shrink-0 ml-3">
+                                <X size={18} />
+                              </button>
+                            </div>
+                            <div className="flex-1 p-4 min-h-0">
+                              <textarea
+                                value={editingNotesDraft}
+                                onChange={(e) => setEditingNotesDraft(e.target.value)}
+                                placeholder="Adicionar observações técnicas de conformidade..."
+                                className="w-full h-full min-h-[200px] p-3 rounded border border-slate-200 text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-emerald-500 resize-none"
+                                autoFocus
+                              />
+                            </div>
+                            <div className="flex justify-end gap-2 p-4 border-t border-slate-100">
+                              <button
+                                onClick={() => setEditingNotesReqId(null)}
+                                className="px-4 py-2 text-xs font-bold uppercase text-slate-500 hover:bg-slate-100 rounded transition-colors cursor-pointer"
+                              >
+                                Cancelar
+                              </button>
+                              <button
+                                onClick={() => {
+                                  if (req) handleUpdateRequirement(req.requirement_id, req.compliance_status, editingNotesDraft);
+                                  setEditingNotesReqId(null);
+                                }}
+                                className="px-4 py-2 text-xs font-bold uppercase bg-emerald-600 hover:bg-emerald-700 text-white rounded transition-colors cursor-pointer"
+                              >
+                                Salvar
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
 

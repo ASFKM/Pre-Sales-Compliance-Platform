@@ -731,12 +731,16 @@ class DBStore {
     return row?.content || "";
   }
 
+  // Same reasoning as saveAnalysisResult above: avoids the tenant-scoping extension's upsert
+  // handling, which appends `tenantId` to `where` and breaks the lookup for models whose only
+  // unique constraint is a single non-tenant field (documentId's @id here).
   public async setDocumentContent(documentId: string, content: string): Promise<void> {
-    await prisma.documentContent.upsert({
-      where: { documentId },
-      create: { documentId, tenantId: requireTenantId(), content },
-      update: { content },
-    });
+    const existing = await prisma.documentContent.findUnique({ where: { documentId } });
+    if (existing) {
+      await prisma.documentContent.update({ where: { documentId }, data: { content } });
+    } else {
+      await prisma.documentContent.create({ data: { documentId, tenantId: requireTenantId(), content } });
+    }
   }
 
   // AI Analysis Results
@@ -745,45 +749,46 @@ class DBStore {
     return a ? mapAnalysisResult(a) : undefined;
   }
 
+  // Deliberately not prisma.analysisResult.upsert(): the tenant-scoping extension (src/prisma.ts)
+  // unconditionally adds `tenantId` to an upsert's `where`, but this model's only unique
+  // constraint is `@@unique([projectId])` alone - the combined {projectId, tenantId} `where` then
+  // matches no unique index, Prisma can't locate the existing row, and silently falls onto the
+  // `create` branch instead, which fails on the first genuinely required field it hits
+  // (`executiveSummary`). Confirmed live: every requirement-notes/risk-mitigation/BOM edit was
+  // hitting exactly this and failing with a 500, with the UI giving no indication anything had
+  // gone wrong. findUnique+create/update sidesteps the extension's upsert-specific handling
+  // entirely (its update path already tenant-scopes correctly via WHERE_MUTATION_OPS).
   public async saveAnalysisResult(result: AnalysisResult): Promise<void> {
-    await prisma.analysisResult.upsert({
-      where: { projectId: result.project_id },
-      create: {
-        id: result.id || randomId("ar"),
-        tenantId: requireTenantId(),
-        projectId: result.project_id,
-        jobId: result.job_id,
-        executiveSummary: result.executive_summary as any,
-        criticalRequirements: result.critical_requirements as any,
-        risks: result.risks as any,
-        opportunities: result.opportunities as any,
-        bom: result.bom as any,
-        pointToPointTable: result.point_to_point_table as any,
-        preliminarySchedule: result.preliminary_schedule as any,
-        clarificationQuestions: result.clarification_questions as any,
-        technicalProposalDraft: result.technical_proposal_draft,
-        commercialProposalDraft: result.commercial_proposal_draft,
-        reviewStatus: result.review_status,
-        approvedBy: result.approved_by,
-        approvedAt: result.approved_at ? new Date(result.approved_at) : undefined,
-      },
-      update: {
-        jobId: result.job_id,
-        executiveSummary: result.executive_summary as any,
-        criticalRequirements: result.critical_requirements as any,
-        risks: result.risks as any,
-        opportunities: result.opportunities as any,
-        bom: result.bom as any,
-        pointToPointTable: result.point_to_point_table as any,
-        preliminarySchedule: result.preliminary_schedule as any,
-        clarificationQuestions: result.clarification_questions as any,
-        technicalProposalDraft: result.technical_proposal_draft,
-        commercialProposalDraft: result.commercial_proposal_draft,
-        reviewStatus: result.review_status,
-        approvedBy: result.approved_by,
-        approvedAt: result.approved_at ? new Date(result.approved_at) : undefined,
-      },
-    });
+    const existing = await prisma.analysisResult.findUnique({ where: { projectId: result.project_id } });
+    const data = {
+      jobId: result.job_id,
+      executiveSummary: result.executive_summary as any,
+      criticalRequirements: result.critical_requirements as any,
+      risks: result.risks as any,
+      opportunities: result.opportunities as any,
+      bom: result.bom as any,
+      pointToPointTable: result.point_to_point_table as any,
+      preliminarySchedule: result.preliminary_schedule as any,
+      clarificationQuestions: result.clarification_questions as any,
+      technicalProposalDraft: result.technical_proposal_draft,
+      commercialProposalDraft: result.commercial_proposal_draft,
+      reviewStatus: result.review_status,
+      approvedBy: result.approved_by,
+      approvedAt: result.approved_at ? new Date(result.approved_at) : undefined,
+    };
+
+    if (existing) {
+      await prisma.analysisResult.update({ where: { projectId: result.project_id }, data });
+    } else {
+      await prisma.analysisResult.create({
+        data: {
+          id: result.id || randomId("ar"),
+          tenantId: requireTenantId(),
+          projectId: result.project_id,
+          ...data,
+        },
+      });
+    }
   }
 
   // AI Jobs

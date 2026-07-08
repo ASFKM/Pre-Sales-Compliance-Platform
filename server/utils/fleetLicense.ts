@@ -207,20 +207,26 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
         // fleetMessageId is unique, so a message somehow re-delivered across heartbeats (the
         // Fleet Manager already tracks per-installation delivery, but this is cheap insurance)
         // just no-ops on the second insert instead of showing the same notice twice.
-        await prisma.systemMessage.upsert({
-          where: { fleetMessageId: msg.id },
-          create: {
-            id: `sysmsg_${Math.random().toString(36).substring(2, 11)}`,
-            tenantId,
-            source: "fleet_manager",
-            fleetMessageId: msg.id,
-            audience: msg.audience,
-            body: msg.body,
-            createdBy: "AI Pre-Sales Solutions",
-            expiresAt: msg.expires_at ? new Date(msg.expires_at) : null,
-          },
-          update: {},
-        });
+        // Not prisma.systemMessage.upsert(): the tenant-scoping extension (src/prisma.ts) adds
+        // `tenantId` to an upsert's `where`, but fleetMessageId's unique constraint doesn't
+        // include tenantId - the combined where then matches no unique index, Prisma can't find
+        // the existing row, and a re-delivered message would hit the create branch again and
+        // fail on the fleetMessageId unique constraint instead of the intended silent no-op.
+        const existing = await prisma.systemMessage.findUnique({ where: { fleetMessageId: msg.id } });
+        if (!existing) {
+          await prisma.systemMessage.create({
+            data: {
+              id: `sysmsg_${Math.random().toString(36).substring(2, 11)}`,
+              tenantId,
+              source: "fleet_manager",
+              fleetMessageId: msg.id,
+              audience: msg.audience,
+              body: msg.body,
+              createdBy: "AI Pre-Sales Solutions",
+              expiresAt: msg.expires_at ? new Date(msg.expires_at) : null,
+            },
+          });
+        }
       }
     } catch (err) {
       console.error(`Fleet manager heartbeat error for tenant ${tenantId}:`, err);

@@ -52,7 +52,7 @@ export function useWorkspace(params: UseWorkspaceParams) {
 
     try {
       const res = await fetch(`/api/projects/${selectedProjectId}/analysis-result`, {
-        method: "PUT",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ critical_requirements: updatedReqs })
       });
@@ -77,7 +77,7 @@ export function useWorkspace(params: UseWorkspaceParams) {
 
     try {
       const res = await fetch(`/api/projects/${selectedProjectId}/analysis-result`, {
-        method: "PUT",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ risks: updatedRisks })
       });
@@ -102,7 +102,7 @@ export function useWorkspace(params: UseWorkspaceParams) {
 
     try {
       const res = await fetch(`/api/projects/${selectedProjectId}/analysis-result`, {
-        method: "PUT",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bom: updatedBOM })
       });
