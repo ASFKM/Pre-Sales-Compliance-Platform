@@ -140,15 +140,25 @@ const BOMItemSchema = z.object({
   source_reference: z.string(),
 });
 
-const PointToPointRowSchema = z.object({
-  item_id: z.string(),
-  customer_requirement: z.string(),
-  proposed_solution: z.string(),
-  compliance: normalizedEnum(["not_enough_information", "compliant", "partially_compliant", "non_compliant"]),
-  comments: z.string(),
-  source_reference: z.string(),
-  evidence_type: z.string(),
-  confidence: z.number()
+// The point-to-point technical matrix is domain-aware rather than one fixed set of columns for
+// every project: a CFTV-only tender gets one matrix with camera/protocol-shaped columns, a
+// CFTV+network tender gets two matrices (one per discipline), each with the columns that actually
+// make sense for that discipline (network wants source/destination/port/protocol, CFTV wants
+// camera/resolution/coverage, electrical wants voltage/load, etc.) - the AI decides both which
+// disciplines are present and which columns each one needs, since a fixed schema can't anticipate
+// every kind of tender this platform will see. Rows are a flexible key/value object keyed by each
+// column's own `key` - not validated field-by-field (there's no fixed field list to validate
+// against), only that the overall shape (columns are {key,label} pairs, rows are string/number/
+// bool/null-valued objects) is well-formed.
+const DynamicMatrixColumnSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+});
+
+const DynamicMatrixSchema = z.object({
+  discipline: z.string(),
+  columns: z.array(DynamicMatrixColumnSchema),
+  rows: z.array(z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]))),
 });
 
 const PreliminarySchedulePhaseSchema = z.object({
@@ -178,7 +188,7 @@ const AnalysisResultSchema = z.object({
   risks: z.array(ProjectRiskSchema),
   opportunities: z.array(ProjectOpportunitySchema),
   bom: z.array(BOMItemSchema),
-  point_to_point_table: z.array(PointToPointRowSchema),
+  point_to_point_table: z.array(DynamicMatrixSchema),
   preliminary_schedule: z.array(PreliminarySchedulePhaseSchema),
   clarification_questions: z.array(ClarificationQuestionSchema),
   technical_proposal_draft: z.string(),
@@ -451,15 +461,38 @@ You MUST respond with a strictly parsable JSON object. No markdown, no formattin
     }
   ],
   "point_to_point_table": [
+    /* One object per TECHNICAL DISCIPLINE actually present in the source document (e.g. CFTV,
+       Rede, Controle de Acesso, Elétrica, Automação, Civil, Telecom - in Portuguese, whatever
+       fits what you actually find, do not force disciplines that aren't there and do not merge
+       unrelated disciplines into one). A document that only covers CFTV produces exactly one
+       object here; a document covering CFTV and network infrastructure produces two.
+       For EACH discipline, design the columns that make sense for THAT discipline's point-to-point
+       technical connectivity - who connects to whom, over what, carrying what data, who's
+       responsible, what's the acceptance criteria. Reference ideas (pick and adapt what fits,
+       don't dump all of these into every discipline): ID do ponto, origem, destino, tipo de
+       ponto, equipamento de origem/destino, localização física, endereço lógico, meio de
+       comunicação, protocolo/interface, portas utilizadas, sentido da comunicação, tipo/formato
+       do dado trafegado, frequência de envio, requisitos de desempenho/rede/elétricos/instalação,
+       dependências, responsável pela origem/destino, prioridade, criticidade operacional, risco
+       técnico, critério de aceite. A CFTV discipline's columns will look different from a Rede
+       discipline's, which will look different from an Elétrica discipline's - that's expected.
+       Every row must use the exact same "key" values declared in that table's own "columns" array.
+       Leave a cell blank/null rather than inventing a value the document doesn't support. */
     {
-      "item_id": "ptp_1",
-      "customer_requirement": "Customer requirement description",
-      "proposed_solution": "Detail technical solution proposed",
-      "compliance": "compliant",
-      "comments": "Pre-sales technical remark",
-      "source_reference": "Section X",
-      "evidence_type": "directly_supported",
-      "confidence": 0.95
+      "discipline": "CFTV",
+      "columns": [
+        { "key": "id_ponto", "label": "ID do Ponto" },
+        { "key": "camera", "label": "Câmera / Equipamento" },
+        { "key": "resolucao", "label": "Resolução" },
+        { "key": "protocolo", "label": "Protocolo" },
+        { "key": "localizacao", "label": "Localização" },
+        { "key": "responsavel", "label": "Responsável" },
+        { "key": "status", "label": "Status" },
+        { "key": "criterio_aceite", "label": "Critério de Aceite" }
+      ],
+      "rows": [
+        { "id_ponto": "P2P-001", "camera": "Câmera IP 4MP bullet, área externa", "resolucao": "4MP", "protocolo": "ONVIF Profile S / RTSP", "localizacao": "Seção 3.1", "responsavel": null, "status": "não iniciado", "criterio_aceite": "Imagem nítida a 30m no período noturno" }
+      ]
     }
   ],
   "preliminary_schedule": [

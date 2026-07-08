@@ -152,15 +152,19 @@ export interface BOMItem {
   source_reference: string;
 }
 
-export interface PointToPointRow {
-  item_id: string;
-  customer_requirement: string;
-  proposed_solution: string;
-  compliance: "compliant" | "partially_compliant" | "non_compliant" | "not_enough_information";
-  comments: string;
-  source_reference: string;
-  evidence_type: string;
-  confidence: number;
+export interface DynamicMatrixColumn {
+  key: string;
+  label: string;
+}
+
+// One point-to-point technical matrix per discipline the AI found in the source document (CFTV,
+// Rede, Controle de Acesso, Elétrica...) - both which disciplines exist and which columns each
+// one needs are decided per-analysis, not fixed platform-wide, so rows are a flexible key/value
+// object keyed by that table's own `columns`.
+export interface DynamicMatrix {
+  discipline: string;
+  columns: DynamicMatrixColumn[];
+  rows: Record<string, string | number | boolean | null>[];
 }
 
 export interface PreliminarySchedulePhase {
@@ -216,7 +220,7 @@ export interface AnalysisResult {
   risks: ProjectRisk[];
   opportunities: ProjectOpportunity[];
   bom: BOMItem[];
-  point_to_point_table: PointToPointRow[];
+  point_to_point_table: DynamicMatrix[];
   preliminary_schedule: PreliminarySchedulePhase[];
   clarification_questions: ClarificationQuestion[];
   technical_proposal_draft: string;

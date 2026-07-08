@@ -680,42 +680,46 @@ export default function Workspace({
                       )}
                     </div>
 
-                    {/* Point to Point Compliance Table */}
-                    {analysisResult && analysisResult.point_to_point_table && (
-                      <div className="space-y-3 pt-4 border-t border-slate-200">
-                        <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">{tx("Point-to-Point Compliance Traceability Matrix", "Matriz de Rastreabilidade Ponto a Ponto")}</h3>
-                        <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
-                          <table className="w-full text-left text-xs border-collapse">
-                            <thead className="bg-slate-100 border-b border-slate-200 font-mono text-[10px] uppercase text-slate-500">
-                              <tr>
-                                <th className="p-3">{tx("Ref", "Ref.")}</th>
-                                <th className="p-3 w-1/3">{tx("Customer Specification Clause", "Cláusula de Especificação do Cliente")}</th>
-                                <th className="p-3">{tx("Our Proposed Technical Solution", "Nossa Solução Técnica Proposta")}</th>
-                                <th className="p-3">{tx("Compliance Rating", "Classificação de Conformidade")}</th>
-                                <th className="p-3">{tx("Traceability Reference", "Referência de Rastreabilidade")}</th>
-                                <th className="p-3">{tx("Engineering Justification Comments", "Comentários de Justificativa Técnica")}</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-200">
-                              {analysisResult.point_to_point_table.map((row, i) => (
-                                <tr key={row.item_id || i} className="hover:bg-slate-50/50">
-                                  <td className="p-3 font-mono font-bold text-slate-400">{row.item_id || `ptp-${i+1}`}</td>
-                                  <td className="p-3 font-semibold text-slate-800 leading-normal">{row.customer_requirement}</td>
-                                  <td className="p-3 text-slate-700 font-semibold">{row.proposed_solution}</td>
-                                  <td className="p-3 uppercase">
-                                    <span className={`px-2 py-0.5 rounded font-bold text-[9px] ${
-                                      row.compliance === "compliant" ? "text-emerald-700 bg-emerald-50 border border-emerald-100" : "text-amber-700 bg-amber-50 border border-amber-100"
-                                    }`}>
-                                      {row.compliance}
-                                    </span>
-                                  </td>
-                                  <td className="p-3 font-mono text-slate-500 text-[11px]">{row.source_reference}</td>
-                                  <td className="p-3 text-slate-600 italic leading-snug">{row.comments}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
+                    {/* Point to Point Technical Matrices - one table per discipline the AI found
+                        in the source document (CFTV, Rede, Elétrica...), each with its own
+                        relevant columns rather than one fixed schema for every project. */}
+                    {analysisResult && analysisResult.point_to_point_table && analysisResult.point_to_point_table.length > 0 && (
+                      <div className="space-y-5 pt-4 border-t border-slate-200">
+                        <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">Matriz de Ponto a Ponto Técnica</h3>
+                        {analysisResult.point_to_point_table.map((matrix, mIdx) => (
+                          <div key={mIdx} className="space-y-2">
+                            <h4 className="text-xs font-bold uppercase tracking-wide text-emerald-700 font-mono">{matrix.discipline}</h4>
+                            <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto shadow-sm">
+                              <table className="w-full text-left text-xs border-collapse">
+                                <thead className="bg-slate-100 border-b border-slate-200 font-mono text-[10px] uppercase text-slate-500">
+                                  <tr>
+                                    {matrix.columns.map((col) => (
+                                      <th key={col.key} className="p-3 whitespace-nowrap">{col.label}</th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-200">
+                                  {matrix.rows.map((row, rIdx) => (
+                                    <tr key={rIdx} className="hover:bg-slate-50/50">
+                                      {matrix.columns.map((col) => (
+                                        <td key={col.key} className="p-3 text-slate-700 align-top">
+                                          {row[col.key] === null || row[col.key] === undefined || row[col.key] === ""
+                                            ? <span className="text-slate-300">-</span>
+                                            : String(row[col.key])}
+                                        </td>
+                                      ))}
+                                    </tr>
+                                  ))}
+                                  {matrix.rows.length === 0 && (
+                                    <tr>
+                                      <td colSpan={matrix.columns.length} className="p-4 text-center text-slate-400 italic">Nenhum item identificado para esta disciplina.</td>
+                                    </tr>
+                                  )}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>

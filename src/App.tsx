@@ -64,7 +64,6 @@ import {
   ProjectRisk,
   ProjectOpportunity,
   BOMItem,
-  PointToPointRow,
   ClarificationQuestion,
   BrandingSettings,
   PromptTemplate,
@@ -436,42 +435,13 @@ export default function App() {
     if (!res) return res;
     return {
       ...res,
-      // executive_summary and preliminary_schedule are AI-generated free text specific to each
-      // project - there's no safe per-project key to translate them by (unlike the fields below,
-      // which only ever substitute when the English text matches this fixed demo project exactly,
-      // and otherwise fall back to the original untouched). Leaving them out of this override
-      // lets them pass through unchanged via the `...res` spread above, in English, rather than
-      // silently replacing a real project's content with this demo project's hardcoded text.
-      point_to_point_table: res.point_to_point_table?.map((p: PointToPointRow): PointToPointRow => {
-        if (p.item_id === "ptp1") {
-          return {
-            ...p,
-            customer_requirement: "Equipamentos de via devem funcionar estavelmente sob calor de 55°C.",
-            proposed_solution: "Switch industrial RuggedCOM Switch-Hardened-8G classificado para até +75°C.",
-            comments: "Excede as exigências do cliente com +20°C de margem de segurança. Dispensa ventilação ativa.",
-            compliance: "compliant"
-          };
-        }
-        if (p.item_id === "ptp2") {
-          return {
-            ...p,
-            customer_requirement: "Reconhecimento automático de veículos a velocidades de até 180 km/h.",
-            proposed_solution: "Câmera CAM-ALPR-10X com obturador global de ultra-alta velocidade.",
-            comments: "Certificado de forma independente para processamento de placas a até 200 km/h.",
-            compliance: "compliant"
-          };
-        }
-        if (p.item_id === "ptp3") {
-          return {
-            ...p,
-            customer_requirement: "Integração de despacho rest com latência abaixo de 500ms.",
-            proposed_solution: "Conector Pre-Sales Gateway com adaptador Oracle customizado.",
-            comments: "Requer conexão de túnel dedicada com o banco de dados do cliente. Depende de otimização de banco.",
-            compliance: "partially_compliant"
-          };
-        }
-        return p;
-      }),
+      // executive_summary, preliminary_schedule, and point_to_point_table are AI-generated content
+      // whose shape is specific to each project (point_to_point_table's columns are literally
+      // decided per-analysis, there's no fixed "item_id" to match a demo override against) -
+      // there's no safe per-project key to translate them by (unlike the fields below, which only
+      // ever substitute when the English text matches this fixed demo project exactly, and
+      // otherwise fall back to the original untouched). Leaving them out of this override lets
+      // them pass through unchanged via the `...res` spread above.
       bom: res.bom?.map((b: BOMItem) => {
         if (b.item_id === "bom1") {
           return {
