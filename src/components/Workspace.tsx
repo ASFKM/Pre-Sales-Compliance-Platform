@@ -53,6 +53,40 @@ export default function Workspace({
   chatHistory, setChatHistory, waitForTask,
 }: WorkspaceProps) {
   const [subTab, setSubTab] = useState<SubTab>("summary");
+  const [exportingQuestions, setExportingQuestions] = useState(false);
+
+  // Was a plain <a href download> pointing at the API route - browser-navigated downloads never
+  // go through the app's global `fetch` interceptor (App.tsx) that injects the Authorization
+  // header, so the request hit the API unauthenticated, got a JSON error response back, and the
+  // `download` attribute saved *that* as the file - the exact "downloads a JSON file" the user
+  // reported. Using fetch() directly here goes through that same interceptor correctly.
+  const handleExportClarificationQuestions = async () => {
+    setExportingQuestions(true);
+    try {
+      const res = await fetch(`/api/projects/${selectedProjectId}/clarification-questions/export`);
+      if (!res.ok) {
+        alert("Não foi possível exportar as perguntas de esclarecimento.");
+        return;
+      }
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const filenameMatch = disposition.match(/filename="?([^"]+)"?/i);
+      const filename = filenameMatch?.[1] || "perguntas-esclarecimento.docx";
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao exportar as perguntas de esclarecimento.");
+    } finally {
+      setExportingQuestions(false);
+    }
+  };
   const [currentFolder, setCurrentFolder] = useState<string>(""); // "" means root/raiz
   const [projectFolders, setProjectFolders] = useState<string[]>([]);
   const [virtualFiles, setVirtualFiles] = useState<any[]>([]);
@@ -1413,13 +1447,13 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                       Perguntas de Esclarecimento Urgentes ({displayAnalysisResult?.clarification_questions.length || 0})
                     </h3>
                     {displayAnalysisResult && displayAnalysisResult.clarification_questions.length > 0 && (
-                      <a
-                        href={`/api/projects/${selectedProjectId}/clarification-questions/export`}
-                        download
-                        className="text-[10px] font-bold text-emerald-700 hover:text-emerald-800 uppercase font-mono"
+                      <button
+                        onClick={handleExportClarificationQuestions}
+                        disabled={exportingQuestions}
+                        className="text-[10px] font-bold text-emerald-700 hover:text-emerald-800 uppercase font-mono disabled:opacity-50 cursor-pointer"
                       >
-                        Exportar (DOCX)
-                      </a>
+                        {exportingQuestions ? "Exportando..." : "Exportar (DOCX)"}
+                      </button>
                     )}
                   </div>
 

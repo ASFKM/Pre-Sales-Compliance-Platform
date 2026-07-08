@@ -35,6 +35,14 @@ const DEFAULT_MODEL_FOR_PROVIDER: Record<string, string> = {
   deepseek: "deepseek-v3",
 };
 
+// Only the two background-task types that currently record estimatedCostUsd (see
+// getCurrentMonthSpendByTaskType in src/aiOrchestrator.ts) - proposal generation isn't tracked
+// yet, so it's deliberately left out rather than showing a misleading "$0.00" for it.
+const AI_TASK_TYPE_LABEL: Record<string, { pt: string; en: string }> = {
+  document_analysis: { pt: "Análise de Documentos", en: "Document Analysis" },
+  project_intake_analysis: { pt: "Extração de Metadados (Cadastro de Projeto)", en: "Metadata Extraction (Project Intake)" },
+};
+
 type AdminSection =
   | "overview" | "users" | "ai" | "templates" | "approval_flow"
   | "subscription" | "branding" | "integrations" | "storage" | "audit";
@@ -102,12 +110,16 @@ export default function AdminConsole({
   }, []);
 
   const [costUSD, setCostUSD] = useState(0);
+  const [costByTaskType, setCostByTaskType] = useState<Record<string, number>>({});
   const exchangeRate = 5.15; // 1 USD = 5.15 BRL (approximate, not live-fetched)
 
   useEffect(() => {
-    ApiClient.get<{ spend_usd: number }>("/api/settings/ai-cost-summary")
-      .then((r) => setCostUSD(r.spend_usd))
-      .catch(() => setCostUSD(0));
+    ApiClient.get<{ spend_usd: number; spend_by_task_type: Record<string, number> }>("/api/settings/ai-cost-summary")
+      .then((r) => {
+        setCostUSD(r.spend_usd);
+        setCostByTaskType(r.spend_by_task_type || {});
+      })
+      .catch(() => { setCostUSD(0); setCostByTaskType({}); });
   }, []);
   const [aiKeyDrafts, setAiKeyDrafts] = useState<Record<string, string>>({ gemini: "", openai: "", anthropic: "" });
   const [editingPromptId, setEditingPromptId] = useState<string | null>(null);
@@ -998,6 +1010,17 @@ export default function AdminConsole({
                         <div className="p-3 bg-slate-50 border border-slate-100 rounded-lg">
                           <span className="text-[9px] text-slate-400 block uppercase">{locale === "pt" ? "Consumo Convertido (BRL)" : "Converted Cost (BRL)"}</span>
                           <span className="text-lg font-bold text-slate-800 mt-1 block">R$ {(costUSD * exchangeRate).toFixed(2)} BRL</span>
+                        </div>
+                      </div>
+                      <div className="border-t border-slate-100 pt-3">
+                        <span className="text-[9px] text-slate-400 block uppercase mb-2 font-mono">{locale === "pt" ? "Consumo por Serviço (mês atual)" : "Cost by Service (current month)"}</span>
+                        <div className="space-y-1.5">
+                          {Object.entries(AI_TASK_TYPE_LABEL).map(([taskType, label]) => (
+                            <div key={taskType} className="flex items-center justify-between text-xs bg-slate-50 border border-slate-100 rounded px-3 py-2">
+                              <span className="text-slate-600 font-mono">{locale === "pt" ? label.pt : label.en}</span>
+                              <span className="font-bold text-slate-800 font-mono">${(costByTaskType[taskType] || 0).toFixed(2)}</span>
+                            </div>
+                          ))}
                         </div>
                       </div>
                       <div className="space-y-4 max-h-[520px] overflow-y-auto pr-1">

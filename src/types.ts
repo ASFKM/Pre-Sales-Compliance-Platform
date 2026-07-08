@@ -202,6 +202,7 @@ export interface ExecutiveSummary {
 export interface PricingRow {
   item_id: string;
   product_or_service: string;
+  specification: string;
   quantity: number;
   unit: string;
   unit_price: number;

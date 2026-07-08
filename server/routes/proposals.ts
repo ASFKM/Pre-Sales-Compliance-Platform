@@ -57,6 +57,7 @@ const CreateProposalSchema = z.object({
   manual_pricing_table: z.array(z.object({
     item_id: z.string(),
     product_or_service: z.string(),
+    specification: z.string().optional().default(""),
     quantity: z.number(),
     unit: z.string(),
     unit_price: z.number(),
@@ -367,6 +368,7 @@ router.get("/proposals/:id/export/pdf", requirePermission("proposal:export"), as
       return res.status(404).json({ success: false, message: "Physical PDF file not found." });
     }
     res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${path.basename(proposal.pdf_file_path)}"`);
     res.sendFile(fullPath);
   } catch (err) {
     next(err);

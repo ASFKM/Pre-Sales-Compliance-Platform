@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { AlertTriangle, Download } from "lucide-react";
 import { Proposal } from "../types";
 import { useProposals } from "../hooks/useProposals";
@@ -19,6 +20,39 @@ export default function Proposals({
   const { handleUpdateProposalCommercial, handleSubmitProposalApproval } = useProposals({
     locale, hasPermission, proposals, selectedProjectId, fetchGlobalConfigs, fetchProjectDetails,
   });
+  const [exportingId, setExportingId] = useState<string | null>(null);
+
+  // Was a plain <a href target="_blank"> - a browser-navigated request never goes through the
+  // app's global fetch() interceptor (App.tsx) that injects the Authorization header, so the API
+  // rejected it with "Authorization token required" and the browser rendered/downloaded that raw
+  // JSON error instead of the real file. fetch() here goes through that interceptor correctly.
+  const handleExportProposal = async (proposalId: string, format: "docx" | "pdf") => {
+    setExportingId(`${proposalId}-${format}`);
+    try {
+      const res = await fetch(`/api/proposals/${proposalId}/export/${format}`);
+      if (!res.ok) {
+        alert(locale === "pt" ? "Não foi possível exportar a proposta." : "Could not export the proposal.");
+        return;
+      }
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const filenameMatch = disposition.match(/filename="?([^"]+)"?/i);
+      const filename = filenameMatch?.[1] || `proposta-${proposalId}.${format}`;
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao exportar a proposta." : "Error exporting the proposal.");
+    } finally {
+      setExportingId(null);
+    }
+  };
 
   return (
             <div className="flex-1 p-6 overflow-y-auto space-y-6">
@@ -74,20 +108,20 @@ export default function Proposals({
                         <div className="flex gap-2">
                           {hasPermission("proposal:export") && (
                             <>
-                              <a
-                                href={`/api/proposals/${prop.id}/export/docx`}
-                                target="_blank"
-                                className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-mono text-[11px] font-bold px-3 py-1.5 rounded border border-slate-200 transition-all shadow-sm"
+                              <button
+                                onClick={() => handleExportProposal(prop.id, "docx")}
+                                disabled={exportingId === `${prop.id}-docx`}
+                                className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-mono text-[11px] font-bold px-3 py-1.5 rounded border border-slate-200 transition-all shadow-sm disabled:opacity-50 cursor-pointer"
                               >
-                                <Download size={12} /> Export DOCX
-                              </a>
-                              <a
-                                href={`/api/proposals/${prop.id}/export/pdf`}
-                                target="_blank"
-                                className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-mono text-[11px] font-bold px-3 py-1.5 rounded border border-slate-200 transition-all shadow-sm"
+                                <Download size={12} /> {exportingId === `${prop.id}-docx` ? (locale === "pt" ? "Exportando..." : "Exporting...") : "Exportar DOCX"}
+                              </button>
+                              <button
+                                onClick={() => handleExportProposal(prop.id, "pdf")}
+                                disabled={exportingId === `${prop.id}-pdf`}
+                                className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-mono text-[11px] font-bold px-3 py-1.5 rounded border border-slate-200 transition-all shadow-sm disabled:opacity-50 cursor-pointer"
                               >
-                                <Download size={12} /> Export PDF
-                              </a>
+                                <Download size={12} /> {exportingId === `${prop.id}-pdf` ? (locale === "pt" ? "Exportando..." : "Exporting...") : "Exportar PDF"}
+                              </button>
                             </>
                           )}
                           {prop.status === "draft" && hasPermission("approval:manage") && (
@@ -135,7 +169,7 @@ export default function Proposals({
                                 {prop.manual_pricing_table.map((row, i) => (
                                   <tr key={row.item_id || i} className="hover:bg-slate-50">
                                     <td className="p-2.5 font-bold">{row.product_or_service}</td>
-                                    <td className="p-2.5 text-slate-500 font-sans text-xs">{row.product_or_service.includes("ALPR") ? "High-speed outdoor edge-AI ALPR camera" : (row.product_or_service.includes("Switch") ? "8-Port industrial managed gigabit PoE+ switch" : "Edge AI traffic flow and vehicle classification license")}</td>
+                                    <td className="p-2.5 text-slate-500 font-sans text-xs">{row.specification || "-"}</td>
                                     <td className="p-2.5">
                                       <input
                                         type="number"

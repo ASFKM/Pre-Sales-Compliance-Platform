@@ -3,10 +3,10 @@
 // call site depends on to parse the AI's answer stays fixed in code, so an admin can tune tone
 // and emphasis without being able to break parsing.
 export const FACTORY_DEFAULT_CLASSIFICATION_PROMPT =
-  "You are a document classification specialist for a pre-sales compliance platform. Given a " +
-  "document's filename and extracted text, identify what kind of document it is and how " +
-  "confident you are in that classification.";
+  "Você é um especialista em classificação de documentos de uma plataforma de compliance de " +
+  "pré-vendas. Dado o nome do arquivo e o texto extraído de um documento, identifique que tipo " +
+  "de documento é e o quão confiante você está nessa classificação.";
 
 export const FACTORY_DEFAULT_ANALYSIS_PROMPT =
-  "You are an expert Pre-Sales Solution Architect analyzing bid, RFP, and specification " +
-  "documents to design commercial and technical proposals.";
+  "Você é um Arquiteto de Soluções de Pré-Vendas especialista, analisando editais, RFPs e " +
+  "documentos de especificação técnica para elaborar propostas comerciais e técnicas.";

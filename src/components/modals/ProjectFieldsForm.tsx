@@ -48,12 +48,34 @@ interface ProjectFieldsFormProps {
 // duplicating ~150 lines of form JSX.
 export default function ProjectFieldsForm({ locale, values, onChange }: ProjectFieldsFormProps) {
   const [verticals, setVerticals] = useState<{ id: string; name: string; is_active: boolean }[]>([]);
+  const [manufacturerDraft, setManufacturerDraft] = useState("");
 
   useEffect(() => {
     ApiClient.get<{ id: string; name: string; is_active: boolean }[]>("/api/verticals")
       .then((v) => setVerticals(v.filter((item) => item.is_active)))
       .catch(() => setVerticals([]));
   }, []);
+
+  // Manufacturer names are stored as a single comma-separated string in ai_orientation_text (no
+  // schema/backend change needed - the analysis prompt already reads this as free text and
+  // handles a list of names fine) - only the input UX here becomes tag-based for the two modes
+  // where a real fixed list of manufacturers is what the field means.
+  const isManufacturerMode = values.ai_orientation_mode === "Preferred manufacturer" || values.ai_orientation_mode === "Mandatory manufacturer";
+  const manufacturerTags = values.ai_orientation_text.split(",").map((s) => s.trim()).filter(Boolean);
+
+  const addManufacturerTag = () => {
+    const name = manufacturerDraft.trim();
+    if (!name || manufacturerTags.includes(name)) {
+      setManufacturerDraft("");
+      return;
+    }
+    onChange({ ...values, ai_orientation_text: [...manufacturerTags, name].join(", ") });
+    setManufacturerDraft("");
+  };
+
+  const removeManufacturerTag = (name: string) => {
+    onChange({ ...values, ai_orientation_text: manufacturerTags.filter((t) => t !== name).join(", ") });
+  };
 
   return (
     <div className="space-y-4 text-xs text-slate-700">
@@ -223,13 +245,58 @@ export default function ProjectFieldsForm({ locale, values, onChange }: ProjectF
             <option value="Existing customer standard">{locale === "pt" ? "Padrão de Cliente Existente" : "Existing customer standard"}</option>
             <option value="Free AI recommendation">{locale === "pt" ? "Recomendação Livre da IA" : "Free AI recommendation"}</option>
           </select>
-          <input
-            type="text" required
-            value={values.ai_orientation_text}
-            onChange={(e) => onChange({ ...values, ai_orientation_text: e.target.value })}
-            placeholder={locale === "pt" ? "Especifique regras de marcas, ex: Recomendar leitores faciais homologados..." : "Specify brand rules e.g., Recommend certified facial readers..."}
-            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none font-semibold text-slate-800"
-          />
+          {isManufacturerMode ? (
+            <div className="p-2 rounded bg-slate-50 border border-slate-200 focus-within:ring-1 focus-within:ring-emerald-500">
+              <div className="flex flex-wrap gap-1.5 mb-1.5">
+                {manufacturerTags.map((tag) => (
+                  <span key={tag} className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-800 text-[11px] font-bold px-2 py-1 rounded-full">
+                    {tag}
+                    <button
+                      type="button"
+                      onClick={() => removeManufacturerTag(tag)}
+                      className="text-emerald-600 hover:text-emerald-900 cursor-pointer leading-none"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  value={manufacturerDraft}
+                  onChange={(e) => setManufacturerDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addManufacturerTag();
+                    }
+                  }}
+                  placeholder={locale === "pt" ? "Digite um fabricante e pressione Enter ou +" : "Type a manufacturer and press Enter or +"}
+                  className="flex-1 p-1.5 rounded bg-white border border-slate-200 text-xs focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={addManufacturerTag}
+                  className="px-3 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm cursor-pointer"
+                  title={locale === "pt" ? "Adicionar fabricante" : "Add manufacturer"}
+                >
+                  +
+                </button>
+              </div>
+              {manufacturerTags.length === 0 && (
+                <p className="text-[10px] text-amber-600 mt-1">{locale === "pt" ? "Adicione ao menos um fabricante." : "Add at least one manufacturer."}</p>
+              )}
+            </div>
+          ) : (
+            <input
+              type="text" required
+              value={values.ai_orientation_text}
+              onChange={(e) => onChange({ ...values, ai_orientation_text: e.target.value })}
+              placeholder={locale === "pt" ? "Especifique regras de marcas, ex: Recomendar leitores faciais homologados..." : "Specify brand rules e.g., Recommend certified facial readers..."}
+              className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none font-semibold text-slate-800"
+            />
+          )}
         </div>
       </div>
     </div>

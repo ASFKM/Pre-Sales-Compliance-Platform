@@ -182,21 +182,23 @@ export function useWorkspace(params: UseWorkspaceParams) {
       return;
     }
 
-    const pricingRows: PricingRow[] = (analysisResult?.bom || []).map(b => {
-      const unitPrice = b.equipment_name.includes("ALPR") ? 1850 : (b.equipment_name.includes("Switch") ? 420 : 350);
-
-      return {
-        item_id: b.item_id,
-        product_or_service: b.equipment_name,
-        quantity: b.quantity,
-        unit: b.unit,
-        unit_price: unitPrice,
-        total_price: b.quantity * unitPrice,
-        currency: "USD",
-        is_optional: false,
-        discount: 10
-      };
-    });
+    // unit_price starts at 0 rather than a guessed number - the BOM has no real pricing source
+    // (no supplier catalog/price API integration exists yet), so a fake heuristic price would
+    // look precise while being meaningless for any equipment outside the two demo product names
+    // (ALPR camera, "Switch") it used to special-case. 0 makes it obvious this needs a real
+    // quote before the proposal goes out, and the price cell is already editable inline.
+    const pricingRows: PricingRow[] = (analysisResult?.bom || []).map(b => ({
+      item_id: b.item_id,
+      product_or_service: b.equipment_name,
+      specification: b.specification || "",
+      quantity: b.quantity,
+      unit: b.unit,
+      unit_price: 0,
+      total_price: 0,
+      currency: "USD",
+      is_optional: false,
+      discount: 0
+    }));
 
     try {
       const res = await fetch(`/api/projects/${selectedProjectId}/proposals/commercial`, {

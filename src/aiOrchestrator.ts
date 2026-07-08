@@ -108,6 +108,21 @@ export async function getCurrentMonthSpendUsd(tenantId: string): Promise<number>
   return rows.reduce((sum, r) => sum + (r.estimatedCostUsd || 0), 0);
 }
 
+// Same real spend, broken down by which task type actually incurred it - the cost card used to
+// only show one combined total, giving no visibility into which service (document analysis vs.
+// intake extraction) is actually driving spend.
+export async function getCurrentMonthSpendByTaskType(tenantId: string): Promise<Record<string, number>> {
+  const rows = await prisma.backgroundTask.findMany({
+    where: { tenantId, type: { in: AI_CALLING_TASK_TYPES }, createdAt: { gte: startOfCurrentMonth() }, estimatedCostUsd: { not: null } },
+    select: { type: true, estimatedCostUsd: true },
+  });
+  const byType: Record<string, number> = {};
+  for (const r of rows) {
+    byType[r.type] = (byType[r.type] || 0) + (r.estimatedCostUsd || 0);
+  }
+  return byType;
+}
+
 const FALLBACK_ALERT_WINDOW_MS = 60 * 60 * 1000;
 const FALLBACK_ALERT_THRESHOLD = 3;
 
