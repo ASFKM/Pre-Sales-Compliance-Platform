@@ -50,16 +50,32 @@ export interface ProviderJsonResult {
   outputTokens: number;
 }
 
+export interface ProviderFileInput {
+  mimeType: string;
+  base64Data: string;
+}
+
 // Single JSON-generating entry point across all three connected providers - callers always get
 // back raw text they can JSON.parse (plus real token usage, for real cost tracking - see
-// aiPricing.ts), regardless of which provider actually served the request.
-export async function generateJsonWithProvider(provider: ConnectedProvider, model: string, prompt: string): Promise<ProviderJsonResult> {
+// aiPricing.ts), regardless of which provider actually served the request. `files` lets a caller
+// hand over real document binaries (PDF/image) instead of pre-extracted text - needed because some
+// real-world PDFs (scanned documents, or ones using a font encoding with no ToUnicode map) have no
+// text a local extractor can ever recover; Gemini/Anthropic read the document directly via native
+// vision/OCR instead. OpenAI's Chat Completions API has no PDF support at all (image only).
+export async function generateJsonWithProvider(provider: ConnectedProvider, model: string, prompt: string, files?: ProviderFileInput[]): Promise<ProviderJsonResult> {
   if (provider === "openai") {
+    if (files?.some((f) => f.mimeType === "application/pdf")) {
+      throw new Error("OpenAI não aceita PDF para esta tarefa. Troque o serviço de IA desta tarefa para Gemini ou Anthropic em Admin > IA, Prompts e Custos.");
+    }
     const apiKey = await getConfiguredOpenAiApiKey();
     const client = new OpenAI({ apiKey });
+    const content: any[] = [{ type: "text", text: prompt }];
+    for (const f of files || []) {
+      content.push({ type: "image_url", image_url: { url: `data:${f.mimeType};base64,${f.base64Data}` } });
+    }
     const response = await client.chat.completions.create({
       model,
-      messages: [{ role: "user", content: prompt }],
+      messages: [{ role: "user", content }],
       response_format: { type: "json_object" },
     });
     return {
@@ -72,11 +88,29 @@ export async function generateJsonWithProvider(provider: ConnectedProvider, mode
   if (provider === "anthropic") {
     const apiKey = await getConfiguredAnthropicApiKey();
     const client = new Anthropic({ apiKey });
-    const response = await client.messages.create({
+    const content: any[] = [];
+    for (const f of files || []) {
+      if (f.mimeType === "application/pdf") {
+        content.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: f.base64Data } });
+      } else {
+        content.push({ type: "image", source: { type: "base64", media_type: f.mimeType, data: f.base64Data } });
+      }
+    }
+    content.push({ type: "text", text: `${prompt}\n\nRespond with ONLY a single valid JSON object - no markdown, no code fences, no extra text.` });
+    // Streamed rather than a plain create() call - the Anthropic SDK requires streaming for any
+    // request that might run past 10 minutes (confirmed hit on a real 48-page tender document
+    // with a large output), and .stream().finalMessage() reassembles the same Message shape a
+    // plain create() would return, so nothing else below needs to change.
+    const stream = client.messages.stream({
       model,
-      max_tokens: 8192,
-      messages: [{ role: "user", content: `${prompt}\n\nRespond with ONLY a single valid JSON object - no markdown, no code fences, no extra text.` }],
+      // The analysis schema (critical_requirements/risks/opportunities/bom/point_to_point_table
+      // arrays, two full proposal drafts) can genuinely need more than 8192 tokens of output for a
+      // real, detailed source document - confirmed truncating mid-response ("Unterminated string
+      // in JSON") on a real 48-page tender document.
+      max_tokens: 32000,
+      messages: [{ role: "user", content }],
     });
+    const response = await stream.finalMessage();
     const textBlock = response.content.find((block) => block.type === "text");
     return {
       text: textBlock && "text" in textBlock ? textBlock.text : "{}",
@@ -86,9 +120,13 @@ export async function generateJsonWithProvider(provider: ConnectedProvider, mode
   }
 
   const ai = await getGeminiClient();
+  const parts: any[] = [{ text: prompt }];
+  for (const f of files || []) {
+    parts.push({ inlineData: { mimeType: f.mimeType, data: f.base64Data } });
+  }
   const response = await ai.models.generateContent({
     model,
-    contents: prompt,
+    contents: [{ role: "user", parts }],
     config: { responseMimeType: "application/json" },
   });
   return {

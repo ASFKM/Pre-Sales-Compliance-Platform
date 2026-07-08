@@ -572,30 +572,26 @@ export default function Workspace({
                             if (!analysisResult) return;
                             const newBOMItem: BOMItem = {
                               item_id: "bom_custom_" + Math.random().toString(36).substr(2, 5),
-                              product_or_service: "CUSTOM-DEVICE-S1",
-                              description: "Add descriptive standard specifications...",
+                              sku: "",
+                              part_number: "",
+                              equipment_name: "Novo item",
+                              manufacturer: "",
                               quantity: 1,
-                              unit: "units",
+                              unit: "un",
                               category: "Hardware",
-                              mandatory_or_optional: "mandatory",
-                              reason_for_inclusion: "Manual engineer design addition",
-                              suggested_manufacturer: "Local Standard",
-                              alternatives: "Standard equivalents",
-                              assumptions: "Poles are compliant",
-                              source_reference: "Section 4.1",
-                              risk_or_dependency: "N/A",
-                              requires_human_validation: true
+                              specification: "",
+                              source_reference: "",
                             };
                             const updatedBOM = [...analysisResult.bom, newBOMItem];
                             fetch(`/api/projects/${selectedProjectId}/analysis-result`, {
-                              method: "PUT",
+                              method: "POST",
                               headers: { "Content-Type": "application/json" },
                               body: JSON.stringify({ bom: updatedBOM })
                             }).then(() => fetchProjectDetails(selectedProjectId));
                           }}
                           className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-white text-xs px-2.5 py-1.5 rounded font-bold font-mono transition-all shadow-sm cursor-pointer"
                         >
-                          <Plus size={13} /> Add Item Row
+                          <Plus size={13} /> Adicionar Item
                         </button>
                       </div>
 
@@ -606,74 +602,66 @@ export default function Workspace({
                           <table className="w-full text-left text-xs border-collapse">
                             <thead className="bg-slate-100 border-b border-slate-200 font-mono text-[10px] uppercase text-slate-500">
                               <tr>
-                                <th className="p-3">{tx("Ref", "Ref.")}</th>
-                                <th className="p-3">{tx("Product / Service Code", "Código do Produto / Serviço")}</th>
-                                <th className="p-3 w-1/4">{tx("Detailed Specifications", "Especificações Detalhadas")}</th>
+                                <th className="p-3">SKU</th>
+                                <th className="p-3">Part Number</th>
+                                <th className="p-3">{tx("Equipment", "Equipamento")}</th>
+                                <th className="p-3">{tx("Manufacturer", "Fabricante")}</th>
                                 <th className="p-3">{tx("Qty", "Qtd.")}</th>
                                 <th className="p-3">{tx("Unit", "Unidade")}</th>
-                                <th className="p-3">{tx("Suggested Brand", "Marca Sugerida")}</th>
-                                <th className="p-3">{tx("Inclusion Rationale", "Justificativa de Inclusão")}</th>
-                                <th className="p-3">{tx("Tender Compliance", "Conformidade com a Licitação")}</th>
+                                <th className="p-3">{tx("Category", "Categoria")}</th>
+                                <th className="p-3 w-1/4">{tx("Technical Specification", "Especificação Técnica")}</th>
+                                <th className="p-3">{tx("Document Ref.", "Ref. no Documento")}</th>
                                 <th className="p-3">{tx("Actions", "Ações")}</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-200">
-                              {displayAnalysisResult.bom.map((item, idx) => (
+                              {displayAnalysisResult.bom.map((item, idx) => {
+                                const updateField = (field: keyof BOMItem, value: string | number) => {
+                                  const updatedBOM = analysisResult!.bom.map(b => b.item_id === item.item_id ? { ...b, [field]: value } : b);
+                                  fetch(`/api/projects/${selectedProjectId}/analysis-result`, {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ bom: updatedBOM })
+                                  }).then(() => fetchProjectDetails(selectedProjectId));
+                                };
+                                return (
                                 <tr key={item.item_id || idx} className="hover:bg-slate-50/50">
-                                  <td className="p-3 font-mono font-bold text-slate-400">{item.item_id || `bom-${idx+1}`}</td>
                                   <td className="p-3">
-                                    <input
-                                      type="text"
-                                      value={item.product_or_service}
-                                      onChange={(e) => {
-                                        const updatedBOM = analysisResult!.bom.map(b => b.item_id === item.item_id ? { ...b, product_or_service: e.target.value } : b);
-                                        fetch(`/api/projects/${selectedProjectId}/analysis-result`, {
-                                          method: "PUT",
-                                          headers: { "Content-Type": "application/json" },
-                                          body: JSON.stringify({ bom: updatedBOM })
-                                        }).then(() => fetchProjectDetails(selectedProjectId));
-                                      }}
-                                      className="font-bold text-slate-800 bg-slate-50 px-1 py-0.5 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                                    />
+                                    <input type="text" value={item.sku} onChange={(e) => updateField("sku", e.target.value)}
+                                      className="font-mono text-slate-700 bg-slate-50 px-1 py-0.5 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500 w-24" />
                                   </td>
                                   <td className="p-3">
-                                    <textarea
-                                      value={item.description}
-                                      onChange={(e) => {
-                                        const updatedBOM = analysisResult!.bom.map(b => b.item_id === item.item_id ? { ...b, description: e.target.value } : b);
-                                        fetch(`/api/projects/${selectedProjectId}/analysis-result`, {
-                                          method: "PUT",
-                                          headers: { "Content-Type": "application/json" },
-                                          body: JSON.stringify({ bom: updatedBOM })
-                                        }).then(() => fetchProjectDetails(selectedProjectId));
-                                      }}
-                                      className="text-xs text-slate-500 w-full h-12 bg-slate-50 p-1 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                                    />
+                                    <input type="text" value={item.part_number} onChange={(e) => updateField("part_number", e.target.value)}
+                                      className="font-mono text-slate-700 bg-slate-50 px-1 py-0.5 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500 w-28" />
                                   </td>
                                   <td className="p-3">
-                                    <input
-                                      type="number"
-                                      value={item.quantity}
-                                      onChange={(e) => handleUpdateBOM(item.item_id, parseInt(e.target.value) || 1)}
-                                      className="w-14 p-1 rounded border border-slate-200 font-semibold font-mono text-center"
-                                    />
+                                    <input type="text" value={item.equipment_name} onChange={(e) => updateField("equipment_name", e.target.value)}
+                                      className="font-bold text-slate-800 bg-slate-50 px-1 py-0.5 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500" />
                                   </td>
-                                  <td className="p-3 text-slate-500 uppercase font-mono text-[10px]">{item.unit}</td>
-                                  <td className="p-3 text-slate-700 font-semibold">{item.suggested_manufacturer}</td>
-                                  <td className="p-3 text-slate-500 italic leading-snug">{item.reason_for_inclusion}</td>
                                   <td className="p-3">
-                                    <span className={`px-2 py-0.5 rounded font-bold text-[9px] uppercase ${
-                                      item.mandatory_or_optional === "mandatory" ? "text-emerald-700 bg-emerald-50 border border-emerald-100" : "text-amber-700 bg-amber-50 border border-amber-100"
-                                    }`}>
-                                      {item.mandatory_or_optional}
-                                    </span>
+                                    <input type="text" value={item.manufacturer} onChange={(e) => updateField("manufacturer", e.target.value)}
+                                      className="text-slate-700 bg-slate-50 px-1 py-0.5 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500" />
                                   </td>
+                                  <td className="p-3">
+                                    <input type="number" value={item.quantity} onChange={(e) => updateField("quantity", parseInt(e.target.value) || 1)}
+                                      className="w-14 p-1 rounded border border-slate-200 font-semibold font-mono text-center" />
+                                  </td>
+                                  <td className="p-3">
+                                    <input type="text" value={item.unit} onChange={(e) => updateField("unit", e.target.value)}
+                                      className="text-slate-500 uppercase font-mono text-[10px] bg-slate-50 px-1 py-0.5 rounded border border-slate-200 w-14" />
+                                  </td>
+                                  <td className="p-3 text-slate-700">{item.category}</td>
+                                  <td className="p-3">
+                                    <textarea value={item.specification} onChange={(e) => updateField("specification", e.target.value)}
+                                      className="text-xs text-slate-500 w-full h-12 bg-slate-50 p-1 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500" />
+                                  </td>
+                                  <td className="p-3 text-slate-400 font-mono text-[10px]">{item.source_reference}</td>
                                   <td className="p-3">
                                     <button
                                       onClick={() => {
                                         const updatedBOM = analysisResult!.bom.filter(b => b.item_id !== item.item_id);
                                         fetch(`/api/projects/${selectedProjectId}/analysis-result`, {
-                                          method: "PUT",
+                                          method: "POST",
                                           headers: { "Content-Type": "application/json" },
                                           body: JSON.stringify({ bom: updatedBOM })
                                         }).then(() => fetchProjectDetails(selectedProjectId));
@@ -684,7 +672,8 @@ export default function Workspace({
                                     </button>
                                   </td>
                                 </tr>
-                              ))}
+                                );
+                              })}
                             </tbody>
                           </table>
                         </div>
@@ -1451,22 +1440,36 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
 
                 {/* Section 1: Dynamic QA List extracted */}
                 <div className="mb-4">
-                  <h3 className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-2.5 font-mono">
-                    {locale === "en" ? "Urgent Clarification Questions" : "Perguntas de Esclarecimento Urgentes"} ({displayAnalysisResult?.clarification_questions.length || 0})
-                  </h3>
+                  <div className="flex items-center justify-between mb-2.5">
+                    <h3 className="text-[10px] uppercase tracking-widest text-slate-500 font-bold font-mono">
+                      Perguntas de Esclarecimento Urgentes ({displayAnalysisResult?.clarification_questions.length || 0})
+                    </h3>
+                    {displayAnalysisResult && displayAnalysisResult.clarification_questions.length > 0 && (
+                      <a
+                        href={`/api/projects/${selectedProjectId}/clarification-questions/export`}
+                        download
+                        className="text-[10px] font-bold text-emerald-700 hover:text-emerald-800 uppercase font-mono"
+                      >
+                        Exportar (DOCX)
+                      </a>
+                    )}
+                  </div>
 
                   {!displayAnalysisResult ? (
                     <div className="text-xs text-slate-400 italic bg-white p-4 rounded border border-slate-200 text-center shadow-sm">
-                      {locale === "en" ? "Awaiting compliance evaluation to flag clarification gap questions." : "Aguardando avaliação de conformidade para sinalizar lacunas e dúvidas."}
+                      Aguardando avaliação de conformidade para sinalizar lacunas e dúvidas.
                     </div>
                   ) : (
                     <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1">
                       {displayAnalysisResult.clarification_questions.map((q, idx) => (
                         <div key={idx} className="p-3 bg-white border-l-4 border-amber-400 rounded shadow-sm">
                           <p className="text-xs font-bold text-slate-800 leading-tight mb-1">{q.question}</p>
-                          <p className="text-[11px] text-slate-500 leading-relaxed font-mono">Reason: {q.reason}</p>
+                          <p className="text-[11px] text-slate-500 leading-relaxed font-mono">Motivo: {q.reason}</p>
+                          {q.source_reference && (
+                            <p className="text-[11px] text-slate-400 leading-relaxed font-mono">Ref.: {q.source_reference}</p>
+                          )}
                           <div className="flex justify-between items-center text-[9px] text-slate-400 mt-1.5 pt-1.5 border-t border-slate-100 font-mono">
-                            <span className="uppercase font-bold text-amber-600">{q.priority} PRIORITY</span>
+                            <span className="uppercase font-bold text-amber-600">Prioridade {q.priority === "high" ? "Alta" : q.priority === "medium" ? "Média" : "Baixa"}</span>
                             <span className="text-slate-500 font-semibold">{q.target_audience}</span>
                           </div>
                         </div>

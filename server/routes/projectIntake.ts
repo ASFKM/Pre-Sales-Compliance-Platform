@@ -190,19 +190,22 @@ DOCUMENT TEXTS:
 ${combinedText}
 
 Extract the following fields. If a field can't be confidently determined from the documents, make a reasonable placeholder guess (e.g. a deadline 30 days from today, a proposal validity 90 days from today) rather than leaving it empty - the user will review and correct everything before it's saved.
+CRITICAL: every free-text field below MUST be written in Brazilian Portuguese. The two fields
+marked "fixed English value" are internal enum codes, not prose - return them exactly as one of
+the listed English options, never translated.
 Respond with ONLY a strictly parsable JSON object, no markdown, matching this shape:
 {
-  "name": "Short project/bid title",
+  "name": "Short project/bid title, in Portuguese",
   "customer_name": "Customer or client name",
   "opportunity_name": "Opportunity code or reference",
-  "vertical": "One of: Infrastructure, Critical Infrastructure, Smart Cities, Retail, Finance",
-  "description": "One paragraph describing the tender scope",
+  "vertical": "Short industry vertical name, in Portuguese (e.g. Infraestrutura, Cidades Inteligentes, Varejo, Financeiro) - free text, not a fixed list",
+  "description": "One paragraph describing the tender scope, in Portuguese",
   "deadline": "YYYY-MM-DD tender submission deadline",
   "proposal_validity_date": "YYYY-MM-DD proposal validity date",
-  "ai_orientation_mode": "One of: Vendor-neutral, Preferred manufacturer, Mandatory manufacturer, Existing customer standard, Free AI recommendation",
-  "ai_orientation_text": "One sentence of brand/technical orientation guidance",
-  "procurement_modality": "One of: Licitação, Leilão, Outra modalidade",
-  "procurement_subtype": "A subtype consistent with the chosen modality"
+  "ai_orientation_mode": "fixed English value - one of: Vendor-neutral, Preferred manufacturer, Mandatory manufacturer, Existing customer standard, Free AI recommendation",
+  "ai_orientation_text": "One sentence of brand/technical orientation guidance, in Portuguese",
+  "procurement_modality": "fixed English value - one of: Licitação, Leilão, Outra modalidade",
+  "procurement_subtype": "A subtype consistent with the chosen modality, in Portuguese"
 }`;
 
         const { text: rawText, inputTokens, outputTokens } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);

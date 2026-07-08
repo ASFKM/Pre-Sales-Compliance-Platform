@@ -6,14 +6,68 @@ import { logDebugMessage } from "../middleware/security";
 import { AnalysisResult } from "../../src/types";
 import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
 import { getGeminiClient } from "../utils/gemini";
-import { generateJsonWithProvider, ConnectedProvider } from "../utils/aiProviders";
+import { generateJsonWithProvider, ConnectedProvider, ProviderFileInput } from "../utils/aiProviders";
+import { createStorageAdapter } from "../utils/storage";
 import { estimateCostUsd } from "../utils/aiPricing";
 import { resolveProvider, checkCostCap, recordProviderFallback } from "../../src/aiOrchestrator";
 import { runWithTenant } from "../../src/tenantContext";
 import { prisma } from "../../src/prisma";
 import { FACTORY_DEFAULT_ANALYSIS_PROMPT } from "../utils/promptDefaults";
+import { buildDocxBuffer } from "../utils/docx";
 
 const router = express.Router();
+
+// The prompt explicitly tells the model these enum fields are fixed English codes, not prose to
+// translate - but in practice models (especially when the rest of the prompt insists everything
+// be in Portuguese) sometimes translate them anyway, confirmed twice in a row on a real document
+// ("compliance" coming back as a Portuguese word instead of one of the four English options).
+// Rather than keep tightening prompt wording and hoping, normalize common Portuguese synonyms
+// back to the expected English value before validation - a defensive layer, not a replacement for
+// the prompt instruction.
+const ENUM_SYNONYMS: Record<string, string> = {
+  // compliance / compliance_status
+  "conforme": "compliant", "compativel": "compliant", "totalmente conforme": "compliant", "atende": "compliant",
+  "parcialmente conforme": "partially_compliant", "parcialmente compativel": "partially_compliant", "atende parcialmente": "partially_compliant",
+  "nao conforme": "non_compliant", "incompativel": "non_compliant", "nao atende": "non_compliant",
+  "informacao insuficiente": "not_enough_information", "informacoes insuficientes": "not_enough_information", "sem informacao suficiente": "not_enough_information",
+  // priority / severity / probability
+  "alta": "high", "alto": "high", "media": "medium", "medio": "medium", "baixa": "low", "baixo": "low", "critica": "critical", "critico": "critical",
+  // mandatory_or_optional
+  "obrigatorio": "mandatory", "obrigatoria": "mandatory", "opcional": "optional",
+  // category (CriticalRequirement)
+  "tecnico": "technical", "tecnica": "technical", "comercial": "commercial", "contratual": "contractual",
+  "operacional": "operational", "seguranca": "security", "integracao": "integration", "infraestrutura": "infrastructure",
+  "prazo": "deadline", "suporte": "support", "sla": "support", "manutencao": "maintenance", "documentacao": "documentation", "treinamento": "training",
+  // evidence_type
+  "diretamente suportado": "directly_supported", "inferido dos documentos": "inferred_from_documents",
+  "instrucao do usuario": "user_provided_instruction", "suposicao": "assumption", "informacao ausente": "missing_information",
+  "requer confirmacao do cliente": "requires_customer_confirmation",
+};
+
+function stripAccents(value: string): string {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+// z.preprocess wrapper around z.enum that maps a Portuguese synonym (or a case/accent variant of
+// a correct English option) back to the expected value before Zod validates it. Falls back to the
+// first listed option rather than ever letting an unrecognized value reach z.enum() and fail the
+// whole analysis - confirmed on a real document that the model occasionally returns a value this
+// synonym map doesn't cover for one or two items out of dozens; losing the entire real analysis
+// (every other correctly-extracted requirement, the whole BOM, the whole matrix) over one
+// mis-categorized item is a worse outcome than that one item defaulting to a reasonable category.
+function normalizedEnum<T extends [string, ...string[]]>(options: T) {
+  return z.preprocess((val) => {
+    if (typeof val !== "string") return options[0];
+    const normalized = stripAccents(val.toLowerCase().trim());
+    const exactOption = options.find((opt) => stripAccents(opt.toLowerCase()) === normalized);
+    if (exactOption) return exactOption;
+    if (ENUM_SYNONYMS[normalized]) return ENUM_SYNONYMS[normalized];
+    const partialMatch = options.find((opt) => normalized.includes(stripAccents(opt.toLowerCase())));
+    if (partialMatch) return partialMatch;
+    console.warn(`normalizedEnum: unrecognized value "${val}", defaulting to "${options[0]}". Options: ${options.join(", ")}`);
+    return options[0];
+  }, z.enum(options));
+}
 
 // 1. Zod Schema for Structured Output Validation
 const ExecutiveSummarySchema = z.object({
@@ -29,15 +83,15 @@ const ExecutiveSummarySchema = z.object({
 
 const CriticalRequirementSchema = z.object({
   requirement_id: z.string(),
-  category: z.enum(["technical", "commercial", "contractual", "operational", "security", "integration", "infrastructure", "deadline", "support", "maintenance", "documentation", "training"]),
+  category: normalizedEnum(["technical", "commercial", "contractual", "operational", "security", "integration", "infrastructure", "deadline", "support", "maintenance", "documentation", "training"]),
   description: z.string(),
   source_document: z.string(),
   source_page_or_section: z.string(),
   source_snippet: z.string(),
-  priority: z.enum(["high", "medium", "low"]),
-  mandatory_or_optional: z.enum(["mandatory", "optional"]),
-  compliance_status: z.enum(["compliant", "partially_compliant", "non_compliant", "not_enough_information"]),
-  evidence_type: z.enum(["directly_supported", "inferred_from_documents", "user_provided_instruction", "assumption", "missing_information", "requires_customer_confirmation"]),
+  priority: normalizedEnum(["high", "medium", "low"]),
+  mandatory_or_optional: normalizedEnum(["mandatory", "optional"]),
+  compliance_status: normalizedEnum(["not_enough_information", "compliant", "partially_compliant", "non_compliant"]),
+  evidence_type: normalizedEnum(["directly_supported", "inferred_from_documents", "user_provided_instruction", "assumption", "missing_information", "requires_customer_confirmation"]),
   confidence: z.number().min(0).max(1),
   notes: z.string()
 });
@@ -46,8 +100,8 @@ const ProjectRiskSchema = z.object({
   risk_id: z.string(),
   title: z.string(),
   description: z.string(),
-  severity: z.enum(["low", "medium", "high", "critical"]),
-  probability: z.enum(["low", "medium", "high"]),
+  severity: normalizedEnum(["low", "medium", "high", "critical"]),
+  probability: normalizedEnum(["low", "medium", "high"]),
   impact: z.string(),
   source_document: z.string(),
   source_page_or_section: z.string(),
@@ -68,33 +122,29 @@ const ProjectOpportunitySchema = z.object({
   source_page_or_section: z.string(),
   suggested_solution: z.string(),
   sales_strategy: z.string(),
-  priority: z.enum(["high", "medium", "low"]),
+  priority: normalizedEnum(["high", "medium", "low"]),
   evidence_type: z.string(),
   confidence: z.number()
 });
 
 const BOMItemSchema = z.object({
   item_id: z.string(),
-  product_or_service: z.string(),
-  description: z.string(),
+  sku: z.string(),
+  part_number: z.string(),
+  equipment_name: z.string(),
+  manufacturer: z.string(),
   quantity: z.number(),
   unit: z.string(),
   category: z.string(),
-  mandatory_or_optional: z.enum(["mandatory", "optional"]),
-  reason_for_inclusion: z.string(),
-  suggested_manufacturer: z.string(),
-  alternatives: z.string(),
-  assumptions: z.string(),
+  specification: z.string(),
   source_reference: z.string(),
-  risk_or_dependency: z.string(),
-  requires_human_validation: z.boolean()
 });
 
 const PointToPointRowSchema = z.object({
   item_id: z.string(),
   customer_requirement: z.string(),
   proposed_solution: z.string(),
-  compliance: z.enum(["compliant", "partially_compliant", "non_compliant", "not_enough_information"]),
+  compliance: normalizedEnum(["not_enough_information", "compliant", "partially_compliant", "non_compliant"]),
   comments: z.string(),
   source_reference: z.string(),
   evidence_type: z.string(),
@@ -116,8 +166,9 @@ const ClarificationQuestionSchema = z.object({
   question_id: z.string(),
   question: z.string(),
   reason: z.string(),
+  source_reference: z.string(),
   related_requirement_or_risk: z.string(),
-  priority: z.enum(["high", "medium", "low"]),
+  priority: normalizedEnum(["high", "medium", "low"]),
   target_audience: z.string()
 });
 
@@ -258,9 +309,31 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
     // 2. Fetch all project documents and retrieve their real extracted text
     const docs = await dbStore.getDocuments(projectId);
 
+    // PDFs and images are sent as real file binaries to the AI's native vision/OCR instead of
+    // pre-extracted text - some real-world PDFs (scanned documents, or ones using a font encoding
+    // with no ToUnicode map) have no text any local extractor can ever recover, confirmed on a
+    // real government tender document that even Poppler's pdftotext (the market-standard tool)
+    // couldn't read. Other formats (txt/csv/docx/xlsx) keep using the already-reliable local
+    // extraction.
+    const VISION_MIME_TYPES = new Set(["application/pdf", "image/png", "image/jpeg", "image/webp"]);
     let combinedExtractedText = "";
+    const documentFiles: ProviderFileInput[] = [];
+    const platformSettingsForDocs = await dbStore.getSettings();
+    const storageAdapterForDocs = createStorageAdapter(platformSettingsForDocs);
+
     for (let idx = 0; idx < docs.length; idx++) {
       const doc = docs[idx];
+      if (VISION_MIME_TYPES.has(doc.mime_type)) {
+        try {
+          const buffer = await storageAdapterForDocs.readFile(doc.storage_path);
+          documentFiles.push({ mimeType: doc.mime_type, base64Data: buffer.toString("base64") });
+          combinedExtractedText += `\n--- DOCUMENT ${idx + 1}: ${doc.filename} (${doc.detected_document_type}) - sent as a real file below, read it directly ---\n`;
+        } catch (err) {
+          console.error(`Failed to read document file for vision analysis: ${doc.filename}`, err);
+        }
+        continue;
+      }
+
       const text = await dbStore.getDocumentContent(doc.id);
       if (text) {
         combinedExtractedText += `\n--- START DOCUMENT ${idx + 1}: ${doc.filename} (${doc.detected_document_type}) ---\n`;
@@ -293,6 +366,15 @@ REAL EXTRACTED DOCUMENT TEXTS:
 ${combinedExtractedText}
 
 Perform a rigorous pre-sales extraction.
+CRITICAL: every free-text value you write in the JSON below - not just the two draft fields at the
+end - MUST be written in ${project.proposal_language}. The field NAMES (keys) stay in English
+exactly as shown; only the free-text VALUES you generate change language. Do not default to
+English for free text.
+EXCEPTION - enum/fixed-value fields: some fields only accept one of a small fixed set of English
+words shown in that field's own instruction below (e.g. category, priority, severity,
+mandatory_or_optional, compliance_status, compliance, evidence_type, risk_level). These are
+internal codes, not prose - always return them exactly as one of the listed English options,
+never translated, never invented.
 You MUST respond with a strictly parsable JSON object. No markdown, no formatting blocks, only valid JSON matching this schema:
 {
   "executive_summary": {
@@ -357,19 +439,15 @@ You MUST respond with a strictly parsable JSON object. No markdown, no formattin
   "bom": [
     {
       "item_id": "bom_1",
-      "product_or_service": "PRODUCT-SKU-1",
-      "description": "Specification detail aligned with Tech Orientation: ${project.ai_orientation_text}",
+      "sku": "Internal SKU code if the document provides one, otherwise a short stable code you generate from the equipment name",
+      "part_number": "Manufacturer part number exactly as written in the source document - never invent one, leave empty string if not stated",
+      "equipment_name": "Real equipment/material name as required by the document (e.g. 'Switch PoE 24 portas Gigabit')",
+      "manufacturer": "Manufacturer name if the document states or implies a standard (e.g. via a referenced norm/certification), otherwise empty string - never invent a brand",
       "quantity": 5,
-      "unit": "pcs",
-      "category": "Hardware",
-      "mandatory_or_optional": "mandatory",
-      "reason_for_inclusion": "Conformity to Section X requirement",
-      "suggested_manufacturer": "Open Standard Corp",
-      "alternatives": "Alternative SKU",
-      "assumptions": "Mounting brackets included",
-      "source_reference": "Section X",
-      "risk_or_dependency": "Requires separate fiber uplink",
-      "requires_human_validation": false
+      "unit": "un",
+      "category": "Hardware, Software, Serviço, Licença, etc.",
+      "specification": "Real technical specification/requirement for this item exactly as demanded by the source document (throughput, protocol, certification, dimensions, etc.), aligned with Tech Orientation: ${project.ai_orientation_text}",
+      "source_reference": "Section/page/item number in the source document this line item came from"
     }
   ],
   "point_to_point_table": [
@@ -399,8 +477,9 @@ You MUST respond with a strictly parsable JSON object. No markdown, no formattin
   "clarification_questions": [
     {
       "question_id": "q_1",
-      "question": "Can the customer clarify the fiber distance?",
-      "reason": "Determines SPF transceiver power requirements.",
+      "question": "A technical, specific question grounded in the actual document - name the exact item/section/parameter in question, not a vague topic. Never write a generic question a pre-sales engineer could ask about any project regardless of the source document.",
+      "reason": "Why this specific answer is needed - what engineering/commercial decision depends on it (e.g. which transceiver to spec, which compliance box to check, which BOM quantity to commit to).",
+      "source_reference": "Exact section/page/clause of the source document this question refers to - never leave this empty if the question references a document requirement.",
       "related_requirement_or_risk": "req_1",
       "priority": "high",
       "target_audience": "Customer Tech Board"
@@ -413,11 +492,30 @@ You MUST respond with a strictly parsable JSON object. No markdown, no formattin
 Write all generated content fields strictly in ${project.proposal_language}. Maintain an expert, formal pre-sales engineering tone.
 `;
 
-    const { text: rawText, inputTokens, outputTokens } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);
+    // The AI call itself is a single request that can take several minutes on a large real
+    // document (vision-based reading + a big output budget) with no real sub-progress to report -
+    // stuck at a flat 40% the whole time reads as "frozen" to the user. Simulate gradual movement
+    // up to a ceiling while waiting, so there's visible motion even though it isn't measuring
+    // anything real; jumps to 85% the moment the actual response comes back.
+    let simulatedProgress = 40;
+    const progressTicker = setInterval(() => {
+      simulatedProgress = Math.min(simulatedProgress + 2, 78);
+      updateTaskProgress(task.id, { currentStep: "Analisando com IA", progressPct: simulatedProgress }).catch(() => {});
+    }, 10000);
+
+    let rawText: string, inputTokens: number, outputTokens: number;
+    try {
+      ({ text: rawText, inputTokens, outputTokens } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt, documentFiles));
+    } finally {
+      clearInterval(progressTicker);
+    }
     const realEstimatedCostUsd = estimateCostUsd(providerResolution.model, inputTokens, outputTokens);
 
     // 3. Add Structured Output Validation using Zod
-    const parsedJson = JSON.parse(rawText.trim());
+    // Every provider is explicitly told to respond with raw JSON only, but Claude in particular
+    // still sometimes wraps it in a markdown code fence anyway - strip it defensively rather than
+    // fail the whole analysis over formatting.
+    const parsedJson = JSON.parse(rawText.trim().replace(/^```json\s*|```\s*$/g, ""));
     const validatedJson = AnalysisResultSchema.parse(parsedJson);
 
     // Save final Analysis Result
@@ -604,6 +702,53 @@ instead of inventing information.`;
   } catch (err: any) {
     console.error("Chat copilot request failed:", err);
     res.status(500).json({ success: false, message: `Gemini API execution failed: ${err.message}` });
+  }
+});
+
+const PRIORITY_LABEL: Record<string, string> = { high: "Alta", medium: "Média", low: "Baixa" };
+
+// Exports the clarification questions as a real .docx (buildDocxBuffer already generates valid
+// OOXML from plain text, no template file needed - same helper the proposal export uses) so the
+// pre-sales engineer can send it straight to the customer for answers.
+router.get("/projects/:projectId/clarification-questions/export", requirePermission("analysis:read"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const project = await dbStore.getProject(req.params.projectId);
+    if (!project) return res.status(404).json({ success: false, message: "Project not found." });
+
+    const analysis = await dbStore.getAnalysisResult(req.params.projectId);
+    const questions = analysis?.clarification_questions || [];
+
+    const lines: string[] = [
+      `Perguntas de Esclarecimento Técnico`,
+      `Projeto: ${project.name}`,
+      `Cliente: ${project.customer_name}`,
+      `Data: ${new Date().toLocaleDateString("pt-BR")}`,
+      "",
+      "",
+    ];
+
+    questions.forEach((q, idx) => {
+      lines.push(`${idx + 1}. ${q.question}`);
+      lines.push(`Motivo: ${q.reason}`);
+      if (q.source_reference) lines.push(`Referência no documento: ${q.source_reference}`);
+      lines.push(`Prioridade: ${PRIORITY_LABEL[q.priority] || q.priority}`);
+      lines.push(`Direcionado a: ${q.target_audience}`);
+      lines.push("");
+      lines.push("Resposta do cliente: _______________________________________________");
+      lines.push("");
+      lines.push("");
+    });
+
+    if (questions.length === 0) {
+      lines.push("Nenhuma pergunta de esclarecimento foi gerada para este projeto ainda.");
+    }
+
+    const buffer = buildDocxBuffer(lines.join("\n"));
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    res.setHeader("Content-Disposition", `attachment; filename="perguntas-esclarecimento-${project.name.replace(/[^a-zA-Z0-9]/g, "-")}.docx"`);
+    res.send(buffer);
+  } catch (err) {
+    next(err);
   }
 });
 

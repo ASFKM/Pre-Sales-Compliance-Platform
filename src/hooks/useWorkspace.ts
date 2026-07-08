@@ -183,17 +183,17 @@ export function useWorkspace(params: UseWorkspaceParams) {
     }
 
     const pricingRows: PricingRow[] = (analysisResult?.bom || []).map(b => {
-      const unitPrice = b.product_or_service.includes("ALPR") ? 1850 : (b.product_or_service.includes("Switch") ? 420 : 350);
+      const unitPrice = b.equipment_name.includes("ALPR") ? 1850 : (b.equipment_name.includes("Switch") ? 420 : 350);
 
       return {
         item_id: b.item_id,
-        product_or_service: b.product_or_service,
+        product_or_service: b.equipment_name,
         quantity: b.quantity,
         unit: b.unit,
         unit_price: unitPrice,
         total_price: b.quantity * unitPrice,
         currency: "USD",
-        is_optional: b.mandatory_or_optional === "optional",
+        is_optional: false,
         discount: 10
       };
     });

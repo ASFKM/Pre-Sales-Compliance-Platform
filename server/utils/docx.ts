@@ -242,7 +242,7 @@ function createZip(entries: Array<{ name: string; data: Buffer }>): Buffer {
   return Buffer.concat([...localParts, centralDirectory, end]);
 }
 
-function buildDocxBuffer(text: string): Buffer {
+export function buildDocxBuffer(text: string): Buffer {
   const paragraphs = text.split(/\r?\n/).map(line =>
     `<w:p><w:r><w:t xml:space="preserve">${escapeXml(line || " ")}</w:t></w:r></w:p>`
   ).join("");

@@ -26,9 +26,9 @@ FILENAME: ${filename}
 EXTRACTED TEXT (first 4000 characters):
 ${extractedText.slice(0, 4000) || "(no text extracted)"}
 
-Respond with ONLY a JSON object matching this shape, no markdown, no extra text:
+Respond in Brazilian Portuguese. Respond with ONLY a JSON object matching this shape, no markdown, no extra text:
 {
-  "document_type": "one short label, e.g. 'RFP / Bid Document', 'Contract/SLA', 'Technical Specification', 'Commercial Proposal', 'Other'",
+  "document_type": "one short label in Portuguese, e.g. 'Edital / Termo de Referência', 'Contrato/SLA', 'Especificação Técnica', 'Proposta Comercial', 'Outro'",
   "confidence": 0.0 to 1.0
 }`;
 

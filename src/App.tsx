@@ -75,6 +75,12 @@ import {
   ApprovalWorkflow
 } from "./types";
 
+const PROVIDER_DISPLAY_NAME: Record<string, string> = {
+  gemini: "Google Gemini",
+  openai: "OpenAI ChatGPT",
+  anthropic: "Anthropic Claude",
+};
+
 const translations = {
   en: {
     workspace: "Workspace",
@@ -214,8 +220,8 @@ if (typeof window !== "undefined") {
 }
 
 export default function App() {
-  // Locale State (Defaults to Portuguese "pt")
-  const [locale, setLocale] = useState<"en" | "pt">("pt");
+  // Português é o único idioma da interface - inglês fica só para termos sem tradução.
+  const locale: "pt" = "pt";
 
   // Real authentication & session states
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
@@ -398,7 +404,6 @@ export default function App() {
   // Helper to translate project data dynamically
   const getTranslatedProject = (proj: any) => {
     if (!proj) return proj;
-    if (locale === "en") return proj;
     const overrides: Record<string, any> = {
       p1: {
         name: "Modernização de ITS Rodoviário",
@@ -429,7 +434,6 @@ export default function App() {
 
   const getTranslatedAnalysisResult = (res: AnalysisResult | null) => {
     if (!res) return res;
-    if (locale === "en") return res;
     return {
       ...res,
       // executive_summary and preliminary_schedule are AI-generated free text specific to each
@@ -472,27 +476,24 @@ export default function App() {
         if (b.item_id === "bom1") {
           return {
             ...b,
-            product_or_service: "Câmera Inteligente CAM-ALPR-10X",
-            description: "Câmera de tráfego de alta resolução com obturador global, lentes varifocais motorizadas e processador de rede neural integrado para placas (ALPR).",
-            reason_for_inclusion: "Atende diretamente ao requisito de reconhecimento de veículos a 180 km/h da MTA.",
+            equipment_name: "Câmera Inteligente CAM-ALPR-10X",
+            specification: "Câmera de tráfego de alta resolução com obturador global, lentes varifocais motorizadas e processador de rede neural integrado para placas (ALPR). Atende diretamente ao requisito de reconhecimento de veículos a 180 km/h da MTA.",
             category: "Hardware de Campo"
           };
         }
         if (b.item_id === "bom2") {
           return {
             ...b,
-            product_or_service: "Switch Industrial RuggedCOM 8G",
-            description: "Switch gerenciado com 8 portas Gigabit Ethernet, classificação térmica de -40°C a +75°C, sem ventoinha e com suporte a PoE+ redundante.",
-            reason_for_inclusion: "Fornece conectividade robusta na via e energia PoE para as câmeras.",
+            equipment_name: "Switch Industrial RuggedCOM 8G",
+            specification: "Switch gerenciado com 8 portas Gigabit Ethernet, classificação térmica de -40°C a +75°C, sem ventoinha e com suporte a PoE+ redundante. Fornece conectividade robusta na via e energia PoE para as câmeras.",
             category: "Rede"
           };
         }
         if (b.item_id === "bom3") {
           return {
             ...b,
-            product_or_service: "Licença de Fluxo Edge AI",
-            description: "Licença de fluxo de tráfego de inteligência artificial de borda e classificação de veículos. Atualiza firmware das câmeras para relatórios de tráfego em tempo real.",
-            reason_for_inclusion: "Oportunidade de upsell para fornecer métricas de cidades inteligentes sem hardware extra.",
+            equipment_name: "Licença de Fluxo Edge AI",
+            specification: "Licença de fluxo de tráfego de inteligência artificial de borda e classificação de veículos. Atualiza firmware das câmeras para relatórios de tráfego em tempo real. Oportunidade de upsell para fornecer métricas de cidades inteligentes sem hardware extra.",
             category: "Software"
           };
         }
@@ -1092,79 +1093,8 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
           )}
         </div>
 
-        {/* User Context, Language Switcher & AI Health */}
+        {/* User Context & AI Health */}
         <div className="flex items-center gap-2 lg:gap-4 shrink-0">
-          {/* Language Switcher */}
-          <div className="flex items-center gap-2 bg-slate-800/50 p-1.5 rounded-lg border border-slate-700/50 text-xs shrink-0">
-            <button
-              onClick={() => setLocale("pt")}
-              className="focus:outline-none transition-all hover:scale-105 active:scale-95"
-              title="Português"
-            >
-              <span className="sr-only">PT</span>
-              {locale === "pt" ? (
-                <svg className="w-6 h-4 rounded shadow-sm" viewBox="0 0 24 16" xmlns="http://www.w3.org/2000/svg">
-                  <rect width="24" height="16" fill="#009739" />
-                  <polygon points="12,2 22,8 12,14 2,8" fill="#FFDF00" />
-                  <circle cx="12" cy="8" r="3.5" fill="#002776" />
-                  <path d="M 8.7 8.5 Q 12 6.5 15.3 8.5" stroke="#FFF" strokeWidth="0.6" fill="none" />
-                </svg>
-              ) : (
-                <svg className="w-6 h-4 text-slate-400 opacity-60 hover:opacity-100 transition-opacity" viewBox="0 0 24 16" xmlns="http://www.w3.org/2000/svg">
-                  <rect x="0.5" y="0.5" width="23" height="15" rx="1" fill="none" stroke="currentColor" strokeWidth="1" />
-                  <polygon points="12,2.5 21.5,8 12,13.5 2.5,8" fill="none" stroke="currentColor" strokeWidth="1" />
-                  <circle cx="12" cy="8" r="2.5" fill="none" stroke="currentColor" strokeWidth="1" />
-                </svg>
-              )}
-            </button>
-            <button
-              onClick={() => setLocale("en")}
-              className="focus:outline-none transition-all hover:scale-105 active:scale-95"
-              title="English"
-            >
-              <span className="sr-only">EN</span>
-              {locale === "en" ? (
-                <svg className="w-6 h-4 rounded shadow-sm" viewBox="0 0 24 16" xmlns="http://www.w3.org/2000/svg">
-                  <rect width="24" height="16" fill="#B22234" />
-                  <path d="M0 1.23h24M0 3.69h24M0 6.15h24M0 8.61h24M0 11.07h24M0 13.53h24" stroke="#FFF" strokeWidth="1.23" />
-                  <rect width="12" height="8.61" fill="#3C3B6E" />
-                  <circle cx="2" cy="1.5" r="0.4" fill="#FFF" />
-                  <circle cx="4" cy="1.5" r="0.4" fill="#FFF" />
-                  <circle cx="6" cy="1.5" r="0.4" fill="#FFF" />
-                  <circle cx="8" cy="1.5" r="0.4" fill="#FFF" />
-                  <circle cx="10" cy="1.5" r="0.4" fill="#FFF" />
-                  <circle cx="3" cy="3" r="0.4" fill="#FFF" />
-                  <circle cx="5" cy="3" r="0.4" fill="#FFF" />
-                  <circle cx="7" cy="3" r="0.4" fill="#FFF" />
-                  <circle cx="9" cy="3" r="0.4" fill="#FFF" />
-                  <circle cx="2" cy="4.5" r="0.4" fill="#FFF" />
-                  <circle cx="4" cy="4.5" r="0.4" fill="#FFF" />
-                  <circle cx="6" cy="4.5" r="0.4" fill="#FFF" />
-                  <circle cx="8" cy="4.5" r="0.4" fill="#FFF" />
-                  <circle cx="10" cy="4.5" r="0.4" fill="#FFF" />
-                  <circle cx="3" cy="6" r="0.4" fill="#FFF" />
-                  <circle cx="5" cy="6" r="0.4" fill="#FFF" />
-                  <circle cx="7" cy="6" r="0.4" fill="#FFF" />
-                  <circle cx="9" cy="6" r="0.4" fill="#FFF" />
-                  <circle cx="2" cy="7.5" r="0.4" fill="#FFF" />
-                  <circle cx="4" cy="7.5" r="0.4" fill="#FFF" />
-                  <circle cx="6" cy="7.5" r="0.4" fill="#FFF" />
-                  <circle cx="8" cy="7.5" r="0.4" fill="#FFF" />
-                  <circle cx="10" cy="7.5" r="0.4" fill="#FFF" />
-                </svg>
-              ) : (
-                <svg className="w-6 h-4 text-slate-400 opacity-60 hover:opacity-100 transition-opacity" viewBox="0 0 24 16" xmlns="http://www.w3.org/2000/svg">
-                  <rect x="0.5" y="0.5" width="23" height="15" rx="1" fill="none" stroke="currentColor" strokeWidth="1" />
-                  <rect x="0.5" y="0.5" width="11" height="8" fill="none" stroke="currentColor" strokeWidth="1" />
-                  <line x1="12" y1="2.5" x2="23.5" y2="2.5" stroke="currentColor" strokeWidth="1" />
-                  <line x1="12" y1="5.5" x2="23.5" y2="5.5" stroke="currentColor" strokeWidth="1" />
-                  <line x1="0.5" y1="11.5" x2="23.5" y2="11.5" stroke="currentColor" strokeWidth="1" />
-                  <line x1="0.5" y1="13.5" x2="23.5" y2="13.5" stroke="currentColor" strokeWidth="1" />
-                </svg>
-              )}
-            </button>
-          </div>
-
           <div className="flex items-center gap-3">
             {activeTasks.length > 0 && (
               <button
@@ -1178,7 +1108,13 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                 </span>
                 <span className="hidden md:inline text-[11px] text-slate-300 font-mono max-w-[160px] truncate">
                   {activeTasks[0].current_step}
+                  {typeof activeTasks[0].progress_pct === "number" && ` (${activeTasks[0].progress_pct}%)`}
                 </span>
+                {typeof activeTasks[0].progress_pct === "number" && (
+                  <div className="hidden md:block w-14 h-1.5 bg-slate-700 rounded-full overflow-hidden shrink-0">
+                    <div className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${activeTasks[0].progress_pct}%` }} />
+                  </div>
+                )}
                 {activeTasks.length > 1 && (
                   <span className="text-[9px] bg-emerald-600 text-white rounded-full px-1.5 font-bold">{activeTasks.length}</span>
                 )}
@@ -1372,8 +1308,27 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               <RefreshCw size={15} className={isAnalyzing ? "animate-spin" : ""} />
               {isAnalyzing ? t("compiling").toUpperCase() : t("runAi").toUpperCase()}
             </button>
+            {(() => {
+              const analysisTask = activeTasks.find((t) => t.type === "document_analysis");
+              if (!isAnalyzing || !analysisTask) return null;
+              return (
+                <div className="mt-2 space-y-1">
+                  <div className="flex justify-between text-[9px] text-slate-500 font-mono">
+                    <span className="truncate">{analysisTask.current_step}</span>
+                    {typeof analysisTask.progress_pct === "number" && <span className="font-bold shrink-0 ml-1">{analysisTask.progress_pct}%</span>}
+                  </div>
+                  <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-emerald-500 transition-all duration-500"
+                      style={{ width: `${typeof analysisTask.progress_pct === "number" ? analysisTask.progress_pct : 5}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })()}
             <p className="text-[9px] text-slate-400 text-center mt-1.5 leading-tight font-mono">
-              Powered by Google Gemini 2.5 Flash
+              {tx("Powered by", "Executado por")} {PROVIDER_DISPLAY_NAME[platformSettings?.document_analysis_provider || "gemini"] || platformSettings?.document_analysis_provider}
+              {platformSettings?.document_analysis_model ? ` (${platformSettings.document_analysis_model})` : ""}
             </p>
           </section>
         </aside>

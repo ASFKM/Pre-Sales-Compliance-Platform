@@ -141,19 +141,15 @@ export interface ProjectOpportunity {
 
 export interface BOMItem {
   item_id: string;
-  product_or_service: string;
-  description: string;
+  sku: string;
+  part_number: string;
+  equipment_name: string;
+  manufacturer: string;
   quantity: number;
   unit: string;
   category: string;
-  mandatory_or_optional: "mandatory" | "optional";
-  reason_for_inclusion: string;
-  suggested_manufacturer: string;
-  alternatives: string;
-  assumptions: string;
+  specification: string;
   source_reference: string;
-  risk_or_dependency: string;
-  requires_human_validation: boolean;
 }
 
 export interface PointToPointRow {
@@ -182,6 +178,7 @@ export interface ClarificationQuestion {
   question_id: string;
   question: string;
   reason: string;
+  source_reference: string;
   related_requirement_or_risk: string;
   priority: "high" | "medium" | "low";
   target_audience: string;
