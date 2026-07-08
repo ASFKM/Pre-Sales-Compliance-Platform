@@ -238,7 +238,7 @@ export default function Workspace({
                         <AlertTriangle className="text-amber-500 mb-2" size={32} />
                         <h4 className="text-sm font-bold text-slate-800 uppercase font-mono">{tx("Specifications Awaiting Analysis", "Especificações Aguardando Análise")}</h4>
                         <p className="text-xs text-slate-500 max-w-md mt-1 leading-relaxed">
-                          Please upload your customer tender documentation files or specification guidelines inside the sidebar and click <strong>'RUN AI ANALYSIS'</strong>. Google Gemini will extract structured requirements, analyze potential tender risks, design a standard BOM list and compile compliance layouts automatically.
+                          Envie os arquivos de documentação da licitação ou as diretrizes de especificação do cliente na barra lateral e clique em <strong>"EXECUTAR ANÁLISE IA"</strong>. A IA vai extrair os requisitos estruturados, analisar possíveis riscos da licitação, montar uma lista de BOM padrão e compilar os quadros de conformidade automaticamente.
                         </p>
                       </div>
                     ) : (

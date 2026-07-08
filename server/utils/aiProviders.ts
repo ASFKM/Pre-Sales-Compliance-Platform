@@ -103,15 +103,20 @@ export async function generateJsonWithProvider(provider: ConnectedProvider, mode
     // plain create() would return, so nothing else below needs to change.
     const stream = client.messages.stream({
       model,
-      // The analysis schema (critical_requirements/risks/opportunities/bom/point_to_point_table
-      // arrays, two full proposal drafts) can genuinely need more than 8192 tokens of output for a
-      // real, detailed source document - confirmed truncating mid-response ("Unterminated string
-      // in JSON") on a real 48-page tender document.
-      max_tokens: 32000,
+      // The full analysis schema (critical_requirements/risks/opportunities/bom/multiple
+      // discipline-specific point-to-point matrices, clarification questions, two full proposal
+      // drafts) genuinely needs a large output budget for a real, detailed source document -
+      // 32000 still truncated mid-response ("Unterminated string in JSON") on a real government
+      // tender once the full schema (not a stripped-down test schema) was requested. Raised to
+      // 64000, the documented ceiling for this model family.
+      max_tokens: 64000,
       messages: [{ role: "user", content }],
     });
     const response = await stream.finalMessage();
     const textBlock = response.content.find((block) => block.type === "text");
+    if (response.stop_reason === "max_tokens") {
+      console.error(`Anthropic response hit max_tokens (output_tokens=${response.usage?.output_tokens}) - JSON is likely truncated.`);
+    }
     return {
       text: textBlock && "text" in textBlock ? textBlock.text : "{}",
       inputTokens: response.usage?.input_tokens || 0,

@@ -81,6 +81,17 @@ const PROVIDER_DISPLAY_NAME: Record<string, string> = {
   anthropic: "Anthropic Claude",
 };
 
+// ai_orientation_mode is a fixed English enum validated by the backend (server/routes/projects.ts)
+// - translate only how it's displayed here, never the stored value itself.
+const AI_ORIENTATION_MODE_LABEL: Record<string, string> = {
+  "Vendor-neutral": "Neutro em relação ao fornecedor",
+  "Preferred manufacturer": "Fabricante preferencial",
+  "Mandatory manufacturer": "Fabricante obrigatório",
+  "Existing customer standard": "Padrão já existente do cliente",
+  "Free AI recommendation": "Recomendação livre da IA",
+  "Custom instruction": "Instrução personalizada",
+};
+
 const translations = {
   en: {
     workspace: "Workspace",
@@ -1200,7 +1211,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
             <div className="mt-2 pt-2 border-t border-slate-100">
               <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wide font-mono">{t("aiOrientationMode")}</span>
               <div className="mt-1 p-2 bg-slate-50 border border-slate-100 rounded text-xs">
-                <span className="font-bold block text-slate-700 text-[11px]">{activeProject?.ai_orientation_mode}</span>
+                <span className="font-bold block text-slate-700 text-[11px]">{activeProject?.ai_orientation_mode ? (AI_ORIENTATION_MODE_LABEL[activeProject.ai_orientation_mode] || activeProject.ai_orientation_mode) : ""}</span>
                 <p className="text-slate-600 italic mt-0.5 text-[11px] leading-relaxed">"{activeProject?.ai_orientation_text}"</p>
               </div>
             </div>
@@ -1464,7 +1475,10 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
           </span></span>
           <span className="flex items-center gap-1.5 border-l border-slate-700 pl-6">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            LLM: <span className="text-emerald-400 font-bold uppercase">{platformSettings?.ai_provider || "Gemini"}</span>
+            LLM Análise: <span className="text-emerald-400 font-bold uppercase">{PROVIDER_DISPLAY_NAME[platformSettings?.document_analysis_provider || "gemini"] || platformSettings?.document_analysis_provider}</span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            LLM Propostas: <span className="text-emerald-400 font-bold uppercase">{PROVIDER_DISPLAY_NAME[platformSettings?.proposal_generation_provider || "gemini"] || platformSettings?.proposal_generation_provider}</span>
           </span>
           {(() => {
             const analysisTask = activeTasks.find((t) => t.type === "document_analysis");
