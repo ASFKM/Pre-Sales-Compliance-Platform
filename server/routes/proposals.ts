@@ -4,7 +4,7 @@ import path from "path";
 import fs from "fs";
 import { dbStore } from "../../src/dbStore";
 import { requireAuth, requirePermission } from "./auth";
-import { generateDocxFromTemplate, generatePdfFromProposal } from "../utils/docx";
+import { buildProposalText, writeProposalFiles } from "../utils/docx";
 import { logDebugMessage } from "../middleware/security";
 import { ProposalTemplate } from "../../src/types";
 import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
@@ -70,7 +70,8 @@ const CreateProposalSchema = z.object({
   delivery_terms: z.string().optional(),
   proposal_validity: z.string().optional(),
   commercial_assumptions: z.string().optional(),
-  exclusions: z.string().optional()
+  exclusions: z.string().optional(),
+  editable_content: z.string().optional()
 });
 
 // GET all proposals for a project
@@ -161,13 +162,18 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
 
     void (async () => {
     try {
-      // 2. Generate a valid DOCX package from the selected registered template metadata
-      await updateTaskProgress(task.id, { status: "running", currentStep: "Gerando DOCX", progressPct: 30 });
-      await generateDocxFromTemplate(templateFile, docxPath, templateData);
+      // 2. Build the full proposal text and write both the DOCX/PDF from it - this same text
+      // becomes the proposal's editable_content, so what the user reviews/edits on screen is
+      // exactly what's in the exported files (regenerating both from the edited text is what
+      // saving an edit does later, in PUT /proposals/:id).
+      await updateTaskProgress(task.id, { status: "running", currentStep: "Compilando conteúdo da proposta", progressPct: 30 });
+      const proposalContent = buildProposalText({
+        ...templateData,
+        template: templateData.template ? { ...templateData.template, physical_file_found: fs.existsSync(templateFile) } : undefined
+      });
 
-      // 3. Render PDF companion file from the same proposal data
-      await updateTaskProgress(task.id, { currentStep: "Gerando PDF", progressPct: 65 });
-      await generatePdfFromProposal(docxPath, pdfPath, templateData);
+      await updateTaskProgress(task.id, { currentStep: "Gerando DOCX e PDF", progressPct: 65 });
+      await writeProposalFiles(docxPath, pdfPath, proposalContent);
 
       // 4. Save proposal to database
       await updateTaskProgress(task.id, { currentStep: "Salvando proposta", progressPct: 90 });
@@ -188,7 +194,8 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
         delivery_terms: validated.delivery_terms,
         proposal_validity: validated.proposal_validity,
         commercial_assumptions: validated.commercial_assumptions,
-        exclusions: validated.exclusions
+        exclusions: validated.exclusions,
+        editable_content: proposalContent
       });
 
       logDebugMessage({
@@ -254,16 +261,25 @@ router.put("/proposals/:id", requirePermission("proposal:edit"), async (req: Req
 
     const proposal = await dbStore.updateProposal(req.params.id, validated);
 
+    // If the user edited the proposal's text, the exported DOCX/PDF must match what's on
+    // screen - regenerate both from the edited text rather than leaving the files as a stale
+    // snapshot of the original AI-generated content.
+    if (validated.editable_content !== undefined && proposal) {
+      const docxFullPath = path.join(process.cwd(), proposal.docx_file_path);
+      const pdfFullPath = path.join(process.cwd(), proposal.pdf_file_path);
+      await writeProposalFiles(docxFullPath, pdfFullPath, validated.editable_content);
+    }
+
     const userId = (req.headers["x-user-id"] as string) || "u1";
     await dbStore.addAuditLog({
       user_id: userId,
-      action: "Update Proposal Pricing Details",
+      action: validated.editable_content !== undefined ? "Edit Proposal Content" : "Update Proposal Pricing Details",
       entity_type: "Proposal",
       entity_id: req.params.id,
       project_id: proposal?.project_id,
       ip_address: req.ip || "127.0.0.1",
       user_agent: req.headers["user-agent"] || "unknown",
-      metadata: JSON.stringify(validated)
+      metadata: JSON.stringify({ ...validated, editable_content: validated.editable_content ? "[edited]" : undefined })
     });
 
     res.json(proposal);

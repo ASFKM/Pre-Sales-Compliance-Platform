@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AlertTriangle, Download } from "lucide-react";
+import { AlertTriangle, Download, Edit3, X } from "lucide-react";
 import { Proposal } from "../types";
 import { useProposals } from "../hooks/useProposals";
 
@@ -21,6 +21,40 @@ export default function Proposals({
     locale, hasPermission, proposals, selectedProjectId, fetchGlobalConfigs, fetchProjectDetails,
   });
   const [exportingId, setExportingId] = useState<string | null>(null);
+  const [editingProposal, setEditingProposal] = useState<Proposal | null>(null);
+  const [editedContent, setEditedContent] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const openEditor = (prop: Proposal) => {
+    setEditingProposal(prop);
+    setEditedContent(prop.editable_content || "");
+  };
+
+  // Saving regenerates the DOCX/PDF from this text server-side (server/routes/proposals.ts) - the
+  // exported files always match what the user reviewed/edited here, not the original AI draft.
+  const saveEditedContent = async () => {
+    if (!editingProposal) return;
+    setSavingEdit(true);
+    try {
+      const res = await fetch(`/api/proposals/${editingProposal.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ editable_content: editedContent }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.message || (locale === "pt" ? "Não foi possível salvar as alterações." : "Could not save changes."));
+        return;
+      }
+      setEditingProposal(null);
+      await fetchProjectDetails(selectedProjectId);
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao salvar as alterações." : "Error saving changes.");
+    } finally {
+      setSavingEdit(false);
+    }
+  };
 
   // Was a plain <a href target="_blank"> - a browser-navigated request never goes through the
   // app's global fetch() interceptor (App.tsx) that injects the Authorization header, so the API
@@ -106,6 +140,14 @@ export default function Proposals({
 
                         {/* Export Action Buttons */}
                         <div className="flex gap-2">
+                          {prop.status === "draft" && hasPermission("proposal:edit") && (
+                            <button
+                              onClick={() => openEditor(prop)}
+                              className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-mono text-[11px] font-bold px-3 py-1.5 rounded border border-blue-200 transition-all shadow-sm cursor-pointer"
+                            >
+                              <Edit3 size={12} /> {locale === "pt" ? "Revisar e Editar" : "Review & Edit"}
+                            </button>
+                          )}
                           {hasPermission("proposal:export") && (
                             <>
                               <button
@@ -246,6 +288,49 @@ export default function Proposals({
 
                     </div>
                   ))}
+                </div>
+              )}
+
+              {editingProposal && (
+                <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
+                  <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col">
+                    <div className="flex items-center justify-between p-4 border-b border-slate-100">
+                      <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">
+                        {locale === "pt" ? "Revisar e Editar Proposta" : "Review & Edit Proposal"}
+                      </h3>
+                      <button onClick={() => setEditingProposal(null)} className="text-slate-400 hover:text-slate-700 cursor-pointer">
+                        <X size={18} />
+                      </button>
+                    </div>
+                    <p className="text-xs text-slate-500 px-4 pt-3">
+                      {locale === "pt"
+                        ? "Edite qualquer trecho abaixo. Ao salvar, o DOCX e o PDF exportados são regenerados a partir deste texto."
+                        : "Edit any part below. Saving regenerates the exported DOCX and PDF from this text."}
+                    </p>
+                    <div className="flex-1 p-4 min-h-0">
+                      <textarea
+                        value={editedContent}
+                        onChange={(e) => setEditedContent(e.target.value)}
+                        className="w-full h-full min-h-[400px] p-3 rounded border border-slate-200 font-mono text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-emerald-500 resize-none"
+                        spellCheck={false}
+                      />
+                    </div>
+                    <div className="flex justify-end gap-2 p-4 border-t border-slate-100">
+                      <button
+                        onClick={() => setEditingProposal(null)}
+                        className="px-4 py-2 text-xs font-bold uppercase text-slate-500 hover:bg-slate-100 rounded transition-colors cursor-pointer"
+                      >
+                        {locale === "pt" ? "Cancelar" : "Cancel"}
+                      </button>
+                      <button
+                        onClick={saveEditedContent}
+                        disabled={savingEdit}
+                        className="px-4 py-2 text-xs font-bold uppercase bg-emerald-600 hover:bg-emerald-700 text-white rounded transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        {savingEdit ? (locale === "pt" ? "Salvando..." : "Saving...") : (locale === "pt" ? "Salvar e Regenerar Documento" : "Save & Regenerate Document")}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>

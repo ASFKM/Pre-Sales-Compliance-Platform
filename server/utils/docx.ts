@@ -71,75 +71,74 @@ function wrapLine(line: string, maxLength = 92): string[] {
 export function buildProposalText(data: DocxTemplateData): string {
   let content = "";
   content += "==================================================\n";
-  content += "COMMERCIAL ASSISTANT AI - PROPOSAL DOCUMENT\n";
+  content += "COMMERCIAL ASSISTANT AI - DOCUMENTO DE PROPOSTA\n";
   content += "==================================================\n\n";
 
   if (data.template) {
-    content += `TEMPLATE: ${data.template.name} (${data.template.version})\n`;
-    content += `TEMPLATE ID: ${data.template.id}\n`;
-    content += `TEMPLATE TYPE: ${data.template.template_type}\n`;
-    content += `TEMPLATE FILE: ${data.template.file_path}\n`;
-    content += `TEMPLATE FILE FOUND: ${data.template.physical_file_found ? "YES" : "NO - GENERATED FROM REGISTERED TEMPLATE METADATA"}\n\n`;
+    content += `MODELO: ${data.template.name} (${data.template.version})\n`;
+    content += `ID DO MODELO: ${data.template.id}\n`;
+    content += `TIPO DE MODELO: ${data.template.template_type}\n`;
+    content += `ARQUIVO DO MODELO: ${data.template.file_path}\n`;
+    content += `ARQUIVO DO MODELO ENCONTRADO: ${data.template.physical_file_found ? "SIM" : "NÃO - GERADO A PARTIR DOS METADADOS DO MODELO REGISTRADO"}\n\n`;
   }
 
-  content += `PROJECT: ${data.project.name.toUpperCase()}\n`;
-  content += `CUSTOMER: ${data.project.customer_name}\n`;
+  content += `PROJETO: ${data.project.name.toUpperCase()}\n`;
+  content += `CLIENTE: ${data.project.customer_name}\n`;
   content += `VERTICAL: ${data.project.vertical}\n`;
-  content += `DESCRIPTION: ${data.project.description}\n\n`;
+  content += `DESCRIÇÃO: ${data.project.description}\n\n`;
 
   const es = data.analysis?.executive_summary;
   if (es) {
-    content += "1. EXECUTIVE SUMMARY\n";
+    content += "1. RESUMO EXECUTIVO\n";
     content += "--------------------------------------------------\n";
-    content += `Project Overview: ${es.project_overview || "N/A"}\n`;
-    content += `Customer Context: ${es.customer_context || "N/A"}\n`;
-    content += `Critical Requirements Summary: ${es.main_requirements || "N/A"}\n`;
-    content += `Main Risks: ${es.main_risks || "N/A"}\n`;
-    content += `Opportunities & Strategy: ${es.main_opportunities || "N/A"}\n`;
-    content += `Recommended Strategy: ${es.recommended_strategy || "N/A"}\n`;
-    content += `Assumptions: ${es.assumptions || "N/A"}\n`;
-    content += `Next Steps: ${es.next_steps || "N/A"}\n\n`;
+    content += `Escopo do Projeto: ${es.project_overview || "N/D"}\n`;
+    content += `Contexto do Cliente: ${es.customer_context || "N/D"}\n`;
+    content += `Resumo dos Requisitos Críticos: ${es.main_requirements || "N/D"}\n`;
+    content += `Principais Riscos: ${es.main_risks || "N/D"}\n`;
+    content += `Oportunidades & Estratégia: ${es.main_opportunities || "N/D"}\n`;
+    content += `Estratégia Recomendada: ${es.recommended_strategy || "N/D"}\n`;
+    content += `Premissas: ${es.assumptions || "N/D"}\n`;
+    content += `Próximos Passos: ${es.next_steps || "N/D"}\n\n`;
   }
 
   if (data.analysis?.critical_requirements?.length) {
-    content += "2. CRITICAL COMPLIANCE MATRIX\n";
+    content += "2. MATRIZ DE CONFORMIDADE CRÍTICA\n";
     content += "--------------------------------------------------\n";
     data.analysis.critical_requirements.forEach(req => {
-      content += `[ID: ${req.requirement_id}] [${String(req.category || "general").toUpperCase()}] ${req.description}\n`;
-      content += `   Compliance Status: ${String(req.compliance_status || "not_enough_information").toUpperCase()}\n`;
-      if (req.priority) content += `   Priority: ${req.priority}\n`;
-      if (req.source_document) content += `   Source: ${req.source_document} ${req.source_page_or_section || ""}\n`;
-      if (req.notes) content += `   Notes: ${req.notes}\n`;
+      content += `[ID: ${req.requirement_id}] [${String(req.category || "geral").toUpperCase()}] ${req.description}\n`;
+      content += `   Status de Conformidade: ${String(req.compliance_status || "not_enough_information").toUpperCase()}\n`;
+      if (req.priority) content += `   Prioridade: ${req.priority}\n`;
+      if (req.source_document) content += `   Fonte: ${req.source_document} ${req.source_page_or_section || ""}\n`;
+      if (req.notes) content += `   Notas: ${req.notes}\n`;
       content += "\n";
     });
   }
 
   if (data.analysis?.risks?.length) {
-    content += "3. RISK MITIGATION GRID\n";
+    content += "3. GRADE DE MITIGAÇÃO DE RISCOS\n";
     content += "--------------------------------------------------\n";
     data.analysis.risks.forEach(risk => {
-      content += `[ID: ${risk.risk_id}] [SEVERITY: ${String(risk.severity || "medium").toUpperCase()}] ${risk.title}\n`;
-      if (risk.probability) content += `   Probability: ${risk.probability}\n`;
-      if (risk.impact) content += `   Impact: ${risk.impact}\n`;
-      content += `   Mitigation Strategy: ${risk.mitigation || "N/A"}\n\n`;
+      content += `[ID: ${risk.risk_id}] [SEVERIDADE: ${String(risk.severity || "medium").toUpperCase()}] ${risk.title}\n`;
+      if (risk.probability) content += `   Probabilidade: ${risk.probability}\n`;
+      if (risk.impact) content += `   Impacto: ${risk.impact}\n`;
+      content += `   Estratégia de Mitigação: ${risk.mitigation || "N/D"}\n\n`;
     });
   }
 
   if (data.analysis?.bom?.length) {
-    content += "4. PRELIMINARY BILL OF MATERIALS (BOM)\n";
+    content += "4. LISTA PRELIMINAR DE MATERIAIS (BOM)\n";
     content += "--------------------------------------------------\n";
-    content += "ITEM | QTY | UNIT | CATEGORY | DESCRIPTION\n";
+    content += "ITEM | FABRICANTE | QTD | UNIDADE | CATEGORIA | ESPECIFICAÇÃO\n";
     data.analysis.bom.forEach(item => {
-      content += `${item.product_or_service} | ${item.quantity} | ${item.unit} | ${item.category || "N/A"} | ${item.description}\n`;
-      if (item.reason_for_inclusion) content += `   Reason: ${item.reason_for_inclusion}\n`;
+      content += `${item.equipment_name} | ${item.manufacturer || "N/D"} | ${item.quantity} | ${item.unit} | ${item.category || "N/D"} | ${item.specification || ""}\n`;
     });
     content += "\n";
   }
 
   if (data.proposal?.manual_pricing_table?.length) {
-    content += "5. COMMERCIAL PRICING & QUOTATION\n";
+    content += "5. PRECIFICAÇÃO E COTAÇÃO COMERCIAL\n";
     content += "--------------------------------------------------\n";
-    content += "ITEM | QTY | UNIT PRICE | TOTAL\n";
+    content += "ITEM | QTD | PREÇO UNITÁRIO | TOTAL\n";
     let subtotal = 0;
     data.proposal.manual_pricing_table.forEach(p => {
       const qty = Number(p.quantity || 0);
@@ -150,21 +149,21 @@ export function buildProposalText(data: DocxTemplateData): string {
       subtotal += total;
     });
     content += "--------------------------------------------------\n";
-    content += `SUBTOTAL ESTIMATE: USD ${subtotal.toFixed(2)}\n\n`;
+    content += `ESTIMATIVA DE SUBTOTAL: USD ${subtotal.toFixed(2)}\n\n`;
   }
 
   if (data.proposal) {
-    content += "6. TERMS & CONDITIONS\n";
+    content += "6. TERMOS E CONDIÇÕES\n";
     content += "--------------------------------------------------\n";
-    content += `Payment Terms: ${data.proposal.payment_terms || "Standard 30 days"}\n`;
-    content += `Delivery: ${data.proposal.delivery_terms || "FOB Warehouse"}\n`;
-    content += `Proposal Validity: ${data.proposal.proposal_validity || "N/A"}\n`;
-    content += `Commercial Assumptions: ${data.proposal.commercial_assumptions || "N/A"}\n`;
-    content += `Exclusions: ${data.proposal.exclusions || "Taxes and custom clearance"}\n\n`;
+    content += `Termos de Pagamento: ${data.proposal.payment_terms || "30 dias líquidos (padrão)"}\n`;
+    content += `Entrega: ${data.proposal.delivery_terms || "FOB Armazém"}\n`;
+    content += `Validade da Proposta: ${data.proposal.proposal_validity || "N/D"}\n`;
+    content += `Premissas Comerciais: ${data.proposal.commercial_assumptions || "N/D"}\n`;
+    content += `Exclusões: ${data.proposal.exclusions || "Impostos e desembaraço aduaneiro"}\n\n`;
   }
 
   content += "==================================================\n";
-  content += "GENERATED SECURELY BY COMMERCIAL ASSISTANT AI v3.0\n";
+  content += "GERADO COM SEGURANÇA PELO COMMERCIAL ASSISTANT AI v3.0\n";
   content += "==================================================\n";
 
   return content;
@@ -307,4 +306,18 @@ export async function generatePdfFromProposal(docxPath: string, outputPath: stri
 
   const pdfText = data ? buildProposalText(data) : `Proposal DOCX generated at ${docxPath}`;
   await fs.promises.writeFile(outputPath, buildPdfBuffer(pdfText));
+}
+
+// Regenerates the DOCX/PDF pair directly from a plain-text string - used both for the initial
+// generation (from buildProposalText's output) and after the user edits that text in the
+// proposal editor, so the exported files always match what's on screen rather than the original
+// unedited analysis data.
+export async function writeProposalFiles(docxPath: string, pdfPath: string, text: string): Promise<void> {
+  const docxDir = path.dirname(docxPath);
+  if (!fs.existsSync(docxDir)) fs.mkdirSync(docxDir, { recursive: true });
+  const pdfDir = path.dirname(pdfPath);
+  if (!fs.existsSync(pdfDir)) fs.mkdirSync(pdfDir, { recursive: true });
+
+  await fs.promises.writeFile(docxPath, buildDocxBuffer(text));
+  await fs.promises.writeFile(pdfPath, buildPdfBuffer(text));
 }

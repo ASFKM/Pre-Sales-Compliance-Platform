@@ -330,6 +330,7 @@ function mapProposal(p: any): Proposal {
     proposal_validity: p.proposalValidity ?? undefined,
     commercial_assumptions: p.commercialAssumptions ?? undefined,
     exclusions: p.exclusions ?? undefined,
+    editable_content: p.editableContent ?? undefined,
   } as Proposal;
 }
 
@@ -871,6 +872,7 @@ class DBStore {
         proposalValidity: prop.proposal_validity,
         commercialAssumptions: prop.commercial_assumptions,
         exclusions: prop.exclusions,
+        editableContent: prop.editable_content,
       },
     });
     return mapProposal(p);
@@ -891,6 +893,7 @@ class DBStore {
         exclusions: updates.exclusions,
         docxFilePath: updates.docx_file_path,
         pdfFilePath: updates.pdf_file_path,
+        editableContent: updates.editable_content,
       },
     });
     return mapProposal(p);

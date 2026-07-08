@@ -639,6 +639,10 @@ model Proposal {
   proposalValidity      String?  @map("proposal_validity")
   commercialAssumptions String?  @map("commercial_assumptions") @db.Text
   exclusions            String?  @db.Text
+  // Full editable proposal text, pre-filled from the analysis data at generation time - the
+  // user can rewrite any section before submitting for approval. The DOCX/PDF are (re)generated
+  // from this field, not directly from the raw analysis JSON, once it exists.
+  editableContent       String?  @map("editable_content") @db.Text
 
   decisions ApprovalDecision[]
 

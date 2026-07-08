@@ -384,6 +384,7 @@ export interface Proposal {
   proposal_validity?: string;
   commercial_assumptions?: string;
   exclusions?: string;
+  editable_content?: string;
 }
 
 export interface ApprovalWorkflow {
