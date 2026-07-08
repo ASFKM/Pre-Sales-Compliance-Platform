@@ -1,4 +1,4 @@
-import { Dispatch, SetStateAction, useEffect, useState } from "react";
+import { Dispatch, ReactNode, SetStateAction, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle, ArrowLeft, DollarSign, Edit3, FileCode, FilePlus,
   FolderOpen, FolderPlus, HardDrive, MessageSquare, Plus, Trash2, X,
@@ -8,6 +8,26 @@ import { useWorkspace } from "../hooks/useWorkspace";
 import { BackgroundTask } from "../hooks/useBackgroundTasks";
 
 type SubTab = "summary" | "requirements" | "risks" | "bom" | "proposal_builder" | "explorer";
+
+// Lightweight markdown rendering for chat replies - just **bold** and "- " bullet lines, the two
+// things AI answers actually use here. No markdown library pulled in for this; the copilot never
+// needed headings/tables/links, just enough that the user doesn't see literal "**" asterisks.
+function renderChatMarkdown(text: string): ReactNode {
+  const boldSplit = (line: string, keyPrefix: string) =>
+    line.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+      part.startsWith("**") && part.endsWith("**")
+        ? <strong key={`${keyPrefix}-${i}`}>{part.slice(2, -2)}</strong>
+        : <span key={`${keyPrefix}-${i}`}>{part}</span>
+    );
+
+  return text.split("\n").map((line, i) => {
+    const bulletMatch = line.match(/^\s*[-*]\s+(.*)/);
+    if (bulletMatch) {
+      return <div key={i} className="pl-3 relative before:content-['•'] before:absolute before:left-0">{boldSplit(bulletMatch[1], `l${i}`)}</div>;
+    }
+    return <div key={i}>{boldSplit(line, `l${i}`) }{line === "" ? " " : null}</div>;
+  });
+}
 
 interface WorkspaceProps {
   locale: "en" | "pt";
@@ -40,7 +60,6 @@ interface WorkspaceProps {
   chatHistory: { role: string; message: string }[];
   setChatHistory: Dispatch<SetStateAction<{ role: string; message: string }[]>>;
   waitForTask: (taskId: string) => Promise<BackgroundTask>;
-  specCopilotProviderName: string;
 }
 
 export default function Workspace({
@@ -51,11 +70,12 @@ export default function Workspace({
   setActiveTab, setActiveAdminSection, canAccessAdminSection, handleDeleteDocument, getDocTag,
   selectedTechnicalTemplateId, setSelectedTechnicalTemplateId,
   selectedCommercialTemplateId, setSelectedCommercialTemplateId,
-  chatHistory, setChatHistory, waitForTask, specCopilotProviderName,
+  chatHistory, setChatHistory, waitForTask,
 }: WorkspaceProps) {
   const [subTab, setSubTab] = useState<SubTab>("summary");
   const [exportingQuestions, setExportingQuestions] = useState(false);
   const [showCopilotChat, setShowCopilotChat] = useState(false);
+  const chatMessagesEndRef = useRef<HTMLDivElement>(null);
 
   // Was a plain <a href download> pointing at the API route - browser-navigated downloads never
   // go through the app's global `fetch` interceptor (App.tsx) that injects the Authorization
@@ -104,6 +124,14 @@ export default function Workspace({
   const [newFileContent, setNewFileContent] = useState<string>("");
   const [chatMessage, setChatMessage] = useState<string>("");
   const [isChatSending, setIsChatSending] = useState<boolean>(false);
+
+  // Without this, a new message (including the "thinking" indicator) appended to the bottom of
+  // the feed stays invisible unless the user manually scrolls down - confirmed via testing that
+  // this is exactly why the copilot read as "frozen" after sending a question: the real reply
+  // (or the fact that it was still working) was there, just off-screen.
+  useEffect(() => {
+    if (showCopilotChat) chatMessagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatHistory.length, isChatSending, showCopilotChat]);
 
   const {
     handleUpdateRequirement,
@@ -1532,12 +1560,25 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                             msg.role === "user" ? "bg-slate-100 text-slate-800 border-slate-200" : "bg-emerald-50 text-slate-800 border-emerald-100"
                           }`}>
                             <span className="font-mono text-[9px] text-slate-400 block uppercase mb-0.5">
-                              {msg.role === "user" ? "Você" : specCopilotProviderName}
+                              {msg.role === "user" ? "Você" : "Assistente AI"}
                             </span>
-                            <p className="whitespace-pre-line leading-normal">{msg.message}</p>
+                            <div className="leading-normal">{renderChatMarkdown(msg.message)}</div>
                           </div>
                         </div>
                       ))}
+                      {isChatSending && (
+                        <div className="flex justify-start">
+                          <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-100 shadow-sm">
+                            <span className="font-mono text-[9px] text-slate-400 block uppercase mb-0.5">Assistente AI</span>
+                            <span className="flex items-center gap-1 py-0.5">
+                              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></span>
+                              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></span>
+                              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></span>
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                      <div ref={chatMessagesEndRef} />
                     </div>
 
                     {/* Message Input Form */}

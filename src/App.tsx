@@ -1360,7 +1360,6 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               chatHistory={chatHistory}
               setChatHistory={setChatHistory}
               waitForTask={waitForTask}
-              specCopilotProviderName={PROVIDER_DISPLAY_NAME[platformSettings?.spec_copilot_provider || "gemini"] || platformSettings?.spec_copilot_provider || "IA"}
             />
           )}
 
