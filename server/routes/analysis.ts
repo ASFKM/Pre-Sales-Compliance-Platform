@@ -5,7 +5,7 @@ import { requirePermission } from "./auth";
 import { logDebugMessage } from "../middleware/security";
 import { AnalysisResult } from "../../src/types";
 import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
-import { generateJsonWithProvider, generateTextWithProvider, ConnectedProvider, ProviderFileInput } from "../utils/aiProviders";
+import { generateJsonWithProvider, generateTextWithProvider, searchWebWithProvider, ConnectedProvider, ProviderFileInput } from "../utils/aiProviders";
 import { createStorageAdapter } from "../utils/storage";
 import { estimateCostUsd } from "../utils/aiPricing";
 import { resolveProvider, checkCostCap, recordProviderFallback } from "../../src/aiOrchestrator";
@@ -137,6 +137,10 @@ const BOMItemSchema = z.object({
   category: z.string(),
   specification: z.string(),
   source_reference: z.string(),
+  // True when sku/part_number/manufacturer were filled by the web-search lookup step below
+  // rather than found in the source document - the two have very different reliability, and the
+  // user needs to know which is which before quoting a part number in a real proposal.
+  sourced_via_web_search: z.boolean().optional().default(false),
 });
 
 // The point-to-point technical matrix is domain-aware rather than one fixed set of columns for
@@ -234,6 +238,65 @@ router.post("/projects/:projectId/analysis-result", requirePermission("analysis:
     next(err);
   }
 });
+
+// Looks up a real part number/manufacturer for BOM items the document itself didn't specify
+// (sku/part_number left blank by the main analysis, per its own "never invent" instruction) via
+// the configured web_grounding provider's native search tool - a real internet lookup, not the
+// model guessing from training data. Never throws: if the provider isn't configured for web
+// search, the API errors, or the response isn't parsable JSON, the original BOM is returned
+// unchanged and the failure is only logged - this is an enrichment step, losing it should never
+// fail (or even flag as failed) an otherwise-successful analysis.
+async function enrichBomWithWebSearch(bom: any[], platformSettings: any, proposalLanguage: string): Promise<any[]> {
+  const itemsNeedingLookup = bom.filter((item) => !item.part_number?.trim() || !item.manufacturer?.trim());
+  if (itemsNeedingLookup.length === 0) return bom;
+
+  try {
+    const providerResolution = resolveProvider("web_grounding", platformSettings);
+    const lookupList = itemsNeedingLookup.map((item) => ({
+      item_id: item.item_id,
+      equipment_name: item.equipment_name,
+      category: item.category,
+      specification: item.specification,
+    }));
+
+    const prompt = `Search the web for a real, currently-sold product that matches or exceeds each equipment specification below. For each item, find an actual manufacturer and part number/SKU from a real product page, datasheet, or distributor listing - never invent one. If you cannot find a confident real match after searching, leave sku/part_number/manufacturer as empty strings for that item rather than guessing.
+
+ITEMS TO LOOK UP:
+${JSON.stringify(lookupList, null, 2)}
+
+Respond with ONLY a JSON array (no markdown, no extra text), one object per item_id above, in this exact shape:
+[{ "item_id": "...", "sku": "real SKU or empty string", "part_number": "real part number or empty string", "manufacturer": "real manufacturer name or empty string", "note": "one short sentence in ${proposalLanguage} - what you found and its source, or why nothing confident was found" }]`;
+
+    const { text } = await searchWebWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);
+    // The model prefaces the JSON with explanatory prose that can itself contain stray "[...]"
+    // (e.g. citing "[16:9]" resolution) - a single greedy [\s\S]*] regex grabbed from that first
+    // stray bracket through to the real array's closing bracket, garbling the JSON. Prefer the
+    // ```json fenced block if present (the array is always what's fenced); only fall back to the
+    // last "[" in the text (the real array is always the final thing in the response) if no fence
+    // is found.
+    const fenceMatch = text.match(/```json\s*([\s\S]*?)```/);
+    const rawJsonText = fenceMatch ? fenceMatch[1] : text.slice(text.lastIndexOf("["));
+    if (!rawJsonText.includes("[")) throw new Error("Web search response did not contain a JSON array");
+    const results: Array<{ item_id: string; sku: string; part_number: string; manufacturer: string; note: string }> = JSON.parse(rawJsonText.trim());
+
+    const resultsByItemId = new Map(results.map((r) => [r.item_id, r]));
+    return bom.map((item) => {
+      const found = resultsByItemId.get(item.item_id);
+      if (!found || (!found.part_number?.trim() && !found.manufacturer?.trim())) return item;
+      return {
+        ...item,
+        sku: item.sku?.trim() || found.sku || item.sku,
+        part_number: item.part_number?.trim() || found.part_number || item.part_number,
+        manufacturer: item.manufacturer?.trim() || found.manufacturer || item.manufacturer,
+        specification: found.note ? `${item.specification} (${found.note})` : item.specification,
+        sourced_via_web_search: true,
+      };
+    });
+  } catch (err: any) {
+    console.error("BOM web search enrichment failed, keeping original BOM:", err.message);
+    return bom;
+  }
+}
 
 // TRIGGER AI analysis using Gemini with real extracted content
 router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), async (req: Request, res: Response, next: NextFunction) => {
@@ -550,6 +613,12 @@ Write all generated content fields strictly in ${project.proposal_language}. Mai
     const parsedJson = JSON.parse(rawText.trim().replace(/^```json\s*|```\s*$/g, ""));
     const validatedJson = AnalysisResultSchema.parse(parsedJson);
 
+    // 4. Look up real part numbers/manufacturers for any BOM item the document itself didn't
+    // specify - a real web search (see enrichBomWithWebSearch), not the model guessing. Failure
+    // here never fails the analysis - see that function's own error handling.
+    await updateTaskProgress(task.id, { currentStep: "Buscando equipamentos reais para o BOM", progressPct: 88 });
+    const enrichedBom = await enrichBomWithWebSearch(validatedJson.bom, platformSettings, project.proposal_language);
+
     // Save final Analysis Result
     const analysisResult: AnalysisResult = {
       id: "ar_" + Math.random().toString(36).substring(2, 11),
@@ -559,7 +628,7 @@ Write all generated content fields strictly in ${project.proposal_language}. Mai
       critical_requirements: validatedJson.critical_requirements as any,
       risks: validatedJson.risks as any,
       opportunities: validatedJson.opportunities as any,
-      bom: validatedJson.bom as any,
+      bom: enrichedBom as any,
       point_to_point_table: validatedJson.point_to_point_table as any,
       preliminary_schedule: validatedJson.preliminary_schedule as any,
       clarification_questions: validatedJson.clarification_questions as any,
@@ -570,7 +639,7 @@ Write all generated content fields strictly in ${project.proposal_language}. Mai
       updated_at: new Date().toISOString()
     };
 
-    await updateTaskProgress(task.id, { currentStep: "Salvando resultado", progressPct: 85 });
+    await updateTaskProgress(task.id, { currentStep: "Salvando resultado", progressPct: 95 });
     await dbStore.saveAnalysisResult(analysisResult);
 
     // Update job to completed

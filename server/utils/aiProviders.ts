@@ -187,3 +187,43 @@ export async function generateTextWithProvider(provider: ConnectedProvider, mode
     outputTokens: response.usageMetadata?.candidatesTokenCount || 0,
   };
 }
+
+// Real web search, not the model's own training-data guess - used for the BOM's part-number
+// lookup (web_grounding task). Only Gemini and Anthropic have a native search tool the provider
+// runs server-side; OpenAI's Chat Completions API has none, so it's rejected here with a clear
+// error rather than silently returning a hallucinated part number.
+export async function searchWebWithProvider(provider: ConnectedProvider, model: string, prompt: string): Promise<ProviderJsonResult> {
+  if (provider === "openai") {
+    throw new Error("OpenAI não possui ferramenta de busca web nesta integração. Troque o serviço 'Pesquisa com Grounding Web' para Gemini ou Anthropic em Admin > IA, Prompts e Custos.");
+  }
+
+  if (provider === "anthropic") {
+    const apiKey = await getConfiguredAnthropicApiKey();
+    const client = new Anthropic({ apiKey });
+    const stream = client.messages.stream({
+      model,
+      max_tokens: 8192,
+      tools: [{ type: "web_search_20260318", name: "web_search" }] as any,
+      messages: [{ role: "user", content: prompt }],
+    });
+    const response = await stream.finalMessage();
+    const textBlocks = response.content.filter((block) => block.type === "text");
+    return {
+      text: textBlocks.map((b) => ("text" in b ? b.text : "")).join("\n"),
+      inputTokens: response.usage?.input_tokens || 0,
+      outputTokens: response.usage?.output_tokens || 0,
+    };
+  }
+
+  const ai = await getGeminiClient();
+  const response = await ai.models.generateContent({
+    model,
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    config: { tools: [{ googleSearch: {} }] },
+  });
+  return {
+    text: response.text || "",
+    inputTokens: response.usageMetadata?.promptTokenCount || 0,
+    outputTokens: response.usageMetadata?.candidatesTokenCount || 0,
+  };
+}

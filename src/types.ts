@@ -150,6 +150,7 @@ export interface BOMItem {
   category: string;
   specification: string;
   source_reference: string;
+  sourced_via_web_search?: boolean;
 }
 
 export interface DynamicMatrixColumn {
