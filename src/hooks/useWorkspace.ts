@@ -57,7 +57,7 @@ export function useWorkspace(params: UseWorkspaceParams) {
         body: JSON.stringify({ critical_requirements: updatedReqs })
       });
       if (res.ok) {
-        const updatedResult = await res.json();
+        const { result: updatedResult } = await res.json();
         setAnalysisResult(updatedResult);
         fetchGlobalConfigs();
       }
@@ -82,7 +82,7 @@ export function useWorkspace(params: UseWorkspaceParams) {
         body: JSON.stringify({ risks: updatedRisks })
       });
       if (res.ok) {
-        const updatedResult = await res.json();
+        const { result: updatedResult } = await res.json();
         setAnalysisResult(updatedResult);
         fetchGlobalConfigs();
       }
@@ -107,7 +107,7 @@ export function useWorkspace(params: UseWorkspaceParams) {
         body: JSON.stringify({ bom: updatedBOM })
       });
       if (res.ok) {
-        const updatedResult = await res.json();
+        const { result: updatedResult } = await res.json();
         setAnalysisResult(updatedResult);
         fetchGlobalConfigs();
       }

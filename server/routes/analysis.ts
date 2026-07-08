@@ -215,9 +215,13 @@ router.get("/projects/:projectId/analysis-result", requirePermission("analysis:r
 // UPDATE or SAVE analysis result manually (human-in-the-loop edits)
 router.post("/projects/:projectId/analysis-result", requirePermission("analysis:edit"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const result = req.body;
-    result.project_id = req.params.projectId;
-    result.updated_at = new Date().toISOString();
+    const projectId = req.params.projectId;
+    // Callers only ever send the one field they're editing (e.g. just critical_requirements for
+    // a notes/status edit) - saveAnalysisResult merges that into the existing row, so start from
+    // the current full record rather than req.body alone, or every other field (bom, risks,
+    // executive_summary...) would be missing from what's saved.
+    const existing = await dbStore.getAnalysisResult(projectId);
+    const result = { ...existing, ...req.body, project_id: projectId, updated_at: new Date().toISOString() };
 
     await dbStore.saveAnalysisResult(result);
 
@@ -227,13 +231,18 @@ router.post("/projects/:projectId/analysis-result", requirePermission("analysis:
       action: "Update AI Analysis Content",
       entity_type: "AnalysisResult",
       entity_id: result.id || "ar_manual",
-      project_id: req.params.projectId,
+      project_id: projectId,
       ip_address: req.ip || "127.0.0.1",
       user_agent: req.headers["user-agent"] || "unknown",
       metadata: JSON.stringify({ review_status: result.review_status })
     });
 
-    res.json({ success: true, result });
+    // Return the full, freshly-saved record - not req.body (which only ever has the one field
+    // the caller edited) - so the frontend's setAnalysisResult(response) never wipes out every
+    // other field, which is exactly what was crashing the page (bom.map/.length on undefined)
+    // right after any requirement/risk edit.
+    const fullResult = await dbStore.getAnalysisResult(projectId);
+    res.json({ success: true, result: fullResult });
   } catch (err) {
     next(err);
   }
