@@ -1,7 +1,7 @@
 import { Dispatch, SetStateAction, useEffect, useState } from "react";
 import {
   AlertTriangle, ArrowLeft, DollarSign, Edit3, FileCode, FilePlus,
-  FolderOpen, FolderPlus, HardDrive, MessageSquare, Plus, Sparkles, Trash2, X,
+  FolderOpen, FolderPlus, HardDrive, MessageSquare, Plus, Trash2, X,
 } from "lucide-react";
 import { AnalysisResult, BOMItem, Document } from "../types";
 import { useWorkspace } from "../hooks/useWorkspace";
@@ -307,45 +307,6 @@ export default function Workspace({
                         )}
                       </div>
                     )}
-
-                    {/* Suggested Features Block */}
-                    <div className="mt-8 pt-6 border-t border-slate-200">
-                      <div className="bg-emerald-50/40 border border-emerald-200/60 rounded-xl p-5 shadow-sm">
-                        <div className="flex items-center gap-2 mb-3">
-                          <span className="p-1.5 bg-emerald-100 text-emerald-800 rounded-lg">
-                            <Sparkles size={16} />
-                          </span>
-                          <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800 font-mono">
-                            {t("suggestedFeatures")}
-                          </h3>
-                        </div>
-                        <p className="text-xs text-slate-600 mb-4 leading-relaxed">
-                          {t("suggestedFeaturesDesc")}
-                        </p>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className="bg-white p-4 rounded-lg border border-slate-100 shadow-sm hover:border-emerald-300 transition-colors">
-                            <h4 className="text-xs font-bold text-slate-800 uppercase font-mono mb-1">{t("sug1Title")}</h4>
-                            <p className="text-[11px] text-slate-500 leading-relaxed">{t("sug1Desc")}</p>
-                          </div>
-                          <div className="bg-white p-4 rounded-lg border border-slate-100 shadow-sm hover:border-emerald-300 transition-colors">
-                            <h4 className="text-xs font-bold text-slate-800 uppercase font-mono mb-1">{t("sug2Title")}</h4>
-                            <p className="text-[11px] text-slate-500 leading-relaxed">{t("sug2Desc")}</p>
-                          </div>
-                          <div className="bg-white p-4 rounded-lg border border-slate-100 shadow-sm hover:border-emerald-300 transition-colors">
-                            <h4 className="text-xs font-bold text-slate-800 uppercase font-mono mb-1">{t("sug3Title")}</h4>
-                            <p className="text-[11px] text-slate-500 leading-relaxed">{t("sug3Desc")}</p>
-                          </div>
-                          <div className="bg-white p-4 rounded-lg border border-slate-100 shadow-sm hover:border-emerald-300 transition-colors">
-                            <h4 className="text-xs font-bold text-slate-800 uppercase font-mono mb-1">{t("sug4Title")}</h4>
-                            <p className="text-[11px] text-slate-500 leading-relaxed">{t("sug4Desc")}</p>
-                          </div>
-                          <div className="bg-white p-4 rounded-lg border border-slate-100 shadow-sm hover:border-emerald-300 transition-colors md:col-span-2">
-                            <h4 className="text-xs font-bold text-slate-800 uppercase font-mono mb-1">{t("sug5Title")}</h4>
-                            <p className="text-[11px] text-slate-500 leading-relaxed">{t("sug5Desc")}</p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
 
                   </div>
                 )}
@@ -682,11 +643,14 @@ export default function Workspace({
 
                     {/* Point to Point Technical Matrices - one table per discipline the AI found
                         in the source document (CFTV, Rede, Elétrica...), each with its own
-                        relevant columns rather than one fixed schema for every project. */}
-                    {analysisResult && analysisResult.point_to_point_table && analysisResult.point_to_point_table.length > 0 && (
+                        relevant columns rather than one fixed schema for every project.
+                        Analyses saved before this schema existed have the old flat-row shape
+                        (no `columns`/`rows`) - filtered out defensively rather than crashing on
+                        `.map` of undefined; re-running the analysis regenerates it in the new shape. */}
+                    {analysisResult && analysisResult.point_to_point_table && analysisResult.point_to_point_table.filter((m) => Array.isArray(m?.columns) && Array.isArray(m?.rows)).length > 0 && (
                       <div className="space-y-5 pt-4 border-t border-slate-200">
                         <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">Matriz de Ponto a Ponto Técnica</h3>
-                        {analysisResult.point_to_point_table.map((matrix, mIdx) => (
+                        {analysisResult.point_to_point_table.filter((m) => Array.isArray(m?.columns) && Array.isArray(m?.rows)).map((matrix, mIdx) => (
                           <div key={mIdx} className="space-y-2">
                             <h4 className="text-xs font-bold uppercase tracking-wide text-emerald-700 font-mono">{matrix.discipline}</h4>
                             <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto shadow-sm">

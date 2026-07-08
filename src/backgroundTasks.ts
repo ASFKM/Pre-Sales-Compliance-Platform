@@ -69,6 +69,11 @@ export async function createTask(params: {
   userId: string;
   type: BackgroundTaskType;
   currentStep: string;
+  // Known up front for document_analysis (the project id) - set immediately instead of only at
+  // completion, so the frontend can tell which project a *running* task belongs to (needed to
+  // correctly re-disable the "Executar Análise IA" button after a page reload, when the local
+  // isAnalyzing state is gone but the real task is still running).
+  resultId?: string;
 }): Promise<BackgroundTask> {
   const t = await prisma.backgroundTask.create({
     data: {
@@ -78,6 +83,7 @@ export async function createTask(params: {
       type: params.type,
       status: "queued",
       currentStep: params.currentStep,
+      resultId: params.resultId,
     },
   });
   const task = mapTask(t);

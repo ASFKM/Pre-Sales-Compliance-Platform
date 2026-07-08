@@ -4,6 +4,7 @@ import Login from "./components/Login";
 import SystemMessageBanner from "./components/SystemMessageBanner";
 import AdminConsole from "./components/AdminConsole";
 import Workspace from "./components/Workspace";
+import ProjectsList from "./components/ProjectsList";
 import Home from "./components/Home";
 import Proposals from "./components/Proposals";
 import Templates from "./components/Templates";
@@ -348,7 +349,7 @@ export default function App() {
 
 
   // Navigation / Views
-  const [activeTab, setActiveTab] = useState<"home" | "workspace" | "proposals" | "templates" | "approval" | "admin">("home");
+  const [activeTab, setActiveTab] = useState<"home" | "workspace" | "projectsList" | "proposals" | "templates" | "approval" | "admin">("home");
   const [activeAdminSection, setActiveAdminSection] = useState<"overview" | "users" | "ai" | "templates" | "approval_flow" | "subscription" | "branding" | "integrations" | "storage" | "audit">("overview");
 
   // Shared with fetchGlobalConfigs (auto-selects defaults) and Workspace's proposal builder
@@ -551,6 +552,13 @@ export default function App() {
   // active project object (translated dynamically if locale is PT)
   const safeProjects = Array.isArray(projects) ? projects : [];
   const activeProject = getTranslatedProject(safeProjects.find(p => p.id === selectedProjectId) || safeProjects[0]);
+  // isAnalyzing (local state) gives instant feedback the moment the button is clicked, but
+  // resets to false on any page reload even though the real background task keeps running -
+  // activeTasks (fetched fresh from the server, survives reloads) is the real source of truth for
+  // whether THIS project has a document_analysis task in flight. Combining both means the button
+  // disables immediately on click AND stays correctly disabled after a reload, preventing the
+  // user from accidentally starting a second simultaneous analysis for the same project.
+  const isProjectAnalyzing = isAnalyzing || activeTasks.some((t) => t.type === "document_analysis" && t.result_id === selectedProjectId && t.status !== "completed" && t.status !== "failed");
   const displayAnalysisResult = getTranslatedAnalysisResult(analysisResult);
 
   // Fetch initial system settings & logs
@@ -1020,6 +1028,15 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
 
           <div className="flex items-center">
             <button
+              onClick={() => setActiveTab("projectsList")}
+              className={`py-4 px-1 border-b-2 transition-all ${activeTab === "projectsList" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
+            >
+              Projetos
+            </button>
+          </div>
+
+          <div className="flex items-center">
+            <button
               onClick={() => setActiveTab("proposals")}
               className={`py-4 px-1 border-b-2 transition-all ${activeTab === "proposals" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
             >
@@ -1080,11 +1097,6 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                   {activeTasks[0].current_step}
                   {typeof activeTasks[0].progress_pct === "number" && ` (${activeTasks[0].progress_pct}%)`}
                 </span>
-                {typeof activeTasks[0].progress_pct === "number" && (
-                  <div className="hidden md:block w-14 h-1.5 bg-slate-700 rounded-full overflow-hidden shrink-0">
-                    <div className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${activeTasks[0].progress_pct}%` }} />
-                  </div>
-                )}
                 {activeTasks.length > 1 && (
                   <span className="text-[9px] bg-emerald-600 text-white rounded-full px-1.5 font-bold">{activeTasks.length}</span>
                 )}
@@ -1114,7 +1126,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
       </nav>
 
       {/* 2. CONTEXT SUB-HEADER */}
-      {activeTab !== "home" && activeTab !== "admin" && (
+      {activeTab !== "home" && activeTab !== "admin" && activeTab !== "projectsList" && (
         <div className="h-11 bg-white border-b border-slate-200 flex items-center px-6 gap-2 text-xs font-medium shrink-0 shadow-sm">
           <span className="text-slate-400 font-mono">{locale === "pt" ? "Projetos" : "Projects"}</span>
           <span className="text-slate-400">/</span>
@@ -1162,7 +1174,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
       <main className="flex-1 flex overflow-hidden">
 
         {/* SIDEBAR: PROJECT SPECIFICATIONS & METADATA */}
-        {activeTab !== "home" && activeTab !== "admin" && (
+        {activeTab !== "home" && activeTab !== "admin" && activeTab !== "projectsList" && (
           <aside className="w-80 bg-slate-50 border-r border-slate-200 flex flex-col p-4 gap-4 shrink-0 overflow-y-auto">
 
           {/* Quick Creator */}
@@ -1269,33 +1281,15 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
           <section className="mt-auto pt-2 border-t border-slate-200">
             <button
               onClick={handleRunAnalysis}
-              disabled={isAnalyzing || documents.length === 0}
+              disabled={isProjectAnalyzing || documents.length === 0}
               className={`w-full py-2.5 rounded font-bold text-sm tracking-wide shadow-sm flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                isAnalyzing ? "bg-slate-700 text-slate-300" :
+                isProjectAnalyzing ? "bg-slate-700 text-slate-300" :
                 documents.length === 0 ? "bg-slate-200 text-slate-400 cursor-not-allowed" : "bg-emerald-600 hover:bg-emerald-700 text-white font-mono"
               }`}
             >
-              <RefreshCw size={15} className={isAnalyzing ? "animate-spin" : ""} />
-              {isAnalyzing ? t("compiling").toUpperCase() : t("runAi").toUpperCase()}
+              <RefreshCw size={15} className={isProjectAnalyzing ? "animate-spin" : ""} />
+              {isProjectAnalyzing ? t("compiling").toUpperCase() : t("runAi").toUpperCase()}
             </button>
-            {(() => {
-              const analysisTask = activeTasks.find((t) => t.type === "document_analysis");
-              if (!isAnalyzing || !analysisTask) return null;
-              return (
-                <div className="mt-2 space-y-1">
-                  <div className="flex justify-between text-[9px] text-slate-500 font-mono">
-                    <span className="truncate">{analysisTask.current_step}</span>
-                    {typeof analysisTask.progress_pct === "number" && <span className="font-bold shrink-0 ml-1">{analysisTask.progress_pct}%</span>}
-                  </div>
-                  <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-emerald-500 transition-all duration-500"
-                      style={{ width: `${typeof analysisTask.progress_pct === "number" ? analysisTask.progress_pct : 5}%` }}
-                    />
-                  </div>
-                </div>
-              );
-            })()}
             <p className="text-[9px] text-slate-400 text-center mt-1.5 leading-tight font-mono">
               {tx("Powered by", "Executado por")} {PROVIDER_DISPLAY_NAME[platformSettings?.document_analysis_provider || "gemini"] || platformSettings?.document_analysis_provider}
               {platformSettings?.document_analysis_model ? ` (${platformSettings.document_analysis_model})` : ""}
@@ -1353,6 +1347,21 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               setChatHistory={setChatHistory}
               waitForTask={waitForTask}
             />
+          )}
+
+          {/* TAB: ALL PROJECTS LIST (list/edit/delete - the sub-header dropdown above only ever
+              lets you switch which single project you're working on, there was no page listing
+              every project with edit/delete actions) */}
+          {activeTab === "projectsList" && (
+            <div className="p-6 overflow-y-auto">
+              <ProjectsList
+                locale={locale}
+                projects={projects}
+                hasPermission={hasPermission}
+                onOpenProject={(projectId) => { setSelectedProjectId(projectId); setActiveTab("workspace"); }}
+                onProjectsChanged={fetchProjects}
+              />
+            </div>
           )}
 
           {/* TAB 2: PROPOSALS TAB */}
@@ -1457,6 +1466,25 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
             LLM: <span className="text-emerald-400 font-bold uppercase">{platformSettings?.ai_provider || "Gemini"}</span>
           </span>
+          {(() => {
+            const analysisTask = activeTasks.find((t) => t.type === "document_analysis");
+            if (!analysisTask) return null;
+            return (
+              <span className="flex items-center gap-2 border-l border-slate-700 pl-6">
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0"></span>
+                <span className="truncate max-w-[220px]">
+                  Análise: {analysisTask.current_step}
+                  {typeof analysisTask.progress_pct === "number" && ` (${analysisTask.progress_pct}%)`}
+                </span>
+                <span className="w-16 h-1.5 bg-slate-700 rounded-full overflow-hidden shrink-0">
+                  <span
+                    className="block h-full bg-amber-400 transition-all duration-500"
+                    style={{ width: `${typeof analysisTask.progress_pct === "number" ? analysisTask.progress_pct : 5}%` }}
+                  />
+                </span>
+              </span>
+            );
+          })()}
         </div>
         <div className="flex gap-4">
           {hasPermission("admin:audit") && (

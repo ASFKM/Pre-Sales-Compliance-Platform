@@ -307,7 +307,7 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
   // Analysis runs in the background from here - respond immediately with the task id and
   // let the frontend watch progress over the Phase 1 SSE stream instead of holding the
   // request open for the whole Gemini call.
-  const task = await createTask({ userId, type: "document_analysis", currentStep: "Iniciando análise..." });
+  const task = await createTask({ userId, type: "document_analysis", currentStep: "Iniciando análise...", resultId: projectId });
   res.status(202).json({ success: true, task_id: task.id, job_id: job.id });
 
   // Everything from here runs detached from the request/response cycle - re-enter the tenant
