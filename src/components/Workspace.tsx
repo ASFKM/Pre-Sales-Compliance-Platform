@@ -40,6 +40,7 @@ interface WorkspaceProps {
   chatHistory: { role: string; message: string }[];
   setChatHistory: Dispatch<SetStateAction<{ role: string; message: string }[]>>;
   waitForTask: (taskId: string) => Promise<BackgroundTask>;
+  specCopilotProviderName: string;
 }
 
 export default function Workspace({
@@ -50,10 +51,11 @@ export default function Workspace({
   setActiveTab, setActiveAdminSection, canAccessAdminSection, handleDeleteDocument, getDocTag,
   selectedTechnicalTemplateId, setSelectedTechnicalTemplateId,
   selectedCommercialTemplateId, setSelectedCommercialTemplateId,
-  chatHistory, setChatHistory, waitForTask,
+  chatHistory, setChatHistory, waitForTask, specCopilotProviderName,
 }: WorkspaceProps) {
   const [subTab, setSubTab] = useState<SubTab>("summary");
   const [exportingQuestions, setExportingQuestions] = useState(false);
+  const [showCopilotChat, setShowCopilotChat] = useState(false);
 
   // Was a plain <a href download> pointing at the API route - browser-navigated downloads never
   // go through the app's global `fetch` interceptor (App.tsx) that injects the Authorization
@@ -1440,8 +1442,10 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
               {/* Right Column of Workspace (Technical Q&A / Clarification List) */}
               <div className="w-96 bg-slate-50 rounded-xl border border-slate-200 p-4 flex flex-col min-h-0 shrink-0 shadow-sm">
 
-                {/* Section 1: Dynamic QA List extracted */}
-                <div className="mb-4">
+                {/* Section 1: Dynamic QA List extracted - now the main content of this column
+                    (the copilot below is just a small floating trigger), since clarification
+                    questions are the more important thing to see at a glance. */}
+                <div className="flex-1 min-h-0 flex flex-col">
                   <div className="flex items-center justify-between mb-2.5">
                     <h3 className="text-[10px] uppercase tracking-widest text-slate-500 font-bold font-mono">
                       Perguntas de Esclarecimento Urgentes ({displayAnalysisResult?.clarification_questions.length || 0})
@@ -1462,7 +1466,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                       Aguardando avaliação de conformidade para sinalizar lacunas e dúvidas.
                     </div>
                   ) : (
-                    <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1">
+                    <div className="space-y-2 flex-1 overflow-y-auto pr-1">
                       {displayAnalysisResult.clarification_questions.map((q, idx) => (
                         <div key={idx} className="p-3 bg-white border-l-4 border-amber-400 rounded shadow-sm">
                           <p className="text-xs font-bold text-slate-800 leading-tight mb-1">{q.question}</p>
@@ -1480,50 +1484,76 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                   )}
                 </div>
 
-                {/* Section 2: Conversational Specification Copilot */}
-                <div className="flex-1 flex flex-col min-h-0 bg-white rounded-lg border border-slate-200 shadow-sm p-3">
-                  <div className="flex items-center gap-2 border-b border-slate-100 pb-2 mb-2">
-                    <MessageSquare size={16} className="text-emerald-600" />
-                    <span className="text-xs font-bold uppercase tracking-wider font-mono text-slate-700">{tx("Pre-Sales Spec Copilot", "Copiloto de Especificações de Pré-Vendas")}</span>
-                  </div>
-
-                  {/* Messages Feed */}
-                  <div className="flex-1 overflow-y-auto space-y-2 mb-3 pr-1 text-[11px] leading-relaxed">
-                    {chatHistory.map((msg, i) => (
-                      <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                        <div className={`p-2.5 rounded-lg max-w-[85%] border shadow-sm ${
-                          msg.role === "user" ? "bg-slate-100 text-slate-800 border-slate-200" : "bg-emerald-50 text-slate-800 border-emerald-100"
-                        }`}>
-                          <span className="font-mono text-[9px] text-slate-400 block uppercase mb-0.5">
-                            {msg.role === "user" ? "You" : "Gemini Analyst"}
-                          </span>
-                          <p className="whitespace-pre-line leading-normal">{msg.message}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Message Input Form */}
-                  <form onSubmit={handleSendChatMessage} className="flex gap-1">
-                    <input
-                      type="text"
-                      value={chatMessage}
-                      onChange={(e) => setChatMessage(e.target.value)}
-                      disabled={isChatSending}
-                      placeholder={tx("Ask about cabinet temperature, ALPR accuracy, fiber conduits...", "Pergunte sobre temperatura de gabinete, precisão ALPR, dutos de fibra...")}
-                      className="flex-1 text-xs px-3 py-1.5 border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-slate-50 disabled:opacity-60"
-                    />
-                    <button
-                      type="submit"
-                      disabled={isChatSending}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono font-bold text-xs px-3 rounded shadow-sm transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
-                    >
-                      {isChatSending ? (locale === "pt" ? "..." : "...") : "SEND"}
-                    </button>
-                  </form>
-                </div>
+                {/* Section 2: Copilot trigger - was a fixed-height chat panel always taking up
+                    half this column; now a small button that opens the chat as a modal, freeing
+                    the space for clarification questions (the more important content here). */}
+                <button
+                  onClick={() => setShowCopilotChat(true)}
+                  className="mt-3 flex items-center justify-center gap-2 bg-white hover:bg-emerald-50 border border-slate-200 hover:border-emerald-200 rounded-lg shadow-sm py-2.5 transition-colors cursor-pointer shrink-0"
+                >
+                  <MessageSquare size={15} className="text-emerald-600" />
+                  <span className="text-xs font-bold text-slate-700 font-mono">Copiloto de Especificações</span>
+                  {chatHistory.length > 0 && (
+                    <span className="text-[9px] bg-emerald-100 text-emerald-800 rounded-full px-1.5 font-bold">{chatHistory.length}</span>
+                  )}
+                </button>
 
               </div>
+
+              {showCopilotChat && (
+                <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
+                  <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg h-[70vh] flex flex-col">
+                    <div className="flex items-center justify-between p-4 border-b border-slate-100">
+                      <div className="flex items-center gap-2">
+                        <MessageSquare size={16} className="text-emerald-600" />
+                        <span className="text-xs font-bold uppercase tracking-wider font-mono text-slate-700">Copiloto de Especificações de Pré-Vendas</span>
+                      </div>
+                      <button onClick={() => setShowCopilotChat(false)} className="text-slate-400 hover:text-slate-700 cursor-pointer">
+                        <X size={18} />
+                      </button>
+                    </div>
+
+                    {/* Messages Feed */}
+                    <div className="flex-1 overflow-y-auto space-y-2 p-4 text-[11px] leading-relaxed">
+                      {chatHistory.length === 0 && (
+                        <p className="text-center text-slate-400 italic text-xs mt-6">Pergunte sobre as especificações deste projeto.</p>
+                      )}
+                      {chatHistory.map((msg, i) => (
+                        <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                          <div className={`p-2.5 rounded-lg max-w-[85%] border shadow-sm ${
+                            msg.role === "user" ? "bg-slate-100 text-slate-800 border-slate-200" : "bg-emerald-50 text-slate-800 border-emerald-100"
+                          }`}>
+                            <span className="font-mono text-[9px] text-slate-400 block uppercase mb-0.5">
+                              {msg.role === "user" ? "Você" : specCopilotProviderName}
+                            </span>
+                            <p className="whitespace-pre-line leading-normal">{msg.message}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Message Input Form */}
+                    <form onSubmit={handleSendChatMessage} className="flex gap-1 p-3 border-t border-slate-100">
+                      <input
+                        type="text"
+                        value={chatMessage}
+                        onChange={(e) => setChatMessage(e.target.value)}
+                        disabled={isChatSending}
+                        placeholder="Pergunte sobre as especificações deste projeto..."
+                        className="flex-1 text-xs px-3 py-1.5 border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-slate-50 disabled:opacity-60"
+                        autoFocus
+                      />
+                      <button
+                        type="submit"
+                        disabled={isChatSending}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono font-bold text-xs px-3 rounded shadow-sm transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        {isChatSending ? "..." : "ENVIAR"}
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              )}
             </div>
     </>
   );

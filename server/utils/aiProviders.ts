@@ -140,3 +140,50 @@ export async function generateJsonWithProvider(provider: ConnectedProvider, mode
     outputTokens: response.usageMetadata?.candidatesTokenCount || 0,
   };
 }
+
+// Same three-provider dispatch as generateJsonWithProvider, but for conversational free-text
+// answers (the spec copilot chat) - no forced JSON response format/instruction, since a JSON
+// object isn't what a chat answer should look like.
+export async function generateTextWithProvider(provider: ConnectedProvider, model: string, prompt: string): Promise<ProviderJsonResult> {
+  if (provider === "openai") {
+    const apiKey = await getConfiguredOpenAiApiKey();
+    const client = new OpenAI({ apiKey });
+    const response = await client.chat.completions.create({
+      model,
+      messages: [{ role: "user", content: prompt }],
+    });
+    return {
+      text: response.choices[0]?.message?.content || "",
+      inputTokens: response.usage?.prompt_tokens || 0,
+      outputTokens: response.usage?.completion_tokens || 0,
+    };
+  }
+
+  if (provider === "anthropic") {
+    const apiKey = await getConfiguredAnthropicApiKey();
+    const client = new Anthropic({ apiKey });
+    const stream = client.messages.stream({
+      model,
+      max_tokens: 4096,
+      messages: [{ role: "user", content: prompt }],
+    });
+    const response = await stream.finalMessage();
+    const textBlock = response.content.find((block) => block.type === "text");
+    return {
+      text: textBlock && "text" in textBlock ? textBlock.text : "",
+      inputTokens: response.usage?.input_tokens || 0,
+      outputTokens: response.usage?.output_tokens || 0,
+    };
+  }
+
+  const ai = await getGeminiClient();
+  const response = await ai.models.generateContent({
+    model,
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+  });
+  return {
+    text: response.text || "",
+    inputTokens: response.usageMetadata?.promptTokenCount || 0,
+    outputTokens: response.usageMetadata?.candidatesTokenCount || 0,
+  };
+}

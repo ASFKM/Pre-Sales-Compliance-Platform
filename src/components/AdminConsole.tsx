@@ -952,6 +952,7 @@ export default function AdminConsole({
                             { field: "critical_extraction_provider", modelField: null, label: locale === "pt" ? "Extração Crítica" : "Critical Extraction" },
                             { field: "web_grounding_provider", modelField: null, label: locale === "pt" ? "Pesquisa com Grounding Web" : "Web-Grounded Research" },
                             { field: "proposal_generation_provider", modelField: null, label: locale === "pt" ? "Redação de Propostas" : "Proposal Writing" },
+                            { field: "spec_copilot_provider", modelField: "spec_copilot_model", label: locale === "pt" ? "Copiloto de Especificações (Chat)" : "Spec Copilot (Chat)" },
                           ].map(({ field, modelField, label }) => (
                             <div key={field}>
                               <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{label}</label>

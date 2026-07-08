@@ -626,6 +626,8 @@ export function useAdminConsole(params: UseAdminConsoleParams) {
       "web_grounding_model",
       "web_grounding_provider",
       "proposal_generation_provider",
+      "spec_copilot_model",
+      "spec_copilot_provider",
       "monthly_cost_cap_usd",
       "default_language",
       "default_log_level"

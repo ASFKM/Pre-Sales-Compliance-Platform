@@ -1184,8 +1184,11 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
       {/* 3. MAIN WORKSPACE */}
       <main className="flex-1 flex overflow-hidden">
 
-        {/* SIDEBAR: PROJECT SPECIFICATIONS & METADATA */}
-        {activeTab !== "home" && activeTab !== "admin" && activeTab !== "projectsList" && (
+        {/* SIDEBAR: PROJECT SPECIFICATIONS & METADATA - only makes sense on the Workspace tab
+            itself (upload/analyze/BOM/matrix editing); Proposals/Templates/Approval Center all
+            still use the context sub-header's project dropdown, but don't need this cadastro/
+            analysis sidebar alongside them. */}
+        {activeTab === "workspace" && (
           <aside className="w-80 bg-slate-50 border-r border-slate-200 flex flex-col p-4 gap-4 shrink-0 overflow-y-auto">
 
           {/* Quick Creator */}
@@ -1357,6 +1360,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               chatHistory={chatHistory}
               setChatHistory={setChatHistory}
               waitForTask={waitForTask}
+              specCopilotProviderName={PROVIDER_DISPLAY_NAME[platformSettings?.spec_copilot_provider || "gemini"] || platformSettings?.spec_copilot_provider || "IA"}
             />
           )}
 

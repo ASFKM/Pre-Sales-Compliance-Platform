@@ -496,6 +496,8 @@ model PlatformSettings {
   webGroundingModel           String  @default("gemini-3.5-flash") @map("web_grounding_model")
   webGroundingProvider        String  @default("gemini") @map("web_grounding_provider")
   proposalGenerationProvider  String  @default("anthropic") @map("proposal_generation_provider")
+  specCopilotModel            String  @default("gemini-3.5-flash") @map("spec_copilot_model")
+  specCopilotProvider         String  @default("gemini") @map("spec_copilot_provider")
   // Per-tenant monthly AI spend cap - null means uncapped. Enforced (hard block once reached,
   // not just tracked), with an 80%-of-cap warning logged before that point.
   monthlyCostCapUsd        Float?   @map("monthly_cost_cap_usd")

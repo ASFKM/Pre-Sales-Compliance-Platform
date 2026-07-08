@@ -2,7 +2,7 @@ import { prisma } from "./prisma";
 import { dbStore } from "./dbStore";
 import { BackgroundTaskType } from "@prisma/client";
 
-export type AiTaskType = "document_analysis" | "critical_extraction" | "web_grounding" | "proposal_generation";
+export type AiTaskType = "document_analysis" | "critical_extraction" | "web_grounding" | "proposal_generation" | "spec_copilot";
 
 export interface ProviderResolution {
   provider: string;
@@ -20,6 +20,8 @@ interface TaskProviderSettings {
   web_grounding_provider: string;
   proposal_generation_model: string;
   proposal_generation_provider: string;
+  spec_copilot_model: string;
+  spec_copilot_provider: string;
   openai_api_key_encrypted?: string;
   anthropic_api_key_encrypted?: string;
 }

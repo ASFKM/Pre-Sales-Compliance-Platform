@@ -5,8 +5,7 @@ import { requirePermission } from "./auth";
 import { logDebugMessage } from "../middleware/security";
 import { AnalysisResult } from "../../src/types";
 import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
-import { getGeminiClient } from "../utils/gemini";
-import { generateJsonWithProvider, ConnectedProvider, ProviderFileInput } from "../utils/aiProviders";
+import { generateJsonWithProvider, generateTextWithProvider, ConnectedProvider, ProviderFileInput } from "../utils/aiProviders";
 import { createStorageAdapter } from "../utils/storage";
 import { estimateCostUsd } from "../utils/aiPricing";
 import { resolveProvider, checkCostCap, recordProviderFallback } from "../../src/aiOrchestrator";
@@ -673,9 +672,11 @@ router.post("/projects/:projectId/chat", requirePermission("analysis:read"), asy
     }
 
     const platformSettings = await dbStore.getSettings();
-    const chatModel = platformSettings.default_model || "gemini-3.5-flash";
+    const providerResolution = resolveProvider("spec_copilot", platformSettings);
 
     const prompt = `You are a Pre-Sales Solution Architect copilot answering a colleague's question about a specific bid.
+CRITICAL: this project is ONLY the one named below - never reference, compare against, or pull in
+information from any other project. Answer in ${project.proposal_language}.
 
 PROJECT: ${project.name} (${project.customer_name}, ${project.vertical})
 
@@ -696,24 +697,21 @@ Answer concisely and specifically, citing the source document/section when the a
 extracted text or analysis above. If the answer isn't covered by the material provided, say so plainly
 instead of inventing information.`;
 
-    const ai = await getGeminiClient();
-    const response = await ai.models.generateContent({ model: chatModel, contents: prompt });
-    const answer = response.text || "No response generated.";
+    const { text: answer, inputTokens, outputTokens } = await generateTextWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);
 
     const userId = (req.headers["x-user-id"] as string) || "u1";
-    const usage = (response as any).usageMetadata || {};
 
     await dbStore.addConversationMessage({
       project_id: projectId,
       user_id: userId,
       role: "user",
       message: userMessage,
-      ai_provider: "Google Gemini",
-      ai_model: chatModel,
+      ai_provider: providerResolution.provider,
+      ai_model: providerResolution.model,
       prompt_template_version: "chat-v1",
       input_summary: userMessage.slice(0, 200),
       output_summary: "",
-      token_input: usage.promptTokenCount || 0,
+      token_input: inputTokens,
       token_output: 0
     });
 
@@ -721,20 +719,20 @@ instead of inventing information.`;
       project_id: projectId,
       user_id: userId,
       role: "model",
-      message: answer,
-      ai_provider: "Google Gemini",
-      ai_model: chatModel,
+      message: answer || "Nenhuma resposta gerada.",
+      ai_provider: providerResolution.provider,
+      ai_model: providerResolution.model,
       prompt_template_version: "chat-v1",
       input_summary: userMessage.slice(0, 200),
-      output_summary: answer.slice(0, 200),
+      output_summary: (answer || "").slice(0, 200),
       token_input: 0,
-      token_output: usage.candidatesTokenCount || 0
+      token_output: outputTokens
     });
 
-    res.json({ success: true, answer });
+    res.json({ success: true, answer: answer || "Nenhuma resposta gerada.", provider: providerResolution.provider });
   } catch (err: any) {
     console.error("Chat copilot request failed:", err);
-    res.status(500).json({ success: false, message: `Gemini API execution failed: ${err.message}` });
+    res.status(500).json({ success: false, message: `AI provider execution failed: ${err.message}` });
   }
 });
 

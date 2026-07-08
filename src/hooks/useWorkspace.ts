@@ -140,9 +140,9 @@ export function useWorkspace(params: UseWorkspaceParams) {
         body: JSON.stringify({
           template_id: templateId,
           language: locale === "pt" ? "Portuguese" : "English",
-          payment_terms: "Net 30",
-          delivery_terms: "Delivery after technical approval",
-          proposal_validity: "90 days"
+          payment_terms: locale === "pt" ? "30 dias líquidos" : "Net 30",
+          delivery_terms: locale === "pt" ? "Entrega após aprovação técnica" : "Delivery after technical approval",
+          proposal_validity: locale === "pt" ? "90 dias" : "90 days"
         })
       });
 

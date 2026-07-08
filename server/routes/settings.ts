@@ -267,13 +267,15 @@ function validateAISettingsUpdates(updates: any) {
     "document_analysis_model",
     "proposal_generation_model",
     "critical_extraction_model",
-    "web_grounding_model"
+    "web_grounding_model",
+    "spec_copilot_model"
   ];
   const providerFields = [
     "document_analysis_provider",
     "critical_extraction_provider",
     "web_grounding_provider",
-    "proposal_generation_provider"
+    "proposal_generation_provider",
+    "spec_copilot_provider"
   ];
   const allowedLanguages = ["Portuguese", "English", "Spanish"];
   const allowedLogLevels = ["DEBUG", "INFO", "WARN", "ERROR"];
@@ -349,6 +351,8 @@ router.put("/settings/ai", requirePermission("ai:settings"), async (req: Request
       "web_grounding_model",
       "web_grounding_provider",
       "proposal_generation_provider",
+      "spec_copilot_model",
+      "spec_copilot_provider",
       "monthly_cost_cap_usd",
       "default_language",
       "default_log_level"
