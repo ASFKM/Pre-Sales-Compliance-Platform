@@ -151,6 +151,10 @@ export interface BOMItem {
   specification: string;
   source_reference: string;
   sourced_via_web_search?: boolean;
+  // Set the moment a user hand-edits sku/part_number/manufacturer - takes over from
+  // sourced_via_web_search in the UI badge, since "found by web search" stops being true/relevant
+  // once a person has actually verified/corrected the value themselves.
+  edited_by?: string;
 }
 
 export interface DynamicMatrixColumn {

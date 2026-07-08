@@ -60,6 +60,7 @@ interface WorkspaceProps {
   chatHistory: { role: string; message: string }[];
   setChatHistory: Dispatch<SetStateAction<{ role: string; message: string }[]>>;
   waitForTask: (taskId: string) => Promise<BackgroundTask>;
+  currentUserName: string;
 }
 
 export default function Workspace({
@@ -70,7 +71,7 @@ export default function Workspace({
   setActiveTab, setActiveAdminSection, canAccessAdminSection, handleDeleteDocument, getDocTag,
   selectedTechnicalTemplateId, setSelectedTechnicalTemplateId,
   selectedCommercialTemplateId, setSelectedCommercialTemplateId,
-  chatHistory, setChatHistory, waitForTask,
+  chatHistory, setChatHistory, waitForTask, currentUserName,
 }: WorkspaceProps) {
   const [subTab, setSubTab] = useState<SubTab>("summary");
   const [exportingQuestions, setExportingQuestions] = useState(false);
@@ -689,8 +690,19 @@ export default function Workspace({
                             </thead>
                             <tbody className="divide-y divide-slate-200">
                               {displayAnalysisResult.bom.map((item, idx) => {
+                                // Editing sku/part_number/manufacturer by hand means a person has
+                                // now verified/corrected that value - "found via web search" is
+                                // no longer the relevant fact about it, so the badge switches to
+                                // who edited it instead of where it originally came from.
+                                const SOURCING_FIELDS: (keyof BOMItem)[] = ["sku", "part_number", "manufacturer"];
                                 const updateField = (field: keyof BOMItem, value: string | number) => {
-                                  const updatedBOM = analysisResult!.bom.map(b => b.item_id === item.item_id ? { ...b, [field]: value } : b);
+                                  const updatedBOM = analysisResult!.bom.map(b => b.item_id === item.item_id
+                                    ? {
+                                        ...b,
+                                        [field]: value,
+                                        ...(SOURCING_FIELDS.includes(field) ? { sourced_via_web_search: false, edited_by: currentUserName } : {}),
+                                      }
+                                    : b);
                                   fetch(`/api/projects/${selectedProjectId}/analysis-result`, {
                                     method: "POST",
                                     headers: { "Content-Type": "application/json" },
@@ -706,7 +718,14 @@ export default function Workspace({
                                   <td className="p-3">
                                     <input type="text" value={item.part_number} onChange={(e) => updateField("part_number", e.target.value)}
                                       className="font-mono text-slate-700 bg-slate-50 px-1 py-0.5 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500 w-28" />
-                                    {item.sourced_via_web_search && (
+                                    {item.edited_by ? (
+                                      <span
+                                        className="inline-block mt-1 text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded-full"
+                                        title="Valor corrigido/verificado manualmente"
+                                      >
+                                        ✏️ Editado por {item.edited_by}
+                                      </span>
+                                    ) : item.sourced_via_web_search && (
                                       <span
                                         className="inline-block mt-1 text-[9px] font-bold text-blue-700 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded-full"
                                         title="Sugerido por busca real na web, não citado no documento - valide antes de usar na proposta final"

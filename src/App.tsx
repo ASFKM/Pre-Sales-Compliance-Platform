@@ -1360,6 +1360,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               chatHistory={chatHistory}
               setChatHistory={setChatHistory}
               waitForTask={waitForTask}
+              currentUserName={currentSessionUser.name || "Usuário"}
             />
           )}
 

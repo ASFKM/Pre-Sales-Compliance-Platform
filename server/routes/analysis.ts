@@ -141,6 +141,9 @@ const BOMItemSchema = z.object({
   // rather than found in the source document - the two have very different reliability, and the
   // user needs to know which is which before quoting a part number in a real proposal.
   sourced_via_web_search: z.boolean().optional().default(false),
+  // Set client-side the moment a user hand-edits sku/part_number/manufacturer - takes over from
+  // sourced_via_web_search in the UI badge once a person has verified/corrected the value.
+  edited_by: z.string().optional(),
 });
 
 // The point-to-point technical matrix is domain-aware rather than one fixed set of columns for
