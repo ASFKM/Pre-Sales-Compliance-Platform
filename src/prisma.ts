@@ -5,12 +5,17 @@ import { getTenantContext, TenantContext } from "./tenantContext";
 // enforced here, once, instead of every route/dbStore call site remembering to add a
 // WHERE clause - that's the whole point: the category of bug (forgot the tenant filter)
 // becomes structurally impossible for anything routed through this client.
-const TENANT_SCOPED_MODELS = new Set([
-  "aIAnalysisJob", "analysisResult", "approvalDecision", "approvalWorkflow", "approvalStage",
-  "auditLog", "backgroundTask", "brandingSettings", "conversationMessage", "debugLog", "document",
-  "documentContent", "integrationConnector", "knowledgeBaseDocument", "knowledgeBaseEntry",
-  "platformSettings", "project", "promptTemplate", "proposal", "proposalTemplate", "role",
-  "systemMessage", "task", "user", "teamMembership", "vertical",
+//
+// Exported (not just used internally) so prisma.test.ts can cross-check it against the schema's
+// real DMMF and fail loudly the moment a new tenantId-bearing model is added here without also
+// being added to this set - the exact gap that let 5 models (including this file's own upsert()
+// bug) go unscoped for most of this project's history.
+export const TENANT_SCOPED_MODELS = new Set([
+  "aIAnalysisJob", "aiUsageLog", "analysisResult", "approvalDecision", "approvalWorkflow",
+  "approvalStage", "auditLog", "backgroundTask", "brandingSettings", "conversationMessage",
+  "debugLog", "document", "documentContent", "integrationConnector", "knowledgeBaseDocument",
+  "knowledgeBaseEntry", "platformSettings", "project", "promptTemplate", "proposal",
+  "proposalTemplate", "role", "systemMessage", "task", "user", "teamMembership", "vertical",
 ]);
 
 const READ_OPS = new Set(["findFirst", "findFirstOrThrow", "findUnique", "findUniqueOrThrow", "findMany", "count", "aggregate", "groupBy"]);

@@ -586,12 +586,55 @@ export function useAdminConsole(params: UseAdminConsoleParams) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content })
       });
-      if (res.ok) {
-        fetchGlobalConfigs();
-        alert(locale === "pt" ? "Prompt salvo com sucesso." : "Prompt template saved successfully!");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.message || (locale === "pt" ? "Não foi possível salvar o prompt." : "Could not save the prompt."));
+        return;
       }
+      await fetchGlobalConfigs();
+      alert(locale === "pt" ? "Prompt salvo com sucesso." : "Prompt template saved successfully!");
     } catch (e) {
       console.error(e);
+      alert(locale === "pt" ? "Erro ao salvar prompt." : "Error saving prompt.");
+    }
+  };
+
+  // Real versioning: this creates a new row (never auto-activated - see the route/dbStore comment)
+  // instead of mutating the existing version's content in place.
+  const handleCreatePromptVersion = async (params: { name: string; type: string; content: string; language: string; version: string }) => {
+    try {
+      const res = await fetch("/api/settings/prompts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(params)
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.message || (locale === "pt" ? "Não foi possível criar a nova versão." : "Could not create the new version."));
+        return null;
+      }
+      const created = await res.json();
+      await fetchGlobalConfigs();
+      return created;
+    } catch (e) {
+      console.error(e);
+      alert(locale === "pt" ? "Erro ao criar nova versão do prompt." : "Error creating new prompt version.");
+      return null;
+    }
+  };
+
+  const handleActivatePromptVersion = async (id: string) => {
+    try {
+      const res = await fetch(`/api/settings/prompts/${id}/activate`, { method: "POST" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.message || (locale === "pt" ? "Não foi possível ativar esta versão." : "Could not activate this version."));
+        return;
+      }
+      await fetchGlobalConfigs();
+    } catch (e) {
+      console.error(e);
+      alert(locale === "pt" ? "Erro ao ativar versão do prompt." : "Error activating prompt version.");
     }
   };
 
@@ -749,6 +792,8 @@ export function useAdminConsole(params: UseAdminConsoleParams) {
     handleUpdateProposalTemplate,
     handleDeleteProposalTemplate,
     handleUpdatePromptTemplate,
+    handleCreatePromptVersion,
+    handleActivatePromptVersion,
     handleValidateStorageSettings,
     handleSavePlatformSettings,
     handleSaveAiApiKey,

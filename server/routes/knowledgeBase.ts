@@ -5,7 +5,8 @@ import { dbStore } from "../../src/dbStore";
 import { requirePermission } from "./auth";
 import { createStorageAdapter, validateUploadedFile } from "../utils/storage";
 import { generateJsonWithProvider, generateTextWithProvider, ConnectedProvider, ProviderFileInput } from "../utils/aiProviders";
-import { resolveProvider } from "../../src/aiOrchestrator";
+import { resolveProvider, checkCostCap, recordAiUsage } from "../../src/aiOrchestrator";
+import { estimateCostUsd } from "../utils/aiPricing";
 import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
 import { runWithTenant } from "../../src/tenantContext";
 
@@ -114,6 +115,14 @@ router.post("/knowledge-base/suggest", requirePermission("knowledge_base:write")
 
     const platformSettings = await dbStore.getSettings();
     const providerResolution = resolveProvider("spec_copilot", platformSettings);
+    const tenantId = req.headers["x-tenant-id"] as string;
+
+    // Consistent with this route's fire-and-forget nature: a capped tenant just gets no
+    // suggestion this time (silent no-op), never an error surfaced mid-edit.
+    const costCap = await checkCostCap(tenantId, platformSettings.monthly_cost_cap_usd ?? null);
+    if (costCap.blocked) {
+      return res.json({ success: true, entry: null });
+    }
 
     const prompt = `A pre-sales engineer just corrected a value in a tender analysis. Turn this single correction into a
 reusable trigger/knowledge pair for a technical knowledge base, so a *future* analysis of a
@@ -132,7 +141,14 @@ reusable (e.g. a one-off administrative note), respond with reusable: false inst
 
 Respond with ONLY a JSON object: { "reusable": true, "trigger": "...", "knowledge": "..." }`;
 
-    const { text } = await generateTextWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);
+    const { text, inputTokens, outputTokens } = await generateTextWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);
+    await recordAiUsage({
+      tenantId,
+      taskType: "kb_suggest",
+      provider: providerResolution.provider,
+      model: providerResolution.model,
+      estimatedCostUsd: estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
+    });
     const jsonMatch = text.match(/```json\s*([\s\S]*?)```/) || [null, text.slice(text.indexOf("{"))];
     const parsed = JSON.parse((jsonMatch[1] || text).trim());
 
@@ -227,10 +243,18 @@ router.post(
 
 router.delete("/knowledge-base/documents/:id", requirePermission("knowledge_base:write"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const deleted = await dbStore.deleteKnowledgeBaseDocument(req.params.id);
-    if (!deleted) {
+    const doc = await dbStore.getKnowledgeBaseDocument(req.params.id);
+    if (!doc) {
       return res.status(404).json({ success: false, message: "Document not found." });
     }
+
+    // Was only removing the database row, leaving the uploaded file itself orphaned in storage
+    // forever - confirmed during this session's own testing (had to clean it up by hand).
+    const platformSettings = await dbStore.getSettings();
+    const storageAdapter = createStorageAdapter({ ...platformSettings, storage_mode: doc.storage_provider as any });
+    await storageAdapter.deleteFile(doc.storage_path);
+
+    await dbStore.deleteKnowledgeBaseDocument(req.params.id);
     res.json({ success: true });
   } catch (err) {
     next(err);
@@ -251,6 +275,15 @@ router.post("/knowledge-base/documents/analyze", requirePermission("knowledge_ba
     const pendingDocs = allDocs.filter((d) => !d.analyzed_at);
     if (pendingDocs.length === 0) {
       return res.status(400).json({ success: false, message: "Nenhum documento novo para analisar." });
+    }
+
+    const platformSettingsForCap = await dbStore.getSettings();
+    const costCap = await checkCostCap(tenantId, platformSettingsForCap.monthly_cost_cap_usd ?? null);
+    if (costCap.blocked) {
+      return res.status(402).json({
+        success: false,
+        message: `Monthly AI cost cap reached ($${costCap.currentSpendUsd.toFixed(2)} of $${costCap.capUsd?.toFixed(2)}). Try again next month or raise the cap in Admin > AI, Prompts e Custos.`
+      });
     }
 
     const task = await createTask({ userId, type: "knowledge_base_analysis", currentStep: "Iniciando análise da Base de Conhecimento..." });
@@ -297,14 +330,26 @@ Respond with ONLY a JSON array (no markdown, no extra text):
 [{ "category": "bom_part_number" | "engineering_note", "trigger": "...", "knowledge": "..." }]`;
 
           try {
-            const { text } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt, files);
+            const { text, inputTokens, outputTokens } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt, files);
+            await recordAiUsage({
+              tenantId,
+              taskType: "knowledge_base_analysis",
+              provider: providerResolution.provider,
+              model: providerResolution.model,
+              estimatedCostUsd: estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
+              backgroundTaskId: task.id,
+            });
             const fenceMatch = text.match(/```json\s*([\s\S]*?)```/);
             const rawJson = fenceMatch ? fenceMatch[1] : text.slice(text.indexOf("["));
             const proposals: Array<{ category: string; trigger: string; knowledge: string }> = JSON.parse(rawJson.trim());
 
             for (const p of proposals) {
+              // Was collapsing anything that wasn't literally "bom_part_number" (including the
+              // prompt's OTHER valid option, "engineering_note") into "datasheet" - the ternary
+              // only ever recognized one of the two categories the prompt itself asks for.
+              const category = p.category === "bom_part_number" || p.category === "engineering_note" ? p.category : "datasheet";
               await dbStore.createKnowledgeBaseEntry({
-                category: (p.category === "bom_part_number" ? "bom_part_number" : "datasheet") as any,
+                category: category as any,
                 trigger: p.trigger,
                 knowledge: p.knowledge,
                 status: "pending",

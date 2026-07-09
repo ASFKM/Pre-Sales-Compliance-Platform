@@ -8,7 +8,7 @@ import { createStorageAdapter } from "../utils/storage";
 import { getFleetLicenseStatus } from "../utils/fleetLicense";
 import { getCurrentTenantId } from "../../src/tenantContext";
 import { FACTORY_DEFAULT_CLASSIFICATION_PROMPT, FACTORY_DEFAULT_ANALYSIS_PROMPT } from "../utils/promptDefaults";
-import { getCurrentMonthSpendUsd, getCurrentMonthSpendByTaskType } from "../../src/aiOrchestrator";
+import { getCurrentMonthSpendUsd, getCurrentMonthSpendByTaskTypeAndProvider } from "../../src/aiOrchestrator";
 
 const router = express.Router();
 
@@ -135,8 +135,8 @@ router.get("/settings/ai-cost-summary", requireAuth, async (req: Request, res: R
   try {
     const tenantId = getCurrentTenantId()!;
     const spendUsd = await getCurrentMonthSpendUsd(tenantId);
-    const spendByTaskType = await getCurrentMonthSpendByTaskType(tenantId);
-    res.json({ spend_usd: spendUsd, spend_by_task_type: spendByTaskType });
+    const spendByTaskTypeAndProvider = await getCurrentMonthSpendByTaskTypeAndProvider(tenantId);
+    res.json({ spend_usd: spendUsd, spend_by_task_type_and_provider: spendByTaskTypeAndProvider });
   } catch (err) {
     next(err);
   }
@@ -606,6 +606,47 @@ router.put("/settings/prompts/:id", requirePermission("ai:settings"), async (req
     }
 
     await auditSettingsChange(req, "Update AI Prompt Template", "PromptTemplate", req.params.id, updates);
+
+    res.json(prompt);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Real versioning: a "new version" is a new row, never activated automatically - the live
+// analysis/classification pipeline keeps using whichever version is currently isActive until
+// someone explicitly promotes this one via /activate below. Distinct from PUT above, which edits
+// the content of one existing version in place.
+router.post("/settings/prompts", requirePermission("ai:settings"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { name, type, content, language, version } = req.body || {};
+    const promptValidation = validatePromptUpdates({ name, type, content, language, version });
+    if (!promptValidation.valid) {
+      return res.status(400).json({ success: false, message: promptValidation.message });
+    }
+
+    const userId = (req.headers["x-user-id"] as string) || "u1";
+    const prompt = await dbStore.createPromptVersion({ name, type, content, language, version, created_by: userId });
+
+    await auditSettingsChange(req, "Create AI Prompt Template Version", "PromptTemplate", prompt.id, { type, version });
+
+    res.status(201).json(prompt);
+  } catch (err: any) {
+    if (err?.code === "P2002") {
+      return res.status(409).json({ success: false, message: "This version already exists for this prompt type." });
+    }
+    next(err);
+  }
+});
+
+router.post("/settings/prompts/:id/activate", requirePermission("ai:settings"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const prompt = await dbStore.setActivePromptVersion(req.params.id);
+    if (!prompt) {
+      return res.status(404).json({ success: false, message: "Prompt not found" });
+    }
+
+    await auditSettingsChange(req, "Activate AI Prompt Template Version", "PromptTemplate", prompt.id, { type: prompt.type, version: prompt.version });
 
     res.json(prompt);
   } catch (err) {

@@ -7,7 +7,7 @@ import { validateUploadedFile, createStorageAdapter } from "../utils/storage";
 import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
 import * as staging from "../../src/projectIntakeStaging";
 import { ProjectSchema } from "./projects";
-import { resolveProvider, checkCostCap, recordProviderFallback } from "../../src/aiOrchestrator";
+import { resolveProvider, checkCostCap, recordProviderFallback, recordAiUsage } from "../../src/aiOrchestrator";
 import { generateJsonWithProvider, ConnectedProvider } from "../utils/aiProviders";
 import { estimateCostUsd } from "../utils/aiPricing";
 import { classifyDocument } from "../utils/documentClassification";
@@ -156,7 +156,10 @@ router.post("/project-intake/:sessionId/analyze", requireAuth, async (req: Reque
     const task = await createTask({ userId, type: "project_intake_analysis", currentStep: "Iniciando análise..." });
     res.status(202).json({ success: true, task_id: task.id });
 
-    void (async () => {
+    // Wrapped in runWithTenant like every other detached background block in this codebase -
+    // BackgroundTask became tenant-scoped in the tenant-isolation fix, so updateTaskProgress/
+    // completeTask/failTask below need real context, not just an implicit pass-through.
+    void runWithTenant({ tenantId }, async () => {
       try {
         await updateTaskProgress(task.id, { status: "running", currentStep: "Lendo documentos", progressPct: 20 });
 
@@ -225,11 +228,19 @@ Respond with ONLY a strictly parsable JSON object, no markdown, matching this sh
           intendedProvider: providerResolution.intendedProvider,
           isProviderFallback: providerResolution.isFallback,
         });
+        await recordAiUsage({
+          tenantId,
+          taskType: "project_intake_analysis",
+          provider: providerResolution.provider,
+          model: providerResolution.model,
+          estimatedCostUsd: realEstimatedCostUsd,
+          backgroundTaskId: task.id,
+        });
       } catch (err: any) {
         console.error("Project intake analysis failed:", err);
         await failTask(task.id, err.message || "Unknown error during project intake analysis");
       }
-    })();
+    });
   } catch (err) {
     next(err);
   }
@@ -275,7 +286,7 @@ router.post("/project-intake/:sessionId/confirm", requirePermission("project:cre
       if (!buffer) continue;
 
       const storagePath = await storageAdapter.uploadFile(project.id, buffer, f.filename, f.mimeType);
-      const classification = await classifyDocument(f.filename, f.extractedText);
+      const classification = await classifyDocument(f.filename, f.extractedText, tenantId);
 
       await runWithTenant(tenantContext, async () => {
         const docRecord = await dbStore.addDocument({

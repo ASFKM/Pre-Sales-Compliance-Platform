@@ -81,7 +81,7 @@ router.post(
       // 3b. Real AI classification (Admin > IA, Prompts e Custos > "Document Classification
       // Prompt") - replaces what used to be a hardcoded mimetype guess with a fixed fake
       // confidence.
-      const classification = await classifyDocument(file.originalname, extraction.text);
+      const classification = await classifyDocument(file.originalname, extraction.text, tenantId);
 
       await runWithTenant(tenantContext, async () => {
         // 4. Save to Database

@@ -1116,7 +1116,54 @@ class DBStore {
 
   // Prompt templates
   public async getPrompts(): Promise<PromptTemplate[]> {
-    return (await prisma.promptTemplate.findMany()).map(mapPrompt);
+    return (await prisma.promptTemplate.findMany({ orderBy: { createdAt: "desc" } })).map(mapPrompt);
+  }
+
+  // New version of an existing prompt type - never activated automatically, so drafting/reviewing
+  // a new version never changes what the live analysis/classification pipeline actually uses until
+  // someone explicitly calls setActivePromptVersion. Duplicate (type, version) is caught by the
+  // @@unique constraint (P2002), surfaced by the route as a normal validation error.
+  public async createPromptVersion(params: {
+    name: string;
+    type: string;
+    content: string;
+    language: PromptTemplate["language"];
+    version: string;
+    created_by: string;
+  }): Promise<PromptTemplate> {
+    const p = await prisma.promptTemplate.create({
+      data: {
+        id: randomId("prm"),
+        tenantId: requireTenantId(),
+        name: params.name,
+        type: params.type,
+        content: params.content,
+        language: params.language,
+        version: params.version,
+        isActive: false,
+        createdBy: params.created_by,
+      },
+    });
+    return mapPrompt(p);
+  }
+
+  // Mutually exclusive per type: activating one version deactivates every other version of the
+  // same type in the same transaction, so exactly one is ever active - the pipeline's
+  // findFirst({isActive: true}) lookup (analysis.ts, documentClassification.ts) depends on this.
+  public async setActivePromptVersion(id: string): Promise<PromptTemplate | undefined> {
+    const target = await prisma.promptTemplate.findUnique({ where: { id } });
+    if (!target) return undefined;
+
+    await prisma.$transaction([
+      prisma.promptTemplate.updateMany({
+        where: { type: target.type, tenantId: target.tenantId },
+        data: { isActive: false },
+      }),
+      prisma.promptTemplate.update({ where: { id }, data: { isActive: true } }),
+    ]);
+
+    const updated = await prisma.promptTemplate.findUnique({ where: { id } });
+    return updated ? mapPrompt(updated) : undefined;
   }
 
   public async updatePrompt(id: string, updates: Partial<PromptTemplate>): Promise<PromptTemplate | undefined> {

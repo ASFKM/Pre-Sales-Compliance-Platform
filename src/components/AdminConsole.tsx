@@ -35,12 +35,27 @@ const DEFAULT_MODEL_FOR_PROVIDER: Record<string, string> = {
   deepseek: "deepseek-v3",
 };
 
-// Only the two background-task types that currently record estimatedCostUsd (see
-// getCurrentMonthSpendByTaskType in src/aiOrchestrator.ts) - proposal generation isn't tracked
-// yet, so it's deliberately left out rather than showing a misleading "$0.00" for it.
+// Every AI-spending task type recorded in AiUsageLog (see AI_SPENDING_TASK_TYPES in
+// src/aiOrchestrator.ts) - proposal generation itself is template/DOCX filling, not its own AI
+// call, so it's correctly absent rather than showing a misleading "$0.00" for it.
 const AI_TASK_TYPE_LABEL: Record<string, { pt: string; en: string }> = {
   document_analysis: { pt: "Análise de Documentos", en: "Document Analysis" },
   project_intake_analysis: { pt: "Extração de Metadados (Cadastro de Projeto)", en: "Metadata Extraction (Project Intake)" },
+  knowledge_base_analysis: { pt: "Análise de Documentos (Base de Conhecimento)", en: "Document Analysis (Knowledge Base)" },
+  spec_copilot_chat: { pt: "Copiloto de Especificações (Chat)", en: "Specification Copilot (Chat)" },
+  bom_web_search: { pt: "Busca Web de Equipamentos (BOM)", en: "Equipment Web Search (BOM)" },
+  kb_suggest: { pt: "Sugestão da Base de Conhecimento", en: "Knowledge Base Suggestion" },
+  document_classification: { pt: "Classificação de Documentos", en: "Document Classification" },
+};
+
+// Column order for the per-provider cost breakdown table - the 3 providers this platform has
+// today; a provider present in the data but not in this list still gets its own column (see the
+// render below), it just isn't guaranteed a fixed position.
+const COST_TABLE_PROVIDERS = ["anthropic", "openai", "gemini"] as const;
+const PROVIDER_DISPLAY_NAME: Record<string, string> = {
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+  gemini: "Gemini",
 };
 
 type AdminSection =
@@ -110,20 +125,25 @@ export default function AdminConsole({
   }, []);
 
   const [costUSD, setCostUSD] = useState(0);
-  const [costByTaskType, setCostByTaskType] = useState<Record<string, number>>({});
+  const [costByTaskTypeAndProvider, setCostByTaskTypeAndProvider] = useState<Record<string, Record<string, number>>>({});
   const exchangeRate = 5.15; // 1 USD = 5.15 BRL (approximate, not live-fetched)
 
   useEffect(() => {
-    ApiClient.get<{ spend_usd: number; spend_by_task_type: Record<string, number> }>("/api/settings/ai-cost-summary")
+    ApiClient.get<{ spend_usd: number; spend_by_task_type_and_provider: Record<string, Record<string, number>> }>("/api/settings/ai-cost-summary")
       .then((r) => {
         setCostUSD(r.spend_usd);
-        setCostByTaskType(r.spend_by_task_type || {});
+        setCostByTaskTypeAndProvider(r.spend_by_task_type_and_provider || {});
       })
-      .catch(() => { setCostUSD(0); setCostByTaskType({}); });
+      .catch(() => { setCostUSD(0); setCostByTaskTypeAndProvider({}); });
   }, []);
   const [aiKeyDrafts, setAiKeyDrafts] = useState<Record<string, string>>({ gemini: "", openai: "", anthropic: "" });
   const [editingPromptId, setEditingPromptId] = useState<string | null>(null);
   const [promptDrafts, setPromptDrafts] = useState<Record<string, string>>({});
+  // Which version of each prompt type is currently displayed/selected in the combobox - defaults
+  // (via a fallback in the render) to whichever version is isActive for that type.
+  const [selectedPromptVersionByType, setSelectedPromptVersionByType] = useState<Record<string, string>>({});
+  const [newVersionFormForType, setNewVersionFormForType] = useState<string | null>(null);
+  const [newVersionLabel, setNewVersionLabel] = useState("");
   const [verticals, setVerticals] = useState<{ id: string; name: string; is_active: boolean }[]>([]);
   const [newVerticalName, setNewVerticalName] = useState("");
   const [newBroadcastMessage, setNewBroadcastMessage] = useState("");
@@ -223,6 +243,8 @@ export default function AdminConsole({
     handleUpdateProposalTemplate,
     handleDeleteProposalTemplate,
     handleUpdatePromptTemplate,
+    handleCreatePromptVersion,
+    handleActivatePromptVersion,
     handleValidateStorageSettings,
     handleSavePlatformSettings,
     handleSaveAiApiKey,
@@ -1014,31 +1036,106 @@ export default function AdminConsole({
                         </div>
                       </div>
                       <div className="border-t border-slate-100 pt-3">
-                        <span className="text-[9px] text-slate-400 block uppercase mb-2 font-mono">{locale === "pt" ? "Consumo por Serviço (mês atual)" : "Cost by Service (current month)"}</span>
-                        <div className="space-y-1.5">
-                          {Object.entries(AI_TASK_TYPE_LABEL).map(([taskType, label]) => (
-                            <div key={taskType} className="flex items-center justify-between text-xs bg-slate-50 border border-slate-100 rounded px-3 py-2">
-                              <span className="text-slate-600 font-mono">{locale === "pt" ? label.pt : label.en}</span>
-                              <span className="font-bold text-slate-800 font-mono">${(costByTaskType[taskType] || 0).toFixed(2)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="space-y-4 max-h-[520px] overflow-y-auto pr-1">
-                        {promptTemplates.map(prm => {
-                          const displayName =
-                            prm.type === "classification" ? tx("Document Classification Prompt", "Prompt de Classificação de Documentos")
-                            : prm.type === "analysis" ? tx("Pre-Sales Technical Specification Analyser", "Analisador de Especificação Técnica de Pré-Vendas")
-                            : prm.name;
-                          const isEditing = editingPromptId === prm.id;
+                        <span className="text-[9px] text-slate-400 block uppercase mb-2 font-mono">{locale === "pt" ? "Consumo por Serviço e Provedor (mês atual)" : "Cost by Service and Provider (current month)"}</span>
+                        {(() => {
+                          // Any provider that actually has spend this month gets a column too,
+                          // even if it's not one of the 3 known ones - never silently drops real
+                          // cost data because a provider isn't in the fixed list.
+                          const extraProviders = Object.values(costByTaskTypeAndProvider)
+                            .flatMap((byProvider) => Object.keys(byProvider))
+                            .filter((p) => !(COST_TABLE_PROVIDERS as readonly string[]).includes(p));
+                          const providerColumns = [...COST_TABLE_PROVIDERS, ...new Set(extraProviders)];
+                          const taskTypesWithSpend = Object.keys(AI_TASK_TYPE_LABEL).filter((t) =>
+                            Object.values(costByTaskTypeAndProvider[t] || {}).some((v) => v > 0)
+                          );
+
+                          if (taskTypesWithSpend.length === 0) {
+                            return (
+                              <div className="text-xs text-slate-400 italic px-3 py-4 text-center bg-slate-50 border border-slate-100 rounded-lg">
+                                {locale === "pt" ? "Nenhum consumo de IA registrado neste mês ainda." : "No AI usage recorded this month yet."}
+                              </div>
+                            );
+                          }
+
                           return (
-                          <div key={prm.id} className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
-                            <div className="flex justify-between items-center">
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-xs border-collapse">
+                                <thead>
+                                  <tr className="text-[9px] uppercase text-slate-400 font-mono">
+                                    <th className="text-left font-bold pb-1.5 pr-2">{locale === "pt" ? "Serviço" : "Service"}</th>
+                                    {providerColumns.map((p) => (
+                                      <th key={p} className="text-right font-bold pb-1.5 px-2">{PROVIDER_DISPLAY_NAME[p] || p}</th>
+                                    ))}
+                                    <th className="text-right font-bold pb-1.5 pl-2">{locale === "pt" ? "Total" : "Total"}</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {taskTypesWithSpend.map((taskType) => {
+                                    const byProvider = costByTaskTypeAndProvider[taskType] || {};
+                                    const rowTotal = Object.values(byProvider).reduce((sum, v) => sum + v, 0);
+                                    return (
+                                      <tr key={taskType} className="border-t border-slate-100">
+                                        <td className="py-2 pr-2 text-slate-600 font-mono">{locale === "pt" ? AI_TASK_TYPE_LABEL[taskType].pt : AI_TASK_TYPE_LABEL[taskType].en}</td>
+                                        {providerColumns.map((p) => (
+                                          <td key={p} className="py-2 px-2 text-right font-mono text-slate-500">
+                                            {byProvider[p] ? `$${byProvider[p].toFixed(2)}` : "—"}
+                                          </td>
+                                        ))}
+                                        <td className="py-2 pl-2 text-right font-mono font-bold text-slate-800">${rowTotal.toFixed(2)}</td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                      <div className="space-y-4 max-h-[640px] overflow-y-auto pr-1">
+                        {Object.entries(
+                          promptTemplates.reduce((acc, p) => {
+                            (acc[p.type] ??= []).push(p);
+                            return acc;
+                          }, {} as Record<string, typeof promptTemplates>)
+                        ).map(([type, versions]) => {
+                          const displayName =
+                            type === "classification" ? tx("Document Classification Prompt", "Prompt de Classificação de Documentos")
+                            : type === "analysis" ? tx("Pre-Sales Technical Specification Analyser", "Analisador de Especificação Técnica de Pré-Vendas")
+                            : type;
+                          const activeVersion = versions.find((v) => v.is_active) || versions[0];
+                          const selectedId = selectedPromptVersionByType[type] ?? activeVersion?.id;
+                          const prm = versions.find((v) => v.id === selectedId) || activeVersion;
+                          if (!prm) return null;
+                          const isEditing = editingPromptId === prm.id;
+                          const isShowingNewVersionForm = newVersionFormForType === type;
+                          return (
+                          <div key={type} className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
+                            <div className="flex justify-between items-center flex-wrap gap-2">
                               <div>
-                                <h4 className="text-xs font-bold text-slate-800 uppercase font-mono">{displayName} ({prm.version})</h4>
+                                <h4 className="text-xs font-bold text-slate-800 uppercase font-mono">{displayName}</h4>
                                 <span className="text-[10px] text-slate-400 uppercase font-mono">{tx("Language Target", "Idioma Alvo")}: {prm.language}</span>
                               </div>
-                              <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-bold uppercase font-mono">{tx("ACTIVE INSTRUCTION", "INSTRUÇÃO ATIVA")}</span>
+                              <div className="flex items-center gap-2">
+                                <select
+                                  value={prm.id}
+                                  onChange={(e) => setSelectedPromptVersionByType((prev) => ({ ...prev, [type]: e.target.value }))}
+                                  className="text-[11px] font-mono border border-slate-300 rounded px-2 py-1 bg-white text-slate-700"
+                                >
+                                  {versions.map((v) => (
+                                    <option key={v.id} value={v.id}>{v.version}{v.is_active ? (locale === "pt" ? " (ativa)" : " (active)") : ""}</option>
+                                  ))}
+                                </select>
+                                {prm.is_active ? (
+                                  <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-bold uppercase font-mono">{tx("ACTIVE", "ATIVA")}</span>
+                                ) : (
+                                  <button
+                                    onClick={() => handleActivatePromptVersion(prm.id)}
+                                    className="text-[10px] bg-amber-50 text-amber-700 hover:bg-amber-100 px-2 py-1 rounded font-bold uppercase font-mono cursor-pointer"
+                                  >
+                                    {locale === "pt" ? "Ativar Esta Versão" : "Activate This Version"}
+                                  </button>
+                                )}
+                              </div>
                             </div>
                             <textarea
                               value={promptDrafts[prm.id] ?? prm.content}
@@ -1047,22 +1144,33 @@ export default function AdminConsole({
                               id={`textarea-prm-${prm.id}`}
                               className="w-full h-24 p-3 rounded font-mono text-xs bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none leading-normal text-slate-700 disabled:opacity-60 disabled:cursor-not-allowed"
                             />
-                            <div className="flex justify-end gap-2">
+                            <div className="flex justify-end gap-2 flex-wrap">
                               {!isEditing ? (
-                                <button
-                                  onClick={() => {
-                                    setEditingPromptId(prm.id);
-                                    setPromptDrafts((prev) => ({ ...prev, [prm.id]: prm.content }));
-                                  }}
-                                  className="bg-white border border-slate-300 text-slate-700 font-mono text-xs font-bold py-1.5 px-3 rounded"
-                                >
-                                  {locale === "pt" ? "Editar" : "Edit"}
-                                </button>
+                                <>
+                                  <button
+                                    onClick={() => {
+                                      setNewVersionFormForType(type);
+                                      setNewVersionLabel("");
+                                    }}
+                                    className="bg-white border border-slate-300 text-slate-700 font-mono text-xs font-bold py-1.5 px-3 rounded cursor-pointer"
+                                  >
+                                    {locale === "pt" ? "Nova Versão" : "New Version"}
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setEditingPromptId(prm.id);
+                                      setPromptDrafts((prev) => ({ ...prev, [prm.id]: prm.content }));
+                                    }}
+                                    className="bg-white border border-slate-300 text-slate-700 font-mono text-xs font-bold py-1.5 px-3 rounded cursor-pointer"
+                                  >
+                                    {locale === "pt" ? "Editar" : "Edit"}
+                                  </button>
+                                </>
                               ) : (
                                 <>
                                   <button
                                     onClick={() => setPromptDrafts((prev) => ({ ...prev, [prm.id]: prm.factory_default }))}
-                                    className="bg-white border border-slate-300 text-slate-700 font-mono text-xs font-bold py-1.5 px-3 rounded"
+                                    className="bg-white border border-slate-300 text-slate-700 font-mono text-xs font-bold py-1.5 px-3 rounded cursor-pointer"
                                   >
                                     {locale === "pt" ? "Padrão de Fábrica" : "Factory Default"}
                                   </button>
@@ -1071,7 +1179,7 @@ export default function AdminConsole({
                                       setEditingPromptId(null);
                                       setPromptDrafts((prev) => { const next = { ...prev }; delete next[prm.id]; return next; });
                                     }}
-                                    className="bg-white border border-slate-300 text-slate-500 font-mono text-xs font-bold py-1.5 px-3 rounded"
+                                    className="bg-white border border-slate-300 text-slate-500 font-mono text-xs font-bold py-1.5 px-3 rounded cursor-pointer"
                                   >
                                     {locale === "pt" ? "Cancelar" : "Cancel"}
                                   </button>
@@ -1087,6 +1195,57 @@ export default function AdminConsole({
                                 </>
                               )}
                             </div>
+
+                            {isShowingNewVersionForm && (
+                              <div className="border-t border-slate-200 pt-3 space-y-2">
+                                <label className="text-[10px] uppercase font-bold text-slate-400 font-mono block">
+                                  {locale === "pt" ? "Rótulo da nova versão (ex: v1.3)" : "New version label (e.g. v1.3)"}
+                                </label>
+                                <div className="flex gap-2">
+                                  <input
+                                    type="text"
+                                    value={newVersionLabel}
+                                    onChange={(e) => setNewVersionLabel(e.target.value)}
+                                    placeholder="v1.3"
+                                    className="flex-1 p-2 rounded font-mono text-xs bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                                  />
+                                  <button
+                                    onClick={() => { setNewVersionFormForType(null); setNewVersionLabel(""); }}
+                                    className="bg-white border border-slate-300 text-slate-500 font-mono text-xs font-bold py-1.5 px-3 rounded cursor-pointer"
+                                  >
+                                    {locale === "pt" ? "Cancelar" : "Cancel"}
+                                  </button>
+                                  <button
+                                    onClick={async () => {
+                                      if (!newVersionLabel.trim()) {
+                                        alert(locale === "pt" ? "Informe um rótulo de versão." : "Enter a version label.");
+                                        return;
+                                      }
+                                      const created = await handleCreatePromptVersion({
+                                        name: prm.name,
+                                        type,
+                                        content: promptDrafts[prm.id] ?? prm.content,
+                                        language: prm.language,
+                                        version: newVersionLabel.trim(),
+                                      });
+                                      if (created) {
+                                        setNewVersionFormForType(null);
+                                        setNewVersionLabel("");
+                                        setSelectedPromptVersionByType((prev) => ({ ...prev, [type]: created.id }));
+                                      }
+                                    }}
+                                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-3 rounded shadow-sm transition-all cursor-pointer"
+                                  >
+                                    {locale === "pt" ? "Criar Versão (a partir do texto acima)" : "Create Version (from the text above)"}
+                                  </button>
+                                </div>
+                                <p className="text-[10px] text-slate-400">
+                                  {locale === "pt"
+                                    ? "A nova versão começa como rascunho - não fica ativa automaticamente."
+                                    : "The new version starts as a draft - it is not activated automatically."}
+                                </p>
+                              </div>
+                            )}
                           </div>
                           );
                         })}

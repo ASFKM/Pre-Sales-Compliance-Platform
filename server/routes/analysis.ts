@@ -8,7 +8,7 @@ import { createTask, updateTaskProgress, completeTask, failTask } from "../../sr
 import { generateJsonWithProvider, generateTextWithProvider, searchWebWithProvider, ConnectedProvider, ProviderFileInput } from "../utils/aiProviders";
 import { createStorageAdapter } from "../utils/storage";
 import { estimateCostUsd } from "../utils/aiPricing";
-import { resolveProvider, checkCostCap, recordProviderFallback } from "../../src/aiOrchestrator";
+import { resolveProvider, checkCostCap, recordProviderFallback, recordAiUsage } from "../../src/aiOrchestrator";
 import { runWithTenant } from "../../src/tenantContext";
 import { prisma } from "../../src/prisma";
 import { FACTORY_DEFAULT_ANALYSIS_PROMPT } from "../utils/promptDefaults";
@@ -286,7 +286,7 @@ router.post("/projects/:projectId/analysis-result", requirePermission("analysis:
 // search, the API errors, or the response isn't parsable JSON, the original BOM is returned
 // unchanged and the failure is only logged - this is an enrichment step, losing it should never
 // fail (or even flag as failed) an otherwise-successful analysis.
-async function enrichBomWithWebSearch(bom: any[], platformSettings: any, proposalLanguage: string): Promise<any[]> {
+async function enrichBomWithWebSearch(bom: any[], platformSettings: any, proposalLanguage: string, tenantId: string): Promise<any[]> {
   // Only a missing part_number is treated as "needs lookup" here. A part_number already present
   // (e.g. filled from an approved Knowledge Base entry) but missing manufacturer used to also
   // trigger a search - confirmed on a real run that this can find a *different*, unrelated real
@@ -316,7 +316,14 @@ ${JSON.stringify(lookupList, null, 2)}
 Respond with ONLY a JSON array (no markdown, no extra text), one object per item_id above, in this exact shape:
 [{ "item_id": "...", "sku": "real SKU or empty string", "part_number": "real part number or empty string", "manufacturer": "real manufacturer name or empty string", "note": "one short sentence in ${proposalLanguage} - what you found and its source, or why nothing confident was found" }]`;
 
-    const { text } = await searchWebWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);
+    const { text, inputTokens, outputTokens } = await searchWebWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);
+    await recordAiUsage({
+      tenantId,
+      taskType: "bom_web_search",
+      provider: providerResolution.provider,
+      model: providerResolution.model,
+      estimatedCostUsd: estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
+    });
     // The model prefaces the JSON with explanatory prose that can itself contain stray "[...]"
     // (e.g. citing "[16:9]" resolution) - a single greedy [\s\S]*] regex grabbed from that first
     // stray bracket through to the real array's closing bracket, garbling the JSON. Prefer the
@@ -393,12 +400,19 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
     });
   }
 
+  // Fetched here (not just inside the detached block below) so the job record's
+  // prompt_template_version reflects which version was really active for this run, instead of a
+  // hardcoded placeholder - this is the historical audit trail admins rely on to know which
+  // prompt text actually produced a given analysis.
+  const analysisPromptRow = await prisma.promptTemplate.findFirst({ where: { type: "analysis", isActive: true } });
+  const analysisInstructions = analysisPromptRow?.content?.trim() || FACTORY_DEFAULT_ANALYSIS_PROMPT;
+
   const job = await dbStore.createJob({
     project_id: projectId,
     status: "running",
     ai_provider: providerResolution.provider,
     ai_model: providerResolution.model,
-    prompt_template_version: "v3.0-structured",
+    prompt_template_version: analysisPromptRow?.version || "factory-default",
     started_at: new Date().toISOString(),
     created_by: userName,
     correlation_id: correlationId
@@ -469,8 +483,9 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
 
     await updateTaskProgress(task.id, { currentStep: "Analisando com IA", progressPct: 40 });
 
-    const analysisPromptRow = await prisma.promptTemplate.findFirst({ where: { type: "analysis" } });
-    const analysisInstructions = analysisPromptRow?.content?.trim() || FACTORY_DEFAULT_ANALYSIS_PROMPT;
+    // analysisPromptRow/analysisInstructions were already fetched above (before creating the job,
+    // so its prompt_template_version reflects reality) - reused here via closure instead of
+    // querying again.
 
     // Human-approved corrections/reference knowledge from past projects (Base de Conhecimento -
     // see server/routes/knowledgeBase.ts) - only ever entries a person has explicitly reviewed
@@ -695,7 +710,7 @@ Write all generated content fields strictly in ${project.proposal_language}. Mai
     // specify - a real web search (see enrichBomWithWebSearch), not the model guessing. Failure
     // here never fails the analysis - see that function's own error handling.
     await updateTaskProgress(task.id, { currentStep: "Buscando equipamentos reais para o BOM", progressPct: 88 });
-    const enrichedBom = await enrichBomWithWebSearch(validatedJson.bom, platformSettings, project.proposal_language);
+    const enrichedBom = await enrichBomWithWebSearch(validatedJson.bom, platformSettings, project.proposal_language, tenantId);
 
     // Save final Analysis Result
     const analysisResult: AnalysisResult = {
@@ -745,6 +760,14 @@ Write all generated content fields strictly in ${project.proposal_language}. Mai
       aiProvider: providerResolution.provider,
       intendedProvider: providerResolution.intendedProvider,
       isProviderFallback: providerResolution.isFallback,
+    });
+    await recordAiUsage({
+      tenantId,
+      taskType: "document_analysis",
+      provider: providerResolution.provider,
+      model: providerResolution.model,
+      estimatedCostUsd: realEstimatedCostUsd,
+      backgroundTaskId: task.id,
     });
 
   } catch (err: any) {
@@ -821,6 +844,17 @@ router.post("/projects/:projectId/chat", requirePermission("analysis:read"), asy
     const platformSettings = await dbStore.getSettings();
     const providerResolution = resolveProvider("spec_copilot", platformSettings);
 
+    // Previously uncapped and uncounted - this is a real synchronous AI call like any other, not
+    // exempt from the monthly cost cap just because it isn't a background task.
+    const tenantId = req.headers["x-tenant-id"] as string;
+    const costCap = await checkCostCap(tenantId, platformSettings.monthly_cost_cap_usd ?? null);
+    if (costCap.blocked) {
+      return res.status(402).json({
+        success: false,
+        message: `Monthly AI cost cap reached ($${costCap.currentSpendUsd.toFixed(2)} of $${costCap.capUsd?.toFixed(2)}). Copilot is blocked until next month or the cap is raised in Admin > AI, Prompts e Custos.`
+      });
+    }
+
     const prompt = `You are a Pre-Sales Solution Architect copilot answering a colleague's question about a specific bid.
 CRITICAL: this project is ONLY the one named below - never reference, compare against, or pull in
 information from any other project. Answer in ${project.proposal_language}.
@@ -874,6 +908,14 @@ instead of inventing information.`;
       output_summary: (answer || "").slice(0, 200),
       token_input: 0,
       token_output: outputTokens
+    });
+
+    await recordAiUsage({
+      tenantId,
+      taskType: "spec_copilot_chat",
+      provider: providerResolution.provider,
+      model: providerResolution.model,
+      estimatedCostUsd: estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
     });
 
     res.json({ success: true, answer: answer || "Nenhuma resposta gerada.", provider: providerResolution.provider });

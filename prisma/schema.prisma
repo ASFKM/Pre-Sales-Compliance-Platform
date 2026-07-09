@@ -157,53 +157,54 @@ model Tenant {
   createdAt      DateTime       @default(now()) @map("created_at")
   updatedAt      DateTime       @updatedAt @map("updated_at")
 
-  users                User[]
-  roles                Role[]
-  projects             Project[]
-  documents            Document[]
-  documentContents     DocumentContent[]
-  backgroundTasks      BackgroundTask[]
-  analysisJobs         AIAnalysisJob[]
-  analysisResults      AnalysisResult[]
-  conversationMessages ConversationMessage[]
-  auditLogs            AuditLog[]
-  debugLogs            DebugLog[]
-  platformSettings     PlatformSettings?
-  promptTemplates      PromptTemplate[]
-  proposalTemplates    ProposalTemplate[]
-  verticals            Vertical[]
-  systemMessages       SystemMessage[]
-  proposals            Proposal[]
-  approvalWorkflows    ApprovalWorkflow[]
-  approvalStages       ApprovalStage[]
-  approvalDecisions    ApprovalDecision[]
-  tasks                Task[]
-  brandingSettings     BrandingSettings?
-  teamMemberships      TeamMembership[]
-  integrationConnectors IntegrationConnector[]
+  users                  User[]
+  roles                  Role[]
+  projects               Project[]
+  documents              Document[]
+  documentContents       DocumentContent[]
+  backgroundTasks        BackgroundTask[]
+  analysisJobs           AIAnalysisJob[]
+  analysisResults        AnalysisResult[]
+  conversationMessages   ConversationMessage[]
+  auditLogs              AuditLog[]
+  debugLogs              DebugLog[]
+  platformSettings       PlatformSettings?
+  promptTemplates        PromptTemplate[]
+  proposalTemplates      ProposalTemplate[]
+  verticals              Vertical[]
+  systemMessages         SystemMessage[]
+  proposals              Proposal[]
+  approvalWorkflows      ApprovalWorkflow[]
+  approvalStages         ApprovalStage[]
+  approvalDecisions      ApprovalDecision[]
+  tasks                  Task[]
+  brandingSettings       BrandingSettings?
+  teamMemberships        TeamMembership[]
+  integrationConnectors  IntegrationConnector[]
   knowledgeBaseDocuments KnowledgeBaseDocument[]
   knowledgeBaseEntries   KnowledgeBaseEntry[]
+  aiUsageLogs            AiUsageLog[]
 
   @@map("tenants")
 }
 
 model User {
-  id             String     @id
-  tenantId       String     @map("tenant_id")
-  tenant         Tenant     @relation(fields: [tenantId], references: [id])
-  name           String
-  email          String     @unique
-  passwordHash   String?    @map("password_hash")
-  mfaEnabled     Boolean    @default(false) @map("mfa_enabled")
-  mfaTotpSecret  String?    @map("mfa_totp_secret")
-  status         UserStatus @default(ACTIVE)
-  roleId         String     @map("role_id")
-  role           Role       @relation(fields: [roleId], references: [id])
-  createdAt      DateTime   @default(now()) @map("created_at")
-  updatedAt      DateTime   @updatedAt @map("updated_at")
-  lastLoginAt    DateTime?  @map("last_login_at")
+  id            String     @id
+  tenantId      String     @map("tenant_id")
+  tenant        Tenant     @relation(fields: [tenantId], references: [id])
+  name          String
+  email         String     @unique
+  passwordHash  String?    @map("password_hash")
+  mfaEnabled    Boolean    @default(false) @map("mfa_enabled")
+  mfaTotpSecret String?    @map("mfa_totp_secret")
+  status        UserStatus @default(ACTIVE)
+  roleId        String     @map("role_id")
+  role          Role       @relation(fields: [roleId], references: [id])
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+  lastLoginAt   DateTime?  @map("last_login_at")
 
-  ownedProjects   Project[]        @relation("ProjectOwner")
+  ownedProjects    Project[]        @relation("ProjectOwner")
   managedEngineers TeamMembership[] @relation("TeamManager")
   teamMemberships  TeamMembership[] @relation("TeamEngineer")
 
@@ -243,35 +244,35 @@ model Role {
 }
 
 model Project {
-  id                          String   @id
-  tenantId                    String   @map("tenant_id")
-  tenant                      Tenant   @relation(fields: [tenantId], references: [id])
-  name                        String
-  customerName                String   @map("customer_name")
-  opportunityName             String   @map("opportunity_name")
-  vertical                    String
-  description                 String
-  status                      ProjectStatus
-  deadline                    DateTime
-  proposalValidityDate        DateTime @map("proposal_validity_date")
-  ownerUserId                 String   @map("owner_user_id")
-  owner                       User     @relation("ProjectOwner", fields: [ownerUserId], references: [id])
-  outputLanguage              Language @map("output_language")
-  proposalLanguage            Language @map("proposal_language")
-  aiOrientationMode           String   @map("ai_orientation_mode")
-  aiOrientationText           String   @map("ai_orientation_text") @db.Text
-  selectedApprovalWorkflowId  String?  @map("selected_approval_workflow_id")
-  procurementModality         String?  @map("procurement_modality")
-  procurementSubtype          String?  @map("procurement_subtype")
-  customModality              String?  @map("custom_modality")
-  createdAt                   DateTime @default(now()) @map("created_at")
-  updatedAt                   DateTime @updatedAt @map("updated_at")
+  id                         String        @id
+  tenantId                   String        @map("tenant_id")
+  tenant                     Tenant        @relation(fields: [tenantId], references: [id])
+  name                       String
+  customerName               String        @map("customer_name")
+  opportunityName            String        @map("opportunity_name")
+  vertical                   String
+  description                String
+  status                     ProjectStatus
+  deadline                   DateTime
+  proposalValidityDate       DateTime      @map("proposal_validity_date")
+  ownerUserId                String        @map("owner_user_id")
+  owner                      User          @relation("ProjectOwner", fields: [ownerUserId], references: [id])
+  outputLanguage             Language      @map("output_language")
+  proposalLanguage           Language      @map("proposal_language")
+  aiOrientationMode          String        @map("ai_orientation_mode")
+  aiOrientationText          String        @map("ai_orientation_text") @db.Text
+  selectedApprovalWorkflowId String?       @map("selected_approval_workflow_id")
+  procurementModality        String?       @map("procurement_modality")
+  procurementSubtype         String?       @map("procurement_subtype")
+  customModality             String?       @map("custom_modality")
+  createdAt                  DateTime      @default(now()) @map("created_at")
+  updatedAt                  DateTime      @updatedAt @map("updated_at")
 
-  documents         Document[]
-  analysisJobs      AIAnalysisJob[]
-  analysisResults   AnalysisResult[]
-  proposals         Proposal[]
-  tasks             Task[]
+  documents           Document[]
+  analysisJobs        AIAnalysisJob[]
+  analysisResults     AnalysisResult[]
+  proposals           Proposal[]
+  tasks               Task[]
   conversationHistory ConversationMessage[]
 
   @@index([tenantId])
@@ -279,25 +280,25 @@ model Project {
 }
 
 model Document {
-  id                       String   @id
-  tenantId                 String   @map("tenant_id")
-  tenant                   Tenant   @relation(fields: [tenantId], references: [id])
-  projectId                String   @map("project_id")
-  project                  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  filename                 String
-  originalFilename         String   @map("original_filename")
-  mimeType                 String   @map("mime_type")
-  fileSize                 Int      @map("file_size")
-  storageProvider          StorageProvider @map("storage_provider")
-  storagePath              String   @map("storage_path")
-  detectedDocumentType     String   @map("detected_document_type")
-  manualDocumentType       String?  @map("manual_document_type")
-  aiClassificationConfidence Float  @map("ai_classification_confidence")
-  version                  Int
-  language                 String
+  id                         String          @id
+  tenantId                   String          @map("tenant_id")
+  tenant                     Tenant          @relation(fields: [tenantId], references: [id])
+  projectId                  String          @map("project_id")
+  project                    Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  filename                   String
+  originalFilename           String          @map("original_filename")
+  mimeType                   String          @map("mime_type")
+  fileSize                   Int             @map("file_size")
+  storageProvider            StorageProvider @map("storage_provider")
+  storagePath                String          @map("storage_path")
+  detectedDocumentType       String          @map("detected_document_type")
+  manualDocumentType         String?         @map("manual_document_type")
+  aiClassificationConfidence Float           @map("ai_classification_confidence")
+  version                    Int
+  language                   String
   // Not a User FK: some call sites store a display name here instead of a user id.
-  uploadedBy               String   @map("uploaded_by")
-  createdAt                DateTime @default(now()) @map("created_at")
+  uploadedBy                 String          @map("uploaded_by")
+  createdAt                  DateTime        @default(now()) @map("created_at")
 
   content DocumentContent?
 
@@ -317,29 +318,29 @@ model DocumentContent {
 }
 
 model BackgroundTask {
-  id           String               @id
-  tenantId     String               @map("tenant_id")
-  tenant       Tenant               @relation(fields: [tenantId], references: [id])
-  userId       String               @map("user_id")
-  type         BackgroundTaskType
-  status       BackgroundTaskStatus @default(queued)
-  currentStep  String               @map("current_step")
-  progressPct  Int?                 @map("progress_pct")
-  errorMessage String?              @map("error_message") @db.Text
+  id                 String               @id
+  tenantId           String               @map("tenant_id")
+  tenant             Tenant               @relation(fields: [tenantId], references: [id])
+  userId             String               @map("user_id")
+  type               BackgroundTaskType
+  status             BackgroundTaskStatus @default(queued)
+  currentStep        String               @map("current_step")
+  progressPct        Int?                 @map("progress_pct")
+  errorMessage       String?              @map("error_message") @db.Text
   // Generic pointer to whatever the task produced (e.g. "analysis_result"/<project id>,
   // "proposal"/<proposal id>) - lets the frontend know what to fetch once status is completed,
   // without this table needing a column per possible result type.
-  resultType   String?              @map("result_type")
-  resultId     String?              @map("result_id")
+  resultType         String?              @map("result_type")
+  resultId           String?              @map("result_id")
   // Phase 5 (AI orchestrator): cost/provider bookkeeping for AI-calling task types
   // (document_analysis, project_intake_analysis). Null for task types that don't call an AI
   // provider at all (e.g. proposal_generation is template/DOCX filling, not its own AI call).
-  estimatedCostUsd   Float?   @map("estimated_cost_usd")
-  aiProvider         String?  @map("ai_provider")
-  intendedProvider   String?  @map("intended_provider")
-  isProviderFallback Boolean  @default(false) @map("is_provider_fallback")
-  createdAt    DateTime             @default(now()) @map("created_at")
-  updatedAt    DateTime             @updatedAt @map("updated_at")
+  estimatedCostUsd   Float?               @map("estimated_cost_usd")
+  aiProvider         String?              @map("ai_provider")
+  intendedProvider   String?              @map("intended_provider")
+  isProviderFallback Boolean              @default(false) @map("is_provider_fallback")
+  createdAt          DateTime             @default(now()) @map("created_at")
+  updatedAt          DateTime             @updatedAt @map("updated_at")
 
   @@index([tenantId])
   @@index([userId])
@@ -347,24 +348,24 @@ model BackgroundTask {
 }
 
 model AIAnalysisJob {
-  id                     String    @id
-  tenantId               String    @map("tenant_id")
-  tenant                 Tenant    @relation(fields: [tenantId], references: [id])
-  projectId              String    @map("project_id")
-  project                Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  status                 AnalysisJobStatus
-  aiProvider             String    @map("ai_provider")
-  aiModel                String    @map("ai_model")
-  promptTemplateVersion  String    @map("prompt_template_version")
-  startedAt              DateTime? @map("started_at")
-  completedAt            DateTime? @map("completed_at")
-  errorMessage           String?   @map("error_message") @db.Text
-  tokenInput             Int?      @map("token_input")
-  tokenOutput            Int?      @map("token_output")
-  estimatedCost          Float?    @map("estimated_cost")
+  id                    String            @id
+  tenantId              String            @map("tenant_id")
+  tenant                Tenant            @relation(fields: [tenantId], references: [id])
+  projectId             String            @map("project_id")
+  project               Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  status                AnalysisJobStatus
+  aiProvider            String            @map("ai_provider")
+  aiModel               String            @map("ai_model")
+  promptTemplateVersion String            @map("prompt_template_version")
+  startedAt             DateTime?         @map("started_at")
+  completedAt           DateTime?         @map("completed_at")
+  errorMessage          String?           @map("error_message") @db.Text
+  tokenInput            Int?              @map("token_input")
+  tokenOutput           Int?              @map("token_output")
+  estimatedCost         Float?            @map("estimated_cost")
   // Not a User FK: analysis.ts stores the user's display name here, not their id.
-  createdBy              String    @map("created_by")
-  correlationId          String    @map("correlation_id")
+  createdBy             String            @map("created_by")
+  correlationId         String            @map("correlation_id")
 
   results AnalysisResult[]
 
@@ -373,32 +374,32 @@ model AIAnalysisJob {
 }
 
 model AnalysisResult {
-  id                       String   @id
-  tenantId                 String   @map("tenant_id")
-  tenant                   Tenant   @relation(fields: [tenantId], references: [id])
-  projectId                String   @map("project_id")
-  project                  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  jobId                    String   @map("job_id")
-  job                      AIAnalysisJob @relation(fields: [jobId], references: [id])
+  id        String        @id
+  tenantId  String        @map("tenant_id")
+  tenant    Tenant        @relation(fields: [tenantId], references: [id])
+  projectId String        @map("project_id")
+  project   Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  jobId     String        @map("job_id")
+  job       AIAnalysisJob @relation(fields: [jobId], references: [id])
 
   // Semi-structured AI-generated content: shape evolves with prompt/model versions,
   // always read/written as a whole per project, never queried by sub-item elsewhere.
-  executiveSummary         Json     @map("executive_summary")
-  criticalRequirements     Json     @map("critical_requirements")
-  risks                    Json
-  opportunities            Json
-  bom                      Json
-  pointToPointTable        Json     @map("point_to_point_table")
-  preliminarySchedule      Json     @map("preliminary_schedule")
-  clarificationQuestions   Json     @map("clarification_questions")
+  executiveSummary       Json @map("executive_summary")
+  criticalRequirements   Json @map("critical_requirements")
+  risks                  Json
+  opportunities          Json
+  bom                    Json
+  pointToPointTable      Json @map("point_to_point_table")
+  preliminarySchedule    Json @map("preliminary_schedule")
+  clarificationQuestions Json @map("clarification_questions")
 
-  technicalProposalDraft   String   @map("technical_proposal_draft") @db.Text
-  commercialProposalDraft  String   @map("commercial_proposal_draft") @db.Text
-  reviewStatus             ReviewStatus @default(pending) @map("review_status")
-  approvedBy               String?  @map("approved_by")
-  approvedAt               DateTime? @map("approved_at")
-  createdAt                DateTime @default(now()) @map("created_at")
-  updatedAt                DateTime @updatedAt @map("updated_at")
+  technicalProposalDraft  String       @map("technical_proposal_draft") @db.Text
+  commercialProposalDraft String       @map("commercial_proposal_draft") @db.Text
+  reviewStatus            ReviewStatus @default(pending) @map("review_status")
+  approvedBy              String?      @map("approved_by")
+  approvedAt              DateTime?    @map("approved_at")
+  createdAt               DateTime     @default(now()) @map("created_at")
+  updatedAt               DateTime     @updatedAt @map("updated_at")
 
   @@unique([projectId])
   @@index([tenantId])
@@ -406,23 +407,23 @@ model AnalysisResult {
 }
 
 model ConversationMessage {
-  id                    String   @id
-  tenantId              String   @map("tenant_id")
-  tenant                Tenant   @relation(fields: [tenantId], references: [id])
-  projectId             String   @map("project_id")
-  project               Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id                    String           @id
+  tenantId              String           @map("tenant_id")
+  tenant                Tenant           @relation(fields: [tenantId], references: [id])
+  projectId             String           @map("project_id")
+  project               Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   // Not a User FK: field is unused by current routes; kept loose like the other actor fields above.
-  userId                String   @map("user_id")
+  userId                String           @map("user_id")
   role                  ConversationRole
-  message               String   @db.Text
-  aiProvider            String   @map("ai_provider")
-  aiModel               String   @map("ai_model")
-  promptTemplateVersion String   @map("prompt_template_version")
-  inputSummary          String   @map("input_summary") @db.Text
-  outputSummary         String   @map("output_summary") @db.Text
-  tokenInput            Int      @map("token_input")
-  tokenOutput           Int      @map("token_output")
-  createdAt             DateTime @default(now()) @map("created_at")
+  message               String           @db.Text
+  aiProvider            String           @map("ai_provider")
+  aiModel               String           @map("ai_model")
+  promptTemplateVersion String           @map("prompt_template_version")
+  inputSummary          String           @map("input_summary") @db.Text
+  outputSummary         String           @map("output_summary") @db.Text
+  tokenInput            Int              @map("token_input")
+  tokenOutput           Int              @map("token_output")
+  createdAt             DateTime         @default(now()) @map("created_at")
 
   @@index([tenantId])
   @@map("conversation_messages")
@@ -448,30 +449,30 @@ model AuditLog {
 }
 
 model DebugLog {
-  id             String   @id
+  id            String   @id
   // Nullable: some diagnostic events (e.g. a failed login attempt for an email that
   // doesn't exist) genuinely happen before any tenant is known.
-  tenantId       String?  @map("tenant_id")
-  tenant         Tenant?  @relation(fields: [tenantId], references: [id])
-  timestamp      DateTime @default(now())
-  logLevel       LogLevel @map("log_level")
-  serviceName    String   @map("service_name")
-  moduleName     String   @map("module_name")
-  environment    String
-  correlationId  String   @map("correlation_id")
-  requestId      String   @map("request_id")
-  userId         String?  @map("user_id")
-  projectId      String?  @map("project_id")
-  documentId     String?  @map("document_id")
-  analysisJobId  String?  @map("analysis_job_id")
-  proposalId     String?  @map("proposal_id")
-  operation      String
-  message        String   @db.Text
-  status         String
-  durationMs     Int      @map("duration_ms")
-  errorCode      String?  @map("error_code")
-  errorMessage   String?  @map("error_message") @db.Text
-  safeMetadata   String   @map("safe_metadata") @db.Text
+  tenantId      String?  @map("tenant_id")
+  tenant        Tenant?  @relation(fields: [tenantId], references: [id])
+  timestamp     DateTime @default(now())
+  logLevel      LogLevel @map("log_level")
+  serviceName   String   @map("service_name")
+  moduleName    String   @map("module_name")
+  environment   String
+  correlationId String   @map("correlation_id")
+  requestId     String   @map("request_id")
+  userId        String?  @map("user_id")
+  projectId     String?  @map("project_id")
+  documentId    String?  @map("document_id")
+  analysisJobId String?  @map("analysis_job_id")
+  proposalId    String?  @map("proposal_id")
+  operation     String
+  message       String   @db.Text
+  status        String
+  durationMs    Int      @map("duration_ms")
+  errorCode     String?  @map("error_code")
+  errorMessage  String?  @map("error_message") @db.Text
+  safeMetadata  String   @map("safe_metadata") @db.Text
 
   @@index([timestamp])
   @@index([tenantId])
@@ -479,51 +480,51 @@ model DebugLog {
 }
 
 model PlatformSettings {
-  id                       String   @id
-  tenantId                 String   @map("tenant_id")
-  tenant                   Tenant   @relation(fields: [tenantId], references: [id])
-  aiProvider               String   @map("ai_provider")
-  defaultModel             String   @map("default_model")
-  documentAnalysisModel    String   @map("document_analysis_model")
-  proposalGenerationModel  String   @map("proposal_generation_model")
-  aiApiKeyEncrypted        String?  @map("ai_api_key_encrypted") @db.Text
-  openaiApiKeyEncrypted    String?  @map("openai_api_key_encrypted") @db.Text
-  anthropicApiKeyEncrypted String?  @map("anthropic_api_key_encrypted") @db.Text
+  id                            String          @id
+  tenantId                      String          @map("tenant_id")
+  tenant                        Tenant          @relation(fields: [tenantId], references: [id])
+  aiProvider                    String          @map("ai_provider")
+  defaultModel                  String          @map("default_model")
+  documentAnalysisModel         String          @map("document_analysis_model")
+  proposalGenerationModel       String          @map("proposal_generation_model")
+  aiApiKeyEncrypted             String?         @map("ai_api_key_encrypted") @db.Text
+  openaiApiKeyEncrypted         String?         @map("openai_api_key_encrypted") @db.Text
+  anthropicApiKeyEncrypted      String?         @map("anthropic_api_key_encrypted") @db.Text
   // Phase 5 (AI orchestrator): which provider is the intended target for each task type,
   // researched per-task (docs/roadmap/REDESIGN_ROADMAP_2026-07.md). gemini/openai/anthropic are
   // all really connected (see resolveProvider in src/aiOrchestrator.ts) - a task still falls back
   // to gemini, logged as such, only if its intended provider's key isn't actually configured.
-  documentAnalysisProvider    String  @default("gemini") @map("document_analysis_provider")
-  criticalExtractionModel     String  @default("gemini-3.5-flash") @map("critical_extraction_model")
-  criticalExtractionProvider  String  @default("anthropic") @map("critical_extraction_provider")
-  webGroundingModel           String  @default("gemini-3.5-flash") @map("web_grounding_model")
-  webGroundingProvider        String  @default("gemini") @map("web_grounding_provider")
-  proposalGenerationProvider  String  @default("anthropic") @map("proposal_generation_provider")
-  specCopilotModel            String  @default("gemini-3.5-flash") @map("spec_copilot_model")
-  specCopilotProvider         String  @default("gemini") @map("spec_copilot_provider")
+  documentAnalysisProvider      String          @default("gemini") @map("document_analysis_provider")
+  criticalExtractionModel       String          @default("gemini-3.5-flash") @map("critical_extraction_model")
+  criticalExtractionProvider    String          @default("anthropic") @map("critical_extraction_provider")
+  webGroundingModel             String          @default("gemini-3.5-flash") @map("web_grounding_model")
+  webGroundingProvider          String          @default("gemini") @map("web_grounding_provider")
+  proposalGenerationProvider    String          @default("anthropic") @map("proposal_generation_provider")
+  specCopilotModel              String          @default("gemini-3.5-flash") @map("spec_copilot_model")
+  specCopilotProvider           String          @default("gemini") @map("spec_copilot_provider")
   // Per-tenant monthly AI spend cap - null means uncapped. Enforced (hard block once reached,
   // not just tracked), with an 80%-of-cap warning logged before that point.
-  monthlyCostCapUsd        Float?   @map("monthly_cost_cap_usd")
+  monthlyCostCapUsd             Float?          @map("monthly_cost_cap_usd")
   // Phase 7 (fleet/license management): this installation's connection to the vendor's fleet
   // manager (a separate server - see docs/roadmap). Empty/disabled means no heartbeat runs and
   // the installation is always treated as active (fail-open) - matches the on-prem reality of
   // not every install necessarily being registered yet.
-  fleetManagerUrl          String?  @map("fleet_manager_url")
-  fleetManagerApiKeyEncrypted String? @map("fleet_manager_api_key_encrypted") @db.Text
-  fleetManagerEnabled      Boolean  @default(false) @map("fleet_manager_enabled")
-  storageMode              StorageProvider @default(local) @map("storage_mode")
-  localStoragePath         String   @map("local_storage_path")
-  s3Bucket                 String   @map("s3_bucket")
-  s3Region                 String?  @map("s3_region")
-  s3AccessKeyId            String?  @map("s3_access_key_id")
-  s3SecretAccessKeyEncrypted String? @map("s3_secret_access_key_encrypted") @db.Text
-  gcsBucket                String   @map("gcs_bucket")
-  gcsProjectId             String?  @map("gcs_project_id")
-  gcsServiceAccountKeyEncrypted String? @map("gcs_service_account_key_encrypted") @db.Text
-  defaultLanguage          Language @map("default_language")
-  defaultLogLevel          LogLevel @map("default_log_level")
-  createdAt                DateTime @default(now()) @map("created_at")
-  updatedAt                DateTime @updatedAt @map("updated_at")
+  fleetManagerUrl               String?         @map("fleet_manager_url")
+  fleetManagerApiKeyEncrypted   String?         @map("fleet_manager_api_key_encrypted") @db.Text
+  fleetManagerEnabled           Boolean         @default(false) @map("fleet_manager_enabled")
+  storageMode                   StorageProvider @default(local) @map("storage_mode")
+  localStoragePath              String          @map("local_storage_path")
+  s3Bucket                      String          @map("s3_bucket")
+  s3Region                      String?         @map("s3_region")
+  s3AccessKeyId                 String?         @map("s3_access_key_id")
+  s3SecretAccessKeyEncrypted    String?         @map("s3_secret_access_key_encrypted") @db.Text
+  gcsBucket                     String          @map("gcs_bucket")
+  gcsProjectId                  String?         @map("gcs_project_id")
+  gcsServiceAccountKeyEncrypted String?         @map("gcs_service_account_key_encrypted") @db.Text
+  defaultLanguage               Language        @map("default_language")
+  defaultLogLevel               LogLevel        @map("default_log_level")
+  createdAt                     DateTime        @default(now()) @map("created_at")
+  updatedAt                     DateTime        @updatedAt @map("updated_at")
 
   @@unique([tenantId])
   @@map("platform_settings")
@@ -543,27 +544,32 @@ model PromptTemplate {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  // One row per version now (was implicitly one row per type, mutated in place - version was
+  // decorative). Only one row per (type, version) - and, enforced in code rather than the
+  // database (Postgres has no easy partial-unique-per-group-with-boolean-flag syntax here),
+  // only one isActive:true row per type at a time.
+  @@unique([tenantId, type, version])
   @@index([tenantId])
   @@map("prompt_templates")
 }
 
 model ProposalTemplate {
-  id               String   @id
-  tenantId         String   @map("tenant_id")
-  tenant           Tenant   @relation(fields: [tenantId], references: [id])
-  name             String
-  description      String
-  templateType     ProposalTemplateType @map("template_type")
-  language         Language
-  fileType         ProposalFileType @map("file_type")
-  filePath         String   @map("file_path")
-  variablesSchema  String   @map("variables_schema") @db.Text
-  version          String
-  active           Boolean  @default(true)
-  defaultTemplate  Boolean  @default(false) @map("default_template")
-  uploadedBy       String   @map("uploaded_by")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  id              String               @id
+  tenantId        String               @map("tenant_id")
+  tenant          Tenant               @relation(fields: [tenantId], references: [id])
+  name            String
+  description     String
+  templateType    ProposalTemplateType @map("template_type")
+  language        Language
+  fileType        ProposalFileType     @map("file_type")
+  filePath        String               @map("file_path")
+  variablesSchema String               @map("variables_schema") @db.Text
+  version         String
+  active          Boolean              @default(true)
+  defaultTemplate Boolean              @default(false) @map("default_template")
+  uploadedBy      String               @map("uploaded_by")
+  createdAt       DateTime             @default(now()) @map("created_at")
+  updatedAt       DateTime             @updatedAt @map("updated_at")
 
   proposals Proposal[]
 
@@ -585,18 +591,18 @@ enum SystemMessageAudience {
 // (source=fleet_manager, fleetMessageId set so a re-delivered message doesn't get duplicated) or
 // created locally by this installation's own super admin (source=local).
 model SystemMessage {
-  id            String                 @id
-  tenantId      String                 @map("tenant_id")
-  tenant        Tenant                 @relation(fields: [tenantId], references: [id])
-  source        SystemMessageSource
+  id             String                @id
+  tenantId       String                @map("tenant_id")
+  tenant         Tenant                @relation(fields: [tenantId], references: [id])
+  source         SystemMessageSource
   fleetMessageId String?               @unique @map("fleet_message_id")
-  audience      SystemMessageAudience  @default(all_users)
-  body          String                 @db.Text
-  createdBy     String                 @map("created_by")
-  createdAt     DateTime               @default(now()) @map("created_at")
+  audience       SystemMessageAudience @default(all_users)
+  body           String                @db.Text
+  createdBy      String                @map("created_by")
+  createdAt      DateTime              @default(now()) @map("created_at")
   // Null = never expires. For source=fleet_manager this is relayed as-is from the FleetMessage;
   // for source=local it's set from the duration chosen when the super admin composed it.
-  expiresAt     DateTime?              @map("expires_at")
+  expiresAt      DateTime?             @map("expires_at")
 
   @@index([tenantId])
   @@map("system_messages")
@@ -618,34 +624,34 @@ model Vertical {
 }
 
 model Proposal {
-  id                    String   @id
-  tenantId              String   @map("tenant_id")
-  tenant                Tenant   @relation(fields: [tenantId], references: [id])
-  projectId             String   @map("project_id")
-  project               Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  proposalType          ProposalType @map("proposal_type")
-  templateId            String   @map("template_id")
+  id                    String           @id
+  tenantId              String           @map("tenant_id")
+  tenant                Tenant           @relation(fields: [tenantId], references: [id])
+  projectId             String           @map("project_id")
+  project               Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  proposalType          ProposalType     @map("proposal_type")
+  templateId            String           @map("template_id")
   template              ProposalTemplate @relation(fields: [templateId], references: [id])
-  templateVersion       String   @map("template_version")
-  status                ProposalStatus @default(draft)
+  templateVersion       String           @map("template_version")
+  status                ProposalStatus   @default(draft)
   language              Language
-  docxFilePath          String   @map("docx_file_path")
-  pdfFilePath           String   @map("pdf_file_path")
-  generatedBy           String   @map("generated_by")
-  generatedAt           DateTime @default(now()) @map("generated_at")
+  docxFilePath          String           @map("docx_file_path")
+  pdfFilePath           String           @map("pdf_file_path")
+  generatedBy           String           @map("generated_by")
+  generatedAt           DateTime         @default(now()) @map("generated_at")
   version               Int
-  approvalWorkflowId    String   @map("approval_workflow_id")
+  approvalWorkflowId    String           @map("approval_workflow_id")
   approvalWorkflow      ApprovalWorkflow @relation(fields: [approvalWorkflowId], references: [id])
-  manualPricingTable    Json?    @map("manual_pricing_table")
-  paymentTerms          String?  @map("payment_terms") @db.Text
-  deliveryTerms         String?  @map("delivery_terms") @db.Text
-  proposalValidity      String?  @map("proposal_validity")
-  commercialAssumptions String?  @map("commercial_assumptions") @db.Text
-  exclusions            String?  @db.Text
+  manualPricingTable    Json?            @map("manual_pricing_table")
+  paymentTerms          String?          @map("payment_terms") @db.Text
+  deliveryTerms         String?          @map("delivery_terms") @db.Text
+  proposalValidity      String?          @map("proposal_validity")
+  commercialAssumptions String?          @map("commercial_assumptions") @db.Text
+  exclusions            String?          @db.Text
   // Full editable proposal text, pre-filled from the analysis data at generation time - the
   // user can rewrite any section before submitting for approval. The DOCX/PDF are (re)generated
   // from this field, not directly from the raw analysis JSON, once it exists.
-  editableContent       String?  @map("editable_content") @db.Text
+  editableContent       String?          @map("editable_content") @db.Text
 
   decisions ApprovalDecision[]
 
@@ -672,20 +678,20 @@ model ApprovalWorkflow {
 }
 
 model ApprovalStage {
-  id              String   @id
-  tenantId        String   @map("tenant_id")
-  tenant          Tenant   @relation(fields: [tenantId], references: [id])
-  workflowId      String   @map("workflow_id")
-  workflow        ApprovalWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-  name            String
-  order           Int
-  approverType    ApproverType @map("approver_type")
-  approverUserId  String?  @map("approver_user_id")
-  approverRoleId  String?  @map("approver_role_id")
-  mandatory       Boolean  @default(true)
-  conditions      String
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  id             String           @id
+  tenantId       String           @map("tenant_id")
+  tenant         Tenant           @relation(fields: [tenantId], references: [id])
+  workflowId     String           @map("workflow_id")
+  workflow       ApprovalWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  name           String
+  order          Int
+  approverType   ApproverType     @map("approver_type")
+  approverUserId String?          @map("approver_user_id")
+  approverRoleId String?          @map("approver_role_id")
+  mandatory      Boolean          @default(true)
+  conditions     String
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
 
   decisions ApprovalDecision[]
 
@@ -694,89 +700,89 @@ model ApprovalStage {
 }
 
 model ApprovalDecision {
-  id              String   @id
-  tenantId        String   @map("tenant_id")
-  tenant          Tenant   @relation(fields: [tenantId], references: [id])
-  proposalId      String   @map("proposal_id")
-  proposal        Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
-  stageId         String   @map("stage_id")
-  stage           ApprovalStage @relation(fields: [stageId], references: [id])
-  approverUserId  String   @map("approver_user_id")
-  decision        ApprovalDecisionType
-  comments        String   @db.Text
-  createdAt       DateTime @default(now()) @map("created_at")
+  id             String               @id
+  tenantId       String               @map("tenant_id")
+  tenant         Tenant               @relation(fields: [tenantId], references: [id])
+  proposalId     String               @map("proposal_id")
+  proposal       Proposal             @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  stageId        String               @map("stage_id")
+  stage          ApprovalStage        @relation(fields: [stageId], references: [id])
+  approverUserId String               @map("approver_user_id")
+  decision       ApprovalDecisionType
+  comments       String               @db.Text
+  createdAt      DateTime             @default(now()) @map("created_at")
 
   @@index([tenantId])
   @@map("approval_decisions")
 }
 
 model Task {
-  id                   String   @id
-  tenantId             String   @map("tenant_id")
-  tenant               Tenant   @relation(fields: [tenantId], references: [id])
-  projectId            String   @map("project_id")
-  project              Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  title                String
-  description          String   @db.Text
-  ownerUserId          String   @map("owner_user_id")
-  dueDate              DateTime @map("due_date")
-  status               TaskStatus
-  priority             Priority
-  relatedAnalysisItem  String?  @map("related_analysis_item")
-  createdBy            String   @map("created_by")
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @updatedAt @map("updated_at")
+  id                  String     @id
+  tenantId            String     @map("tenant_id")
+  tenant              Tenant     @relation(fields: [tenantId], references: [id])
+  projectId           String     @map("project_id")
+  project             Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title               String
+  description         String     @db.Text
+  ownerUserId         String     @map("owner_user_id")
+  dueDate             DateTime   @map("due_date")
+  status              TaskStatus
+  priority            Priority
+  relatedAnalysisItem String?    @map("related_analysis_item")
+  createdBy           String     @map("created_by")
+  createdAt           DateTime   @default(now()) @map("created_at")
+  updatedAt           DateTime   @updatedAt @map("updated_at")
 
   @@index([tenantId])
   @@map("tasks")
 }
 
 model BrandingSettings {
-  id                   String   @id
-  tenantId             String   @map("tenant_id")
-  tenant               Tenant   @relation(fields: [tenantId], references: [id])
-  companyName          String   @map("company_name")
-  companyLogoPath      String   @map("company_logo_path")
-  loginLogoPath        String   @map("login_logo_path")
-  sidebarLogoPath      String   @map("sidebar_logo_path")
-  reportLogoPath       String   @map("report_logo_path")
-  faviconPath          String   @map("favicon_path")
-  primaryColor         String   @map("primary_color")
-  secondaryColor       String   @map("secondary_color")
-  accentColor          String   @map("accent_color")
-  backgroundColor      String   @map("background_color")
-  textColor            String   @map("text_color")
-  fontFamily           String   @map("font_family")
-  borderRadius         String   @map("border_radius")
-  buttonStyle          String   @map("button_style")
-  defaultTheme         Theme    @default(light) @map("default_theme")
-  customCssVariables   String   @map("custom_css_variables") @db.Text
-  footerText           String   @map("footer_text")
-  supportContact       String   @map("support_contact")
-  legalText            String   @map("legal_text") @db.Text
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @updatedAt @map("updated_at")
+  id                 String   @id
+  tenantId           String   @map("tenant_id")
+  tenant             Tenant   @relation(fields: [tenantId], references: [id])
+  companyName        String   @map("company_name")
+  companyLogoPath    String   @map("company_logo_path")
+  loginLogoPath      String   @map("login_logo_path")
+  sidebarLogoPath    String   @map("sidebar_logo_path")
+  reportLogoPath     String   @map("report_logo_path")
+  faviconPath        String   @map("favicon_path")
+  primaryColor       String   @map("primary_color")
+  secondaryColor     String   @map("secondary_color")
+  accentColor        String   @map("accent_color")
+  backgroundColor    String   @map("background_color")
+  textColor          String   @map("text_color")
+  fontFamily         String   @map("font_family")
+  borderRadius       String   @map("border_radius")
+  buttonStyle        String   @map("button_style")
+  defaultTheme       Theme    @default(light) @map("default_theme")
+  customCssVariables String   @map("custom_css_variables") @db.Text
+  footerText         String   @map("footer_text")
+  supportContact     String   @map("support_contact")
+  legalText          String   @map("legal_text") @db.Text
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
   @@unique([tenantId])
   @@map("branding_settings")
 }
 
 model IntegrationConnector {
-  id                    String   @id
-  tenantId              String   @map("tenant_id")
-  tenant                Tenant   @relation(fields: [tenantId], references: [id])
-  name                  String
-  type                  String
-  status                IntegrationStatus
-  configuration         String   @db.Text
+  id                     String            @id
+  tenantId               String            @map("tenant_id")
+  tenant                 Tenant            @relation(fields: [tenantId], references: [id])
+  name                   String
+  type                   String
+  status                 IntegrationStatus
+  configuration          String            @db.Text
   // Encrypted (AES-256-GCM via encryptSecret) - set when the connector form submits a raw credential.
-  apiKeyEncrypted       String?  @map("api_key_encrypted") @db.Text
-  webhookSecretEncrypted String? @map("webhook_secret_encrypted") @db.Text
-  lastSyncStatus        String   @map("last_sync_status")
-  lastSyncDate          DateTime? @map("last_sync_date")
-  errorMessage          String?  @map("error_message") @db.Text
-  createdAt             DateTime @default(now()) @map("created_at")
-  updatedAt             DateTime @updatedAt @map("updated_at")
+  apiKeyEncrypted        String?           @map("api_key_encrypted") @db.Text
+  webhookSecretEncrypted String?           @map("webhook_secret_encrypted") @db.Text
+  lastSyncStatus         String            @map("last_sync_status")
+  lastSyncDate           DateTime?         @map("last_sync_date")
+  errorMessage           String?           @map("error_message") @db.Text
+  createdAt              DateTime          @default(now()) @map("created_at")
+  updatedAt              DateTime          @updatedAt @map("updated_at")
 
   @@index([tenantId])
   @@map("integration_connectors")
@@ -805,18 +811,18 @@ enum KnowledgeBaseEntrySource {
 // no project of origin. analyzedAt is null until "Analisar Documentos e Gerar Base de
 // Conhecimento" has processed it at least once.
 model KnowledgeBaseDocument {
-  id               String    @id
-  tenantId         String    @map("tenant_id")
-  tenant           Tenant    @relation(fields: [tenantId], references: [id])
+  id               String          @id
+  tenantId         String          @map("tenant_id")
+  tenant           Tenant          @relation(fields: [tenantId], references: [id])
   filename         String
-  originalFilename String    @map("original_filename")
-  mimeType         String    @map("mime_type")
-  fileSize         Int       @map("file_size")
+  originalFilename String          @map("original_filename")
+  mimeType         String          @map("mime_type")
+  fileSize         Int             @map("file_size")
   storageProvider  StorageProvider @map("storage_provider")
-  storagePath      String    @map("storage_path")
-  uploadedBy       String    @map("uploaded_by")
-  analyzedAt       DateTime? @map("analyzed_at")
-  createdAt        DateTime  @default(now()) @map("created_at")
+  storagePath      String          @map("storage_path")
+  uploadedBy       String          @map("uploaded_by")
+  analyzedAt       DateTime?       @map("analyzed_at")
+  createdAt        DateTime        @default(now()) @map("created_at")
 
   @@index([tenantId])
   @@map("knowledge_base_documents")
@@ -851,4 +857,26 @@ model KnowledgeBaseEntry {
   @@index([tenantId])
   @@index([status])
   @@map("knowledge_base_entries")
+}
+
+// Single source of truth for AI spend, independent of BackgroundTask - several AI-calling paths
+// (copilot chat, BOM web-search enrichment, Knowledge Base suggest/analyze, document
+// classification) are fast synchronous calls, not long-running background jobs, so tracking cost
+// only on BackgroundTask.estimatedCostUsd left them uncapped and uncounted. One row per AI call
+// that completed, real cost or not. backgroundTaskId is set when the call happened inside a
+// tracked job, for traceability - not a hard FK, since the referenced task or the row itself may
+// outlive the other independently.
+model AiUsageLog {
+  id               String   @id
+  tenantId         String   @map("tenant_id")
+  tenant           Tenant   @relation(fields: [tenantId], references: [id])
+  taskType         String   @map("task_type")
+  provider         String
+  model            String
+  estimatedCostUsd Float    @map("estimated_cost_usd")
+  backgroundTaskId String?  @map("background_task_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt])
+  @@map("ai_usage_logs")
 }

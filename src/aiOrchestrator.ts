@@ -1,6 +1,5 @@
 import { prisma } from "./prisma";
 import { dbStore } from "./dbStore";
-import { BackgroundTaskType } from "@prisma/client";
 
 export type AiTaskType = "document_analysis" | "critical_extraction" | "web_grounding" | "proposal_generation" | "spec_copilot";
 
@@ -12,6 +11,7 @@ export interface ProviderResolution {
 }
 
 interface TaskProviderSettings {
+  default_model: string;
   document_analysis_model: string;
   document_analysis_provider: string;
   critical_extraction_model: string;
@@ -51,8 +51,14 @@ export function resolveProvider(taskType: AiTaskType, settings: TaskProviderSett
   }
 
   return {
+    // The fallback provider is always gemini (the one key required platform-wide, per
+    // isProviderConnected above) - but settings[`${taskType}_model`] holds whatever model the
+    // *intended* (unconnected) provider was configured with, which may not even be a Gemini model
+    // name at all (e.g. web_grounding configured for an Anthropic model). default_model is the
+    // tenant's actual chosen Gemini default, the only field guaranteed to name a real Gemini
+    // model regardless of which task type is falling back.
     provider: "gemini",
-    model: settings.document_analysis_model,
+    model: settings.default_model,
     intendedProvider,
     isFallback: true,
   };
@@ -63,7 +69,48 @@ function startOfCurrentMonth(): Date {
   return new Date(now.getFullYear(), now.getMonth(), 1);
 }
 
-const AI_CALLING_TASK_TYPES: BackgroundTaskType[] = ["document_analysis", "project_intake_analysis"];
+// Every task type that spends real AI-provider tokens - kept as one list so adding a new
+// AI-calling path (like knowledge_base_analysis was, until this fix) means adding it here and
+// nowhere else. Previously only 2 of these were ever counted against the cap or shown in the cost
+// breakdown (document_analysis, project_intake_analysis via BackgroundTask.estimatedCostUsd) -
+// spec_copilot_chat, bom_web_search, kb_suggest, kb_document_analysis, and document_classification
+// spent real money completely uncapped and uncounted.
+export const AI_SPENDING_TASK_TYPES = [
+  "document_analysis",
+  "project_intake_analysis",
+  "knowledge_base_analysis",
+  "spec_copilot_chat",
+  "bom_web_search",
+  "kb_suggest",
+  "document_classification",
+] as const;
+export type AiSpendingTaskType = (typeof AI_SPENDING_TASK_TYPES)[number];
+
+// Single write path for every AI call that completed, real cost or not - the only source of truth
+// checkCostCap/getCurrentMonthSpendUsd/getCurrentMonthSpendByTaskTypeAndProvider read from.
+// backgroundTaskId is optional traceability, not a requirement - most of the newly-covered task
+// types (chat, BOM enrichment, KB suggest, classification) are synchronous calls with no
+// BackgroundTask of their own.
+export async function recordAiUsage(params: {
+  tenantId: string;
+  taskType: AiSpendingTaskType;
+  provider: string;
+  model: string;
+  estimatedCostUsd: number;
+  backgroundTaskId?: string;
+}): Promise<void> {
+  await prisma.aiUsageLog.create({
+    data: {
+      id: `ail_${Math.random().toString(36).substring(2, 11)}`,
+      tenantId: params.tenantId,
+      taskType: params.taskType,
+      provider: params.provider,
+      model: params.model,
+      estimatedCostUsd: params.estimatedCostUsd,
+      backgroundTaskId: params.backgroundTaskId,
+    },
+  });
+}
 
 export interface CostCapCheck {
   blocked: boolean;
@@ -72,24 +119,18 @@ export interface CostCapCheck {
   capUsd: number | null;
 }
 
-// Checked before starting an AI-calling task - the cap is a real block, not just a dashboard
-// number. 80% is a warning (task still runs) so nobody discovers the cap mid-emergency.
+// Checked before starting ANY AI-calling task or call - the cap is a real block, not just a
+// dashboard number. 80% is a warning (task still runs) so nobody discovers the cap mid-emergency.
 export async function checkCostCap(tenantId: string, capUsd: number | null): Promise<CostCapCheck> {
   if (capUsd === null) {
     return { blocked: false, warningThresholdReached: false, currentSpendUsd: 0, capUsd: null };
   }
 
-  const rows = await prisma.backgroundTask.findMany({
-    where: {
-      tenantId,
-      type: { in: AI_CALLING_TASK_TYPES },
-      createdAt: { gte: startOfCurrentMonth() },
-      estimatedCostUsd: { not: null },
-    },
-    select: { estimatedCostUsd: true },
+  const result = await prisma.aiUsageLog.aggregate({
+    where: { tenantId, createdAt: { gte: startOfCurrentMonth() } },
+    _sum: { estimatedCostUsd: true },
   });
-
-  const currentSpendUsd = rows.reduce((sum, r) => sum + (r.estimatedCostUsd || 0), 0);
+  const currentSpendUsd = result._sum.estimatedCostUsd || 0;
 
   return {
     blocked: currentSpendUsd >= capUsd,
@@ -103,26 +144,30 @@ export async function checkCostCap(tenantId: string, capUsd: number | null): Pro
 // de IA e Prompts" card, which used to show a hardcoded placeholder number unrelated to any real
 // usage.
 export async function getCurrentMonthSpendUsd(tenantId: string): Promise<number> {
-  const rows = await prisma.backgroundTask.findMany({
-    where: { tenantId, type: { in: AI_CALLING_TASK_TYPES }, createdAt: { gte: startOfCurrentMonth() }, estimatedCostUsd: { not: null } },
-    select: { estimatedCostUsd: true },
+  const result = await prisma.aiUsageLog.aggregate({
+    where: { tenantId, createdAt: { gte: startOfCurrentMonth() } },
+    _sum: { estimatedCostUsd: true },
   });
-  return rows.reduce((sum, r) => sum + (r.estimatedCostUsd || 0), 0);
+  return result._sum.estimatedCostUsd || 0;
 }
 
-// Same real spend, broken down by which task type actually incurred it - the cost card used to
-// only show one combined total, giving no visibility into which service (document analysis vs.
-// intake extraction) is actually driving spend.
-export async function getCurrentMonthSpendByTaskType(tenantId: string): Promise<Record<string, number>> {
-  const rows = await prisma.backgroundTask.findMany({
-    where: { tenantId, type: { in: AI_CALLING_TASK_TYPES }, createdAt: { gte: startOfCurrentMonth() }, estimatedCostUsd: { not: null } },
-    select: { type: true, estimatedCostUsd: true },
+// Real spend broken down by BOTH which service incurred it and which provider actually served the
+// call (a task type can span providers within the same month if its configured provider changed,
+// or fell back to Gemini) - the cost card used to only show one combined total per service, with
+// no visibility into provider mix.
+export async function getCurrentMonthSpendByTaskTypeAndProvider(tenantId: string): Promise<Record<string, Record<string, number>>> {
+  const rows = await prisma.aiUsageLog.groupBy({
+    by: ["taskType", "provider"],
+    where: { tenantId, createdAt: { gte: startOfCurrentMonth() } },
+    _sum: { estimatedCostUsd: true },
   });
-  const byType: Record<string, number> = {};
+
+  const byTypeAndProvider: Record<string, Record<string, number>> = {};
   for (const r of rows) {
-    byType[r.type] = (byType[r.type] || 0) + (r.estimatedCostUsd || 0);
+    byTypeAndProvider[r.taskType] ??= {};
+    byTypeAndProvider[r.taskType][r.provider] = r._sum.estimatedCostUsd || 0;
   }
-  return byType;
+  return byTypeAndProvider;
 }
 
 const FALLBACK_ALERT_WINDOW_MS = 60 * 60 * 1000;

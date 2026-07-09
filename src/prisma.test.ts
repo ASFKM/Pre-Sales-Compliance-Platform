@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { prisma } from "./prisma";
+import { Prisma } from "@prisma/client";
+import { prisma, TENANT_SCOPED_MODELS } from "./prisma";
 import { runWithTenant } from "./tenantContext";
 
 // Integration test against a real database (CI provisions an ephemeral Postgres and applies
@@ -96,5 +97,24 @@ describe("tenant-scoping Prisma extension (src/prisma.ts)", () => {
         })
       )
     ).rejects.toThrow(/upsert\(\) is disallowed/);
+  });
+
+  it("TENANT_SCOPED_MODELS covers every model in the real schema that carries a tenantId column", () => {
+    // This is what would have caught the original gap (5 models missing) automatically instead of
+    // needing a full-codebase audit to find it - derives the "should be scoped" list from the
+    // actual Prisma schema (DMMF), not from a second hand-maintained list that could drift the
+    // same way the first one did.
+    const modelsWithTenantId = Prisma.dmmf.datamodel.models
+      .filter((m) => m.fields.some((f) => f.name === "tenantId"))
+      .map((m) => m.name.charAt(0).toLowerCase() + m.name.slice(1));
+
+    const missing = modelsWithTenantId.filter((m) => !TENANT_SCOPED_MODELS.has(m));
+    expect(missing).toEqual([]);
+
+    // And the reverse: nothing in the set should be a name that doesn't exist in the schema at
+    // all (a typo, or a model that was later renamed/removed) - silently doing nothing is its own
+    // kind of bug.
+    const scopedButUnknown = [...TENANT_SCOPED_MODELS].filter((m) => !modelsWithTenantId.includes(m));
+    expect(scopedButUnknown).toEqual([]);
   });
 });
