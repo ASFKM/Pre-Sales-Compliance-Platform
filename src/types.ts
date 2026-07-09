@@ -431,7 +431,7 @@ export interface ApprovalDecision {
 
 export interface Task {
   id: string;
-  project_id: string;
+  project_id?: string;
   title: string;
   description: string;
   owner_user_id: string;

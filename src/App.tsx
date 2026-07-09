@@ -8,7 +8,6 @@ import ProjectsList from "./components/ProjectsList";
 import KnowledgeBase from "./components/KnowledgeBase";
 import Home from "./components/Home";
 import Proposals from "./components/Proposals";
-import Templates from "./components/Templates";
 import Approval from "./components/Approval";
 import NewProjectWizard from "./components/modals/NewProjectWizard";
 import { useBackgroundTasks } from "./hooks/useBackgroundTasks";
@@ -361,7 +360,7 @@ export default function App() {
 
 
   // Navigation / Views
-  const [activeTab, setActiveTab] = useState<"home" | "workspace" | "projectsList" | "proposals" | "templates" | "approval" | "knowledgeBase" | "admin">("home");
+  const [activeTab, setActiveTab] = useState<"home" | "workspace" | "projectsList" | "proposals" | "approval" | "knowledgeBase" | "admin">("home");
   const [activeAdminSection, setActiveAdminSection] = useState<"overview" | "users" | "ai" | "templates" | "approval_flow" | "subscription" | "branding" | "integrations" | "storage" | "audit">("overview");
 
   // Shared with fetchGlobalConfigs (auto-selects defaults) and Workspace's proposal builder
@@ -1061,14 +1060,19 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
             </button>
           </div>
 
-          <div className="flex items-center">
-            <button
-              onClick={() => setActiveTab("templates")}
-              className={`py-4 px-1 border-b-2 transition-all ${activeTab === "templates" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
-            >
-              {t("tenderTemplates")}
-            </button>
-          </div>
+          {canAccessAdminSection("templates") && (
+            <div className="flex items-center">
+              <button
+                onClick={() => {
+                  setActiveAdminSection("templates");
+                  setActiveTab("admin");
+                }}
+                className={`py-4 px-1 border-b-2 transition-all ${activeTab === "admin" && activeAdminSection === "templates" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
+              >
+                {t("tenderTemplates")}
+              </button>
+            </div>
+          )}
 
           <div className="flex items-center">
             <button
@@ -1405,15 +1409,6 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               fetchGlobalConfigs={fetchGlobalConfigs}
               fetchProjectDetails={fetchProjectDetails}
               handleReleaseProposal={handleReleaseProposal}
-            />
-          )}
-
-          {/* TAB 3: TENDER TEMPLATES */}
-          {activeTab === "templates" && (
-            <Templates
-              locale={locale}
-              proposalTemplates={proposalTemplates}
-              fetchGlobalConfigs={fetchGlobalConfigs}
             />
           )}
 

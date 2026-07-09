@@ -416,7 +416,7 @@ function mapDecision(d: any): ApprovalDecision {
 function mapTask(t: any): Task {
   return {
     id: t.id,
-    project_id: t.projectId,
+    project_id: t.projectId ?? undefined,
     title: t.title,
     description: t.description,
     owner_user_id: t.ownerUserId,
@@ -785,6 +785,14 @@ class DBStore {
   public async getAnalysisResult(projectId: string): Promise<AnalysisResult | undefined> {
     const a = await prisma.analysisResult.findUnique({ where: { projectId } });
     return a ? mapAnalysisResult(a) : undefined;
+  }
+
+  // Every analysis result for the tenant - used by the Home dashboard's real compliance
+  // aggregation (previously a hardcoded 94.2%), only ever needs criticalRequirements so that's
+  // all this fetches.
+  public async getAllCriticalRequirements(): Promise<any[][]> {
+    const rows = await prisma.analysisResult.findMany({ select: { criticalRequirements: true } });
+    return rows.map((r) => (Array.isArray(r.criticalRequirements) ? (r.criticalRequirements as any[]) : []));
   }
 
   // Deliberately not prisma.analysisResult.upsert(): the tenant-scoping extension (src/prisma.ts)
@@ -1445,7 +1453,7 @@ class DBStore {
       data: {
         id: randomId("task"),
         tenantId: requireTenantId(),
-        projectId: task.project_id,
+        projectId: task.project_id || undefined,
         title: task.title,
         description: task.description,
         ownerUserId: task.owner_user_id,
@@ -1465,6 +1473,7 @@ class DBStore {
     const t = await prisma.task.update({
       where: { id },
       data: {
+        projectId: updates.project_id,
         title: updates.title,
         description: updates.description,
         ownerUserId: updates.owner_user_id,

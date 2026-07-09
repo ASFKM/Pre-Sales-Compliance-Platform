@@ -11,7 +11,7 @@ interface UseWorkspaceParams {
   setAnalysisResult: Dispatch<SetStateAction<AnalysisResult | null>>;
   fetchGlobalConfigs: () => Promise<void> | void;
   fetchProjectDetails: (projectId: string) => Promise<void> | void;
-  setActiveTab: (tab: "home" | "workspace" | "proposals" | "templates" | "approval" | "admin") => void;
+  setActiveTab: (tab: "home" | "workspace" | "projectsList" | "proposals" | "approval" | "knowledgeBase" | "admin") => void;
   waitForTask: (taskId: string) => Promise<BackgroundTask>;
   proposalTemplates: any[];
   selectedTechnicalTemplateId: string;

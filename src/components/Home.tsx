@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Activity, CheckCircle2, ChevronRight, FileText, ListTodo, Plus, Trash2 } from "lucide-react";
 import { Project } from "../types";
 
@@ -7,30 +7,104 @@ interface HomeProps {
   tx: (en: string, pt: string) => string;
   projects: Project[];
   setSelectedProjectId: (id: string) => void;
-  setActiveTab: (tab: "home" | "workspace" | "proposals" | "templates" | "approval" | "admin") => void;
+  setActiveTab: (tab: "home" | "workspace" | "projectsList" | "proposals" | "approval" | "knowledgeBase" | "admin") => void;
   setShowNewProjectModal: (show: boolean) => void;
+}
+
+interface UserTask {
+  id: string;
+  title: string;
+  status: "open" | "in_progress" | "waiting_customer" | "waiting_internal" | "completed" | "canceled";
+  due_date: string;
 }
 
 export default function Home({
   locale, tx, projects, setSelectedProjectId, setActiveTab, setShowNewProjectModal,
 }: HomeProps) {
-  const [tasks, setTasks] = useState<{ id: string; text: string; done: boolean; dueDate?: string }[]>(() => {
-    const saved = localStorage.getItem("user_tasks");
-    if (saved) {
-      try { return JSON.parse(saved); } catch (e) {}
-    }
-    return [
-      { id: "1", text: "Revisar inconformidades críticas do Edital 82", done: false, dueDate: "2026-07-05" },
-      { id: "2", text: "Ajustar margem de lucro e precificação na planilha BOM", done: false, dueDate: "2026-07-08" },
-      { id: "3", text: "Subir diagramas elétricos no explorador de arquivos", done: false, dueDate: "2026-07-06" },
-      { id: "4", text: "Gerar minuta final da proposta comercial para diretoria", done: true, dueDate: "2026-06-30" }
-    ];
-  });
+  const [tasks, setTasks] = useState<UserTask[]>([]);
   const [newTaskText, setNewTaskText] = useState("");
+  const [compliancePct, setCompliancePct] = useState<number | null>(null);
+
+  const fetchTasks = async () => {
+    try {
+      const res = await fetch("/api/user-tasks");
+      if (!res.ok) return;
+      const data = await res.json();
+      setTasks(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   useEffect(() => {
-    localStorage.setItem("user_tasks", JSON.stringify(tasks));
-  }, [tasks]);
+    fetchTasks();
+
+    fetch("/api/dashboard/compliance-summary")
+      .then((res) => res.json())
+      .then((data) => setCompliancePct(data.has_data ? data.compliance_pct : null))
+      .catch(() => setCompliancePct(null));
+  }, []);
+
+  const handleAddTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTaskText.trim()) return;
+
+    try {
+      const res = await fetch("/api/user-tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: newTaskText.trim(),
+          due_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.message || (locale === "pt" ? "Não foi possível adicionar a tarefa." : "Could not add the task."));
+        return;
+      }
+      setNewTaskText("");
+      await fetchTasks();
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao adicionar tarefa." : "Error adding task.");
+    }
+  };
+
+  const handleToggleTask = async (task: UserTask) => {
+    const nextStatus = task.status === "completed" ? "open" : "completed";
+    try {
+      const res = await fetch(`/api/user-tasks/${task.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.message || (locale === "pt" ? "Não foi possível atualizar a tarefa." : "Could not update the task."));
+        return;
+      }
+      await fetchTasks();
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao atualizar tarefa." : "Error updating task.");
+    }
+  };
+
+  const handleDeleteTask = async (id: string) => {
+    try {
+      const res = await fetch(`/api/user-tasks/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.message || (locale === "pt" ? "Não foi possível excluir a tarefa." : "Could not delete the task."));
+        return;
+      }
+      await fetchTasks();
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao excluir tarefa." : "Error deleting task.");
+    }
+  };
 
   const handleViewProjectWorkspace = (projId: string) => {
     setSelectedProjectId(projId);
@@ -53,41 +127,27 @@ export default function Home({
                       </h2>
                       <p className="text-xs text-slate-400 mt-0.5">
                         {locale === "pt"
-                          ? `Foco operacional: ${tasks.filter(t => !t.done).length} pendências para resolução imediata`
-                          : `Operational focus: ${tasks.filter(t => !t.done).length} pending actions requiring immediate attention`}
+                          ? `Foco operacional: ${tasks.filter(t => t.status !== "completed").length} pendências para resolução imediata`
+                          : `Operational focus: ${tasks.filter(t => t.status !== "completed").length} pending actions requiring immediate attention`}
                       </p>
                     </div>
                   </div>
                   {/* Progress Indicators */}
                   <div className="flex items-center gap-3 self-end sm:self-auto">
                     <span className="text-xs font-mono font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
-                      {Math.round((tasks.filter(t => t.done).length / (tasks.length || 1)) * 100)}% {locale === "pt" ? "Concluído" : "Completed"}
+                      {Math.round((tasks.filter(t => t.status === "completed").length / (tasks.length || 1)) * 100)}% {locale === "pt" ? "Concluído" : "Completed"}
                     </span>
                     <div className="w-24 bg-slate-100 h-2 rounded-full overflow-hidden">
                       <div
                         className="bg-emerald-600 h-full transition-all duration-300 rounded-full"
-                        style={{ width: `${(tasks.filter(t => t.done).length / (tasks.length || 1)) * 100}%` }}
+                        style={{ width: `${(tasks.filter(t => t.status === "completed").length / (tasks.length || 1)) * 100}%` }}
                       ></div>
                     </div>
                   </div>
                 </div>
 
                 {/* Add task form inline */}
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    if (!newTaskText.trim()) return;
-                    const newTask = {
-                      id: Date.now().toString(),
-                      text: newTaskText.trim(),
-                      done: false,
-                      dueDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-                    };
-                    setTasks([...tasks, newTask]);
-                    setNewTaskText("");
-                  }}
-                  className="flex gap-2"
-                >
+                <form onSubmit={handleAddTask} className="flex gap-2">
                   <input
                     type="text"
                     value={newTaskText}
@@ -114,7 +174,7 @@ export default function Home({
                       <div
                         key={task.id}
                         className={`p-3 rounded-xl border flex items-start justify-between gap-3 transition-all group ${
-                          task.done
+                          task.status === "completed"
                             ? "bg-slate-50/50 border-slate-100 opacity-60"
                             : "bg-white border-slate-200 hover:border-slate-300 shadow-xs"
                         }`}
@@ -122,27 +182,23 @@ export default function Home({
                         <div className="flex gap-3 items-start flex-1 min-w-0">
                           <input
                             type="checkbox"
-                            checked={task.done}
-                            onChange={() => {
-                              setTasks(tasks.map(t => t.id === task.id ? { ...t, done: !t.done } : t));
-                            }}
+                            checked={task.status === "completed"}
+                            onChange={() => handleToggleTask(task)}
                             className="mt-0.5 h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer shrink-0"
                           />
                           <div className="leading-tight flex-1 min-w-0">
-                            <p className={`text-xs font-semibold text-slate-700 truncate ${task.done ? "line-through text-slate-400 font-normal" : ""}`} title={task.text}>
-                              {task.text}
+                            <p className={`text-xs font-semibold text-slate-700 truncate ${task.status === "completed" ? "line-through text-slate-400 font-normal" : ""}`} title={task.title}>
+                              {task.title}
                             </p>
-                            {task.dueDate && (
+                            {task.due_date && (
                               <span className="text-[9px] font-mono text-slate-400 bg-slate-100 px-1 rounded mt-1.5 inline-block font-bold">
-                                📅 {locale === "pt" ? "PRAZO: " : "DUE: "}{task.dueDate}
+                                📅 {locale === "pt" ? "PRAZO: " : "DUE: "}{task.due_date}
                               </span>
                             )}
                           </div>
                         </div>
                         <button
-                          onClick={() => {
-                            setTasks(tasks.filter(t => t.id !== task.id));
-                          }}
+                          onClick={() => handleDeleteTask(task.id)}
                           className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 cursor-pointer shrink-0"
                           title={locale === "pt" ? "Excluir tarefa" : "Delete task"}
                         >
@@ -182,7 +238,7 @@ export default function Home({
                       {locale === "pt" ? "Conformidade Média" : "Avg Compliance"}
                     </span>
                     <span className="text-2xl font-bold text-slate-800 font-mono block mt-0.5">
-                      94.2%
+                      {compliancePct !== null ? `${compliancePct}%` : (locale === "pt" ? "Sem dados" : "No data")}
                     </span>
                   </div>
                 </div>
