@@ -1,10 +1,23 @@
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { dbStore } from "../../src/dbStore";
+import { prisma } from "../../src/prisma";
 import { decryptSecret } from "./security";
 import { getGeminiClient } from "./gemini";
 
-export type ConnectedProvider = "gemini" | "openai" | "anthropic";
+// The 3 built-in providers keep their own bespoke handling below (vision input, streaming, native
+// web search tools). Anything else is treated as a user-added, OpenAI-compatible custom provider
+// (see AiProviderConfig) - a string, not a fixed union, since the whole point is that new ones can
+// be added without a code change.
+export type ConnectedProvider = string;
+
+async function getCustomProviderConfig(providerKey: string): Promise<{ baseUrl: string; apiKey: string }> {
+  const config = await prisma.aiProviderConfig.findFirst({ where: { providerKey } });
+  if (!config) {
+    throw new Error(`AI provider "${providerKey}" is not configured. Add it in Admin > IA, Prompts e Custos > Provedores Personalizados.`);
+  }
+  return { baseUrl: config.baseUrl, apiKey: decryptSecret(config.apiKeyEncrypted) };
+}
 
 async function getConfiguredOpenAiApiKey(): Promise<string> {
   const envKey = process.env.OPENAI_API_KEY?.trim();
@@ -38,7 +51,7 @@ export async function isProviderConnected(provider: string): Promise<boolean> {
     if (provider === "gemini") return true; // Gemini's key is required platform-wide already.
     if (provider === "openai") return Boolean(await getConfiguredOpenAiApiKey().catch(() => null));
     if (provider === "anthropic") return Boolean(await getConfiguredAnthropicApiKey().catch(() => null));
-    return false;
+    return Boolean(await prisma.aiProviderConfig.findFirst({ where: { providerKey: provider } }));
   } catch {
     return false;
   }
@@ -124,24 +137,46 @@ export async function generateJsonWithProvider(provider: ConnectedProvider, mode
     };
   }
 
-  const ai = await getGeminiClient();
-  const parts: any[] = [{ text: prompt }];
-  for (const f of files || []) {
-    parts.push({ inlineData: { mimeType: f.mimeType, data: f.base64Data } });
+  if (provider === "gemini") {
+    const ai = await getGeminiClient();
+    const parts: any[] = [{ text: prompt }];
+    for (const f of files || []) {
+      parts.push({ inlineData: { mimeType: f.mimeType, data: f.base64Data } });
+    }
+    const response = await ai.models.generateContent({
+      model,
+      contents: [{ role: "user", parts }],
+      config: { responseMimeType: "application/json" },
+    });
+    return {
+      text: response.text || "{}",
+      inputTokens: response.usageMetadata?.promptTokenCount || 0,
+      outputTokens: response.usageMetadata?.candidatesTokenCount || 0,
+    };
   }
-  const response = await ai.models.generateContent({
+
+  // User-added custom provider (Grok/xAI, DeepSeek, Mistral AI, or any other OpenAI-compatible
+  // endpoint) - dispatched generically via the `openai` SDK pointed at the provider's own base
+  // URL, since all of them mirror OpenAI's chat completions request/response shape including JSON
+  // mode. This is what makes adding a new provider a config-only action, no code change.
+  if (files?.length) {
+    throw new Error("Provedores personalizados não suportam envio de arquivo/visão nesta integração. Troque este serviço para Gemini ou Anthropic em Admin > IA, Prompts e Custos.");
+  }
+  const { baseUrl, apiKey } = await getCustomProviderConfig(provider);
+  const client = new OpenAI({ apiKey, baseURL: baseUrl });
+  const response = await client.chat.completions.create({
     model,
-    contents: [{ role: "user", parts }],
-    config: { responseMimeType: "application/json" },
+    messages: [{ role: "user", content: prompt }],
+    response_format: { type: "json_object" },
   });
   return {
-    text: response.text || "{}",
-    inputTokens: response.usageMetadata?.promptTokenCount || 0,
-    outputTokens: response.usageMetadata?.candidatesTokenCount || 0,
+    text: response.choices[0]?.message?.content || "{}",
+    inputTokens: response.usage?.prompt_tokens || 0,
+    outputTokens: response.usage?.completion_tokens || 0,
   };
 }
 
-// Same three-provider dispatch as generateJsonWithProvider, but for conversational free-text
+// Same provider dispatch as generateJsonWithProvider, but for conversational free-text
 // answers (the spec copilot chat) - no forced JSON response format/instruction, since a JSON
 // object isn't what a chat answer should look like.
 export async function generateTextWithProvider(provider: ConnectedProvider, model: string, prompt: string): Promise<ProviderJsonResult> {
@@ -176,15 +211,29 @@ export async function generateTextWithProvider(provider: ConnectedProvider, mode
     };
   }
 
-  const ai = await getGeminiClient();
-  const response = await ai.models.generateContent({
+  if (provider === "gemini") {
+    const ai = await getGeminiClient();
+    const response = await ai.models.generateContent({
+      model,
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+    });
+    return {
+      text: response.text || "",
+      inputTokens: response.usageMetadata?.promptTokenCount || 0,
+      outputTokens: response.usageMetadata?.candidatesTokenCount || 0,
+    };
+  }
+
+  const { baseUrl, apiKey } = await getCustomProviderConfig(provider);
+  const client = new OpenAI({ apiKey, baseURL: baseUrl });
+  const response = await client.chat.completions.create({
     model,
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    messages: [{ role: "user", content: prompt }],
   });
   return {
-    text: response.text || "",
-    inputTokens: response.usageMetadata?.promptTokenCount || 0,
-    outputTokens: response.usageMetadata?.candidatesTokenCount || 0,
+    text: response.choices[0]?.message?.content || "",
+    inputTokens: response.usage?.prompt_tokens || 0,
+    outputTokens: response.usage?.completion_tokens || 0,
   };
 }
 
@@ -195,6 +244,10 @@ export async function generateTextWithProvider(provider: ConnectedProvider, mode
 export async function searchWebWithProvider(provider: ConnectedProvider, model: string, prompt: string): Promise<ProviderJsonResult> {
   if (provider === "openai") {
     throw new Error("OpenAI não possui ferramenta de busca web nesta integração. Troque o serviço 'Pesquisa com Grounding Web' para Gemini ou Anthropic em Admin > IA, Prompts e Custos.");
+  }
+
+  if (provider !== "anthropic" && provider !== "gemini") {
+    throw new Error("Provedores personalizados não possuem ferramenta de busca web nesta integração. Troque o serviço 'Pesquisa com Grounding Web' para Gemini ou Anthropic em Admin > IA, Prompts e Custos.");
   }
 
   if (provider === "anthropic") {

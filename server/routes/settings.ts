@@ -654,4 +654,82 @@ router.post("/settings/prompts/:id/activate", requirePermission("ai:settings"), 
   }
 });
 
+// Custom AI providers - any OpenAI-compatible endpoint (Grok/xAI, DeepSeek, Mistral AI, Groq,
+// Together AI, Fireworks, OpenRouter, etc.) can be added here with no code change; provider_key
+// is the value that shows up in the *_provider task-routing dropdowns once added.
+const PROVIDER_KEY_PATTERN = /^[a-z0-9_-]{2,40}$/;
+
+router.get("/settings/ai-providers", requirePermission("ai:settings"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const providers = await dbStore.getAiProviderConfigs();
+    res.json(providers.map(({ api_key_encrypted, ...safe }) => ({
+      ...safe,
+      api_key_masked: (() => {
+        try {
+          return maskSecret(decryptSecret(api_key_encrypted));
+        } catch {
+          return "********";
+        }
+      })(),
+    })));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/settings/ai-providers", requirePermission("ai:settings"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { provider_key, display_name, base_url, api_key, default_model } = req.body || {};
+
+    if (!PROVIDER_KEY_PATTERN.test(String(provider_key || ""))) {
+      return res.status(400).json({ success: false, message: "provider_key must be 2-40 lowercase letters, numbers, hyphens or underscores (e.g. 'grok', 'deepseek', 'mistral')." });
+    }
+    if (!String(display_name || "").trim()) {
+      return res.status(400).json({ success: false, message: "display_name is required." });
+    }
+    if (!String(default_model || "").trim()) {
+      return res.status(400).json({ success: false, message: "default_model is required." });
+    }
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(String(base_url || ""));
+    } catch {
+      return res.status(400).json({ success: false, message: "base_url must be a valid URL (e.g. https://api.x.ai/v1)." });
+    }
+    if (parsedUrl.protocol !== "https:") {
+      return res.status(400).json({ success: false, message: "base_url must use https." });
+    }
+    if (!String(api_key || "").trim()) {
+      return res.status(400).json({ success: false, message: "api_key is required." });
+    }
+
+    const provider = await dbStore.createAiProviderConfig({
+      provider_key: String(provider_key).trim(),
+      display_name: String(display_name).trim(),
+      base_url: parsedUrl.toString(),
+      api_key_encrypted: encryptSecret(String(api_key).trim()),
+      default_model: String(default_model).trim(),
+    });
+
+    await auditSettingsChange(req, "Add Custom AI Provider", "AiProviderConfig", provider.id, { provider_key: provider.provider_key, base_url: provider.base_url });
+
+    res.status(201).json(provider);
+  } catch (err: any) {
+    if (err?.code === "P2002") {
+      return res.status(409).json({ success: false, message: "A provider with this key is already configured for this tenant." });
+    }
+    next(err);
+  }
+});
+
+router.delete("/settings/ai-providers/:id", requirePermission("ai:settings"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await dbStore.deleteAiProviderConfig(req.params.id);
+    await auditSettingsChange(req, "Remove Custom AI Provider", "AiProviderConfig", req.params.id, {});
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

@@ -1166,6 +1166,55 @@ class DBStore {
     return updated ? mapPrompt(updated) : undefined;
   }
 
+  // Custom AI providers (on top of the 3 built-in ones) - any OpenAI-compatible endpoint
+  // (Grok/xAI, DeepSeek, Mistral AI, Groq, Together AI, Fireworks, OpenRouter, etc.). The API key
+  // is never returned in full - callers must build their own masked view, same as the 3 built-in
+  // provider keys.
+  public async getAiProviderConfigs() {
+    const rows = await prisma.aiProviderConfig.findMany({ orderBy: { createdAt: "asc" } });
+    return rows.map((r) => ({
+      id: r.id,
+      provider_key: r.providerKey,
+      display_name: r.displayName,
+      base_url: r.baseUrl,
+      api_key_encrypted: r.apiKeyEncrypted,
+      default_model: r.defaultModel,
+      created_at: r.createdAt,
+    }));
+  }
+
+  public async createAiProviderConfig(params: {
+    provider_key: string;
+    display_name: string;
+    base_url: string;
+    api_key_encrypted: string;
+    default_model: string;
+  }) {
+    const row = await prisma.aiProviderConfig.create({
+      data: {
+        id: randomId("aipc"),
+        tenantId: requireTenantId(),
+        providerKey: params.provider_key,
+        displayName: params.display_name,
+        baseUrl: params.base_url,
+        apiKeyEncrypted: params.api_key_encrypted,
+        defaultModel: params.default_model,
+      },
+    });
+    return {
+      id: row.id,
+      provider_key: row.providerKey,
+      display_name: row.displayName,
+      base_url: row.baseUrl,
+      default_model: row.defaultModel,
+      created_at: row.createdAt,
+    };
+  }
+
+  public async deleteAiProviderConfig(id: string): Promise<void> {
+    await prisma.aiProviderConfig.delete({ where: { id } });
+  }
+
   public async updatePrompt(id: string, updates: Partial<PromptTemplate>): Promise<PromptTemplate | undefined> {
     const exists = await prisma.promptTemplate.findUnique({ where: { id } });
     if (!exists) return undefined;

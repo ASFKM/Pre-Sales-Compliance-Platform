@@ -772,6 +772,46 @@ export function useAdminConsole(params: UseAdminConsoleParams) {
     }
   };
 
+  // Custom, user-added AI providers (any OpenAI-compatible endpoint - Grok/xAI, DeepSeek,
+  // Mistral AI, etc.) on top of the 3 built-in ones.
+  const handleAddAiProvider = async (params: { provider_key: string; display_name: string; base_url: string; api_key: string; default_model: string }) => {
+    try {
+      const res = await fetch("/api/settings/ai-providers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(params)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível adicionar o provedor." : "Could not add the provider."));
+        return null;
+      }
+      await fetchGlobalConfigs();
+      return data;
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao adicionar provedor de IA." : "Error adding AI provider.");
+      return null;
+    }
+  };
+
+  const handleDeleteAiProvider = async (id: string) => {
+    if (!confirm(locale === "pt" ? "Remover este provedor de IA? Tarefas configuradas para ele passarão a usar Gemini como alternativa." : "Remove this AI provider? Tasks configured to use it will fall back to Gemini.")) return;
+
+    try {
+      const res = await fetch(`/api/settings/ai-providers/${id}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível remover o provedor." : "Could not remove the provider."));
+        return;
+      }
+      await fetchGlobalConfigs();
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao remover provedor de IA." : "Error removing AI provider.");
+    }
+  };
+
   return {
     handleCreateApprovalWorkflow,
     handleSaveApprovalWorkflow,
@@ -798,5 +838,7 @@ export function useAdminConsole(params: UseAdminConsoleParams) {
     handleSavePlatformSettings,
     handleSaveAiApiKey,
     handleClearAiApiKey,
+    handleAddAiProvider,
+    handleDeleteAiProvider,
   };
 }

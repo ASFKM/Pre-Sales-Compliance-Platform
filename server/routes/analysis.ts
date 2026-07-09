@@ -299,7 +299,7 @@ async function enrichBomWithWebSearch(bom: any[], platformSettings: any, proposa
   if (itemsNeedingLookup.length === 0) return bom;
 
   try {
-    const providerResolution = resolveProvider("web_grounding", platformSettings);
+    const providerResolution = await resolveProvider("web_grounding", platformSettings);
     const lookupList = itemsNeedingLookup.map((item) => ({
       item_id: item.item_id,
       equipment_name: item.equipment_name,
@@ -374,7 +374,7 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
   }
 
   const platformSettings = await dbStore.getSettings();
-  const providerResolution = resolveProvider("document_analysis", platformSettings);
+  const providerResolution = await resolveProvider("document_analysis", platformSettings);
 
   // Phase 5 (AI orchestrator): the monthly cap is a real block, not just a number on a
   // dashboard - checked before any AI-calling task starts, not just tracked after the fact.
@@ -842,7 +842,7 @@ router.post("/projects/:projectId/chat", requirePermission("analysis:read"), asy
     }
 
     const platformSettings = await dbStore.getSettings();
-    const providerResolution = resolveProvider("spec_copilot", platformSettings);
+    const providerResolution = await resolveProvider("spec_copilot", platformSettings);
 
     // Previously uncapped and uncounted - this is a real synchronous AI call like any other, not
     // exempt from the monthly cost cap just because it isn't a background task.

@@ -32,8 +32,18 @@ const DEFAULT_MODEL_FOR_PROVIDER: Record<string, string> = {
   gemini: "gemini-3.5-flash",
   openai: "gpt-4o-mini",
   anthropic: "claude-sonnet-5",
-  deepseek: "deepseek-v3",
 };
+
+// Providers researched as realistically integrable today: all three expose an OpenAI-compatible
+// chat completions endpoint (including JSON mode), so they work through the same generic custom-
+// provider code path with no bespoke integration - these presets just pre-fill the add-provider
+// form. Any other OpenAI-compatible endpoint (Groq, Together AI, Fireworks, OpenRouter, etc.) can
+// still be added manually the same way, just without a one-click preset.
+const KNOWN_PROVIDER_PRESETS: { key: string; name: string; baseUrl: string; defaultModel: string }[] = [
+  { key: "grok", name: "Grok (xAI)", baseUrl: "https://api.x.ai/v1", defaultModel: "grok-4" },
+  { key: "deepseek", name: "DeepSeek", baseUrl: "https://api.deepseek.com", defaultModel: "deepseek-chat" },
+  { key: "mistral", name: "Mistral AI", baseUrl: "https://api.mistral.ai/v1", defaultModel: "mistral-large-latest" },
+];
 
 // Every AI-spending task type recorded in AiUsageLog (see AI_SPENDING_TASK_TYPES in
 // src/aiOrchestrator.ts) - proposal generation itself is template/DOCX filling, not its own AI
@@ -82,6 +92,7 @@ interface AdminConsoleProps {
   brandingSettings: BrandingSettings | null;
   setBrandingSettings: (settings: BrandingSettings) => void;
   promptTemplates: PromptTemplate[];
+  aiProviderConfigs: { id: string; provider_key: string; display_name: string; base_url: string; default_model: string; api_key_masked: string }[];
   proposalTemplates: ProposalTemplate[];
   approvalWorkflows: any[];
   setApprovalWorkflows: (workflows: any[]) => void;
@@ -104,7 +115,7 @@ export default function AdminConsole({
   users, setUsers, roles,
   platformSettings, setPlatformSettings,
   brandingSettings, setBrandingSettings,
-  promptTemplates, proposalTemplates,
+  promptTemplates, aiProviderConfigs, proposalTemplates,
   approvalWorkflows, setApprovalWorkflows,
   integrations, setIntegrations,
   setShowAuditModal, setShowDebugConsole,
@@ -137,6 +148,12 @@ export default function AdminConsole({
       .catch(() => { setCostUSD(0); setCostByTaskTypeAndProvider({}); });
   }, []);
   const [aiKeyDrafts, setAiKeyDrafts] = useState<Record<string, string>>({ gemini: "", openai: "", anthropic: "" });
+  const [showAddProviderForm, setShowAddProviderForm] = useState(false);
+  const [newProviderKey, setNewProviderKey] = useState("");
+  const [newProviderDisplayName, setNewProviderDisplayName] = useState("");
+  const [newProviderBaseUrl, setNewProviderBaseUrl] = useState("");
+  const [newProviderApiKey, setNewProviderApiKey] = useState("");
+  const [newProviderDefaultModel, setNewProviderDefaultModel] = useState("");
   const [editingPromptId, setEditingPromptId] = useState<string | null>(null);
   const [promptDrafts, setPromptDrafts] = useState<Record<string, string>>({});
   // Which version of each prompt type is currently displayed/selected in the combobox - defaults
@@ -249,6 +266,8 @@ export default function AdminConsole({
     handleSavePlatformSettings,
     handleSaveAiApiKey,
     handleClearAiApiKey,
+    handleAddAiProvider,
+    handleDeleteAiProvider,
   } = useAdminConsole({
     locale,
     currentUserName: currentSessionUser.name,
@@ -938,6 +957,122 @@ export default function AdminConsole({
                       </div>
 
                       <div className="pt-3 border-t border-slate-100 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-xs font-bold text-slate-700">
+                            {locale === "pt" ? "Provedores Personalizados" : "Custom Providers"}
+                          </h4>
+                          <button
+                            onClick={() => setShowAddProviderForm((v) => !v)}
+                            className="bg-white border border-slate-300 text-slate-700 font-mono text-[10px] font-bold py-1 px-2 rounded cursor-pointer"
+                          >
+                            {showAddProviderForm ? (locale === "pt" ? "Cancelar" : "Cancel") : (locale === "pt" ? "+ Adicionar Provedor" : "+ Add Provider")}
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-slate-400">
+                          {locale === "pt"
+                            ? "Qualquer provedor com endpoint compatível com OpenAI (Grok, DeepSeek, Mistral AI, Groq, Together AI, etc.) pode ser adicionado aqui e passa a aparecer nos seletores de tarefa abaixo."
+                            : "Any provider with an OpenAI-compatible endpoint (Grok, DeepSeek, Mistral AI, Groq, Together AI, etc.) can be added here and will show up in the task selectors below."}
+                        </p>
+
+                        {aiProviderConfigs.length > 0 && (
+                          <div className="space-y-2">
+                            {aiProviderConfigs.map((p) => (
+                              <div key={p.id} className="flex items-center justify-between gap-2 p-2 bg-slate-50 border border-slate-200 rounded-lg">
+                                <div className="min-w-0">
+                                  <p className="text-[11px] font-bold text-slate-700 truncate">{p.display_name} <span className="text-slate-400 font-normal">({p.provider_key})</span></p>
+                                  <p className="text-[10px] text-slate-400 font-mono truncate">{p.base_url} · {p.default_model} · {p.api_key_masked}</p>
+                                </div>
+                                <button
+                                  onClick={() => handleDeleteAiProvider(p.id)}
+                                  className="bg-white hover:bg-rose-50 border border-slate-300 hover:border-rose-300 text-slate-500 hover:text-rose-600 px-2 py-1 rounded text-[10px] font-bold font-mono shrink-0"
+                                >
+                                  {locale === "pt" ? "Remover" : "Remove"}
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {showAddProviderForm && (
+                          <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+                            <div className="flex flex-wrap gap-1.5">
+                              {KNOWN_PROVIDER_PRESETS.map((preset) => (
+                                <button
+                                  key={preset.key}
+                                  onClick={() => {
+                                    setNewProviderKey(preset.key);
+                                    setNewProviderDisplayName(preset.name);
+                                    setNewProviderBaseUrl(preset.baseUrl);
+                                    setNewProviderDefaultModel(preset.defaultModel);
+                                  }}
+                                  className="text-[10px] bg-white border border-slate-300 text-slate-600 px-2 py-1 rounded font-mono font-bold cursor-pointer"
+                                >
+                                  {preset.name}
+                                </button>
+                              ))}
+                            </div>
+                            <input
+                              type="text"
+                              placeholder={locale === "pt" ? "Chave (ex: grok)" : "Key (e.g. grok)"}
+                              value={newProviderKey}
+                              onChange={(e) => setNewProviderKey(e.target.value.toLowerCase())}
+                              className="w-full p-2 text-xs font-mono bg-white border border-slate-200 rounded"
+                            />
+                            <input
+                              type="text"
+                              placeholder={locale === "pt" ? "Nome de exibição (ex: Grok)" : "Display name (e.g. Grok)"}
+                              value={newProviderDisplayName}
+                              onChange={(e) => setNewProviderDisplayName(e.target.value)}
+                              className="w-full p-2 text-xs font-mono bg-white border border-slate-200 rounded"
+                            />
+                            <input
+                              type="text"
+                              placeholder="https://api.x.ai/v1"
+                              value={newProviderBaseUrl}
+                              onChange={(e) => setNewProviderBaseUrl(e.target.value)}
+                              className="w-full p-2 text-xs font-mono bg-white border border-slate-200 rounded"
+                            />
+                            <input
+                              type="text"
+                              placeholder={locale === "pt" ? "Modelo padrão (ex: grok-4)" : "Default model (e.g. grok-4)"}
+                              value={newProviderDefaultModel}
+                              onChange={(e) => setNewProviderDefaultModel(e.target.value)}
+                              className="w-full p-2 text-xs font-mono bg-white border border-slate-200 rounded"
+                            />
+                            <input
+                              type="password"
+                              placeholder={locale === "pt" ? "Chave de API" : "API key"}
+                              value={newProviderApiKey}
+                              onChange={(e) => setNewProviderApiKey(e.target.value)}
+                              className="w-full p-2 text-xs font-mono bg-white border border-slate-200 rounded"
+                            />
+                            <button
+                              onClick={async () => {
+                                const created = await handleAddAiProvider({
+                                  provider_key: newProviderKey.trim(),
+                                  display_name: newProviderDisplayName.trim(),
+                                  base_url: newProviderBaseUrl.trim(),
+                                  api_key: newProviderApiKey,
+                                  default_model: newProviderDefaultModel.trim(),
+                                });
+                                if (created) {
+                                  setShowAddProviderForm(false);
+                                  setNewProviderKey("");
+                                  setNewProviderDisplayName("");
+                                  setNewProviderBaseUrl("");
+                                  setNewProviderApiKey("");
+                                  setNewProviderDefaultModel("");
+                                }
+                              }}
+                              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-3 rounded shadow-sm transition-all cursor-pointer"
+                            >
+                              {locale === "pt" ? "Adicionar Provedor" : "Add Provider"}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="pt-3 border-t border-slate-100 space-y-3">
                         <div>
                           <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">
                             {locale === "pt" ? "Modelo de Análise de Documentos" : "Document Analysis Model"}
@@ -986,14 +1121,19 @@ export default function AdminConsole({
                                   // Keep the model field a valid pair for the newly selected provider -
                                   // this is exactly what broke document analysis before: the provider
                                   // dropdown changed but the model text field kept a Gemini model name.
-                                  if (modelField) handleSavePlatformSettings(modelField, DEFAULT_MODEL_FOR_PROVIDER[newProvider] || DEFAULT_MODEL_FOR_PROVIDER.gemini);
+                                  if (modelField) {
+                                    const customPreset = aiProviderConfigs.find((p) => p.provider_key === newProvider);
+                                    handleSavePlatformSettings(modelField, customPreset?.default_model || DEFAULT_MODEL_FOR_PROVIDER[newProvider] || DEFAULT_MODEL_FOR_PROVIDER.gemini);
+                                  }
                                 }}
                                 className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-semibold text-slate-700"
                               >
                                 <option value="gemini">Google Gemini</option>
                                 <option value="anthropic">Anthropic Claude {!PROVIDER_STATUS.find(p => p.id === "anthropic")?.configured ? (locale === "pt" ? "(não conectado)" : "(not connected)") : ""}</option>
                                 <option value="openai">OpenAI ChatGPT {!PROVIDER_STATUS.find(p => p.id === "openai")?.configured ? (locale === "pt" ? "(não conectado)" : "(not connected)") : ""}</option>
-                                <option value="deepseek">DeepSeek {locale === "pt" ? "(não conectado)" : "(not connected)"}</option>
+                                {aiProviderConfigs.map((p) => (
+                                  <option key={p.provider_key} value={p.provider_key}>{p.display_name}</option>
+                                ))}
                               </select>
                             </div>
                           ))}

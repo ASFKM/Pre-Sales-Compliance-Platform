@@ -11,11 +11,12 @@ import { getTenantContext, TenantContext } from "./tenantContext";
 // being added to this set - the exact gap that let 5 models (including this file's own upsert()
 // bug) go unscoped for most of this project's history.
 export const TENANT_SCOPED_MODELS = new Set([
-  "aIAnalysisJob", "aiUsageLog", "analysisResult", "approvalDecision", "approvalWorkflow",
-  "approvalStage", "auditLog", "backgroundTask", "brandingSettings", "conversationMessage",
-  "debugLog", "document", "documentContent", "integrationConnector", "knowledgeBaseDocument",
-  "knowledgeBaseEntry", "platformSettings", "project", "promptTemplate", "proposal",
-  "proposalTemplate", "role", "systemMessage", "task", "user", "teamMembership", "vertical",
+  "aIAnalysisJob", "aiProviderConfig", "aiUsageLog", "analysisResult", "approvalDecision",
+  "approvalWorkflow", "approvalStage", "auditLog", "backgroundTask", "brandingSettings",
+  "conversationMessage", "debugLog", "document", "documentContent", "integrationConnector",
+  "knowledgeBaseDocument", "knowledgeBaseEntry", "platformSettings", "project", "promptTemplate",
+  "proposal", "proposalTemplate", "role", "systemMessage", "task", "user", "teamMembership",
+  "vertical",
 ]);
 
 const READ_OPS = new Set(["findFirst", "findFirstOrThrow", "findUnique", "findUniqueOrThrow", "findMany", "count", "aggregate", "groupBy"]);

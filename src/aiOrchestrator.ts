@@ -32,21 +32,23 @@ interface TaskProviderSettings {
 // against the same settings object passed in here (which env-var overrides aside, real callers
 // always get from dbStore.getSettings()), not a hardcoded list, so this reflects real state
 // instead of a fixed-at-code-time assumption.
-function isProviderConnected(provider: string, settings: TaskProviderSettings): boolean {
+async function isProviderConnected(provider: string, settings: TaskProviderSettings): Promise<boolean> {
   if (provider === "gemini") return true;
   if (provider === "openai") return Boolean(process.env.OPENAI_API_KEY || settings.openai_api_key_encrypted);
   if (provider === "anthropic") return Boolean(process.env.ANTHROPIC_API_KEY || settings.anthropic_api_key_encrypted);
-  return false;
+  // User-added custom provider (Grok/DeepSeek/Mistral/etc.) - connected if a config row exists
+  // for this tenant with this provider key.
+  return Boolean(await prisma.aiProviderConfig.findFirst({ where: { providerKey: provider } }));
 }
 
 // Resolves the intended provider/model for a task type against tenant settings, falling back
 // to Gemini (logged as such) when the intended provider isn't actually connected. Always
 // returns a usable provider - callers never need their own "what if it's not connected" branch.
-export function resolveProvider(taskType: AiTaskType, settings: TaskProviderSettings): ProviderResolution {
+export async function resolveProvider(taskType: AiTaskType, settings: TaskProviderSettings): Promise<ProviderResolution> {
   const intendedProvider = (settings as any)[`${taskType}_provider`] as string;
   const intendedModel = (settings as any)[`${taskType}_model`] as string;
 
-  if (isProviderConnected(intendedProvider, settings)) {
+  if (await isProviderConnected(intendedProvider, settings)) {
     return { provider: intendedProvider, model: intendedModel, intendedProvider, isFallback: false };
   }
 

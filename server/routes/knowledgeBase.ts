@@ -114,7 +114,7 @@ router.post("/knowledge-base/suggest", requirePermission("knowledge_base:write")
     }
 
     const platformSettings = await dbStore.getSettings();
-    const providerResolution = resolveProvider("spec_copilot", platformSettings);
+    const providerResolution = await resolveProvider("spec_copilot", platformSettings);
     const tenantId = req.headers["x-tenant-id"] as string;
 
     // Consistent with this route's fire-and-forget nature: a capped tenant just gets no
@@ -292,7 +292,7 @@ router.post("/knowledge-base/documents/analyze", requirePermission("knowledge_ba
     void runWithTenant(tenantContext, async () => {
       try {
         const platformSettings = await dbStore.getSettings();
-        const providerResolution = resolveProvider("document_analysis", platformSettings);
+        const providerResolution = await resolveProvider("document_analysis", platformSettings);
         const storageAdapter = createStorageAdapter(platformSettings);
         let createdCount = 0;
 

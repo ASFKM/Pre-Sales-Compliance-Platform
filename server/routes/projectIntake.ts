@@ -166,7 +166,7 @@ router.post("/project-intake/:sessionId/analyze", requireAuth, async (req: Reque
         // Project-intake extraction reuses the document_analysis task-type mapping - it's the
         // same kind of "read documents, extract structured data" work, just lighter-weight, and
         // doesn't have its own slot in the 4-task roadmap framework.
-        const providerResolution = resolveProvider("document_analysis", platformSettings);
+        const providerResolution = await resolveProvider("document_analysis", platformSettings);
         if (providerResolution.isFallback) {
           await recordProviderFallback({
             tenantId,

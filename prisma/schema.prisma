@@ -184,6 +184,7 @@ model Tenant {
   knowledgeBaseDocuments KnowledgeBaseDocument[]
   knowledgeBaseEntries   KnowledgeBaseEntry[]
   aiUsageLogs            AiUsageLog[]
+  aiProviderConfigs      AiProviderConfig[]
 
   @@map("tenants")
 }
@@ -879,4 +880,24 @@ model AiUsageLog {
 
   @@index([tenantId, createdAt])
   @@map("ai_usage_logs")
+}
+
+// User-added AI provider, on top of the 3 built-in ones (Gemini/OpenAI/Anthropic). Any provider
+// exposing an OpenAI-compatible chat completions endpoint works here with no code change - this
+// covers Grok/xAI, DeepSeek, Mistral AI, Groq, Together AI, Fireworks, and OpenRouter as of the
+// research behind this feature (all mirror the OpenAI request/response shape, including JSON
+// mode). providerKey is what gets stored in the *_provider task-routing fields (e.g. "grok").
+model AiProviderConfig {
+  id              String   @id
+  tenantId        String   @map("tenant_id")
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+  providerKey     String   @map("provider_key")
+  displayName     String   @map("display_name")
+  baseUrl         String   @map("base_url")
+  apiKeyEncrypted String   @map("api_key_encrypted")
+  defaultModel    String   @map("default_model")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, providerKey])
+  @@map("ai_provider_configs")
 }

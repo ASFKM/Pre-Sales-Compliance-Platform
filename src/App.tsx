@@ -403,6 +403,7 @@ export default function App() {
   const [platformSettings, setPlatformSettings] = useState<PlatformSettings | null>(null);
   const [brandingSettings, setBrandingSettings] = useState<BrandingSettings | null>(null);
   const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>([]);
+  const [aiProviderConfigs, setAiProviderConfigs] = useState<any[]>([]);
   const [proposalTemplates, setProposalTemplates] = useState<any[]>([]);
   const [approvalWorkflows, setApprovalWorkflows] = useState<ApprovalWorkflow[]>([]);
   const [approvalDecisions, setApprovalDecisions] = useState<any[]>([]);
@@ -602,6 +603,10 @@ export default function App() {
       const pRes = await fetch("/api/settings/prompts");
       const pData = await pRes.json();
       setPromptTemplates(Array.isArray(pData) ? pData : []);
+
+      const apRes = await fetch("/api/settings/ai-providers");
+      const apData = await apRes.json();
+      setAiProviderConfigs(Array.isArray(apData) ? apData : []);
 
       const tRes = await fetch("/api/templates/proposals");
       const tData = await tRes.json();
@@ -1463,6 +1468,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               brandingSettings={brandingSettings}
               setBrandingSettings={setBrandingSettings}
               promptTemplates={promptTemplates}
+              aiProviderConfigs={aiProviderConfigs}
               proposalTemplates={proposalTemplates}
               approvalWorkflows={approvalWorkflows}
               setApprovalWorkflows={setApprovalWorkflows}
