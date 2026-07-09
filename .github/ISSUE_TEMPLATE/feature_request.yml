@@ -1,0 +1,43 @@
+name: Feature request
+description: Propose a product or platform enhancement
+title: "feature: "
+labels: []
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / opportunity
+      description: What user or business problem should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: dropdown
+    id: module
+    attributes:
+      label: Product module
+      options:
+        - Project Workspace
+        - Document Intelligence
+        - AI Analysis Engine
+        - Proposal Studio
+        - Approval Center
+        - Admin Console
+        - Audit & Diagnostics
+        - Integration Hub
+        - Deployment / Infrastructure
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      placeholder: |
+        - Given ... when ... then ...
+        - Given ... when ... then ...
+    validations:
+      required: true
