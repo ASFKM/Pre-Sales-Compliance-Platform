@@ -450,7 +450,7 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
     // set should stay small enough early on that handing the model everything and letting it
     // judge relevance itself is simpler and more reliable than a keyword-matching heuristic);
     // revisit with real search if this list grows large enough to blow the context budget.
-    const approvedKnowledge = await dbStore.getKnowledgeBaseEntries({ status: "approved" });
+    const { entries: approvedKnowledge } = await dbStore.getKnowledgeBaseEntries({ status: "approved" });
     const knowledgeBaseSection = approvedKnowledge.length > 0
       ? `\nACCUMULATED KNOWLEDGE FROM PAST PROJECTS (human-reviewed and approved - apply only the
 entries that are actually relevant to this document; ignore anything that doesn't clearly match):

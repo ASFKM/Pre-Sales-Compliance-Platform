@@ -26,8 +26,22 @@ router.get("/knowledge-base/entries", requirePermission("knowledge_base:read"), 
   try {
     const status = typeof req.query.status === "string" ? req.query.status : undefined;
     const category = typeof req.query.category === "string" ? req.query.category : undefined;
-    const entries = await dbStore.getKnowledgeBaseEntries({ status, category });
-    res.json(entries);
+    const search = typeof req.query.search === "string" ? req.query.search : undefined;
+    const page = req.query.page ? parseInt(req.query.page as string, 10) : undefined;
+    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
+    const result = await dbStore.getKnowledgeBaseEntries({ status, category, search, page, limit });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Lightweight counts for the subtab badges (Aprovações/Base de Conhecimento) - the list itself
+// is paginated, so its response no longer carries the full-set counts by status.
+router.get("/knowledge-base/entries/counts", requirePermission("knowledge_base:read"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const counts = await dbStore.getKnowledgeBaseEntryCounts();
+    res.json(counts);
   } catch (err) {
     next(err);
   }

@@ -1469,15 +1469,53 @@ class DBStore {
   // (datasheets/catalogs) uploaded to proactively seed them. Deliberately no .upsert() anywhere
   // here - see saveAnalysisResult's comment above for why that's unsafe on this tenant-scoping
   // setup for models without a tenant-inclusive unique constraint (neither of these have one).
-  public async getKnowledgeBaseEntries(filters?: { status?: string; category?: string }): Promise<KnowledgeBaseEntry[]> {
-    const rows = await prisma.knowledgeBaseEntry.findMany({
-      where: {
-        ...(filters?.status ? { status: filters.status as any } : {}),
-        ...(filters?.category ? { category: filters.category as any } : {}),
-      },
-      orderBy: { createdAt: "desc" },
-    });
-    return rows.map(mapKnowledgeBaseEntry);
+  // page/limit are optional on purpose: callers that need the *entire* matching set (e.g.
+  // analysis.ts injecting all approved knowledge into the analysis prompt) omit them and get
+  // every row back; the paginated list UI passes both.
+  public async getKnowledgeBaseEntries(filters?: {
+    status?: string;
+    category?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{ entries: KnowledgeBaseEntry[]; total: number }> {
+    const search = filters?.search?.trim();
+    const where = {
+      ...(filters?.status ? { status: filters.status as any } : {}),
+      ...(filters?.category ? { category: filters.category as any } : {}),
+      ...(search
+        ? {
+            OR: [
+              { trigger: { contains: search, mode: "insensitive" as const } },
+              { knowledge: { contains: search, mode: "insensitive" as const } },
+              { sourceProjectName: { contains: search, mode: "insensitive" as const } },
+              { sourceDocumentName: { contains: search, mode: "insensitive" as const } },
+            ],
+          }
+        : {}),
+    };
+
+    const limit = filters?.limit && filters.limit > 0 ? filters.limit : undefined;
+    const page = filters?.page && filters.page > 0 ? filters.page : 1;
+
+    const [rows, total] = await Promise.all([
+      prisma.knowledgeBaseEntry.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        ...(limit ? { skip: (page - 1) * limit, take: limit } : {}),
+      }),
+      prisma.knowledgeBaseEntry.count({ where }),
+    ]);
+    return { entries: rows.map(mapKnowledgeBaseEntry), total };
+  }
+
+  public async getKnowledgeBaseEntryCounts(): Promise<{ pending: number; approved: number; rejected: number }> {
+    const [pending, approved, rejected] = await Promise.all([
+      prisma.knowledgeBaseEntry.count({ where: { status: "pending" } }),
+      prisma.knowledgeBaseEntry.count({ where: { status: "approved" } }),
+      prisma.knowledgeBaseEntry.count({ where: { status: "rejected" } }),
+    ]);
+    return { pending, approved, rejected };
   }
 
   public async getKnowledgeBaseEntry(id: string): Promise<KnowledgeBaseEntry | undefined> {

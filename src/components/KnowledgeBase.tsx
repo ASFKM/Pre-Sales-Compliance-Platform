@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BookOpen, FileText, Trash2, Sparkles, Check, X, Edit2, Upload, Search } from "lucide-react";
+import { BookOpen, FileText, Trash2, Sparkles, Check, X, Edit2, Upload, Search, ChevronLeft, ChevronRight } from "lucide-react";
 import ApiClient from "../lib/api";
 import { KnowledgeBaseEntry, KnowledgeBaseDocument, KnowledgeBaseEntryCategory } from "../types";
 import { BackgroundTask } from "../hooks/useBackgroundTasks";
@@ -11,6 +11,8 @@ interface KnowledgeBaseProps {
 }
 
 type SubTab = "upload" | "approvals" | "approved";
+
+const PAGE_SIZE = 20;
 
 const CATEGORY_LABEL: Record<KnowledgeBaseEntryCategory, string> = {
   bom_part_number: "Número de Peça (BOM)",
@@ -35,7 +37,10 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
 
   const [subTab, setSubTab] = useState<SubTab>("upload");
   const [documents, setDocuments] = useState<KnowledgeBaseDocument[]>([]);
-  const [allEntries, setAllEntries] = useState<KnowledgeBaseEntry[]>([]);
+  const [entries, setEntries] = useState<KnowledgeBaseEntry[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [counts, setCounts] = useState({ pending: 0, approved: 0, rejected: 0 });
   const [loadingDocs, setLoadingDocs] = useState(true);
   const [loadingEntries, setLoadingEntries] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
@@ -45,6 +50,7 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
   const [approvalsStatusFilter, setApprovalsStatusFilter] = useState<"pending" | "rejected">("pending");
   const [categoryFilter, setCategoryFilter] = useState<"all" | KnowledgeBaseEntryCategory>("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
 
   const [editingEntry, setEditingEntry] = useState<KnowledgeBaseEntry | null>(null);
   const [editTrigger, setEditTrigger] = useState("");
@@ -57,8 +63,7 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
   // navigating away never loses the analysis.
   const analysisTask = activeTasks.find((t) => t.type === "knowledge_base_analysis");
   const pendingDocsCount = documents.filter((d) => !d.analyzed_at).length;
-  const pendingEntriesCount = allEntries.filter((e) => e.status === "pending").length;
-  const approvedEntriesCount = allEntries.filter((e) => e.status === "approved").length;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const loadDocuments = async () => {
     setLoadingDocs(true);
@@ -72,11 +77,30 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
     }
   };
 
+  const loadCounts = async () => {
+    try {
+      const c = await ApiClient.get<{ pending: number; approved: number; rejected: number }>("/api/knowledge-base/entries/counts");
+      setCounts(c);
+    } catch {
+      // Badge counts are a nice-to-have - never worth surfacing an error banner for.
+    }
+  };
+
+  // Filtering/searching/paging all happen server-side now - the approved set alone is already
+  // in the hundreds, too large to keep fetching in full and filtering client-side.
   const loadEntries = async () => {
+    if (subTab === "upload") return;
     setLoadingEntries(true);
     try {
-      const rows = await ApiClient.get<KnowledgeBaseEntry[]>("/api/knowledge-base/entries");
-      setAllEntries(rows);
+      const params = new URLSearchParams();
+      params.set("status", subTab === "approved" ? "approved" : approvalsStatusFilter);
+      if (categoryFilter !== "all") params.set("category", categoryFilter);
+      if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
+      params.set("page", String(page));
+      params.set("limit", String(PAGE_SIZE));
+      const result = await ApiClient.get<{ entries: KnowledgeBaseEntry[]; total: number }>(`/api/knowledge-base/entries?${params.toString()}`);
+      setEntries(result.entries);
+      setTotal(result.total);
     } catch (err: any) {
       setError(err.message || "Não foi possível carregar a base de conhecimento.");
     } finally {
@@ -86,8 +110,23 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
 
   useEffect(() => {
     loadDocuments();
-    loadEntries();
+    loadCounts();
   }, []);
+
+  // Debounce free-text search so every keystroke doesn't fire a request; reset to page 1 in the
+  // same tick so the entries effect below fires exactly once per search change.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+      setPage(1);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    loadEntries();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subTab, approvalsStatusFilter, categoryFilter, debouncedSearch, page]);
 
   // Reflect a running/just-finished analysis task without polling - same SSE stream everything
   // else uses, we just re-fetch when it flips.
@@ -95,9 +134,15 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
     if (!analysisTask) {
       loadDocuments();
       loadEntries();
+      loadCounts();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [analysisTask?.status]);
+
+  const goToSubTab = (tab: SubTab) => {
+    setSubTab(tab);
+    setPage(1);
+  };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files;
@@ -139,6 +184,7 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
       await waitForTask(data.task_id);
       await loadDocuments();
       await loadEntries();
+      await loadCounts();
     } catch (err: any) {
       setError(err.message || "Não foi possível analisar os documentos.");
     } finally {
@@ -162,11 +208,11 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
     if (!editingEntry) return;
     setSavingEntryId(editingEntry.id);
     try {
-      const updated = await ApiClient.put<KnowledgeBaseEntry>(`/api/knowledge-base/entries/${editingEntry.id}`, {
+      await ApiClient.put<KnowledgeBaseEntry>(`/api/knowledge-base/entries/${editingEntry.id}`, {
         trigger: editTrigger,
         knowledge: editKnowledge,
       });
-      setAllEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+      await loadEntries();
       closeEdit();
     } catch (err: any) {
       setError(err.message || "Não foi possível salvar a edição.");
@@ -178,33 +224,15 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
   const decideEntry = async (entry: KnowledgeBaseEntry, status: "approved" | "rejected") => {
     setSavingEntryId(entry.id);
     try {
-      const updated = await ApiClient.put<KnowledgeBaseEntry>(`/api/knowledge-base/entries/${entry.id}`, { status });
-      setAllEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+      await ApiClient.put<KnowledgeBaseEntry>(`/api/knowledge-base/entries/${entry.id}`, { status });
+      await loadEntries();
+      await loadCounts();
     } catch (err: any) {
       setError(err.message || "Não foi possível atualizar o item.");
     } finally {
       setSavingEntryId(null);
     }
   };
-
-  const normalizedSearch = searchQuery.trim().toLowerCase();
-
-  const visibleEntries = allEntries.filter((e) => {
-    const statusOk = subTab === "approved" ? e.status === "approved" : e.status === approvalsStatusFilter;
-    if (!statusOk) return false;
-    if (categoryFilter !== "all" && e.category !== categoryFilter) return false;
-    if (normalizedSearch) {
-      const haystack = [
-        e.trigger,
-        e.knowledge,
-        CATEGORY_LABEL[e.category],
-        e.source_project_name,
-        e.source_document_name,
-      ].filter(Boolean).join(" ").toLowerCase();
-      if (!haystack.includes(normalizedSearch)) return false;
-    }
-    return true;
-  });
 
   const renderEntryCard = (entry: KnowledgeBaseEntry) => (
     <div key={entry.id} className="p-4 space-y-2">
@@ -261,6 +289,54 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
     </div>
   );
 
+  const renderPagination = () => (
+    <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200 text-[11px] font-mono text-slate-500">
+      <span>Página {page} de {totalPages} ({total} no total)</span>
+      <div className="flex gap-2">
+        <button
+          onClick={() => setPage((p) => Math.max(1, p - 1))}
+          disabled={page <= 1}
+          className="flex items-center gap-1 px-2 py-1 rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+        >
+          <ChevronLeft size={12} /> Anterior
+        </button>
+        <button
+          onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+          disabled={page >= totalPages}
+          className="flex items-center gap-1 px-2 py-1 rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+        >
+          Próxima <ChevronRight size={12} />
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderSearchAndCategory = () => (
+    <div className="flex items-center gap-2">
+      <div className="relative">
+        <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Buscar na base..."
+          className="text-[11px] font-mono border border-slate-200 rounded pl-6 pr-2 py-1.5 bg-white text-slate-600 w-40 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+        />
+      </div>
+      <select
+        value={categoryFilter}
+        onChange={(e) => { setCategoryFilter(e.target.value as any); setPage(1); }}
+        className="text-[11px] font-mono border border-slate-200 rounded px-2 py-1.5 bg-white text-slate-600"
+      >
+        <option value="all">Todas as Categorias</option>
+        <option value="bom_part_number">Número de Peça (BOM)</option>
+        <option value="engineering_note">Nota de Engenharia</option>
+        <option value="compliance_status">Status de Conformidade</option>
+        <option value="datasheet">Datasheet</option>
+      </select>
+    </div>
+  );
+
   return (
     <div className="flex-1 p-6 overflow-y-auto space-y-6">
       <div className="flex items-center gap-2">
@@ -284,22 +360,22 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
       <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
         <div className="flex items-center gap-6 px-4 h-12 border-b border-slate-200 text-xs font-semibold bg-slate-50/50">
           <button
-            onClick={() => setSubTab("upload")}
+            onClick={() => goToSubTab("upload")}
             className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider cursor-pointer ${subTab === "upload" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
           >
             Upload de Arquivos {documents.length > 0 && `(${documents.length})`}
           </button>
           <button
-            onClick={() => setSubTab("approvals")}
+            onClick={() => goToSubTab("approvals")}
             className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider cursor-pointer ${subTab === "approvals" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
           >
-            Aprovações {pendingEntriesCount > 0 && `(${pendingEntriesCount})`}
+            Aprovações {counts.pending > 0 && `(${counts.pending})`}
           </button>
           <button
-            onClick={() => setSubTab("approved")}
+            onClick={() => goToSubTab("approved")}
             className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider cursor-pointer ${subTab === "approved" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
           >
-            Base de Conhecimento {approvedEntriesCount > 0 && `(${approvedEntriesCount})`}
+            Base de Conhecimento {counts.approved > 0 && `(${counts.approved})`}
           </button>
         </div>
 
@@ -419,47 +495,30 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
           <>
             <div className="p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
               <h3 className="text-xs font-bold uppercase tracking-wider font-mono text-slate-600">
-                Fila de Aprovação ({visibleEntries.length})
+                Fila de Aprovação ({total})
               </h3>
               <div className="flex items-center gap-2">
-                <div className="relative">
-                  <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Buscar na base..."
-                    className="text-[11px] font-mono border border-slate-200 rounded pl-6 pr-2 py-1.5 bg-white text-slate-600 w-40 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                  />
-                </div>
+                {renderSearchAndCategory()}
                 <select
                   value={approvalsStatusFilter}
-                  onChange={(e) => setApprovalsStatusFilter(e.target.value as any)}
+                  onChange={(e) => { setApprovalsStatusFilter(e.target.value as any); setPage(1); }}
                   className="text-[11px] font-mono border border-slate-200 rounded px-2 py-1.5 bg-white text-slate-600"
                 >
                   <option value="pending">Pendente</option>
                   <option value="rejected">Rejeitado</option>
-                </select>
-                <select
-                  value={categoryFilter}
-                  onChange={(e) => setCategoryFilter(e.target.value as any)}
-                  className="text-[11px] font-mono border border-slate-200 rounded px-2 py-1.5 bg-white text-slate-600"
-                >
-                  <option value="all">Todas as Categorias</option>
-                  <option value="bom_part_number">Número de Peça (BOM)</option>
-                  <option value="engineering_note">Nota de Engenharia</option>
-                  <option value="compliance_status">Status de Conformidade</option>
-                  <option value="datasheet">Datasheet</option>
                 </select>
               </div>
             </div>
 
             {loadingEntries ? (
               <div className="text-xs text-slate-400 italic p-6 text-center">Carregando entradas...</div>
-            ) : visibleEntries.length === 0 ? (
+            ) : entries.length === 0 ? (
               <div className="text-xs text-slate-400 italic p-6 text-center">Nenhuma entrada encontrada para este filtro.</div>
             ) : (
-              <div className="divide-y divide-slate-200">{visibleEntries.map(renderEntryCard)}</div>
+              <>
+                <div className="divide-y divide-slate-200">{entries.map(renderEntryCard)}</div>
+                {renderPagination()}
+              </>
             )}
           </>
         )}
@@ -469,39 +528,20 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
           <>
             <div className="p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
               <h3 className="text-xs font-bold uppercase tracking-wider font-mono text-slate-600">
-                Conhecimento Aprovado ({visibleEntries.length})
+                Conhecimento Aprovado ({total})
               </h3>
-              <div className="flex items-center gap-2">
-                <div className="relative">
-                  <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Buscar na base..."
-                    className="text-[11px] font-mono border border-slate-200 rounded pl-6 pr-2 py-1.5 bg-white text-slate-600 w-40 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                  />
-                </div>
-                <select
-                  value={categoryFilter}
-                  onChange={(e) => setCategoryFilter(e.target.value as any)}
-                  className="text-[11px] font-mono border border-slate-200 rounded px-2 py-1.5 bg-white text-slate-600"
-                >
-                  <option value="all">Todas as Categorias</option>
-                  <option value="bom_part_number">Número de Peça (BOM)</option>
-                  <option value="engineering_note">Nota de Engenharia</option>
-                  <option value="compliance_status">Status de Conformidade</option>
-                  <option value="datasheet">Datasheet</option>
-                </select>
-              </div>
+              {renderSearchAndCategory()}
             </div>
 
             {loadingEntries ? (
               <div className="text-xs text-slate-400 italic p-6 text-center">Carregando entradas...</div>
-            ) : visibleEntries.length === 0 ? (
+            ) : entries.length === 0 ? (
               <div className="text-xs text-slate-400 italic p-6 text-center">Nenhuma entrada aprovada ainda.</div>
             ) : (
-              <div className="divide-y divide-slate-200">{visibleEntries.map(renderEntryCard)}</div>
+              <>
+                <div className="divide-y divide-slate-200">{entries.map(renderEntryCard)}</div>
+                {renderPagination()}
+              </>
             )}
           </>
         )}
