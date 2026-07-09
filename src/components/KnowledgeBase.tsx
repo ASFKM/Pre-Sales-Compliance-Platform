@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { BookOpen, FileText, Trash2, Sparkles, Check, X, Edit2, Upload } from "lucide-react";
 import ApiClient from "../lib/api";
-import { KnowledgeBaseEntry, KnowledgeBaseDocument, KnowledgeBaseEntryCategory, KnowledgeBaseEntryStatus } from "../types";
+import { KnowledgeBaseEntry, KnowledgeBaseDocument, KnowledgeBaseEntryCategory } from "../types";
 import { BackgroundTask } from "../hooks/useBackgroundTasks";
 
 interface KnowledgeBaseProps {
@@ -10,23 +10,13 @@ interface KnowledgeBaseProps {
   waitForTask: (taskId: string) => Promise<BackgroundTask>;
 }
 
+type SubTab = "upload" | "approvals" | "approved";
+
 const CATEGORY_LABEL: Record<KnowledgeBaseEntryCategory, string> = {
   bom_part_number: "Número de Peça (BOM)",
   engineering_note: "Nota de Engenharia",
   compliance_status: "Status de Conformidade",
   datasheet: "Datasheet",
-};
-
-const STATUS_LABEL: Record<KnowledgeBaseEntryStatus, string> = {
-  pending: "Pendente",
-  approved: "Aprovado",
-  rejected: "Rejeitado",
-};
-
-const STATUS_COLOR: Record<KnowledgeBaseEntryStatus, string> = {
-  pending: "bg-amber-50 text-amber-700",
-  approved: "bg-emerald-50 text-emerald-700",
-  rejected: "bg-red-50 text-red-700",
 };
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -43,15 +33,16 @@ function formatBytes(bytes: number): string {
 export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask }: KnowledgeBaseProps) {
   const canWrite = hasPermission("knowledge_base:write");
 
+  const [subTab, setSubTab] = useState<SubTab>("upload");
   const [documents, setDocuments] = useState<KnowledgeBaseDocument[]>([]);
-  const [entries, setEntries] = useState<KnowledgeBaseEntry[]>([]);
+  const [allEntries, setAllEntries] = useState<KnowledgeBaseEntry[]>([]);
   const [loadingDocs, setLoadingDocs] = useState(true);
   const [loadingEntries, setLoadingEntries] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState("");
 
-  const [statusFilter, setStatusFilter] = useState<"all" | KnowledgeBaseEntryStatus>("pending");
+  const [approvalsStatusFilter, setApprovalsStatusFilter] = useState<"pending" | "rejected">("pending");
   const [categoryFilter, setCategoryFilter] = useState<"all" | KnowledgeBaseEntryCategory>("all");
 
   const [editingEntry, setEditingEntry] = useState<KnowledgeBaseEntry | null>(null);
@@ -59,8 +50,14 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
   const [editKnowledge, setEditKnowledge] = useState("");
   const [savingEntryId, setSavingEntryId] = useState<string | null>(null);
 
+  // The analysis task is created and driven entirely by the backend (createTask + a detached
+  // runWithTenant job) - it keeps running and reporting progress over the same SSE stream
+  // regardless of whether the user stays on this tab, switches tabs, or reloads the page, so
+  // navigating away never loses the analysis.
   const analysisTask = activeTasks.find((t) => t.type === "knowledge_base_analysis");
   const pendingDocsCount = documents.filter((d) => !d.analyzed_at).length;
+  const pendingEntriesCount = allEntries.filter((e) => e.status === "pending").length;
+  const approvedEntriesCount = allEntries.filter((e) => e.status === "approved").length;
 
   const loadDocuments = async () => {
     setLoadingDocs(true);
@@ -77,12 +74,8 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
   const loadEntries = async () => {
     setLoadingEntries(true);
     try {
-      const params = new URLSearchParams();
-      if (statusFilter !== "all") params.set("status", statusFilter);
-      if (categoryFilter !== "all") params.set("category", categoryFilter);
-      const query = params.toString();
-      const rows = await ApiClient.get<KnowledgeBaseEntry[]>(`/api/knowledge-base/entries${query ? `?${query}` : ""}`);
-      setEntries(rows);
+      const rows = await ApiClient.get<KnowledgeBaseEntry[]>("/api/knowledge-base/entries");
+      setAllEntries(rows);
     } catch (err: any) {
       setError(err.message || "Não foi possível carregar a base de conhecimento.");
     } finally {
@@ -92,12 +85,8 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
 
   useEffect(() => {
     loadDocuments();
-  }, []);
-
-  useEffect(() => {
     loadEntries();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, categoryFilter]);
+  }, []);
 
   // Reflect a running/just-finished analysis task without polling - same SSE stream everything
   // else uses, we just re-fetch when it flips.
@@ -176,7 +165,7 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
         trigger: editTrigger,
         knowledge: editKnowledge,
       });
-      setEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+      setAllEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
       closeEdit();
     } catch (err: any) {
       setError(err.message || "Não foi possível salvar a edição.");
@@ -189,17 +178,75 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
     setSavingEntryId(entry.id);
     try {
       const updated = await ApiClient.put<KnowledgeBaseEntry>(`/api/knowledge-base/entries/${entry.id}`, { status });
-      if (statusFilter === "all" || statusFilter === status) {
-        setEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
-      } else {
-        setEntries((prev) => prev.filter((e) => e.id !== entry.id));
-      }
+      setAllEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
     } catch (err: any) {
       setError(err.message || "Não foi possível atualizar o item.");
     } finally {
       setSavingEntryId(null);
     }
   };
+
+  const visibleEntries = allEntries.filter((e) => {
+    const statusOk = subTab === "approved" ? e.status === "approved" : e.status === approvalsStatusFilter;
+    if (!statusOk) return false;
+    if (categoryFilter !== "all" && e.category !== categoryFilter) return false;
+    return true;
+  });
+
+  const renderEntryCard = (entry: KnowledgeBaseEntry) => (
+    <div key={entry.id} className="p-4 space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="px-2 py-0.5 rounded font-bold text-[9px] uppercase bg-slate-100 text-slate-600">
+          {CATEGORY_LABEL[entry.category]}
+        </span>
+        <span className="text-[10px] text-slate-400 font-mono">
+          {SOURCE_LABEL[entry.source] || entry.source}
+          {entry.source_project_name ? ` · ${entry.source_project_name}` : ""}
+          {entry.source_document_name ? ` · ${entry.source_document_name}` : ""}
+        </span>
+        <span className="text-[10px] text-slate-400 font-mono ml-auto">
+          {new Date(entry.created_at).toLocaleString()}
+        </span>
+      </div>
+      <div className="text-xs text-slate-700">
+        <span className="font-bold text-slate-500">Se: </span>
+        {entry.trigger}
+      </div>
+      <div className="text-xs text-slate-700">
+        <span className="font-bold text-slate-500">Então: </span>
+        {entry.knowledge}
+      </div>
+      {canWrite && (
+        <div className="flex items-center gap-2 pt-1">
+          {entry.status !== "approved" && (
+            <button
+              onClick={() => decideEntry(entry, "approved")}
+              disabled={savingEntryId === entry.id}
+              className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              <Check size={12} /> Aprovar
+            </button>
+          )}
+          <button
+            onClick={() => openEdit(entry)}
+            disabled={savingEntryId === entry.id}
+            className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors cursor-pointer disabled:opacity-50"
+          >
+            <Edit2 size={12} /> Editar
+          </button>
+          {entry.status !== "rejected" && (
+            <button
+              onClick={() => decideEntry(entry, "rejected")}
+              disabled={savingEntryId === entry.id}
+              className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded bg-red-50 text-red-700 hover:bg-red-100 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              <X size={12} /> Rejeitar
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div className="space-y-6">
@@ -220,195 +267,208 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
         </div>
       )}
 
-      {/* Documentos de Referência */}
+      {/* Sub-nav */}
       <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-slate-200 flex items-center justify-between">
-          <h3 className="text-xs font-bold uppercase tracking-wider font-mono text-slate-600">Documentos de Referência</h3>
-          {canWrite && (
-            <button
-              onClick={handleAnalyzeDocuments}
-              disabled={isAnalyzing || !!analysisTask || pendingDocsCount === 0}
-              className={`font-mono text-[11px] font-bold py-1.5 px-3 rounded shadow transition-all flex items-center gap-2 ${
-                isAnalyzing || !!analysisTask || pendingDocsCount === 0
-                  ? "bg-slate-100 text-slate-400 cursor-not-allowed"
-                  : "bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
-              }`}
-            >
-              <Sparkles size={13} className={isAnalyzing || !!analysisTask ? "animate-pulse" : ""} />
-              {analysisTask
-                ? analysisTask.current_step || "Analisando..."
-                : `Analisar Documentos e Gerar Base de Conhecimento${pendingDocsCount ? ` (${pendingDocsCount})` : ""}`}
-            </button>
-          )}
+        <div className="flex items-center gap-6 px-4 h-12 border-b border-slate-200 text-xs font-semibold bg-slate-50/50">
+          <button
+            onClick={() => setSubTab("upload")}
+            className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider cursor-pointer ${subTab === "upload" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+          >
+            Upload de Arquivos {documents.length > 0 && `(${documents.length})`}
+          </button>
+          <button
+            onClick={() => setSubTab("approvals")}
+            className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider cursor-pointer ${subTab === "approvals" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+          >
+            Aprovações {pendingEntriesCount > 0 && `(${pendingEntriesCount})`}
+          </button>
+          <button
+            onClick={() => setSubTab("approved")}
+            className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider cursor-pointer ${subTab === "approved" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+          >
+            Base de Conhecimento {approvedEntriesCount > 0 && `(${approvedEntriesCount})`}
+          </button>
         </div>
 
-        {analysisTask && (
-          <div className="px-4 py-3 bg-emerald-50/50 border-b border-emerald-100 flex items-center gap-3">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
-            <span className="text-[11px] font-mono text-emerald-800 truncate">
-              {analysisTask.current_step}
-              {typeof analysisTask.progress_pct === "number" && ` (${analysisTask.progress_pct}%)`}
-            </span>
-            <div className="flex-1 h-1.5 bg-emerald-100 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-emerald-500 transition-all duration-500"
-                style={{ width: `${typeof analysisTask.progress_pct === "number" ? analysisTask.progress_pct : 5}%` }}
-              />
+        {/* SUBTAB: UPLOAD DE ARQUIVOS */}
+        {subTab === "upload" && (
+          <>
+            <div className="p-4 border-b border-slate-200 flex items-center justify-between">
+              <h3 className="text-xs font-bold uppercase tracking-wider font-mono text-slate-600">Documentos de Referência</h3>
+              {canWrite && (
+                <button
+                  onClick={handleAnalyzeDocuments}
+                  disabled={isAnalyzing || !!analysisTask || pendingDocsCount === 0}
+                  className={`font-mono text-[11px] font-bold py-1.5 px-3 rounded shadow transition-all flex items-center gap-2 ${
+                    isAnalyzing || !!analysisTask || pendingDocsCount === 0
+                      ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                      : "bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
+                  }`}
+                >
+                  <Sparkles size={13} className={isAnalyzing || !!analysisTask ? "animate-pulse" : ""} />
+                  {analysisTask
+                    ? analysisTask.current_step || "Analisando..."
+                    : `Analisar Documentos e Gerar Base de Conhecimento${pendingDocsCount ? ` (${pendingDocsCount})` : ""}`}
+                </button>
+              )}
             </div>
-          </div>
+
+            {analysisTask && (
+              <div className="px-4 py-3 bg-emerald-50/50 border-b border-emerald-100 flex items-center gap-3">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
+                <span className="text-[11px] font-mono text-emerald-800 truncate">
+                  {analysisTask.current_step}
+                  {typeof analysisTask.progress_pct === "number" && ` (${analysisTask.progress_pct}%)`}
+                </span>
+                <div className="flex-1 h-1.5 bg-emerald-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-emerald-500 transition-all duration-500"
+                    style={{ width: `${typeof analysisTask.progress_pct === "number" ? analysisTask.progress_pct : 5}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="p-4 space-y-3">
+              {canWrite && (
+                <div className="relative border-2 border-dashed border-slate-200 hover:border-emerald-500 rounded p-5 text-center transition-all">
+                  <input
+                    type="file"
+                    multiple
+                    onChange={handleFileChange}
+                    disabled={isUploading}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                  />
+                  <Upload className="mx-auto text-slate-400 mb-2" size={24} />
+                  <p className="font-bold text-slate-700 text-xs">
+                    {isUploading ? "Enviando..." : "Arraste ou Selecione Datasheets, Catálogos, PDFs"}
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-1">PDF, DOCX, XLSX, imagens...</p>
+                </div>
+              )}
+
+              {loadingDocs ? (
+                <div className="text-xs text-slate-400 italic py-2">Carregando documentos...</div>
+              ) : documents.length === 0 ? (
+                <div className="text-xs text-slate-400 italic py-2">Nenhum documento enviado ainda.</div>
+              ) : (
+                <div className="space-y-1.5">
+                  {documents.map((doc) => {
+                    const isBeingAnalyzedNow = !!analysisTask && !doc.analyzed_at && analysisTask.current_step?.includes(doc.original_filename);
+                    return (
+                      <div key={doc.id} className={`p-2.5 border rounded text-xs ${isBeingAnalyzedNow ? "bg-emerald-50/50 border-emerald-200" : "bg-slate-50 border-slate-200"}`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <FileText size={14} className="text-slate-400 shrink-0" />
+                            <div className="min-w-0">
+                              <div className="truncate font-semibold text-slate-700">{doc.original_filename}</div>
+                              <div className="text-[10px] text-slate-400 font-mono">
+                                {formatBytes(doc.file_size)} · {new Date(doc.created_at).toLocaleString()}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className={`px-2 py-0.5 rounded font-bold text-[9px] uppercase ${
+                              isBeingAnalyzedNow ? "bg-emerald-100 text-emerald-700" : doc.analyzed_at ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"
+                            }`}>
+                              {isBeingAnalyzedNow ? "Analisando..." : doc.analyzed_at ? "Analisado" : "Pendente"}
+                            </span>
+                            {canWrite && (
+                              <button
+                                onClick={() => handleDeleteDocument(doc.id)}
+                                className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                                title="Excluir Documento"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        {isBeingAnalyzedNow && typeof analysisTask?.progress_pct === "number" && (
+                          <div className="mt-2 h-1 bg-emerald-100 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-emerald-500 transition-all duration-500"
+                              style={{ width: `${analysisTask.progress_pct}%` }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </>
         )}
 
-        <div className="p-4 space-y-3">
-          {canWrite && (
-            <div className="relative border-2 border-dashed border-slate-200 hover:border-emerald-500 rounded p-5 text-center transition-all">
-              <input
-                type="file"
-                multiple
-                onChange={handleFileChange}
-                disabled={isUploading}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-              />
-              <Upload className="mx-auto text-slate-400 mb-2" size={24} />
-              <p className="font-bold text-slate-700 text-xs">
-                {isUploading ? "Enviando..." : "Arraste ou Selecione Datasheets, Catálogos, PDFs"}
-              </p>
-              <p className="text-[10px] text-slate-400 mt-1">PDF, DOCX, XLSX, imagens...</p>
-            </div>
-          )}
-
-          {loadingDocs ? (
-            <div className="text-xs text-slate-400 italic py-2">Carregando documentos...</div>
-          ) : documents.length === 0 ? (
-            <div className="text-xs text-slate-400 italic py-2">Nenhum documento enviado ainda.</div>
-          ) : (
-            <div className="space-y-1.5">
-              {documents.map((doc) => (
-                <div key={doc.id} className="p-2.5 bg-slate-50 border border-slate-200 rounded flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <FileText size={14} className="text-slate-400 shrink-0" />
-                    <div className="min-w-0">
-                      <div className="truncate font-semibold text-slate-700">{doc.original_filename}</div>
-                      <div className="text-[10px] text-slate-400 font-mono">
-                        {formatBytes(doc.file_size)} · {new Date(doc.created_at).toLocaleString()}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className={`px-2 py-0.5 rounded font-bold text-[9px] uppercase ${doc.analyzed_at ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
-                      {doc.analyzed_at ? "Analisado" : "Pendente"}
-                    </span>
-                    {canWrite && (
-                      <button
-                        onClick={() => handleDeleteDocument(doc.id)}
-                        className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
-                        title="Excluir Documento"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Entradas da Base de Conhecimento */}
-      <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
-          <h3 className="text-xs font-bold uppercase tracking-wider font-mono text-slate-600">
-            Entradas da Base de Conhecimento ({entries.length})
-          </h3>
-          <div className="flex items-center gap-2">
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as any)}
-              className="text-[11px] font-mono border border-slate-200 rounded px-2 py-1.5 bg-white text-slate-600"
-            >
-              <option value="all">Todos os Status</option>
-              <option value="pending">Pendente</option>
-              <option value="approved">Aprovado</option>
-              <option value="rejected">Rejeitado</option>
-            </select>
-            <select
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value as any)}
-              className="text-[11px] font-mono border border-slate-200 rounded px-2 py-1.5 bg-white text-slate-600"
-            >
-              <option value="all">Todas as Categorias</option>
-              <option value="bom_part_number">Número de Peça (BOM)</option>
-              <option value="engineering_note">Nota de Engenharia</option>
-              <option value="compliance_status">Status de Conformidade</option>
-              <option value="datasheet">Datasheet</option>
-            </select>
-          </div>
-        </div>
-
-        {loadingEntries ? (
-          <div className="text-xs text-slate-400 italic p-6 text-center">Carregando entradas...</div>
-        ) : entries.length === 0 ? (
-          <div className="text-xs text-slate-400 italic p-6 text-center">Nenhuma entrada encontrada para este filtro.</div>
-        ) : (
-          <div className="divide-y divide-slate-200">
-            {entries.map((entry) => (
-              <div key={entry.id} className="p-4 space-y-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="px-2 py-0.5 rounded font-bold text-[9px] uppercase bg-slate-100 text-slate-600">
-                    {CATEGORY_LABEL[entry.category]}
-                  </span>
-                  <span className={`px-2 py-0.5 rounded font-bold text-[9px] uppercase ${STATUS_COLOR[entry.status]}`}>
-                    {STATUS_LABEL[entry.status]}
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-mono">
-                    {SOURCE_LABEL[entry.source] || entry.source}
-                    {entry.source_project_name ? ` · ${entry.source_project_name}` : ""}
-                    {entry.source_document_name ? ` · ${entry.source_document_name}` : ""}
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-mono ml-auto">
-                    {new Date(entry.created_at).toLocaleString()}
-                  </span>
-                </div>
-                <div className="text-xs text-slate-700">
-                  <span className="font-bold text-slate-500">Se: </span>
-                  {entry.trigger}
-                </div>
-                <div className="text-xs text-slate-700">
-                  <span className="font-bold text-slate-500">Então: </span>
-                  {entry.knowledge}
-                </div>
-                {canWrite && (
-                  <div className="flex items-center gap-2 pt-1">
-                    {entry.status !== "approved" && (
-                      <button
-                        onClick={() => decideEntry(entry, "approved")}
-                        disabled={savingEntryId === entry.id}
-                        className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors cursor-pointer disabled:opacity-50"
-                      >
-                        <Check size={12} /> Aprovar
-                      </button>
-                    )}
-                    <button
-                      onClick={() => openEdit(entry)}
-                      disabled={savingEntryId === entry.id}
-                      className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors cursor-pointer disabled:opacity-50"
-                    >
-                      <Edit2 size={12} /> Editar
-                    </button>
-                    {entry.status !== "rejected" && (
-                      <button
-                        onClick={() => decideEntry(entry, "rejected")}
-                        disabled={savingEntryId === entry.id}
-                        className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded bg-red-50 text-red-700 hover:bg-red-100 transition-colors cursor-pointer disabled:opacity-50"
-                      >
-                        <X size={12} /> Rejeitar
-                      </button>
-                    )}
-                  </div>
-                )}
+        {/* SUBTAB: APROVAÇÕES */}
+        {subTab === "approvals" && (
+          <>
+            <div className="p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+              <h3 className="text-xs font-bold uppercase tracking-wider font-mono text-slate-600">
+                Fila de Aprovação ({visibleEntries.length})
+              </h3>
+              <div className="flex items-center gap-2">
+                <select
+                  value={approvalsStatusFilter}
+                  onChange={(e) => setApprovalsStatusFilter(e.target.value as any)}
+                  className="text-[11px] font-mono border border-slate-200 rounded px-2 py-1.5 bg-white text-slate-600"
+                >
+                  <option value="pending">Pendente</option>
+                  <option value="rejected">Rejeitado</option>
+                </select>
+                <select
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value as any)}
+                  className="text-[11px] font-mono border border-slate-200 rounded px-2 py-1.5 bg-white text-slate-600"
+                >
+                  <option value="all">Todas as Categorias</option>
+                  <option value="bom_part_number">Número de Peça (BOM)</option>
+                  <option value="engineering_note">Nota de Engenharia</option>
+                  <option value="compliance_status">Status de Conformidade</option>
+                  <option value="datasheet">Datasheet</option>
+                </select>
               </div>
-            ))}
-          </div>
+            </div>
+
+            {loadingEntries ? (
+              <div className="text-xs text-slate-400 italic p-6 text-center">Carregando entradas...</div>
+            ) : visibleEntries.length === 0 ? (
+              <div className="text-xs text-slate-400 italic p-6 text-center">Nenhuma entrada encontrada para este filtro.</div>
+            ) : (
+              <div className="divide-y divide-slate-200">{visibleEntries.map(renderEntryCard)}</div>
+            )}
+          </>
+        )}
+
+        {/* SUBTAB: BASE DE CONHECIMENTO (aprovadas) */}
+        {subTab === "approved" && (
+          <>
+            <div className="p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+              <h3 className="text-xs font-bold uppercase tracking-wider font-mono text-slate-600">
+                Conhecimento Aprovado ({visibleEntries.length})
+              </h3>
+              <select
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value as any)}
+                className="text-[11px] font-mono border border-slate-200 rounded px-2 py-1.5 bg-white text-slate-600"
+              >
+                <option value="all">Todas as Categorias</option>
+                <option value="bom_part_number">Número de Peça (BOM)</option>
+                <option value="engineering_note">Nota de Engenharia</option>
+                <option value="compliance_status">Status de Conformidade</option>
+                <option value="datasheet">Datasheet</option>
+              </select>
+            </div>
+
+            {loadingEntries ? (
+              <div className="text-xs text-slate-400 italic p-6 text-center">Carregando entradas...</div>
+            ) : visibleEntries.length === 0 ? (
+              <div className="text-xs text-slate-400 italic p-6 text-center">Nenhuma entrada aprovada ainda.</div>
+            ) : (
+              <div className="divide-y divide-slate-200">{visibleEntries.map(renderEntryCard)}</div>
+            )}
+          </>
         )}
       </div>
 
