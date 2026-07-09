@@ -207,6 +207,7 @@ export default function AdminConsole({
     { id: "anthropic", name: "Anthropic Claude", configured: Boolean(platformSettings?.anthropic_api_key_configured), masked: platformSettings?.anthropic_api_key_masked || "" },
   ];
 
+  const [templateUploadFile, setTemplateUploadFile] = useState<File | null>(null);
   const [templateUploadFileName, setTemplateUploadFileName] = useState<string>("");
   const [templateUploadName, setTemplateUploadName] = useState<string>("");
   const [templateUploadDescription, setTemplateUploadDescription] = useState<string>("");
@@ -308,6 +309,7 @@ export default function AdminConsole({
     setNewConnectorType,
     setNewConnectorUrl,
     setNewConnectorToken,
+    templateUploadFile,
     templateUploadFileName,
     templateUploadName,
     templateUploadDescription,
@@ -316,6 +318,7 @@ export default function AdminConsole({
     templateUploadLanguage,
     templateUploadVariables,
     proposalTemplates,
+    setTemplateUploadFile,
     setTemplateUploadFileName,
     setTemplateUploadName,
     setTemplateUploadDescription,
@@ -1403,12 +1406,16 @@ export default function AdminConsole({
                       <div className="p-4 border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 text-center space-y-3">
                         <input
                           type="file"
-                          accept=".doc,.docx,.pdf,.html,.md"
-                          onChange={(e) => setTemplateUploadFileName(e.target.files?.[0]?.name || "")}
+                          accept=".doc,.docx,.pdf"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0] || null;
+                            setTemplateUploadFile(file);
+                            setTemplateUploadFileName(file?.name || "");
+                          }}
                           className="text-xs w-full"
                         />
                         <p className="text-[11px] text-slate-500">
-                          {locale === "pt" ? "Formatos: DOCX, DOC, PDF, HTML ou MD. Recomendado: DOCX com variáveis {{cliente}}, {{escopo}}, {{bom}}, {{preco}}." : "Formats: DOCX, DOC, PDF, HTML or MD."}
+                          {locale === "pt" ? "Formatos: DOCX, DOC ou PDF. Recomendado: DOCX com variáveis {{cliente}}, {{escopo}}, {{bom}}, {{preco}}." : "Formats: DOCX, DOC or PDF."}
                         </p>
                       </div>
                       <div className="grid grid-cols-2 gap-3 text-xs">
@@ -1435,7 +1442,7 @@ export default function AdminConsole({
                           <p>{locale === "pt" ? "Nenhum arquivo selecionado para pré-visualização." : "No file selected for preview."}</p>
                         )}
                       </div>
-                      <button className="w-full bg-slate-900 text-white rounded py-2 text-xs font-bold">
+                      <button onClick={handleCreateProposalTemplate} className="w-full bg-slate-900 hover:bg-slate-800 text-white rounded py-2 text-xs font-bold cursor-pointer">
                         {locale === "pt" ? "Preparar Template para Versionamento" : "Prepare Template for Versioning"}
                       </button>
                     </div>
@@ -1449,15 +1456,33 @@ export default function AdminConsole({
                           <div key={tpl.id} className="p-4 bg-slate-50 border border-slate-200 rounded-lg">
                             <div className="flex justify-between items-start">
                               <div>
-                                <h4 className="text-xs font-bold text-slate-800 uppercase font-mono">{tpl.name}</h4>
+                                <h4 className="text-xs font-bold text-slate-800 uppercase font-mono">
+                                  {tpl.name}
+                                  {tpl.default_template && (
+                                    <span className="ml-2 text-[9px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-bold uppercase align-middle">
+                                      {locale === "pt" ? "Padrão" : "Default"}
+                                    </span>
+                                  )}
+                                </h4>
                                 <p className="text-[11px] text-slate-500 mt-1">{tpl.description}</p>
                                 <p className="text-[10px] text-slate-400 font-mono mt-2">
                                   {locale === "pt" ? "Tipo" : "Type"}: {tpl.template_type} • {locale === "pt" ? "Versão" : "Version"}: {tpl.version} • {locale === "pt" ? "Idioma" : "Language"}: {tpl.language}
                                 </p>
                               </div>
-                              <div className="flex gap-2">
-                                <button className="px-2 py-1 rounded bg-white border text-[10px] font-bold">{locale === "pt" ? "Visualizar" : "Preview"}</button>
-                                <button className="px-2 py-1 rounded bg-slate-900 text-white text-[10px] font-bold">{locale === "pt" ? "Ativar" : "Set Active"}</button>
+                              <div className="flex gap-2 shrink-0">
+                                <button onClick={() => handleValidateProposalTemplate(tpl.id)} className="px-2 py-1 rounded bg-white border text-[10px] font-bold cursor-pointer">
+                                  {locale === "pt" ? "Visualizar" : "Preview"}
+                                </button>
+                                <button
+                                  onClick={() => handleSetDefaultProposalTemplate(tpl.id)}
+                                  disabled={tpl.default_template}
+                                  className="px-2 py-1 rounded bg-slate-900 text-white text-[10px] font-bold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                  {locale === "pt" ? "Ativar" : "Set Active"}
+                                </button>
+                                <button onClick={() => handleDeleteProposalTemplate(tpl.id)} className="px-2 py-1 rounded bg-white border border-rose-200 text-rose-600 text-[10px] font-bold cursor-pointer">
+                                  {locale === "pt" ? "Apagar" : "Delete"}
+                                </button>
                               </div>
                             </div>
                             <pre className="mt-3 p-3 bg-white border border-slate-200 rounded text-[10px] text-slate-500 overflow-x-auto">{JSON.stringify(tpl.variables_schema || {}, null, 2)}</pre>

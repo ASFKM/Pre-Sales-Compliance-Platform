@@ -1,13 +1,13 @@
 import express, { Request, Response, NextFunction } from "express";
 import { z } from "zod";
-import path from "path";
-import fs from "fs";
 import { dbStore } from "../../src/dbStore";
 import { requireAuth, requirePermission } from "./auth";
 import { buildProposalText, writeProposalFiles } from "../utils/docx";
+import { createStorageAdapter } from "../utils/storage";
 import { logDebugMessage } from "../middleware/security";
 import { ProposalTemplate } from "../../src/types";
 import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
+import { runWithTenant } from "../../src/tenantContext";
 
 const router = express.Router();
 
@@ -36,17 +36,17 @@ async function resolveRegisteredTemplate(
   return { template };
 }
 
-function resolveTemplatePath(filePath: string): string {
-  const cleaned = String(filePath || "").replace(/^\/+/, "");
-  const candidate = path.isAbsolute(filePath)
-    ? filePath
-    : path.join(process.cwd(), cleaned);
-
-  if (fs.existsSync(candidate)) {
-    return candidate;
+// Whether a registered template's file can actually be read right now, via whichever adapter
+// wrote it. Replaces the old raw fs.existsSync(path.join(process.cwd(), filePath)) check, which
+// built a filesystem path directly from a DB-stored string with no containment check - a path
+// traversal risk - instead of delegating to the storage adapter's own safe path resolution.
+async function checkTemplatePhysicalFile(template: ProposalTemplate, platformSettings: any): Promise<boolean> {
+  try {
+    const adapter = createStorageAdapter({ ...platformSettings, storage_mode: template.storage_provider });
+    return await adapter.exists(template.file_path);
+  } catch {
+    return false;
   }
-
-  return path.join(process.cwd(), "uploads", "templates", "standard.docx");
 }
 
 
@@ -110,18 +110,13 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
     }
 
     const template = templateResolution.template;
-    const templateFile = resolveTemplatePath(template.file_path);
+    const platformSettings = await dbStore.getSettings();
+    const physicalFileFound = await checkTemplatePhysicalFile(template, platformSettings);
 
     const userId = (req.headers["x-user-id"] as string) || "u1";
+    const tenantId = req.headers["x-tenant-id"] as string;
     const user = await dbStore.getUserById(userId);
     const userName = user ? user.name : "System User";
-
-    const uuid = Math.random().toString(36).substring(2, 11);
-    const docxFilename = `${proposalType}_proposal_${uuid}.docx`;
-    const pdfFilename = `${proposalType}_proposal_${uuid}.pdf`;
-
-    const docxPath = path.join(process.cwd(), "uploads", projectId, docxFilename);
-    const pdfPath = path.join(process.cwd(), "uploads", projectId, pdfFilename);
 
     // 1. Compile template data from projects, analysis result, and manual pricings
     const templateData = {
@@ -131,7 +126,7 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
         version: template.version,
         template_type: template.template_type,
         file_path: template.file_path,
-        physical_file_found: fs.existsSync(templateFile)
+        physical_file_found: physicalFileFound
       },
       project: {
         name: project.name,
@@ -160,20 +155,24 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
     const task = await createTask({ userId, type: "proposal_generation", currentStep: "Gerando documento..." });
     res.status(202).json({ success: true, task_id: task.id });
 
-    void (async () => {
+    // Wrapped in runWithTenant like every other detached background block in this codebase -
+    // without it, updateTaskProgress/completeTask/failTask/addAuditLog/createProposal below (all
+    // tenant-scoped) would run with no tenant context at all.
+    void runWithTenant({ tenantId }, async () => {
     try {
-      // 2. Build the full proposal text and write both the DOCX/PDF from it - this same text
-      // becomes the proposal's editable_content, so what the user reviews/edits on screen is
-      // exactly what's in the exported files (regenerating both from the edited text is what
-      // saving an edit does later, in PUT /proposals/:id).
+      // 2. Build the full proposal text - this same text becomes the proposal's editable_content,
+      // so what the user reviews/edits on screen is exactly what's in the exported files
+      // (regenerating both from the edited text is what saving an edit does later, in
+      // PUT /proposals/:id).
       await updateTaskProgress(task.id, { status: "running", currentStep: "Compilando conteúdo da proposta", progressPct: 30 });
-      const proposalContent = buildProposalText({
-        ...templateData,
-        template: templateData.template ? { ...templateData.template, physical_file_found: fs.existsSync(templateFile) } : undefined
-      });
+      const proposalContent = buildProposalText(templateData);
 
+      // 3. Write DOCX/PDF through the storage adapter (local/S3/GCS, whatever the tenant has
+      // configured) instead of a raw fs path under process.cwd() - survives a deploy without a
+      // single persistent disk.
       await updateTaskProgress(task.id, { currentStep: "Gerando DOCX e PDF", progressPct: 65 });
-      await writeProposalFiles(docxPath, pdfPath, proposalContent);
+      const outputAdapter = createStorageAdapter(platformSettings);
+      const { docx_file_path, pdf_file_path } = await writeProposalFiles(outputAdapter, projectId, proposalType, proposalContent);
 
       // 4. Save proposal to database
       await updateTaskProgress(task.id, { currentStep: "Salvando proposta", progressPct: 90 });
@@ -184,8 +183,9 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
         template_version: template.version,
         status: "draft",
         language: validated.language,
-        docx_file_path: `/uploads/${projectId}/${docxFilename}`,
-        pdf_file_path: `/uploads/${projectId}/${pdfFilename}`,
+        docx_file_path,
+        pdf_file_path,
+        storage_provider: platformSettings.storage_mode,
         version: 1,
         approval_workflow_id: project.selected_approval_workflow_id || "w1",
         generated_by: userName,
@@ -232,7 +232,7 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
       });
       await failTask(task.id, genErr.message || "Unknown error during proposal generation");
     }
-    })();
+    });
 
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -259,15 +259,32 @@ router.put("/proposals/:id", requirePermission("proposal:edit"), async (req: Req
       });
     }
 
-    const proposal = await dbStore.updateProposal(req.params.id, validated);
+    let proposal = await dbStore.updateProposal(req.params.id, validated);
 
     // If the user edited the proposal's text, the exported DOCX/PDF must match what's on
-    // screen - regenerate both from the edited text rather than leaving the files as a stale
-    // snapshot of the original AI-generated content.
+    // screen - regenerate both from the edited text through the storage adapter (regeneration
+    // always creates freshly-named storage paths), delete the now-orphaned old files, then point
+    // the proposal row at the new ones - rather than leaving the exports as a stale snapshot of
+    // the original AI-generated content.
     if (validated.editable_content !== undefined && proposal) {
-      const docxFullPath = path.join(process.cwd(), proposal.docx_file_path);
-      const pdfFullPath = path.join(process.cwd(), proposal.pdf_file_path);
-      await writeProposalFiles(docxFullPath, pdfFullPath, validated.editable_content);
+      const platformSettings = await dbStore.getSettings();
+      const outputAdapter = createStorageAdapter(platformSettings);
+      const { docx_file_path, pdf_file_path } = await writeProposalFiles(
+        outputAdapter,
+        existingProposal.project_id,
+        existingProposal.proposal_type,
+        validated.editable_content
+      );
+
+      const oldAdapter = createStorageAdapter({ ...platformSettings, storage_mode: existingProposal.storage_provider });
+      await oldAdapter.deleteFile(existingProposal.docx_file_path);
+      await oldAdapter.deleteFile(existingProposal.pdf_file_path);
+
+      proposal = await dbStore.updateProposal(req.params.id, {
+        docx_file_path,
+        pdf_file_path,
+        storage_provider: platformSettings.storage_mode,
+      });
     }
 
     const userId = (req.headers["x-user-id"] as string) || "u1";
@@ -311,14 +328,14 @@ router.post("/proposals/:id/release", requirePermission("proposal:approve"), asy
     }
 
     const previousStatus = proposal.status;
-    const docxFullPath = path.join(process.cwd(), proposal.docx_file_path);
-    const pdfFullPath = path.join(process.cwd(), proposal.pdf_file_path);
+    const settings = await dbStore.getSettings();
+    const adapter = createStorageAdapter({ ...settings, storage_mode: proposal.storage_provider });
 
-    if (!fs.existsSync(docxFullPath)) {
+    if (!(await adapter.exists(proposal.docx_file_path))) {
       return res.status(400).json({ success: false, message: "Cannot release proposal because the DOCX file is missing." });
     }
 
-    if (!fs.existsSync(pdfFullPath)) {
+    if (!(await adapter.exists(proposal.pdf_file_path))) {
       return res.status(400).json({ success: false, message: "Cannot release proposal because the PDF file is missing." });
     }
 
@@ -356,18 +373,29 @@ router.post("/proposals/:id/release", requirePermission("proposal:approve"), asy
   }
 });
 
-// SERVE proposal files for download/export (fully compliant paths)
+// SERVE proposal files for download/export - reads through the storage adapter that actually
+// wrote them (local/S3/GCS) rather than assuming a local disk path, which would already be wrong
+// for S3/GCS-backed proposals (docx_file_path/pdf_file_path are storage-scheme paths, not
+// filesystem paths relative to process.cwd()).
 router.get("/proposals/:id/export/docx", requirePermission("proposal:export"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const proposal = await dbStore.getProposal(req.params.id);
     if (!proposal) {
       return res.status(404).json({ success: false, message: "Proposal not found" });
     }
-    const fullPath = path.join(process.cwd(), proposal.docx_file_path);
-    if (!fs.existsSync(fullPath)) {
+    const settings = await dbStore.getSettings();
+    const adapter = createStorageAdapter({ ...settings, storage_mode: proposal.storage_provider });
+
+    let buffer: Buffer;
+    try {
+      buffer = await adapter.readFile(proposal.docx_file_path);
+    } catch {
       return res.status(404).json({ success: false, message: "Physical document file not found." });
     }
-    res.download(fullPath, path.basename(proposal.docx_file_path));
+
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    res.setHeader("Content-Disposition", `attachment; filename="${proposal.proposal_type}_proposal_${proposal.id}.docx"`);
+    res.send(buffer);
   } catch (err) {
     next(err);
   }
@@ -379,13 +407,19 @@ router.get("/proposals/:id/export/pdf", requirePermission("proposal:export"), as
     if (!proposal) {
       return res.status(404).json({ success: false, message: "Proposal not found" });
     }
-    const fullPath = path.join(process.cwd(), proposal.pdf_file_path);
-    if (!fs.existsSync(fullPath)) {
+    const settings = await dbStore.getSettings();
+    const adapter = createStorageAdapter({ ...settings, storage_mode: proposal.storage_provider });
+
+    let buffer: Buffer;
+    try {
+      buffer = await adapter.readFile(proposal.pdf_file_path);
+    } catch {
       return res.status(404).json({ success: false, message: "Physical PDF file not found." });
     }
+
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="${path.basename(proposal.pdf_file_path)}"`);
-    res.sendFile(fullPath);
+    res.setHeader("Content-Disposition", `attachment; filename="${proposal.proposal_type}_proposal_${proposal.id}.pdf"`);
+    res.send(buffer);
   } catch (err) {
     next(err);
   }

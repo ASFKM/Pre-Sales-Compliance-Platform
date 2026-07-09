@@ -564,6 +564,9 @@ model ProposalTemplate {
   language        Language
   fileType        ProposalFileType     @map("file_type")
   filePath        String               @map("file_path")
+  // Which adapter actually wrote filePath - needed so a later storage_mode change on the tenant
+  // doesn't cause deletes/reads of pre-existing templates to hit the wrong backend.
+  storageProvider StorageProvider      @default(local) @map("storage_provider")
   variablesSchema String               @map("variables_schema") @db.Text
   version         String
   active          Boolean              @default(true)
@@ -638,6 +641,7 @@ model Proposal {
   language              Language
   docxFilePath          String           @map("docx_file_path")
   pdfFilePath           String           @map("pdf_file_path")
+  storageProvider       StorageProvider  @default(local) @map("storage_provider")
   generatedBy           String           @map("generated_by")
   generatedAt           DateTime         @default(now()) @map("generated_at")
   version               Int

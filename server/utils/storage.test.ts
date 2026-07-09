@@ -72,4 +72,16 @@ describe("LocalStorageAdapter", () => {
   it("checkReachable reports true for a writable directory", async () => {
     expect(await adapter.checkReachable()).toBe(true);
   });
+
+  it("exists reports true for an uploaded file and false after deletion", async () => {
+    const storagePath = await adapter.uploadFile("proj1", Buffer.from("x"), "notes.txt", "text/plain");
+    expect(await adapter.exists(storagePath)).toBe(true);
+
+    await adapter.deleteFile(storagePath);
+    expect(await adapter.exists(storagePath)).toBe(false);
+  });
+
+  it("exists reports false for a path that was never uploaded", async () => {
+    expect(await adapter.exists("local://" + path.join(tmpDir, "proj1", "missing.txt"))).toBe(false);
+  });
 });

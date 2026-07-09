@@ -1,38 +1,60 @@
 import express, { Request, Response, NextFunction } from "express";
+import multer from "multer";
+import path from "path";
 import { z } from "zod";
 import { dbStore } from "../../src/dbStore";
 import { requireAuth, requirePermission } from "./auth";
+import { createStorageAdapter, validateUploadedFile } from "../utils/storage";
 
 const router = express.Router();
 
-const ProposalTemplateSchema = z.object({
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }
+});
+
+// Templates aren't tied to a project - grouped under a fixed namespace instead (mirrors
+// resolveTemplatePath's old "uploads/templates" fallback in proposals.ts).
+const TEMPLATE_STORAGE_NAMESPACE = "templates";
+
+// multer puts every non-file field onto req.body as a plain string, so booleans arrive as the
+// literal text "true"/"false" - z.coerce.boolean() would be wrong here (it just calls Boolean(),
+// so the non-empty string "false" would coerce to true). Parse the actual text instead.
+const formBoolean = (defaultValue: boolean) =>
+  z.union([z.boolean(), z.string()]).optional().transform((v) => (v === undefined ? defaultValue : v === true || v === "true"));
+
+const ProposalTemplateFormSchema = z.object({
   name: z.string().min(2, "Template name is required"),
   description: z.string().optional().default(""),
   template_type: z.enum(["technical", "commercial", "executive_summary", "risk_report", "bom_report", "questions_report"]),
   language: z.enum(["Portuguese", "English", "Spanish"]).default("Portuguese"),
-  file_type: z.enum(["docx", "doc", "pdf"]).default("docx"),
-  file_path: z.string().min(1, "File path is required"),
   variables_schema: z.string().optional().default("[]"),
   version: z.string().min(1).default("v1.0"),
-  active: z.boolean().default(true),
-  default_template: z.boolean().default(false),
+  active: formBoolean(true),
+  default_template: formBoolean(false),
   uploaded_by: z.string().optional().default("Admin")
 });
 
-const UpdateProposalTemplateSchema = ProposalTemplateSchema.partial();
+// name/description/language/variables_schema/version/active/default_template only - deliberately
+// excludes file_path/file_type. Letting a client set those directly from JSON was the actual bug
+// (a fake path derived from a filename string, never real bytes) - a real file replacement needs
+// its own multipart upload, not a field on this route.
+const UpdateProposalTemplateSchema = z.object({
+  name: z.string().min(2).optional(),
+  description: z.string().optional(),
+  language: z.enum(["Portuguese", "English", "Spanish"]).optional(),
+  variables_schema: z.string().optional(),
+  version: z.string().min(1).optional(),
+  active: z.boolean().optional(),
+  default_template: z.boolean().optional(),
+});
 
-function validateTemplateFilePath(filePath: string, fileType: string) {
-  const normalizedPath = String(filePath || "").trim().toLowerCase();
-  const normalizedType = String(fileType || "").trim().toLowerCase();
-
-  if (!normalizedPath.endsWith(`.${normalizedType}`)) {
-    return {
-      valid: false,
-      message: "Template file path must match the configured file type."
-    };
-  }
-
-  return { valid: true, message: "" };
+function fileTypeFromExtension(originalFilename: string): "docx" | "doc" | "pdf" | null {
+  const ext = path.extname(originalFilename).toLowerCase();
+  if (ext === ".docx") return "docx";
+  if (ext === ".doc") return "doc";
+  if (ext === ".pdf") return "pdf";
+  return null;
 }
 
 async function hasDuplicateTemplateName(name: string, ignoreId?: string) {
@@ -77,29 +99,51 @@ router.get("/proposals", requireAuth, async (req: Request, res: Response, next: 
   }
 });
 
-router.post("/proposals", requirePermission("template:manage"), async (req: Request, res: Response, next: NextFunction) => {
+router.post("/proposals", requirePermission("template:manage"), upload.single("file"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const validated = ProposalTemplateSchema.parse(req.body);
+    const file = req.file;
+    if (!file) {
+      return res.status(400).json({ success: false, message: "A template file is required." });
+    }
+
+    const fileType = fileTypeFromExtension(file.originalname);
+    if (!fileType) {
+      return res.status(400).json({ success: false, message: "Only DOCX, DOC or PDF files are supported for proposal templates." });
+    }
+
+    const fileValidation = validateUploadedFile(file.originalname, file.mimetype, file.size);
+    if (!fileValidation.valid) {
+      return res.status(400).json({ success: false, message: fileValidation.error });
+    }
+
+    const validated = ProposalTemplateFormSchema.parse(req.body);
 
     if (await hasDuplicateTemplateName(validated.name)) {
       return res.status(409).json({ success: false, message: "Template name already exists." });
     }
 
-    const fileValidation = validateTemplateFilePath(validated.file_path, validated.file_type);
-    if (!fileValidation.valid) {
-      return res.status(400).json({ success: false, message: fileValidation.message });
-    }
+    const platformSettings = await dbStore.getSettings();
+    const storageAdapter = createStorageAdapter(platformSettings);
+    const filePath = await storageAdapter.uploadFile(TEMPLATE_STORAGE_NAMESPACE, file.buffer, file.originalname, file.mimetype);
 
-    const tpl = await dbStore.createProposalTemplate(validated);
+    const tpl = await dbStore.createProposalTemplate({
+      ...validated,
+      file_type: fileType,
+      file_path: filePath,
+      storage_provider: platformSettings.storage_mode,
+    });
 
     let result = tpl;
     if (validated.default_template) {
       result = (await dbStore.setDefaultProposalTemplate(tpl.id)) || tpl;
     }
 
-    await auditTemplateChange(req, "Create Proposal Template", result.id, validated);
+    await auditTemplateChange(req, "Create Proposal Template", result.id, { ...validated, file_path: filePath });
     res.status(201).json(result);
   } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ success: false, message: err.issues[0].message });
+    }
     next(err);
   }
 });
@@ -118,13 +162,6 @@ router.put("/proposals/:id", requirePermission("template:manage"), async (req: R
       return res.status(409).json({ success: false, message: "Template name already exists." });
     }
 
-    const effectiveFilePath = validated.file_path || currentTemplate.file_path;
-    const effectiveFileType = validated.file_type || currentTemplate.file_type;
-    const fileValidation = validateTemplateFilePath(effectiveFilePath, effectiveFileType);
-    if (!fileValidation.valid) {
-      return res.status(400).json({ success: false, message: fileValidation.message });
-    }
-
     let tpl = await dbStore.updateProposalTemplate(req.params.id, validated);
 
     if (validated.default_template === true) {
@@ -134,12 +171,21 @@ router.put("/proposals/:id", requirePermission("template:manage"), async (req: R
     await auditTemplateChange(req, "Update Proposal Template", req.params.id, validated);
     res.json(tpl);
   } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ success: false, message: err.issues[0].message });
+    }
     next(err);
   }
 });
 
 router.delete("/proposals/:id", requirePermission("template:manage"), async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const templates = await dbStore.getProposalTemplates();
+    const tpl = templates.find(t => t.id === req.params.id);
+    if (!tpl) {
+      return res.status(404).json({ success: false, message: "Template not found" });
+    }
+
     const ok = await dbStore.deleteProposalTemplate(req.params.id);
 
     if (!ok) {
@@ -148,6 +194,12 @@ router.delete("/proposals/:id", requirePermission("template:manage"), async (req
         message: "Template not found or currently used by a proposal."
       });
     }
+
+    // Remove the physical file too, now that uploads are real bytes rather than a fake path -
+    // otherwise every deleted template would still leak its file in storage forever.
+    const settings = await dbStore.getSettings();
+    const storageAdapter = createStorageAdapter({ ...settings, storage_mode: tpl.storage_provider });
+    await storageAdapter.deleteFile(tpl.file_path);
 
     await auditTemplateChange(req, "Delete Proposal Template", req.params.id, {});
     res.json({ success: true, message: "Template deleted successfully." });

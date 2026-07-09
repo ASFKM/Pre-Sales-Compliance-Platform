@@ -360,6 +360,7 @@ export interface ProposalTemplate {
   language: "Portuguese" | "English" | "Spanish";
   file_type: "docx" | "doc" | "pdf";
   file_path: string;
+  storage_provider: "local" | "s3" | "gcs";
   variables_schema: string;
   version: string;
   active: boolean;
@@ -379,6 +380,7 @@ export interface Proposal {
   language: "Portuguese" | "English" | "Spanish";
   docx_file_path: string;
   pdf_file_path: string;
+  storage_provider: "local" | "s3" | "gcs";
   generated_by: string;
   generated_at: string;
   version: number;

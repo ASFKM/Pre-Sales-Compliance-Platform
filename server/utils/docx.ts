@@ -1,5 +1,4 @@
-import fs from "fs";
-import path from "path";
+import { StorageAdapter } from "./storage";
 
 export interface DocxTemplateData {
   template?: {
@@ -258,29 +257,37 @@ export function buildDocxBuffer(text: string): Buffer {
   ]);
 }
 
-export async function generateDocxFromTemplate(templatePath: string, outputPath: string, data: DocxTemplateData): Promise<void> {
-  const outputDir = path.dirname(outputPath);
-  if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
+// Lines per page - fits within the same "50 800 Td .. 10 TL" text-block geometry the single-page
+// version used (800pt down to a ~50pt bottom margin on a 842pt-tall page, 10pt leading).
+const PDF_LINES_PER_PAGE = 74;
 
-  const content = buildProposalText({
-    ...data,
-    template: data.template ? { ...data.template, physical_file_found: fs.existsSync(templatePath) } : undefined
+// Real pagination: however many pages the content needs, not a single page that silently
+// truncated anything past the first ~92 lines. Object numbering: catalog=1, pages=2, font=3,
+// then each page contributes 2 objects (page dict + its content stream).
+export function buildPdfBuffer(text: string): Buffer {
+  const allLines = text.split(/\r?\n/).flatMap(line => wrapLine(line));
+  const pageChunks: string[][] = [];
+  for (let i = 0; i < allLines.length; i += PDF_LINES_PER_PAGE) {
+    pageChunks.push(allLines.slice(i, i + PDF_LINES_PER_PAGE));
+  }
+  if (pageChunks.length === 0) pageChunks.push([""]);
+
+  const CATALOG_OBJ = 1;
+  const PAGES_OBJ = 2;
+  const FONT_OBJ = 3;
+  const pageObjNums = pageChunks.map((_, i) => 4 + 2 * i);
+  const contentObjNums = pageChunks.map((_, i) => 5 + 2 * i);
+
+  const objects: string[] = [];
+  objects[CATALOG_OBJ - 1] = `<< /Type /Catalog /Pages ${PAGES_OBJ} 0 R >>`;
+  objects[PAGES_OBJ - 1] = `<< /Type /Pages /Kids [${pageObjNums.map(n => `${n} 0 R`).join(" ")}] /Count ${pageChunks.length} >>`;
+  objects[FONT_OBJ - 1] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>";
+
+  pageChunks.forEach((lines, i) => {
+    const stream = ["BT", "/F1 8 Tf", "50 800 Td", "10 TL", ...lines.map(line => `(${escapePdfText(line)}) Tj\nT*`), "ET"].join("\n");
+    objects[pageObjNums[i] - 1] = `<< /Type /Page /Parent ${PAGES_OBJ} 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${FONT_OBJ} 0 R >> >> /Contents ${contentObjNums[i]} 0 R >>`;
+    objects[contentObjNums[i] - 1] = `<< /Length ${Buffer.byteLength(stream, "utf8")} >>\nstream\n${stream}\nendstream`;
   });
-
-  await fs.promises.writeFile(outputPath, buildDocxBuffer(content));
-}
-
-function buildPdfBuffer(text: string): Buffer {
-  const lines = text.split(/\r?\n/).flatMap(line => wrapLine(line)).slice(0, 92);
-  const stream = ["BT", "/F1 8 Tf", "50 800 Td", "10 TL", ...lines.map(line => `(${escapePdfText(line)}) Tj\nT*`), "ET"].join("\n");
-
-  const objects = [
-    "<< /Type /Catalog /Pages 2 0 R >>",
-    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
-    `<< /Length ${Buffer.byteLength(stream, "utf8")} >>\nstream\n${stream}\nendstream`,
-    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
-  ];
 
   let output = "%PDF-1.4\n";
   const offsets = [0];
@@ -295,29 +302,28 @@ function buildPdfBuffer(text: string): Buffer {
   offsets.slice(1).forEach(offset => {
     output += `${String(offset).padStart(10, "0")} 00000 n \n`;
   });
-  output += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  output += `trailer\n<< /Size ${objects.length + 1} /Root ${CATALOG_OBJ} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
 
   return Buffer.from(output, "utf8");
 }
 
-export async function generatePdfFromProposal(docxPath: string, outputPath: string, data?: DocxTemplateData): Promise<void> {
-  const outputDir = path.dirname(outputPath);
-  if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
-
-  const pdfText = data ? buildProposalText(data) : `Proposal DOCX generated at ${docxPath}`;
-  await fs.promises.writeFile(outputPath, buildPdfBuffer(pdfText));
-}
-
-// Regenerates the DOCX/PDF pair directly from a plain-text string - used both for the initial
-// generation (from buildProposalText's output) and after the user edits that text in the
-// proposal editor, so the exported files always match what's on screen rather than the original
-// unedited analysis data.
-export async function writeProposalFiles(docxPath: string, pdfPath: string, text: string): Promise<void> {
-  const docxDir = path.dirname(docxPath);
-  if (!fs.existsSync(docxDir)) fs.mkdirSync(docxDir, { recursive: true });
-  const pdfDir = path.dirname(pdfPath);
-  if (!fs.existsSync(pdfDir)) fs.mkdirSync(pdfDir, { recursive: true });
-
-  await fs.promises.writeFile(docxPath, buildDocxBuffer(text));
-  await fs.promises.writeFile(pdfPath, buildPdfBuffer(text));
+// Regenerates the DOCX/PDF pair directly from a plain-text string, through the storage adapter
+// rather than a raw fs path - used both for the initial generation (from buildProposalText's
+// output) and after the user edits that text in the proposal editor, so the exported files always
+// match what's on screen rather than the original unedited analysis data. Returns the storage
+// paths the caller should persist on the Proposal row.
+export async function writeProposalFiles(
+  storageAdapter: StorageAdapter,
+  projectId: string,
+  proposalType: string,
+  text: string
+): Promise<{ docx_file_path: string; pdf_file_path: string }> {
+  const docxPath = await storageAdapter.uploadFile(
+    projectId,
+    buildDocxBuffer(text),
+    `${proposalType}_proposal.docx`,
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  );
+  const pdfPath = await storageAdapter.uploadFile(projectId, buildPdfBuffer(text), `${proposalType}_proposal.pdf`, "application/pdf");
+  return { docx_file_path: docxPath, pdf_file_path: pdfPath };
 }

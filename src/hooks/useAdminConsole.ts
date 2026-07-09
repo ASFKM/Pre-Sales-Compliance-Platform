@@ -44,6 +44,7 @@ interface UseAdminConsoleParams {
   setNewConnectorUrl: (v: string) => void;
   setNewConnectorToken: (v: string) => void;
   // Template upload form (owned locally by AdminConsole)
+  templateUploadFile: File | null;
   templateUploadFileName: string;
   templateUploadName: string;
   templateUploadDescription: string;
@@ -52,6 +53,7 @@ interface UseAdminConsoleParams {
   templateUploadLanguage: "Portuguese" | "English" | "Spanish";
   templateUploadVariables: string;
   proposalTemplates: any[];
+  setTemplateUploadFile: (v: File | null) => void;
   setTemplateUploadFileName: (v: string) => void;
   setTemplateUploadName: (v: string) => void;
   setTemplateUploadDescription: (v: string) => void;
@@ -74,9 +76,9 @@ export function useAdminConsole(params: UseAdminConsoleParams) {
     setShowNewUserForm, setNewUserName, setNewUserEmail, setNewUserRoleId, setNewUserPassword,
     newConnectorName, newConnectorType, newConnectorUrl, newConnectorToken,
     setShowNewConnectorForm, setNewConnectorName, setNewConnectorType, setNewConnectorUrl, setNewConnectorToken,
-    templateUploadFileName, templateUploadName, templateUploadDescription, templateUploadVersion,
+    templateUploadFile, templateUploadFileName, templateUploadName, templateUploadDescription, templateUploadVersion,
     templateUploadType, templateUploadLanguage, templateUploadVariables, proposalTemplates,
-    setTemplateUploadFileName, setTemplateUploadName, setTemplateUploadDescription, setTemplateUploadVersion,
+    setTemplateUploadFile, setTemplateUploadFileName, setTemplateUploadName, setTemplateUploadDescription, setTemplateUploadVersion,
     setTemplateUploadType, setTemplateUploadLanguage, setTemplateUploadVariables,
   } = params;
 
@@ -448,36 +450,33 @@ export function useAdminConsole(params: UseAdminConsoleParams) {
   };
 
   const handleCreateProposalTemplate = async () => {
-    if (!templateUploadFileName.trim()) {
+    if (!templateUploadFile) {
       alert(locale === "pt" ? "Selecione um arquivo de template." : "Select a template file.");
       return;
     }
 
-    const extension = (templateUploadFileName.split(".").pop() || "docx").toLowerCase();
-    const fileType = extension === "doc" ? "doc" : extension === "pdf" ? "pdf" : "docx";
     const safeName = templateUploadName.trim() || templateUploadFileName.replace(/\.[^.]+$/, "");
     const variables = templateUploadVariables
       .split(",")
       .map((v) => v.trim())
       .filter(Boolean);
 
+    const formData = new FormData();
+    formData.append("file", templateUploadFile);
+    formData.append("name", safeName);
+    formData.append("description", templateUploadDescription.trim() || (locale === "pt" ? "Template enviado pela área administrativa." : "Template uploaded from the admin console."));
+    formData.append("template_type", templateUploadType);
+    formData.append("language", templateUploadLanguage);
+    formData.append("variables_schema", JSON.stringify(variables));
+    formData.append("version", templateUploadVersion || "v1.0");
+    formData.append("active", "true");
+    formData.append("default_template", "false");
+    formData.append("uploaded_by", currentUserName || "Admin");
+
     try {
       const res = await fetch("/api/templates/proposals", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: safeName,
-          description: templateUploadDescription.trim() || (locale === "pt" ? "Template enviado pela área administrativa." : "Template uploaded from the admin console."),
-          template_type: templateUploadType,
-          language: templateUploadLanguage,
-          file_type: fileType,
-          file_path: `/templates/${templateUploadFileName}`,
-          variables_schema: JSON.stringify(variables),
-          version: templateUploadVersion || "v1.0",
-          active: true,
-          default_template: false,
-          uploaded_by: currentUserName || "Admin"
-        })
+        body: formData
       });
 
       if (!res.ok) {
@@ -486,6 +485,7 @@ export function useAdminConsole(params: UseAdminConsoleParams) {
         return;
       }
 
+      setTemplateUploadFile(null);
       setTemplateUploadFileName("");
       setTemplateUploadName("");
       setTemplateUploadDescription("");
