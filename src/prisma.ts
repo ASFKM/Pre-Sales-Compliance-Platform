@@ -7,9 +7,10 @@ import { getTenantContext, TenantContext } from "./tenantContext";
 // becomes structurally impossible for anything routed through this client.
 const TENANT_SCOPED_MODELS = new Set([
   "aIAnalysisJob", "analysisResult", "approvalDecision", "approvalWorkflow", "approvalStage",
-  "auditLog", "brandingSettings", "conversationMessage", "debugLog", "document",
-  "documentContent", "integrationConnector", "platformSettings", "project", "promptTemplate",
-  "proposal", "proposalTemplate", "role", "task", "user", "teamMembership",
+  "auditLog", "backgroundTask", "brandingSettings", "conversationMessage", "debugLog", "document",
+  "documentContent", "integrationConnector", "knowledgeBaseDocument", "knowledgeBaseEntry",
+  "platformSettings", "project", "promptTemplate", "proposal", "proposalTemplate", "role",
+  "systemMessage", "task", "user", "teamMembership", "vertical",
 ]);
 
 const READ_OPS = new Set(["findFirst", "findFirstOrThrow", "findUnique", "findUniqueOrThrow", "findMany", "count", "aggregate", "groupBy"]);
@@ -129,8 +130,21 @@ export const prisma = basePrisma.$extends({
         }
 
         if (operation === "upsert") {
-          a.where = { ...(a.where || {}), tenantId };
-          a.create = { ...(a.create || {}), tenantId: a.create?.tenantId ?? tenantId };
+          // Bit us 3 times already: injecting tenantId into upsert's `where` only works if the
+          // model's unique constraint already includes tenantId (e.g. Vertical's
+          // @@unique([tenantId, name])). For every other model (a bare @id on `id`, or a unique
+          // on some other single column), the combined where matches no real DB constraint,
+          // Prisma can't locate the existing row, and it silently falls through to `create` -
+          // failing on the first required field with no default. Rather than re-derive per model
+          // whether that's safe, every call site in this codebase already uses
+          // findUnique()+create()/update() instead (see comments in dbStore.ts/fleetLicense.ts) -
+          // so upsert() through this scoped client is disallowed outright, turning the old silent
+          // failure into an immediate, obvious error at the call site.
+          throw new Error(
+            `prisma.${modelKey}.upsert() is disallowed on tenant-scoped models - the tenant-scoping ` +
+            `extension cannot safely inject tenantId into an upsert's where clause unless it's part ` +
+            `of the model's own unique constraint. Use findUnique() + create()/update() instead.`
+          );
         }
 
         if (visibility && UNIQUE_TO_FIRST[operation]) {
