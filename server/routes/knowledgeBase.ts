@@ -178,6 +178,13 @@ router.post(
         return res.status(400).json({ success: false, message: validation.error });
       }
 
+      // AsyncLocalStorage context set by requireAuth doesn't reliably reach this handler through
+      // multer's upload.single() - same issue and fix as server/routes/documents.ts: rebuild it
+      // from the tenant id requireAuth also stashes on the request headers, a plain object
+      // property that isn't dependent on async-context propagation.
+      const tenantId = req.headers["x-tenant-id"] as string;
+      const tenantContext = { tenantId };
+
       const platformSettings = await dbStore.getSettings();
       const storageAdapter = createStorageAdapter(platformSettings);
       // Reuses the project-scoped storage layout with a fixed pseudo-project id - these
@@ -185,15 +192,17 @@ router.post(
       const storagePath = await storageAdapter.uploadFile("knowledge-base", file.buffer, file.originalname, file.mimetype);
 
       const userId = (req.headers["x-user-id"] as string) || "u1";
-      const doc = await dbStore.createKnowledgeBaseDocument({
-        filename: file.originalname,
-        original_filename: file.originalname,
-        mime_type: file.mimetype,
-        file_size: file.size,
-        storage_provider: platformSettings.storage_mode,
-        storage_path: storagePath,
-        uploaded_by: userId,
-      });
+      const doc = await runWithTenant(tenantContext, () =>
+        dbStore.createKnowledgeBaseDocument({
+          filename: file.originalname,
+          original_filename: file.originalname,
+          mime_type: file.mimetype,
+          file_size: file.size,
+          storage_provider: platformSettings.storage_mode,
+          storage_path: storagePath,
+          uploaded_by: userId,
+        })
+      );
 
       res.status(201).json(doc);
     } catch (err) {
