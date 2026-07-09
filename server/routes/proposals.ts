@@ -3,6 +3,7 @@ import { z } from "zod";
 import { dbStore } from "../../src/dbStore";
 import { requireAuth, requirePermission } from "./auth";
 import { buildProposalText, writeProposalFiles } from "../utils/docx";
+import { renderDocxFromTemplate } from "../utils/docxTemplateEngine";
 import { createStorageAdapter } from "../utils/storage";
 import { logDebugMessage } from "../middleware/security";
 import { ProposalTemplate } from "../../src/types";
@@ -167,14 +168,27 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
       await updateTaskProgress(task.id, { status: "running", currentStep: "Compilando conteúdo da proposta", progressPct: 30 });
       const proposalContent = buildProposalText(templateData);
 
-      // 3. Write DOCX/PDF through the storage adapter (local/S3/GCS, whatever the tenant has
+      // 3. If the registered template has a real, readable .docx file, merge into it directly
+      // (preserves the template's own letterhead/styles) - otherwise fall back to the generic
+      // generator, same as before this template engine existed. A merge failure fails the task
+      // with a clear message rather than silently degrading to the generic document - the whole
+      // point of choosing a template is the letterhead it produces.
+      let docxBufferOverride: Buffer | undefined;
+      if (physicalFileFound && template.file_type === "docx") {
+        await updateTaskProgress(task.id, { currentStep: "Preenchendo template DOCX", progressPct: 55 });
+        const templateAdapter = createStorageAdapter({ ...platformSettings, storage_mode: template.storage_provider });
+        const templateBuffer = await templateAdapter.readFile(template.file_path);
+        docxBufferOverride = renderDocxFromTemplate(templateBuffer, templateData);
+      }
+
+      // 4. Write DOCX/PDF through the storage adapter (local/S3/GCS, whatever the tenant has
       // configured) instead of a raw fs path under process.cwd() - survives a deploy without a
       // single persistent disk.
       await updateTaskProgress(task.id, { currentStep: "Gerando DOCX e PDF", progressPct: 65 });
       const outputAdapter = createStorageAdapter(platformSettings);
-      const { docx_file_path, pdf_file_path } = await writeProposalFiles(outputAdapter, projectId, proposalType, proposalContent);
+      const { docx_file_path, pdf_file_path } = await writeProposalFiles(outputAdapter, projectId, proposalType, proposalContent, docxBufferOverride);
 
-      // 4. Save proposal to database
+      // 5. Save proposal to database
       await updateTaskProgress(task.id, { currentStep: "Salvando proposta", progressPct: 90 });
       const proposal = await dbStore.createProposal({
         project_id: projectId,
@@ -265,7 +279,11 @@ router.put("/proposals/:id", requirePermission("proposal:edit"), async (req: Req
     // screen - regenerate both from the edited text through the storage adapter (regeneration
     // always creates freshly-named storage paths), delete the now-orphaned old files, then point
     // the proposal row at the new ones - rather than leaving the exports as a stale snapshot of
-    // the original AI-generated content.
+    // the original AI-generated content. Always the generic (non-template) generator here, even
+    // if the proposal was originally created from a real template: editable_content is one flat
+    // text blob, not the structured {{cliente}}/{{bom}}/... fields the template engine needs, so
+    // there's no correct way to re-merge it - the DOCX intentionally reverts to the generic layout
+    // once the free text is edited.
     if (validated.editable_content !== undefined && proposal) {
       const platformSettings = await dbStore.getSettings();
       const outputAdapter = createStorageAdapter(platformSettings);

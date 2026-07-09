@@ -5,6 +5,7 @@ import { z } from "zod";
 import { dbStore } from "../../src/dbStore";
 import { requireAuth, requirePermission } from "./auth";
 import { createStorageAdapter, validateUploadedFile } from "../utils/storage";
+import { extractTemplatePlaceholders } from "../utils/docxTemplateEngine";
 
 const router = express.Router();
 
@@ -216,11 +217,32 @@ router.post("/proposals/:id/validate", requirePermission("template:manage"), asy
       return res.status(404).json({ success: false, message: "Template not found" });
     }
 
+    // Real placeholders found in the actual uploaded file (docxtemplater's own parser) - only
+    // possible for .docx (a real OOXML zip); .doc/.pdf templates fall back to whatever variables
+    // the admin manually registered, since this engine can't introspect those formats.
+    if (tpl.file_type === "docx") {
+      try {
+        const settings = await dbStore.getSettings();
+        const adapter = createStorageAdapter({ ...settings, storage_mode: tpl.storage_provider });
+        const buffer = await adapter.readFile(tpl.file_path);
+        const variables = extractTemplatePlaceholders(buffer);
+
+        return res.json({
+          success: true,
+          message: "Variáveis extraídas do arquivo real do template.",
+          variables,
+          variable_count: variables.length
+        });
+      } catch (err: any) {
+        return res.status(400).json({ success: false, message: err.message || "Não foi possível ler as variáveis do arquivo do template." });
+      }
+    }
+
     const variables = extractTemplateVariables(tpl.variables_schema || "[]");
 
     res.json({
       success: true,
-      message: "Template schema matching successfully validated.",
+      message: `Arquivo .${tpl.file_type} não pode ser inspecionado diretamente - variáveis registradas manualmente.`,
       variables,
       variable_count: variables.length
     });

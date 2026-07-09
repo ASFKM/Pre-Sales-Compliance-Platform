@@ -312,15 +312,22 @@ export function buildPdfBuffer(text: string): Buffer {
 // output) and after the user edits that text in the proposal editor, so the exported files always
 // match what's on screen rather than the original unedited analysis data. Returns the storage
 // paths the caller should persist on the Proposal row.
+//
+// docxBufferOverride lets the caller supply a DOCX already merged from a real uploaded template
+// (server/utils/docxTemplateEngine.ts) - when absent, falls back to the generic buildDocxBuffer
+// (the no-template case, unchanged). The PDF always comes from the plain text either way (see
+// Fase 3b's design note: styling the PDF after the template would need a DOCX->PDF conversion
+// service, a heavier new dependency not taken on here).
 export async function writeProposalFiles(
   storageAdapter: StorageAdapter,
   projectId: string,
   proposalType: string,
-  text: string
+  text: string,
+  docxBufferOverride?: Buffer
 ): Promise<{ docx_file_path: string; pdf_file_path: string }> {
   const docxPath = await storageAdapter.uploadFile(
     projectId,
-    buildDocxBuffer(text),
+    docxBufferOverride ?? buildDocxBuffer(text),
     `${proposalType}_proposal.docx`,
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
   );
