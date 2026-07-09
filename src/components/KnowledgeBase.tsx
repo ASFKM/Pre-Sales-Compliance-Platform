@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BookOpen, FileText, Trash2, Sparkles, Check, X, Edit2, Upload } from "lucide-react";
+import { BookOpen, FileText, Trash2, Sparkles, Check, X, Edit2, Upload, Search } from "lucide-react";
 import ApiClient from "../lib/api";
 import { KnowledgeBaseEntry, KnowledgeBaseDocument, KnowledgeBaseEntryCategory } from "../types";
 import { BackgroundTask } from "../hooks/useBackgroundTasks";
@@ -44,6 +44,7 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
 
   const [approvalsStatusFilter, setApprovalsStatusFilter] = useState<"pending" | "rejected">("pending");
   const [categoryFilter, setCategoryFilter] = useState<"all" | KnowledgeBaseEntryCategory>("all");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const [editingEntry, setEditingEntry] = useState<KnowledgeBaseEntry | null>(null);
   const [editTrigger, setEditTrigger] = useState("");
@@ -186,10 +187,22 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
     }
   };
 
+  const normalizedSearch = searchQuery.trim().toLowerCase();
+
   const visibleEntries = allEntries.filter((e) => {
     const statusOk = subTab === "approved" ? e.status === "approved" : e.status === approvalsStatusFilter;
     if (!statusOk) return false;
     if (categoryFilter !== "all" && e.category !== categoryFilter) return false;
+    if (normalizedSearch) {
+      const haystack = [
+        e.trigger,
+        e.knowledge,
+        CATEGORY_LABEL[e.category],
+        e.source_project_name,
+        e.source_document_name,
+      ].filter(Boolean).join(" ").toLowerCase();
+      if (!haystack.includes(normalizedSearch)) return false;
+    }
     return true;
   });
 
@@ -249,7 +262,7 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
   );
 
   return (
-    <div className="space-y-6">
+    <div className="flex-1 p-6 overflow-y-auto space-y-6">
       <div className="flex items-center gap-2">
         <BookOpen className="text-emerald-600" size={18} />
         <h2 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">Base de Conhecimento</h2>
@@ -409,6 +422,16 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
                 Fila de Aprovação ({visibleEntries.length})
               </h3>
               <div className="flex items-center gap-2">
+                <div className="relative">
+                  <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Buscar na base..."
+                    className="text-[11px] font-mono border border-slate-200 rounded pl-6 pr-2 py-1.5 bg-white text-slate-600 w-40 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  />
+                </div>
                 <select
                   value={approvalsStatusFilter}
                   onChange={(e) => setApprovalsStatusFilter(e.target.value as any)}
@@ -448,17 +471,29 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
               <h3 className="text-xs font-bold uppercase tracking-wider font-mono text-slate-600">
                 Conhecimento Aprovado ({visibleEntries.length})
               </h3>
-              <select
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value as any)}
-                className="text-[11px] font-mono border border-slate-200 rounded px-2 py-1.5 bg-white text-slate-600"
-              >
-                <option value="all">Todas as Categorias</option>
-                <option value="bom_part_number">Número de Peça (BOM)</option>
-                <option value="engineering_note">Nota de Engenharia</option>
-                <option value="compliance_status">Status de Conformidade</option>
-                <option value="datasheet">Datasheet</option>
-              </select>
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Buscar na base..."
+                    className="text-[11px] font-mono border border-slate-200 rounded pl-6 pr-2 py-1.5 bg-white text-slate-600 w-40 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  />
+                </div>
+                <select
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value as any)}
+                  className="text-[11px] font-mono border border-slate-200 rounded px-2 py-1.5 bg-white text-slate-600"
+                >
+                  <option value="all">Todas as Categorias</option>
+                  <option value="bom_part_number">Número de Peça (BOM)</option>
+                  <option value="engineering_note">Nota de Engenharia</option>
+                  <option value="compliance_status">Status de Conformidade</option>
+                  <option value="datasheet">Datasheet</option>
+                </select>
+              </div>
             </div>
 
             {loadingEntries ? (
