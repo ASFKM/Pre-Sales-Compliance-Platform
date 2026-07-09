@@ -68,6 +68,34 @@ function normalizedEnum<T extends [string, ...string[]]>(options: T) {
   }, z.enum(options));
 }
 
+const KEYWORD_STOPWORDS = new Set([
+  "para", "com", "sem", "que", "uma", "um", "de", "da", "do", "das", "dos", "em", "no", "na",
+  "nos", "nas", "por", "sobre", "entre", "este", "esta", "esse", "essa", "aquele", "aquela",
+  "ser", "sao", "foi", "sera", "deve", "devem", "pode", "podem", "nao", "sim", "mais",
+  "menos", "muito", "pouco", "todo", "toda", "todos", "todas", "qualquer", "cada", "outro",
+  "outra", "the", "and", "for", "with", "without", "that", "this", "these", "those", "from",
+  "into", "onto", "than", "then", "also", "will", "shall", "must", "have", "has", "had",
+  "documento", "document", "start", "end", "secao", "section", "pagina", "page", "anexo",
+  "termo", "referencia", "edital", "licitacao", "contrato", "objeto", "item", "itens",
+  "project", "projeto", "description", "descricao", "customer", "cliente", "vertical",
+]);
+
+// Cheap term-frequency keyword extraction (no vector/embedding search infra in this codebase yet)
+// - used to narrow the accumulated-knowledge lookup (see searchApprovedKnowledgeBase) to entries
+// actually relevant to this document, instead of handing the model every approved entry regardless
+// of topic. Keywords keep their original accents (unlike stripAccents elsewhere in this file) since
+// they're matched via a plain ILIKE `contains` against trigger/knowledge text that isn't
+// accent-folded - only the stopword comparison itself is accent-insensitive.
+function extractKnowledgeBaseKeywords(text: string, maxKeywords = 40): string[] {
+  const counts = new Map<string, number>();
+  for (const raw of text.toLowerCase().split(/[^\p{L}\p{N}-]+/u)) {
+    const word = raw.trim();
+    if (word.length < 4 || KEYWORD_STOPWORDS.has(stripAccents(word))) continue;
+    counts.set(word, (counts.get(word) || 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, maxKeywords).map(([w]) => w);
+}
+
 // 1. Zod Schema for Structured Output Validation
 const ExecutiveSummarySchema = z.object({
   project_overview: z.string(),
@@ -446,11 +474,19 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
 
     // Human-approved corrections/reference knowledge from past projects (Base de Conhecimento -
     // see server/routes/knowledgeBase.ts) - only ever entries a person has explicitly reviewed
-    // and approved, never a raw/unreviewed AI suggestion. No keyword filtering yet (the approved
-    // set should stay small enough early on that handing the model everything and letting it
-    // judge relevance itself is simpler and more reliable than a keyword-matching heuristic);
-    // revisit with real search if this list grows large enough to blow the context budget.
-    const { entries: approvedKnowledge } = await dbStore.getKnowledgeBaseEntries({ status: "approved" });
+    // and approved, never a raw/unreviewed AI suggestion. The approved set has already grown past
+    // a hundred entries in real use, so handing the model every single one (the original approach)
+    // was starting to blow the prompt's context budget on mostly-irrelevant entries. Instead,
+    // extract candidate keywords from the project metadata and whatever document text was locally
+    // extracted, and only pull entries whose trigger/knowledge actually mention one of them - still
+    // a heuristic (no vector/embedding search infra here), but bounded and targeted instead of
+    // unconditional.
+    const knowledgeBaseKeywords = extractKnowledgeBaseKeywords(
+      [project.name, project.customer_name, project.vertical, project.description, project.ai_orientation_text, combinedExtractedText]
+        .filter(Boolean)
+        .join(" ")
+    );
+    const approvedKnowledge = await dbStore.searchApprovedKnowledgeBase(knowledgeBaseKeywords);
     const knowledgeBaseSection = approvedKnowledge.length > 0
       ? `\nACCUMULATED KNOWLEDGE FROM PAST PROJECTS (human-reviewed and approved - apply only the
 entries that are actually relevant to this document; ignore anything that doesn't clearly match):

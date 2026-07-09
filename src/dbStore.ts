@@ -1523,19 +1523,23 @@ class DBStore {
     return e ? mapKnowledgeBaseEntry(e) : undefined;
   }
 
-  // Only approved entries are ever surfaced to the analysis prompt (see aiOrchestrator's
-  // getApprovedKnowledgeBaseContext) - a simple ILIKE-based relevance match against trigger since
-  // there's no full-text/vector search infra in place yet; good enough at the volumes a single
-  // tenant's reviewed knowledge base will realistically reach.
-  public async searchApprovedKnowledgeBase(keywords: string[]): Promise<KnowledgeBaseEntry[]> {
+  // Only approved entries are ever surfaced to the analysis prompt (see analysis.ts's
+  // extractKnowledgeBaseKeywords) - a simple ILIKE-based relevance match against trigger AND
+  // knowledge since there's no full-text/vector search infra in place yet; good enough at the
+  // volumes a single tenant's reviewed knowledge base will realistically reach, and now actually
+  // wired up (this used to be dead code - every approved entry was sent unconditionally instead).
+  public async searchApprovedKnowledgeBase(keywords: string[], limit = 30): Promise<KnowledgeBaseEntry[]> {
     if (keywords.length === 0) return [];
     const rows = await prisma.knowledgeBaseEntry.findMany({
       where: {
         status: "approved",
-        OR: keywords.map((kw) => ({ trigger: { contains: kw, mode: "insensitive" as const } })),
+        OR: keywords.flatMap((kw) => [
+          { trigger: { contains: kw, mode: "insensitive" as const } },
+          { knowledge: { contains: kw, mode: "insensitive" as const } },
+        ]),
       },
       orderBy: { createdAt: "desc" },
-      take: 20,
+      take: limit,
     });
     return rows.map(mapKnowledgeBaseEntry);
   }
