@@ -207,7 +207,7 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
         <BookOpen className="text-emerald-600" size={18} />
         <h2 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">Base de Conhecimento</h2>
       </div>
-      <p className="text-xs text-slate-500 -mt-4 max-w-3xl leading-relaxed">
+      <p className="text-xs text-slate-500 -mt-4 leading-relaxed">
         Correções feitas pela equipe durante análises (peças, notas de engenharia, status de conformidade) e
         documentos de referência enviados manualmente (datasheets, catálogos) alimentam esta base. Toda entrada
         passa por revisão humana antes de ser considerada em futuras análises de IA.
