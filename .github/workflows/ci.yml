@@ -43,6 +43,11 @@ jobs:
       JWT_SESSION_SECRET: ci-test-only-jwt-session-secret
       SECRET_ENCRYPTION_KEY: ci-test-only-secret-encryption-key-32b
       CI: "true"
+      # Explicit opt-in: the regression scripts below verify MFA-enabled seed users (u1/u3) via
+      # the demo bypass code, and APP_RUNTIME_MODE now defaults to "production" (see
+      # server/config/runtime.ts) - without this, those 3 regression steps would fail here, not
+      # in real production, since nothing sets this var on the live host either.
+      APP_RUNTIME_MODE: demo
 
     steps:
       - name: Checkout repository
@@ -60,17 +65,17 @@ jobs:
       - name: TypeScript lint
         run: npm run lint
 
-      - name: Unit tests
-        run: npm test
-
-      - name: Production build
-        run: npm run build
-
       - name: Apply database migrations
         run: npx prisma migrate deploy
 
       - name: Seed database
         run: npm run prisma:seed
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Production build
+        run: npm run build
 
       - name: Start app
         run: |

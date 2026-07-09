@@ -310,7 +310,7 @@ router.post("/project-intake/:sessionId/confirm", requirePermission("project:cre
 
     await staging.deleteSession(req.params.sessionId);
 
-    res.status(211).json(project);
+    res.status(201).json(project);
   } catch (err) {
     if (err instanceof z.ZodError) {
       return res.status(400).json({ success: false, message: err.issues[0].message });

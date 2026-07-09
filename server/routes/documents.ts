@@ -127,7 +127,7 @@ router.post(
           metadata: JSON.stringify({ filename: docRecord.filename, path: storagePath, status: extraction.metadata.extractionStatus })
         });
 
-        res.status(211).json(docRecord);
+        res.status(201).json(docRecord);
       });
     } catch (err) {
       next(err);

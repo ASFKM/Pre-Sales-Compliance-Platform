@@ -20,6 +20,16 @@ export interface TenantContext {
 
 const storage = new AsyncLocalStorage<TenantContext>();
 
+// Footgun discovered writing prisma.test.ts: Prisma's client methods return a lazy "PrismaPromise"
+// that doesn't actually invoke the $allOperations extension (src/prisma.ts) until something calls
+// .then()/awaits it. That .then() must happen synchronously within `fn`'s own call stack (directly,
+// or nested inside a plain async function that awaits it as its first statement - calling an async
+// function already runs it synchronously up to that await, so this is the normal, safe case and
+// covers every real call site in this codebase today). The unsafe shape is `fn` returning a bare,
+// never-awaited Prisma call - e.g. `() => prisma.model.findX(...)` handed straight to
+// runWithTenant() with nothing inside `fn` ever consuming it - because then the first real .then()
+// happens later, from the caller's own `await runWithTenant(...)`, which runs *outside*
+// storage.run()'s active window, and the query silently executes unscoped.
 export function runWithTenant<T>(context: TenantContext, fn: () => T): T {
   return storage.run(context, fn);
 }

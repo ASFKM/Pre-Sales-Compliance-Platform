@@ -37,6 +37,15 @@ import knowledgeBaseRouter from "./server/routes/knowledgeBase";
 
 const app = express();
 
+// Deliberately NOT calling app.set("trust proxy", ...) here. Verified against the live deployment:
+// nginx is not installed/active and Node listens directly on 0.0.0.0:3000 with nothing in front -
+// Express's default (trust nothing) is the correct, safe setting for that topology. Setting
+// "trust proxy" to true or a wildcard with no real proxy in front would let any client spoof its
+// own req.ip via a hand-crafted X-Forwarded-For header, defeating the login rate-limiter and
+// falsifying audit-log IPs - strictly worse than the status quo. If a reverse proxy (nginx,
+// Cloudflare, an ALB) is added later, set this to the number of trusted hops or the proxy's own
+// IP/subnet at that time - not before, since there's nothing to trust yet.
+
 // 1. Basic Security & Body Parsing
 app.use(helmetMiddleware);
 app.use(express.json());

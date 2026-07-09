@@ -1,6 +1,7 @@
 import express, { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { prisma } from "../../src/prisma";
+import { dbStore } from "../../src/dbStore";
 import { requireAuth, requirePermission } from "./auth";
 import { getCurrentTenantId } from "../../src/tenantContext";
 
@@ -12,11 +13,16 @@ const MESSAGE_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 router.get("/messages", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const tenantId = getCurrentTenantId()!;
+    const roleId = req.headers["x-role-id"] as string;
+    const role = await dbStore.getRoleById(roleId);
+    const canSeeAdminOnly = role?.permissions.includes("admin:settings") ?? false;
+
     const messages = await prisma.systemMessage.findMany({
       where: {
         tenantId,
         createdAt: { gte: new Date(Date.now() - MESSAGE_WINDOW_MS) },
         OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+        ...(canSeeAdminOnly ? {} : { audience: { not: "admin_only" } }),
       },
       orderBy: { createdAt: "desc" },
       take: 50,

@@ -278,7 +278,7 @@ router.post("/login", loginRateLimiter, async (req: Request, res: Response, next
 
       // Create Audit Log
       await dbStore.addAuditLog({
-        user_id: user.name,
+        user_id: user.id,
         action: "Credential Challenge Passed",
         entity_type: "User",
         entity_id: user.id,
@@ -354,7 +354,7 @@ router.post("/mfa/enroll", async (req: Request, res: Response, next: NextFunctio
       await dbStore.setUserMfaSecret(user.id, encryptSecret(secret));
 
       await dbStore.addAuditLog({
-        user_id: user.name,
+        user_id: user.id,
         action: existingSecret ? "MFA TOTP Re-enrolled" : "MFA TOTP Enrolled",
         entity_type: "User",
         entity_id: user.id,
@@ -431,7 +431,7 @@ router.post("/mfa/verify", async (req: Request, res: Response, next: NextFunctio
         await dbStore.setUserLastLogin(user.id);
 
         await dbStore.addAuditLog({
-          user_id: user.name,
+          user_id: user.id,
           action: "MFA Multi-Factor Challenge Verified",
           entity_type: "User",
           entity_id: session.userId,
@@ -477,7 +477,6 @@ router.post("/logout", requireAuth, async (req: Request, res: Response, next: Ne
   const userId = req.headers["x-user-id"] as string;
 
   try {
-    const user = await dbStore.getUserById(userId);
     await deleteSession(token);
 
     const refreshToken = readRefreshCookie(req);
@@ -487,7 +486,7 @@ router.post("/logout", requireAuth, async (req: Request, res: Response, next: Ne
     res.clearCookie(REFRESH_TOKEN_COOKIE_NAME, { path: "/api/auth" });
 
     await dbStore.addAuditLog({
-      user_id: user?.name || "Unknown",
+      user_id: userId,
       action: "Session Terminated",
       entity_type: "User",
       entity_id: userId,
