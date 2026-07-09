@@ -5,6 +5,7 @@ import SystemMessageBanner from "./components/SystemMessageBanner";
 import AdminConsole from "./components/AdminConsole";
 import Workspace from "./components/Workspace";
 import ProjectsList from "./components/ProjectsList";
+import KnowledgeBase from "./components/KnowledgeBase";
 import Home from "./components/Home";
 import Proposals from "./components/Proposals";
 import Templates from "./components/Templates";
@@ -360,7 +361,7 @@ export default function App() {
 
 
   // Navigation / Views
-  const [activeTab, setActiveTab] = useState<"home" | "workspace" | "projectsList" | "proposals" | "templates" | "approval" | "admin">("home");
+  const [activeTab, setActiveTab] = useState<"home" | "workspace" | "projectsList" | "proposals" | "templates" | "approval" | "knowledgeBase" | "admin">("home");
   const [activeAdminSection, setActiveAdminSection] = useState<"overview" | "users" | "ai" | "templates" | "approval_flow" | "subscription" | "branding" | "integrations" | "storage" | "audit">("overview");
 
   // Shared with fetchGlobalConfigs (auto-selects defaults) and Workspace's proposal builder
@@ -1073,6 +1074,15 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
             </button>
           </div>
 
+          <div className="flex items-center">
+            <button
+              onClick={() => setActiveTab("knowledgeBase")}
+              className={`py-4 px-1 border-b-2 transition-all ${activeTab === "knowledgeBase" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
+            >
+              Base de Conhecimento
+            </button>
+          </div>
+
           {canAccessAdminConsole() && (
             <div className="flex items-center">
               <button
@@ -1136,8 +1146,8 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
         </div>
       </nav>
 
-      {/* 2. CONTEXT SUB-HEADER */}
-      {activeTab !== "home" && activeTab !== "admin" && activeTab !== "projectsList" && (
+      {/* 2. CONTEXT SUB-HEADER - not on Knowledge Base either, it's tenant-wide, not per-project */}
+      {activeTab !== "home" && activeTab !== "admin" && activeTab !== "projectsList" && activeTab !== "knowledgeBase" && (
         <div className="h-11 bg-white border-b border-slate-200 flex items-center px-6 gap-2 text-xs font-medium shrink-0 shadow-sm">
           <span className="text-slate-400 font-mono">{locale === "pt" ? "Projetos" : "Projects"}</span>
           <span className="text-slate-400">/</span>
@@ -1335,6 +1345,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               t={t}
               hasPermission={hasPermission}
               selectedProjectId={selectedProjectId}
+              projectName={activeProject?.name || ""}
               documents={documents}
               setDocuments={setDocuments}
               analysisResult={analysisResult}
@@ -1420,6 +1431,15 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
             />
           )}
 
+          {/* TAB: KNOWLEDGE BASE - tenant-wide, not scoped to a single project, so it lives
+              outside the project sub-header/sidebar entirely (see the exclusions above). */}
+          {activeTab === "knowledgeBase" && (
+            <KnowledgeBase
+              hasPermission={hasPermission}
+              activeTasks={activeTasks}
+              waitForTask={waitForTask}
+            />
+          )}
 
           {/* TAB 5: ADMIN CONSOLE */}
           {activeTab === "admin" && canAccessAdminConsole() && (

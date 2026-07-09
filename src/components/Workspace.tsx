@@ -35,6 +35,7 @@ interface WorkspaceProps {
   t: (key: string) => string;
   hasPermission: (perm: string) => boolean;
   selectedProjectId: string;
+  projectName: string;
   documents: Document[];
   setDocuments: Dispatch<SetStateAction<Document[]>>;
   analysisResult: AnalysisResult | null;
@@ -48,7 +49,7 @@ interface WorkspaceProps {
   proposalTemplates: any[];
   fetchGlobalConfigs: () => Promise<void> | void;
   fetchProjectDetails: (projectId: string) => Promise<void> | void;
-  setActiveTab: (tab: "home" | "workspace" | "proposals" | "templates" | "approval" | "admin") => void;
+  setActiveTab: (tab: "home" | "workspace" | "projectsList" | "proposals" | "templates" | "approval" | "knowledgeBase" | "admin") => void;
   setActiveAdminSection: Dispatch<SetStateAction<"overview" | "users" | "ai" | "templates" | "approval_flow" | "subscription" | "branding" | "integrations" | "storage" | "audit">>;
   canAccessAdminSection: (section: string) => boolean;
   handleDeleteDocument: (id: string) => void;
@@ -64,7 +65,7 @@ interface WorkspaceProps {
 }
 
 export default function Workspace({
-  locale, tx, t, hasPermission, selectedProjectId,
+  locale, tx, t, hasPermission, selectedProjectId, projectName,
   documents, setDocuments, analysisResult, setAnalysisResult, displayAnalysisResult,
   analysisError, docsCount, reqsCount, risksCount, oppsCount,
   proposalTemplates, fetchGlobalConfigs, fetchProjectDetails,
@@ -79,6 +80,25 @@ export default function Workspace({
   const [editingNotesReqId, setEditingNotesReqId] = useState<string | null>(null);
   const [editingNotesDraft, setEditingNotesDraft] = useState("");
   const chatMessagesEndRef = useRef<HTMLDivElement>(null);
+  const partNumberFocusValues = useRef<Record<string, string>>({});
+
+  // Reactive Knowledge Base capture: a human correction becomes a pending suggestion for future
+  // analyses to draw on. Fire-and-forget - the edit itself already saved via its own handler, this
+  // is best-effort enrichment on top and must never block or surface errors on the edit UI.
+  const sendKnowledgeBaseSuggestion = (params: {
+    category: "bom_part_number" | "engineering_note" | "compliance_status";
+    field_label: string;
+    old_value: string;
+    new_value: string;
+    item_context: string;
+  }) => {
+    if (!hasPermission("knowledge_base:write") || params.old_value.trim() === params.new_value.trim()) return;
+    fetch("/api/knowledge-base/suggest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...params, project_id: selectedProjectId, project_name: projectName }),
+    }).catch(() => {});
+  };
 
   // Was a plain <a href download> pointing at the API route - browser-navigated downloads never
   // go through the app's global `fetch` interceptor (App.tsx) that injects the Authorization
@@ -431,7 +451,16 @@ export default function Workspace({
                                 <td className="p-3">
                                   <select
                                     value={req.compliance_status}
-                                    onChange={(e) => handleUpdateRequirement(req.requirement_id, e.target.value as any, req.notes)}
+                                    onChange={(e) => {
+                                      sendKnowledgeBaseSuggestion({
+                                        category: "compliance_status",
+                                        field_label: "Status de Conformidade",
+                                        old_value: req.compliance_status,
+                                        new_value: e.target.value,
+                                        item_context: `${req.requirement_id}: ${req.description}`,
+                                      });
+                                      handleUpdateRequirement(req.requirement_id, e.target.value as any, req.notes);
+                                    }}
                                     className={`text-[11px] font-bold p-1 rounded border cursor-pointer focus:outline-none focus:ring-1 focus:ring-emerald-500 ${
                                       req.compliance_status === "compliant" ? "text-emerald-700 bg-emerald-50 border-emerald-200" :
                                       req.compliance_status === "partially_compliant" ? "text-amber-700 bg-amber-50 border-amber-200" :
@@ -493,7 +522,16 @@ export default function Workspace({
                               </button>
                               <button
                                 onClick={() => {
-                                  if (req) handleUpdateRequirement(req.requirement_id, req.compliance_status, editingNotesDraft);
+                                  if (req) {
+                                    sendKnowledgeBaseSuggestion({
+                                      category: "engineering_note",
+                                      field_label: "Notas de Engenharia",
+                                      old_value: req.notes || "",
+                                      new_value: editingNotesDraft,
+                                      item_context: `${req.requirement_id}: ${req.description}`,
+                                    });
+                                    handleUpdateRequirement(req.requirement_id, req.compliance_status, editingNotesDraft);
+                                  }
                                   setEditingNotesReqId(null);
                                 }}
                                 className="px-4 py-2 text-xs font-bold uppercase bg-emerald-600 hover:bg-emerald-700 text-white rounded transition-colors cursor-pointer"
@@ -716,7 +754,22 @@ export default function Workspace({
                                       className="font-mono text-slate-700 bg-slate-50 px-1 py-0.5 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500 w-24" />
                                   </td>
                                   <td className="p-3">
-                                    <input type="text" value={item.part_number} onChange={(e) => updateField("part_number", e.target.value)}
+                                    <input type="text" value={item.part_number}
+                                      onFocus={() => { partNumberFocusValues.current[item.item_id] = item.part_number; }}
+                                      onChange={(e) => updateField("part_number", e.target.value)}
+                                      onBlur={(e) => {
+                                        const original = partNumberFocusValues.current[item.item_id];
+                                        if (original !== undefined) {
+                                          sendKnowledgeBaseSuggestion({
+                                            category: "bom_part_number",
+                                            field_label: "Número de Peça (Part Number)",
+                                            old_value: original,
+                                            new_value: e.target.value,
+                                            item_context: `${item.equipment_name} (fabricante: ${item.manufacturer || "não informado"}) - ${item.specification || ""}`,
+                                          });
+                                        }
+                                        delete partNumberFocusValues.current[item.item_id];
+                                      }}
                                       className="font-mono text-slate-700 bg-slate-50 px-1 py-0.5 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500 w-28" />
                                     {item.edited_by ? (
                                       <span
