@@ -487,6 +487,14 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
         .join(" ")
     );
     const approvedKnowledge = await dbStore.searchApprovedKnowledgeBase(knowledgeBaseKeywords);
+    logDebugMessage({
+      operation: "Knowledge Base Retrieval",
+      message: `Extracted ${knowledgeBaseKeywords.length} keywords (${knowledgeBaseKeywords.slice(0, 10).join(", ")}${knowledgeBaseKeywords.length > 10 ? ", ..." : ""}); matched ${approvedKnowledge.length} approved entries for the analysis prompt.`,
+      status: "INFO",
+      durationMs: Date.now() - startTime,
+      correlationId,
+      projectId
+    });
     const knowledgeBaseSection = approvedKnowledge.length > 0
       ? `\nACCUMULATED KNOWLEDGE FROM PAST PROJECTS (human-reviewed and approved - apply only the
 entries that are actually relevant to this document; ignore anything that doesn't clearly match):
