@@ -33,6 +33,7 @@ import tasksRouter from "./server/routes/tasks";
 import projectIntakeRouter from "./server/routes/projectIntake";
 import verticalsRouter from "./server/routes/verticals";
 import messagesRouter from "./server/routes/messages";
+import knowledgeBaseRouter from "./server/routes/knowledgeBase";
 
 const app = express();
 
@@ -64,6 +65,7 @@ app.use("/api", tasksRouter);
 app.use("/api", projectIntakeRouter);
 app.use("/api", verticalsRouter);
 app.use("/api", messagesRouter);
+app.use("/api", knowledgeBaseRouter);
 
 // 5. Basic Observability / Health Endpoints
 app.get("/api/health", (req: Request, res: Response) => {

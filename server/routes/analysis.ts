@@ -259,7 +259,15 @@ router.post("/projects/:projectId/analysis-result", requirePermission("analysis:
 // unchanged and the failure is only logged - this is an enrichment step, losing it should never
 // fail (or even flag as failed) an otherwise-successful analysis.
 async function enrichBomWithWebSearch(bom: any[], platformSettings: any, proposalLanguage: string): Promise<any[]> {
-  const itemsNeedingLookup = bom.filter((item) => !item.part_number?.trim() || !item.manufacturer?.trim());
+  // Only a missing part_number is treated as "needs lookup" here. A part_number already present
+  // (e.g. filled from an approved Knowledge Base entry) but missing manufacturer used to also
+  // trigger a search - confirmed on a real run that this can find a *different*, unrelated real
+  // product's manufacturer for that same part_number (the search has no way to know the number
+  // was already meant to be authoritative), silently attaching a wrong manufacturer to an
+  // otherwise-correct part_number. Still passing the known part_number in the query below so the
+  // manufacturer-only case is a targeted "who makes this exact part number" lookup instead of a
+  // generic specification search that can drift to a different product.
+  const itemsNeedingLookup = bom.filter((item) => !item.part_number?.trim());
   if (itemsNeedingLookup.length === 0) return bom;
 
   try {
@@ -269,9 +277,10 @@ async function enrichBomWithWebSearch(bom: any[], platformSettings: any, proposa
       equipment_name: item.equipment_name,
       category: item.category,
       specification: item.specification,
+      known_part_number: item.part_number?.trim() || null,
     }));
 
-    const prompt = `Search the web for a real, currently-sold product that matches or exceeds each equipment specification below. For each item, find an actual manufacturer and part number/SKU from a real product page, datasheet, or distributor listing - never invent one. If you cannot find a confident real match after searching, leave sku/part_number/manufacturer as empty strings for that item rather than guessing.
+    const prompt = `Search the web for a real, currently-sold product that matches or exceeds each equipment specification below. If "known_part_number" is set for an item, that part number is already correct/authoritative - only search for which real manufacturer makes that exact part number, do not substitute a different product. If "known_part_number" is null, find an actual manufacturer and part number/SKU from a real product page, datasheet, or distributor listing - never invent one. If you cannot find a confident real match after searching, leave sku/part_number/manufacturer as empty strings for that item rather than guessing.
 
 ITEMS TO LOOK UP:
 ${JSON.stringify(lookupList, null, 2)}
@@ -435,6 +444,19 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
     const analysisPromptRow = await prisma.promptTemplate.findFirst({ where: { type: "analysis" } });
     const analysisInstructions = analysisPromptRow?.content?.trim() || FACTORY_DEFAULT_ANALYSIS_PROMPT;
 
+    // Human-approved corrections/reference knowledge from past projects (Base de Conhecimento -
+    // see server/routes/knowledgeBase.ts) - only ever entries a person has explicitly reviewed
+    // and approved, never a raw/unreviewed AI suggestion. No keyword filtering yet (the approved
+    // set should stay small enough early on that handing the model everything and letting it
+    // judge relevance itself is simpler and more reliable than a keyword-matching heuristic);
+    // revisit with real search if this list grows large enough to blow the context budget.
+    const approvedKnowledge = await dbStore.getKnowledgeBaseEntries({ status: "approved" });
+    const knowledgeBaseSection = approvedKnowledge.length > 0
+      ? `\nACCUMULATED KNOWLEDGE FROM PAST PROJECTS (human-reviewed and approved - apply only the
+entries that are actually relevant to this document; ignore anything that doesn't clearly match):
+${approvedKnowledge.map((k) => `- [${k.category}] Se: ${k.trigger} → Então: ${k.knowledge}`).join("\n")}\n`
+      : "";
+
     const prompt = `${analysisInstructions}
 Analyze the following project description and real extracted document texts:
 
@@ -445,7 +467,7 @@ PROJECT METADATA:
 - Tech Orientation Mode: ${project.ai_orientation_mode}
 - Technical Guidelines: ${project.ai_orientation_text || "None provided"}
 - Target Language: ${project.proposal_language}
-
+${knowledgeBaseSection}
 REAL EXTRACTED DOCUMENT TEXTS:
 ${combinedExtractedText}
 

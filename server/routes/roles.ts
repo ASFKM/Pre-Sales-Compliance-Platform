@@ -12,6 +12,7 @@ const ALLOWED_PERMISSIONS = new Set<string>([
   "proposal:generate", "proposal:edit", "proposal:approve", "proposal:export",
   "template:manage",
   "approval:manage",
+  "knowledge_base:read", "knowledge_base:write",
   "admin:users", "admin:roles", "admin:settings", "admin:audit", "admin:debug", "admin:diagnostics",
   "ai:settings",
   "branding:manage",

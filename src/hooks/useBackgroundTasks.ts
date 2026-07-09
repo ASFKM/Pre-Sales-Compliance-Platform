@@ -4,7 +4,7 @@ export interface BackgroundTask {
   id: string;
   tenant_id: string;
   user_id: string;
-  type: "document_analysis" | "proposal_generation" | "project_intake_analysis";
+  type: "document_analysis" | "proposal_generation" | "project_intake_analysis" | "knowledge_base_analysis";
   status: "queued" | "running" | "completed" | "failed";
   current_step: string;
   progress_pct: number | null;

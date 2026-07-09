@@ -55,6 +55,7 @@ enum BackgroundTaskType {
   document_analysis
   proposal_generation
   project_intake_analysis
+  knowledge_base_analysis
 }
 
 enum BackgroundTaskStatus {
@@ -180,6 +181,8 @@ model Tenant {
   brandingSettings     BrandingSettings?
   teamMemberships      TeamMembership[]
   integrationConnectors IntegrationConnector[]
+  knowledgeBaseDocuments KnowledgeBaseDocument[]
+  knowledgeBaseEntries   KnowledgeBaseEntry[]
 
   @@map("tenants")
 }
@@ -777,4 +780,75 @@ model IntegrationConnector {
 
   @@index([tenantId])
   @@map("integration_connectors")
+}
+
+enum KnowledgeBaseEntryCategory {
+  bom_part_number
+  engineering_note
+  compliance_status
+  datasheet
+}
+
+enum KnowledgeBaseEntryStatus {
+  pending
+  approved
+  rejected
+}
+
+enum KnowledgeBaseEntrySource {
+  reactive_edit
+  uploaded_document
+}
+
+// A document (manufacturer datasheet, technical catalog...) uploaded specifically to seed the
+// Knowledge Base - deliberately not reusing the project-scoped Document model, since these have
+// no project of origin. analyzedAt is null until "Analisar Documentos e Gerar Base de
+// Conhecimento" has processed it at least once.
+model KnowledgeBaseDocument {
+  id               String    @id
+  tenantId         String    @map("tenant_id")
+  tenant           Tenant    @relation(fields: [tenantId], references: [id])
+  filename         String
+  originalFilename String    @map("original_filename")
+  mimeType         String    @map("mime_type")
+  fileSize         Int       @map("file_size")
+  storageProvider  StorageProvider @map("storage_provider")
+  storagePath      String    @map("storage_path")
+  uploadedBy       String    @map("uploaded_by")
+  analyzedAt       DateTime? @map("analyzed_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  @@index([tenantId])
+  @@map("knowledge_base_documents")
+}
+
+// A trigger/knowledge pair the AI can draw on in future analyses, sourced either from a human
+// correcting the AI's own output (reactive_edit) or from a proactively-uploaded reference
+// document (uploaded_document) - both land as `pending` and need human approval before
+// getAnalysisContextEntries() (the retrieval side, used by the main analysis prompt) will ever
+// surface them, so a bad AI-generated summary of an edit or a misread datasheet section can never
+// silently become "fact" for a future project. source*Name fields are point-in-time snapshots
+// (not live FK lookups) so an entry stays meaningful even if its source project/document is later
+// deleted.
+model KnowledgeBaseEntry {
+  id                 String                     @id
+  tenantId           String                     @map("tenant_id")
+  tenant             Tenant                     @relation(fields: [tenantId], references: [id])
+  category           KnowledgeBaseEntryCategory
+  trigger            String                     @db.Text
+  knowledge          String                     @db.Text
+  status             KnowledgeBaseEntryStatus   @default(pending)
+  source             KnowledgeBaseEntrySource
+  sourceProjectId    String?                    @map("source_project_id")
+  sourceProjectName  String?                    @map("source_project_name")
+  sourceDocumentId   String?                    @map("source_document_id")
+  sourceDocumentName String?                    @map("source_document_name")
+  createdBy          String                     @map("created_by")
+  reviewedBy         String?                    @map("reviewed_by")
+  createdAt          DateTime                   @default(now()) @map("created_at")
+  reviewedAt         DateTime?                  @map("reviewed_at")
+
+  @@index([tenantId])
+  @@index([status])
+  @@map("knowledge_base_entries")
 }

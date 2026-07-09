@@ -6,7 +6,7 @@ function randomId(prefix: string): string {
   return `${prefix}_` + Math.random().toString(36).substring(2, 11);
 }
 
-export type BackgroundTaskType = "document_analysis" | "proposal_generation" | "project_intake_analysis";
+export type BackgroundTaskType = "document_analysis" | "proposal_generation" | "project_intake_analysis" | "knowledge_base_analysis";
 export type BackgroundTaskStatus = "queued" | "running" | "completed" | "failed";
 
 export interface BackgroundTask {

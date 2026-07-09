@@ -21,6 +21,8 @@ import {
   BrandingSettings,
   IntegrationConnector,
   TeamMembership,
+  KnowledgeBaseEntry,
+  KnowledgeBaseDocument,
 } from "./types";
 
 function randomId(prefix: string): string {
@@ -108,6 +110,40 @@ function mapDocument(d: any): Document {
     uploaded_by: d.uploadedBy,
     created_at: d.createdAt.toISOString(),
   } as Document;
+}
+
+function mapKnowledgeBaseEntry(e: any): KnowledgeBaseEntry {
+  return {
+    id: e.id,
+    category: e.category,
+    trigger: e.trigger,
+    knowledge: e.knowledge,
+    status: e.status,
+    source: e.source,
+    source_project_id: e.sourceProjectId ?? undefined,
+    source_project_name: e.sourceProjectName ?? undefined,
+    source_document_id: e.sourceDocumentId ?? undefined,
+    source_document_name: e.sourceDocumentName ?? undefined,
+    created_by: e.createdBy,
+    reviewed_by: e.reviewedBy ?? undefined,
+    created_at: e.createdAt.toISOString(),
+    reviewed_at: e.reviewedAt ? e.reviewedAt.toISOString() : undefined,
+  };
+}
+
+function mapKnowledgeBaseDocument(d: any): KnowledgeBaseDocument {
+  return {
+    id: d.id,
+    filename: d.filename,
+    original_filename: d.originalFilename,
+    mime_type: d.mimeType,
+    file_size: d.fileSize,
+    storage_provider: d.storageProvider,
+    storage_path: d.storagePath,
+    uploaded_by: d.uploadedBy,
+    analyzed_at: d.analyzedAt ? d.analyzedAt.toISOString() : undefined,
+    created_at: d.createdAt.toISOString(),
+  };
 }
 
 function mapJob(j: any): AIAnalysisJob {
@@ -1423,6 +1459,123 @@ class DBStore {
   public async deleteIntegration(id: string): Promise<boolean> {
     try {
       await prisma.integrationConnector.delete({ where: { id } });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // Knowledge Base - both entries (trigger/knowledge pairs) and the reference documents
+  // (datasheets/catalogs) uploaded to proactively seed them. Deliberately no .upsert() anywhere
+  // here - see saveAnalysisResult's comment above for why that's unsafe on this tenant-scoping
+  // setup for models without a tenant-inclusive unique constraint (neither of these have one).
+  public async getKnowledgeBaseEntries(filters?: { status?: string; category?: string }): Promise<KnowledgeBaseEntry[]> {
+    const rows = await prisma.knowledgeBaseEntry.findMany({
+      where: {
+        ...(filters?.status ? { status: filters.status as any } : {}),
+        ...(filters?.category ? { category: filters.category as any } : {}),
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    return rows.map(mapKnowledgeBaseEntry);
+  }
+
+  public async getKnowledgeBaseEntry(id: string): Promise<KnowledgeBaseEntry | undefined> {
+    const e = await prisma.knowledgeBaseEntry.findUnique({ where: { id } });
+    return e ? mapKnowledgeBaseEntry(e) : undefined;
+  }
+
+  // Only approved entries are ever surfaced to the analysis prompt (see aiOrchestrator's
+  // getApprovedKnowledgeBaseContext) - a simple ILIKE-based relevance match against trigger since
+  // there's no full-text/vector search infra in place yet; good enough at the volumes a single
+  // tenant's reviewed knowledge base will realistically reach.
+  public async searchApprovedKnowledgeBase(keywords: string[]): Promise<KnowledgeBaseEntry[]> {
+    if (keywords.length === 0) return [];
+    const rows = await prisma.knowledgeBaseEntry.findMany({
+      where: {
+        status: "approved",
+        OR: keywords.map((kw) => ({ trigger: { contains: kw, mode: "insensitive" as const } })),
+      },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    });
+    return rows.map(mapKnowledgeBaseEntry);
+  }
+
+  public async createKnowledgeBaseEntry(entry: Omit<KnowledgeBaseEntry, "id" | "created_at">): Promise<KnowledgeBaseEntry> {
+    const e = await prisma.knowledgeBaseEntry.create({
+      data: {
+        id: randomId("kbe"),
+        tenantId: requireTenantId(),
+        category: entry.category as any,
+        trigger: entry.trigger,
+        knowledge: entry.knowledge,
+        status: entry.status as any,
+        source: entry.source as any,
+        sourceProjectId: entry.source_project_id,
+        sourceProjectName: entry.source_project_name,
+        sourceDocumentId: entry.source_document_id,
+        sourceDocumentName: entry.source_document_name,
+        createdBy: entry.created_by,
+        reviewedBy: entry.reviewed_by,
+        reviewedAt: entry.reviewed_at ? new Date(entry.reviewed_at) : undefined,
+      },
+    });
+    return mapKnowledgeBaseEntry(e);
+  }
+
+  public async updateKnowledgeBaseEntry(id: string, updates: Partial<KnowledgeBaseEntry>): Promise<KnowledgeBaseEntry | undefined> {
+    const exists = await prisma.knowledgeBaseEntry.findUnique({ where: { id } });
+    if (!exists) return undefined;
+    const e = await prisma.knowledgeBaseEntry.update({
+      where: { id },
+      data: {
+        trigger: updates.trigger,
+        knowledge: updates.knowledge,
+        status: updates.status as any,
+        reviewedBy: updates.reviewed_by,
+        reviewedAt: updates.reviewed_at ? new Date(updates.reviewed_at) : undefined,
+      },
+    });
+    return mapKnowledgeBaseEntry(e);
+  }
+
+  public async getKnowledgeBaseDocuments(): Promise<KnowledgeBaseDocument[]> {
+    const rows = await prisma.knowledgeBaseDocument.findMany({ orderBy: { createdAt: "desc" } });
+    return rows.map(mapKnowledgeBaseDocument);
+  }
+
+  public async getKnowledgeBaseDocument(id: string): Promise<KnowledgeBaseDocument | undefined> {
+    const d = await prisma.knowledgeBaseDocument.findUnique({ where: { id } });
+    return d ? mapKnowledgeBaseDocument(d) : undefined;
+  }
+
+  public async createKnowledgeBaseDocument(doc: Omit<KnowledgeBaseDocument, "id" | "created_at">): Promise<KnowledgeBaseDocument> {
+    const d = await prisma.knowledgeBaseDocument.create({
+      data: {
+        id: randomId("kbd"),
+        tenantId: requireTenantId(),
+        filename: doc.filename,
+        originalFilename: doc.original_filename,
+        mimeType: doc.mime_type,
+        fileSize: doc.file_size,
+        storageProvider: doc.storage_provider as any,
+        storagePath: doc.storage_path,
+        uploadedBy: doc.uploaded_by,
+      },
+    });
+    return mapKnowledgeBaseDocument(d);
+  }
+
+  public async markKnowledgeBaseDocumentAnalyzed(id: string): Promise<void> {
+    const exists = await prisma.knowledgeBaseDocument.findUnique({ where: { id } });
+    if (!exists) return;
+    await prisma.knowledgeBaseDocument.update({ where: { id }, data: { analyzedAt: new Date() } });
+  }
+
+  public async deleteKnowledgeBaseDocument(id: string): Promise<boolean> {
+    try {
+      await prisma.knowledgeBaseDocument.delete({ where: { id } });
       return true;
     } catch {
       return false;

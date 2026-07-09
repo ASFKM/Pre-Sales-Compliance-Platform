@@ -486,3 +486,37 @@ export interface IntegrationConnector {
   created_at: string;
   updated_at: string;
 }
+
+export type KnowledgeBaseEntryCategory = "bom_part_number" | "engineering_note" | "compliance_status" | "datasheet";
+export type KnowledgeBaseEntryStatus = "pending" | "approved" | "rejected";
+export type KnowledgeBaseEntrySource = "reactive_edit" | "uploaded_document";
+
+export interface KnowledgeBaseEntry {
+  id: string;
+  category: KnowledgeBaseEntryCategory;
+  trigger: string;
+  knowledge: string;
+  status: KnowledgeBaseEntryStatus;
+  source: KnowledgeBaseEntrySource;
+  source_project_id?: string;
+  source_project_name?: string;
+  source_document_id?: string;
+  source_document_name?: string;
+  created_by: string;
+  reviewed_by?: string;
+  created_at: string;
+  reviewed_at?: string;
+}
+
+export interface KnowledgeBaseDocument {
+  id: string;
+  filename: string;
+  original_filename: string;
+  mime_type: string;
+  file_size: number;
+  storage_provider: string;
+  storage_path: string;
+  uploaded_by: string;
+  analyzed_at?: string;
+  created_at: string;
+}
