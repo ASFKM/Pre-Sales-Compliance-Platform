@@ -242,6 +242,22 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
           )}
         </div>
 
+        {analysisTask && (
+          <div className="px-4 py-3 bg-emerald-50/50 border-b border-emerald-100 flex items-center gap-3">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
+            <span className="text-[11px] font-mono text-emerald-800 truncate">
+              {analysisTask.current_step}
+              {typeof analysisTask.progress_pct === "number" && ` (${analysisTask.progress_pct}%)`}
+            </span>
+            <div className="flex-1 h-1.5 bg-emerald-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-emerald-500 transition-all duration-500"
+                style={{ width: `${typeof analysisTask.progress_pct === "number" ? analysisTask.progress_pct : 5}%` }}
+              />
+            </div>
+          </div>
+        )}
+
         <div className="p-4 space-y-3">
           {canWrite && (
             <div className="relative border-2 border-dashed border-slate-200 hover:border-emerald-500 rounded p-5 text-center transition-all">
