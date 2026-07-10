@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import ApiClient from "./lib/api";
 import Login from "./components/Login";
 import SystemMessageBanner from "./components/SystemMessageBanner";
@@ -422,77 +422,99 @@ export default function App() {
   const displayAnalysisResult = analysisResult;
 
   // Fetch initial system settings & logs
+  // Each config is independent of every other (only the two template-default lookups depend on
+  // the templates fetch, so that logic stays inside its own task) - these used to run as 13
+  // sequential awaits, so the whole call took the sum of every request's latency instead of just
+  // the slowest one. Promise.all lets them all fly at once; each task swallows its own fetch
+  // error so one failing config (e.g. a 500 on /api/audit-logs) doesn't stop the others from
+  // updating.
   const fetchGlobalConfigs = async () => {
-    try {
-      const sRes = await fetch("/api/settings");
-      const sData = await sRes.json();
-      if (sRes.ok) {
-        setPlatformSettings(sData.platform ?? sData ?? null);
-      }
+    const tasks = [
+      (async () => {
+        const res = await fetch("/api/settings");
+        const data = await res.json();
+        if (res.ok) setPlatformSettings(data.platform ?? data ?? null);
+      })(),
+      (async () => {
+        const res = await fetch("/api/branding");
+        const data = await res.json();
+        if (res.ok && data) {
+          setBrandingSettings(data);
+          setBrandLogoDataUrl(data.company_logo_path || "");
+          setBrandPrimaryColor(data.primary_color || "#059669");
+          setBrandAccentColor(data.accent_color || "#10b981");
+        }
+      })(),
+      (async () => {
+        const res = await fetch("/api/users");
+        const data = await res.json();
+        if (res.ok) setUsers(Array.isArray(data) ? data : []);
+      })(),
+      (async () => {
+        const res = await fetch("/api/roles");
+        const data = await res.json();
+        if (res.ok) setRoles(Array.isArray(data) ? data : []);
+      })(),
+      (async () => {
+        const res = await fetch("/api/settings/prompts");
+        const data = await res.json();
+        if (res.ok) setPromptTemplates(Array.isArray(data) ? data : []);
+      })(),
+      (async () => {
+        const res = await fetch("/api/settings/ai-providers");
+        const data = await res.json();
+        if (res.ok) setAiProviderConfigs(Array.isArray(data) ? data : []);
+      })(),
+      (async () => {
+        const res = await fetch("/api/templates/proposals");
+        const data = await res.json();
+        if (!res.ok) return;
+        const safeTemplates = Array.isArray(data) ? data : [];
+        setProposalTemplates(safeTemplates);
 
-      const bRes = await fetch("/api/branding");
-      const bData = await bRes.json();
-      if (bRes.ok && bData) {
-        setBrandingSettings(bData);
-        setBrandLogoDataUrl(bData.company_logo_path || "");
-        setBrandPrimaryColor(bData.primary_color || "#059669");
-        setBrandAccentColor(bData.accent_color || "#10b981");
-      }
+        const defaultTechnicalTemplate = safeTemplates.find((tpl: any) => tpl.template_type === "technical" && tpl.default_template && tpl.active)
+          || safeTemplates.find((tpl: any) => tpl.template_type === "technical" && tpl.active);
+        const defaultCommercialTemplate = safeTemplates.find((tpl: any) => tpl.template_type === "commercial" && tpl.default_template && tpl.active)
+          || safeTemplates.find((tpl: any) => tpl.template_type === "commercial" && tpl.active);
 
-      const uRes = await fetch("/api/users");
-      const uData = await uRes.json();
-      setUsers(Array.isArray(uData) ? uData : []);
+        if (defaultTechnicalTemplate) setSelectedTechnicalTemplateId((current) => current || defaultTechnicalTemplate.id);
+        if (defaultCommercialTemplate) setSelectedCommercialTemplateId((current) => current || defaultCommercialTemplate.id);
+      })(),
+      (async () => {
+        const res = await fetch("/api/approval-workflows");
+        const data = await res.json();
+        if (res.ok) setApprovalWorkflows(Array.isArray(data) ? data : []);
+      })(),
+      (async () => {
+        const res = await fetch("/api/approval-decisions");
+        const data = await res.json();
+        if (res.ok) setApprovalDecisions(Array.isArray(data) ? data : []);
+      })(),
+      (async () => {
+        const res = await fetch("/api/integrations");
+        const data = await res.json();
+        if (res.ok) setIntegrations(Array.isArray(data) ? data : []);
+      })(),
+      (async () => {
+        const res = await fetch("/api/admin/system/status");
+        const data = await res.json();
+        if (res.ok) setSystemStatus(data);
+      })(),
+      (async () => {
+        const res = await fetch("/api/admin/logs/debug");
+        const data = await res.json();
+        if (res.ok) setDebugLogs(Array.isArray(data) ? data : []);
+      })(),
+      (async () => {
+        const res = await fetch("/api/audit-logs");
+        const data = await res.json();
+        if (res.ok) setAuditLogs(Array.isArray(data) ? data : []);
+      })(),
+    ];
 
-      const rRes = await fetch("/api/roles");
-      const rData = await rRes.json();
-      setRoles(Array.isArray(rData) ? rData : []);
-
-      const pRes = await fetch("/api/settings/prompts");
-      const pData = await pRes.json();
-      setPromptTemplates(Array.isArray(pData) ? pData : []);
-
-      const apRes = await fetch("/api/settings/ai-providers");
-      const apData = await apRes.json();
-      setAiProviderConfigs(Array.isArray(apData) ? apData : []);
-
-      const tRes = await fetch("/api/templates/proposals");
-      const tData = await tRes.json();
-      const safeTemplates = Array.isArray(tData) ? tData : [];
-      setProposalTemplates(safeTemplates);
-
-      const defaultTechnicalTemplate = safeTemplates.find((tpl: any) => tpl.template_type === "technical" && tpl.default_template && tpl.active)
-        || safeTemplates.find((tpl: any) => tpl.template_type === "technical" && tpl.active);
-      const defaultCommercialTemplate = safeTemplates.find((tpl: any) => tpl.template_type === "commercial" && tpl.default_template && tpl.active)
-        || safeTemplates.find((tpl: any) => tpl.template_type === "commercial" && tpl.active);
-
-      if (defaultTechnicalTemplate) setSelectedTechnicalTemplateId((current) => current || defaultTechnicalTemplate.id);
-      if (defaultCommercialTemplate) setSelectedCommercialTemplateId((current) => current || defaultCommercialTemplate.id);
-
-      const workflowRes = await fetch("/api/approval-workflows");
-      const workflowData = await workflowRes.json();
-      setApprovalWorkflows(Array.isArray(workflowData) ? workflowData : []);
-
-      const decisionRes = await fetch("/api/approval-decisions");
-      const decisionData = await decisionRes.json();
-      setApprovalDecisions(Array.isArray(decisionData) ? decisionData : []);
-
-      const iRes = await fetch("/api/integrations");
-      const iData = await iRes.json();
-      setIntegrations(Array.isArray(iData) ? iData : []);
-
-      const hRes = await fetch("/api/admin/system/status");
-      const hData = await hRes.json();
-      setSystemStatus(hData);
-
-      const debugRes = await fetch("/api/admin/logs/debug");
-      const debugData = await debugRes.json();
-      setDebugLogs(Array.isArray(debugData) ? debugData : []);
-
-      const auditRes = await fetch("/api/audit-logs");
-      const auditData = await auditRes.json();
-      setAuditLogs(Array.isArray(auditData) ? auditData : []);
-    } catch (e) {
-      console.error("Error loading administration parameters", e);
+    const results = await Promise.allSettled(tasks);
+    for (const r of results) {
+      if (r.status === "rejected") console.error("Error loading an administration parameter", r.reason);
     }
   };
 
@@ -514,43 +536,59 @@ export default function App() {
     }
   };
 
-  // Fetch documents, analysis results & proposals for active project
+  // Guards against rapidly switching projects: if the user clicks project B before project A's
+  // fetch has resolved, A's response could land after B's and overwrite B's freshly-loaded data
+  // with A's - each task below checks this ref before applying its result, so only the request
+  // for whichever project is actually still selected gets to update state.
+  const latestProjectRequestRef = useRef<string | null>(null);
+
+  // Fetch documents, analysis results, proposals & chat history for the active project - these 4
+  // are independent of each other, so they run concurrently instead of one after another.
   const fetchProjectDetails = async (projId: string) => {
     if (!projId) return;
-    try {
-      // Documents
-      const dRes = await fetch(`/api/projects/${projId}/documents`);
-      const dData = await dRes.json();
-      setDocuments(Array.isArray(dData) ? dData : []);
+    latestProjectRequestRef.current = projId;
+    const isStillCurrent = () => latestProjectRequestRef.current === projId;
 
-      // Analysis Result
-      const arRes = await fetch(`/api/projects/${projId}/analysis-result`);
-      if (arRes.ok) {
-        const arData = await arRes.json();
-        setAnalysisResult(arData);
-      } else {
-        setAnalysisResult(null);
-      }
-
-      // Proposals
-      const pRes = await fetch(`/api/projects/${projId}/proposals`);
-      const pData = await pRes.json();
-      setProposals(Array.isArray(pData) ? pData : []);
-
-      // Specification chat history
-      const cRes = await fetch(`/api/projects/${projId}/chat`);
-      const cData = await cRes.json();
-      setChatHistory(Array.isArray(cData) && cData.length > 0 ? cData : [
-        {
-          role: "model",
-          message: tx(
-            "Hi, I'm your Technical Pre-Sales Assistant. Ask me questions about this project's specifications, or run the AI analysis first for deeper context.",
-            "Olá, sou seu Assistente Técnico de Pré-Vendas. Pergunte sobre as especificações deste projeto, ou rode a análise de IA primeiro para um contexto mais completo."
-          )
+    const tasks = [
+      (async () => {
+        const res = await fetch(`/api/projects/${projId}/documents`);
+        const data = await res.json();
+        if (res.ok && isStillCurrent()) setDocuments(Array.isArray(data) ? data : []);
+      })(),
+      (async () => {
+        const res = await fetch(`/api/projects/${projId}/analysis-result`);
+        if (!isStillCurrent()) return;
+        if (res.ok) {
+          const data = await res.json();
+          if (isStillCurrent()) setAnalysisResult(data);
+        } else {
+          setAnalysisResult(null);
         }
-      ]);
-    } catch (e) {
-      console.error("Error fetching project specifications detail", e);
+      })(),
+      (async () => {
+        const res = await fetch(`/api/projects/${projId}/proposals`);
+        const data = await res.json();
+        if (res.ok && isStillCurrent()) setProposals(Array.isArray(data) ? data : []);
+      })(),
+      (async () => {
+        const res = await fetch(`/api/projects/${projId}/chat`);
+        const data = await res.json();
+        if (!res.ok || !isStillCurrent()) return;
+        setChatHistory(Array.isArray(data) && data.length > 0 ? data : [
+          {
+            role: "model",
+            message: tx(
+              "Hi, I'm your Technical Pre-Sales Assistant. Ask me questions about this project's specifications, or run the AI analysis first for deeper context.",
+              "Olá, sou seu Assistente Técnico de Pré-Vendas. Pergunte sobre as especificações deste projeto, ou rode a análise de IA primeiro para um contexto mais completo."
+            )
+          }
+        ]);
+      })(),
+    ];
+
+    const results = await Promise.allSettled(tasks);
+    for (const r of results) {
+      if (r.status === "rejected") console.error("Error fetching project specifications detail", r.reason);
     }
   };
 

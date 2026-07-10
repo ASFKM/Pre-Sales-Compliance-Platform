@@ -23,7 +23,7 @@ function setNoStoreHeaders(res: Response) {
 }
 
 async function getDiagnosticPayload(req: Request) {
-  const rawData = await dbStore.getDiagnosticSnapshot();
+  const rawData = await dbStore.getDiagnosticSummary();
   const correlationId = getSafeCorrelationId(req.headers["x-correlation-id"]);
 
   const activeConnectors = (rawData.integrationConnectors || [])
@@ -31,15 +31,15 @@ async function getDiagnosticPayload(req: Request) {
     .map((conn: any) => conn.name);
 
   const sanitizedData = sanitizeAndMaskObject({
-    projectsCount: rawData.projects?.length || 0,
-    documentsCount: rawData.documents?.length || 0,
-    jobsCount: rawData.analysisJobs?.length || 0,
-    proposalsCount: rawData.proposals?.length || 0,
-    usersCount: rawData.users?.length || 0,
+    projectsCount: rawData.projectsCount || 0,
+    documentsCount: rawData.documentsCount || 0,
+    jobsCount: rawData.jobsCount || 0,
+    proposalsCount: rawData.proposalsCount || 0,
+    usersCount: rawData.usersCount || 0,
     settings: rawData.platformSettings,
     integrations: rawData.integrationConnectors || [],
-    debugLogs: rawData.debugLogs?.slice(0, 100) || [],
-    auditLogs: rawData.auditLogs?.slice(0, 100) || [],
+    debugLogs: rawData.debugLogs || [],
+    auditLogs: rawData.auditLogs || [],
     systemEnvironment: {
       nodeVersion: process.version,
       platform: process.platform,
@@ -133,11 +133,11 @@ router.get("/admin/logs/debug", requirePermission("admin:debug"), async (req: Re
 
 router.get("/admin/system/status", requirePermission("admin:diagnostics"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const [settings, integrations, auditLogs, debugLogs] = await Promise.all([
+    const [settings, integrations, auditLogsCount, debugLogsCount] = await Promise.all([
       dbStore.getSettings(),
       dbStore.getIntegrations(),
-      dbStore.getAuditLogs(),
-      dbStore.getDebugLogs(),
+      dbStore.countAuditLogs(),
+      dbStore.countDebugLogs(),
     ]);
 
     res.json({
@@ -153,8 +153,8 @@ router.get("/admin/system/status", requirePermission("admin:diagnostics"), async
       database_connector: "PostgreSQL (Prisma)",
       encryption_status: "AES-256-GCM active",
       storage_mode: settings.storage_mode || "local",
-      audit_logs: auditLogs.length,
-      debug_logs: debugLogs.length
+      audit_logs: auditLogsCount,
+      debug_logs: debugLogsCount
     });
   } catch (err) {
     next(err);

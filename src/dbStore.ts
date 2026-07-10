@@ -966,20 +966,40 @@ class DBStore {
     return (await prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 1000 })).map(mapAuditLog);
   }
 
-  public async queryAuditLogs(filters: { from?: Date; to?: Date; q?: string }): Promise<AuditLog[]> {
+  // Real DB-level filtering/limit - the audit route used to fetch up to 1000 rows via
+  // getAuditLogs() unconditionally and filter/search all of it in JS on every request, even for a
+  // single user_id or a narrow date range. Same idea as the Knowledge Base entries pagination.
+  public async queryAuditLogs(filters: {
+    userId?: string;
+    action?: string;
+    entityType?: string;
+    entityId?: string;
+    projectId?: string;
+    from?: Date;
+    to?: Date;
+    q?: string;
+    limit?: number;
+  }): Promise<AuditLog[]> {
     const rows = await prisma.auditLog.findMany({
       where: {
+        userId: filters.userId,
+        entityType: filters.entityType,
+        entityId: filters.entityId,
+        projectId: filters.projectId,
+        action: filters.action ? { contains: filters.action, mode: "insensitive" } : undefined,
         createdAt: filters.from || filters.to ? { gte: filters.from, lte: filters.to } : undefined,
         OR: filters.q
           ? [
               { action: { contains: filters.q, mode: "insensitive" } },
               { entityType: { contains: filters.q, mode: "insensitive" } },
+              { entityId: { contains: filters.q, mode: "insensitive" } },
               { userId: { contains: filters.q, mode: "insensitive" } },
+              { metadata: { contains: filters.q, mode: "insensitive" } },
             ]
           : undefined,
       },
       orderBy: { createdAt: "desc" },
-      take: 1000,
+      take: filters.limit ?? 500,
     });
     return rows.map(mapAuditLog);
   }
@@ -1003,6 +1023,16 @@ class DBStore {
 
   public async getDebugLogs(): Promise<DebugLog[]> {
     return (await prisma.debugLog.findMany({ orderBy: { timestamp: "desc" }, take: 1000 })).map(mapDebugLog);
+  }
+
+  // Real counts for the system-status card - it only ever displayed .length, not read the
+  // contents, so fetching up to 1000 full rows of each on every status check was pure waste.
+  public async countAuditLogs(): Promise<number> {
+    return prisma.auditLog.count();
+  }
+
+  public async countDebugLogs(): Promise<number> {
+    return prisma.debugLog.count();
   }
 
   public async addDebugLog(log: Omit<DebugLog, "id" | "timestamp">): Promise<void> {
@@ -1735,25 +1765,32 @@ class DBStore {
     }
   }
 
-  // Full snapshot for the admin diagnostics export only - never call this on a hot path.
-  public async getDiagnosticSnapshot() {
+  // Lean summary for the admin diagnostics export - real counts (prisma .count(), not fetching
+  // every row just to read .length) for everything the report only ever shows a total for, and a
+  // bounded last-100 query (not the full up-to-1000 getAuditLogs()/getDebugLogs() sliced down
+  // afterward) for the two logs the report actually lists in full. Previously fetched every table
+  // in the schema - including several (roles, analysisResults, conversationHistory,
+  // promptTemplates, approvalWorkflows/decisions, tasks, brandingSettings) the report never even
+  // read.
+  public async getDiagnosticSummary() {
     const [
-      users, roles, projects, documents, analysisJobs, analysisResults, conversationHistory,
-      auditLogs, debugLogs, platformSettings, promptTemplates, proposalTemplates, proposals,
-      approvalWorkflows, approvalDecisions, tasks, brandingSettings, integrationConnectors,
+      projectsCount, documentsCount, jobsCount, proposalsCount, usersCount,
+      platformSettings, integrationConnectors, debugLogs, auditLogs,
     ] = await Promise.all([
-      this.getUsers(), this.getRoles(), this.getProjects(), this.getDocuments(), this.getJobs(),
-      prisma.analysisResult.findMany().then((rows) => rows.map(mapAnalysisResult)),
-      prisma.conversationMessage.findMany().then((rows) => rows.map(mapConversation)),
-      this.getAuditLogs(), this.getDebugLogs(), this.getSettings(), this.getPrompts(),
-      this.getProposalTemplates(), this.getProposals(), this.getApprovalWorkflows(),
-      this.getApprovalDecisions(), this.getTasks(), this.getBranding(), this.getIntegrations(),
+      prisma.project.count(),
+      prisma.document.count(),
+      prisma.aIAnalysisJob.count(),
+      prisma.proposal.count(),
+      prisma.user.count(),
+      this.getSettings(),
+      this.getIntegrations(),
+      prisma.debugLog.findMany({ orderBy: { timestamp: "desc" }, take: 100 }).then((rows) => rows.map(mapDebugLog)),
+      prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 100 }).then((rows) => rows.map(mapAuditLog)),
     ]);
 
     return {
-      users, roles, projects, documents, analysisJobs, analysisResults, conversationHistory,
-      auditLogs, debugLogs, platformSettings, promptTemplates, proposalTemplates, proposals,
-      approvalWorkflows, approvalDecisions, tasks, brandingSettings, integrationConnectors,
+      projectsCount, documentsCount, jobsCount, proposalsCount, usersCount,
+      platformSettings, integrationConnectors, debugLogs, auditLogs,
     };
   }
 }

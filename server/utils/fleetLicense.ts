@@ -96,18 +96,50 @@ function parseAuditOutput(raw: string) {
   };
 }
 
-async function runVulnerabilityScan(): Promise<{
+type VulnerabilityScanResult = {
   report: Record<string, any>;
   critical_count: number;
   high_count: number;
   medium_count: number;
   low_count: number;
   findings: VulnerabilityFinding[];
-} | null> {
+};
+
+// Not tenant-scoped: every tenant on this install shares the same node_modules, so the same scan
+// result applies to all of them - a global cache avoids running npm audit once per tenant on the
+// same heartbeat cycle. 24h TTL because the dependency tree only changes on deploy, not between
+// heartbeats (every 15-60 min per tenant, per runHeartbeatForTenant below).
+const VULN_SCAN_CACHE_KEY = "fleet:vuln_scan:global";
+const VULN_SCAN_CACHE_TTL_SECONDS = 24 * 60 * 60;
+
+async function runVulnerabilityScan(): Promise<VulnerabilityScanResult | null> {
+  const cached = await redis.get(VULN_SCAN_CACHE_KEY);
+  if (cached) {
+    try {
+      return JSON.parse(cached);
+    } catch {
+      // fall through and re-scan on a corrupt cache entry
+    }
+  }
+
+  const scanned = await performVulnerabilityScan();
+  if (scanned) {
+    await redis.set(VULN_SCAN_CACHE_KEY, JSON.stringify(scanned), "EX", VULN_SCAN_CACHE_TTL_SECONDS);
+  }
+  return scanned;
+}
+
+// execSync blocked the entire Node event loop for however long npm audit takes (a real network
+// call to the npm registry against the full dependency tree - confirmed capable of running many
+// seconds), during which no other request on this same process could be served at all. Promisified
+// exec runs the subprocess without blocking the loop.
+async function performVulnerabilityScan(): Promise<VulnerabilityScanResult | null> {
   try {
-    const { execSync } = await import("child_process");
-    const output = execSync("npm audit --json", { cwd: process.cwd(), timeout: 60000 }).toString();
-    return parseAuditOutput(output);
+    const { exec } = await import("child_process");
+    const { promisify } = await import("util");
+    const execAsync = promisify(exec);
+    const { stdout } = await execAsync("npm audit --json", { cwd: process.cwd(), timeout: 60000, maxBuffer: 10 * 1024 * 1024 });
+    return parseAuditOutput(stdout);
   } catch (err: any) {
     // npm audit exits non-zero when vulnerabilities are found - stdout still has valid JSON.
     if (err.stdout) {

@@ -26,10 +26,10 @@ export class LocalStorageAdapter implements StorageAdapter {
     this.baseUploadDir = path.isAbsolute(configuredDir)
       ? configuredDir
       : path.resolve(process.cwd(), configuredDir);
-
-    if (!fs.existsSync(this.baseUploadDir)) {
-      fs.mkdirSync(this.baseUploadDir, { recursive: true });
-    }
+    // Directory creation deferred to uploadFile (the only method that actually needs it to
+    // exist) - a constructor can't be async, and createStorageAdapter() is called fresh on every
+    // request, so a sync existsSync/mkdirSync here used to block the event loop on every single
+    // storage operation, not just the first one.
   }
 
   private resolveStoragePath(storagePath: string): string {
@@ -49,9 +49,10 @@ export class LocalStorageAdapter implements StorageAdapter {
     void mimeType;
 
     const projectDir = path.join(this.baseUploadDir, projectId);
-    if (!fs.existsSync(projectDir)) {
-      fs.mkdirSync(projectDir, { recursive: true });
-    }
+    // recursive: true is idempotent (no error if the path already exists), so this doesn't need
+    // an existsSync check first - one non-blocking call covers both "first upload ever" and
+    // "directory already there".
+    await fs.promises.mkdir(projectDir, { recursive: true });
 
     const extension = path.extname(originalFilename).toLowerCase();
     const uniqueName = `${crypto.randomBytes(16).toString("hex")}${extension}`;
@@ -65,13 +66,10 @@ export class LocalStorageAdapter implements StorageAdapter {
   async deleteFile(storagePath: string): Promise<boolean> {
     try {
       const fullPath = this.resolveStoragePath(storagePath);
-      if (fs.existsSync(fullPath)) {
-        await fs.promises.unlink(fullPath);
-        return true;
-      }
-      return false;
-    } catch (err) {
-      console.error("Failed to delete local file:", err);
+      await fs.promises.unlink(fullPath);
+      return true;
+    } catch (err: any) {
+      if (err.code !== "ENOENT") console.error("Failed to delete local file:", err);
       return false;
     }
   }
@@ -82,12 +80,18 @@ export class LocalStorageAdapter implements StorageAdapter {
   }
 
   async exists(storagePath: string): Promise<boolean> {
-    return fs.existsSync(this.resolveStoragePath(storagePath));
+    try {
+      await fs.promises.access(this.resolveStoragePath(storagePath));
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async checkReachable(): Promise<boolean> {
     try {
-      fs.accessSync(this.baseUploadDir, fs.constants.W_OK);
+      await fs.promises.mkdir(this.baseUploadDir, { recursive: true });
+      await fs.promises.access(this.baseUploadDir, fs.constants.W_OK);
       return true;
     } catch {
       return false;

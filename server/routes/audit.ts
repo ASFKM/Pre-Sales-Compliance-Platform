@@ -33,6 +33,10 @@ function validateAuditQuery(req: Request) {
   return { valid: true, message: "" };
 }
 
+// Filtering/searching/the limit are all applied at the DB level (dbStore.queryAuditLogs) instead
+// of fetching up to 1000 rows unconditionally and filtering them in JS on every request, even for
+// a query that only ever wanted a handful of rows (a single user_id, a narrow date range, a tight
+// limit).
 async function filterAuditLogs(req: Request) {
   const {
     user_id,
@@ -45,35 +49,17 @@ async function filterAuditLogs(req: Request) {
     to
   } = req.query as Record<string, string | undefined>;
 
-  const limit = parseLimit(req.query.limit);
-  let logs = await dbStore.getAuditLogs();
-
-  if (user_id) logs = logs.filter(log => log.user_id === user_id);
-  if (action) logs = logs.filter(log => log.action.toLowerCase().includes(action.toLowerCase()));
-  if (entity_type) logs = logs.filter(log => log.entity_type === entity_type);
-  if (entity_id) logs = logs.filter(log => log.entity_id === entity_id);
-  if (project_id) logs = logs.filter(log => log.project_id === project_id);
-
-  if (from) {
-    const fromTime = new Date(from).getTime();
-    if (!Number.isNaN(fromTime)) {
-      logs = logs.filter(log => new Date(log.created_at).getTime() >= fromTime);
-    }
-  }
-
-  if (to) {
-    const toTime = new Date(to).getTime();
-    if (!Number.isNaN(toTime)) {
-      logs = logs.filter(log => new Date(log.created_at).getTime() <= toTime);
-    }
-  }
-
-  if (q) {
-    const needle = q.toLowerCase();
-    logs = logs.filter(log => JSON.stringify(log).toLowerCase().includes(needle));
-  }
-
-  return logs.slice(0, limit);
+  return dbStore.queryAuditLogs({
+    userId: user_id,
+    action,
+    entityType: entity_type,
+    entityId: entity_id,
+    projectId: project_id,
+    from: from && !Number.isNaN(new Date(from).getTime()) ? new Date(from) : undefined,
+    to: to && !Number.isNaN(new Date(to).getTime()) ? new Date(to) : undefined,
+    q,
+    limit: parseLimit(req.query.limit),
+  });
 }
 
 function csvEscape(value: any) {

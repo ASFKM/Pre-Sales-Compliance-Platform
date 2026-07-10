@@ -522,11 +522,11 @@ router.get("/settings/storage/status", requirePermission("storage:manage"), asyn
         ? configuredPath
         : path.resolve(process.cwd(), configuredPath);
 
-      fs.mkdirSync(targetPath, { recursive: true });
+      await fs.promises.mkdir(targetPath, { recursive: true });
 
       const probeFile = path.join(targetPath, ".storage-health-check");
-      fs.writeFileSync(probeFile, `ok ${new Date().toISOString()}`, "utf8");
-      fs.unlinkSync(probeFile);
+      await fs.promises.writeFile(probeFile, `ok ${new Date().toISOString()}`, "utf8");
+      await fs.promises.unlink(probeFile);
 
       return res.json({
         success: true,
