@@ -88,8 +88,12 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
 
   // Filtering/searching/paging all happen server-side now - the approved set alone is already
   // in the hundreds, too large to keep fetching in full and filtering client-side.
-  const loadEntries = async () => {
-    if (subTab === "upload") return;
+  // Returns the fetched total (not just setting state) so callers that just mutated an entry can
+  // clamp `page` if that mutation emptied the current page - reading the `total` state right after
+  // awaiting this would still see the stale pre-fetch value, since a state update doesn't refresh
+  // a binding already captured in the caller's closure.
+  const loadEntries = async (): Promise<{ entries: KnowledgeBaseEntry[]; total: number } | null> => {
+    if (subTab === "upload") return null;
     setLoadingEntries(true);
     try {
       const params = new URLSearchParams();
@@ -101,8 +105,10 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
       const result = await ApiClient.get<{ entries: KnowledgeBaseEntry[]; total: number }>(`/api/knowledge-base/entries?${params.toString()}`);
       setEntries(result.entries);
       setTotal(result.total);
+      return result;
     } catch (err: any) {
       setError(err.message || "Não foi possível carregar a base de conhecimento.");
+      return null;
     } finally {
       setLoadingEntries(false);
     }
@@ -225,8 +231,15 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
     setSavingEntryId(entry.id);
     try {
       await ApiClient.put<KnowledgeBaseEntry>(`/api/knowledge-base/entries/${entry.id}`, { status });
-      await loadEntries();
+      const result = await loadEntries();
       await loadCounts();
+      // Approving/rejecting the last item on a page shrinks total without moving `page` - clamp
+      // back to the new last page (triggers the effect above to refetch it) instead of showing an
+      // empty page with no items and no obvious way to tell why.
+      if (result) {
+        const newTotalPages = Math.max(1, Math.ceil(result.total / PAGE_SIZE));
+        if (page > newTotalPages) setPage(newTotalPages);
+      }
     } catch (err: any) {
       setError(err.message || "Não foi possível atualizar o item.");
     } finally {

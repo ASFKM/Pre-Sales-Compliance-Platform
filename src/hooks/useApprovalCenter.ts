@@ -24,12 +24,16 @@ export function useApprovalCenter(params: UseApprovalCenterParams) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ stage_id: stageId, decision, comments })
       });
-      if (res.ok) {
-        fetchProjectDetails(selectedProjectId);
-        fetchGlobalConfigs();
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.message || (locale === "pt" ? "Não foi possível registrar a decisão." : "Could not record the decision."));
+        return;
       }
+      fetchProjectDetails(selectedProjectId);
+      fetchGlobalConfigs();
     } catch (e) {
       console.error(e);
+      alert(locale === "pt" ? "Erro ao registrar a decisão." : "Error recording the decision.");
     }
   };
 

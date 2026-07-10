@@ -46,8 +46,12 @@ export default function SystemMessageBanner({ locale, hasPermission }: Props) {
 
   if (visible.length === 0) return null;
 
-  const dismiss = (id: string) => {
-    const next = [...dismissed, id];
+  // A single state update for however many ids are being dismissed at once - calling dismiss()
+  // once per message in a loop was the actual bug: every call built `next` from the same stale
+  // `dismissed` closure, so each subsequent setDismissed() overwrote the previous one and only the
+  // last message in the loop ever actually stayed dismissed.
+  const dismissAll = (ids: string[]) => {
+    const next = [...new Set([...dismissed, ...ids])];
     setDismissed(next);
     localStorage.setItem(DISMISSED_KEY, JSON.stringify(next));
   };
@@ -65,7 +69,7 @@ export default function SystemMessageBanner({ locale, hasPermission }: Props) {
           {combinedText}
         </div>
       </div>
-      <button onClick={() => visible.forEach((m) => dismiss(m.id))} className="shrink-0 text-amber-300 hover:text-white" title={locale === "pt" ? "Dispensar avisos" : "Dismiss notices"}>
+      <button onClick={() => dismissAll(visible.map((m) => m.id))} className="shrink-0 text-amber-300 hover:text-white" title={locale === "pt" ? "Dispensar avisos" : "Dismiss notices"}>
         <X size={13} />
       </button>
       <style>{`

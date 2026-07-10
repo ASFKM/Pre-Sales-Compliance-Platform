@@ -56,13 +56,17 @@ export function useWorkspace(params: UseWorkspaceParams) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ critical_requirements: updatedReqs })
       });
-      if (res.ok) {
-        const { result: updatedResult } = await res.json();
-        setAnalysisResult(updatedResult);
-        fetchGlobalConfigs();
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.message || (locale === "pt" ? "Não foi possível salvar o status do requisito." : "Could not save the requirement status."));
+        return;
       }
+      const { result: updatedResult } = await res.json();
+      setAnalysisResult(updatedResult);
+      fetchGlobalConfigs();
     } catch (e) {
       console.error(e);
+      alert(locale === "pt" ? "Erro ao salvar o status do requisito." : "Error saving the requirement status.");
     }
   };
 
@@ -81,38 +85,17 @@ export function useWorkspace(params: UseWorkspaceParams) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ risks: updatedRisks })
       });
-      if (res.ok) {
-        const { result: updatedResult } = await res.json();
-        setAnalysisResult(updatedResult);
-        fetchGlobalConfigs();
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.message || (locale === "pt" ? "Não foi possível salvar a mitigação do risco." : "Could not save the risk mitigation."));
+        return;
       }
+      const { result: updatedResult } = await res.json();
+      setAnalysisResult(updatedResult);
+      fetchGlobalConfigs();
     } catch (e) {
       console.error(e);
-    }
-  };
-
-  const handleUpdateBOM = async (itemId: string, quantity: number) => {
-    if (!analysisResult) return;
-    const updatedBOM = analysisResult.bom.map(item => {
-      if (item.item_id === itemId) {
-        return { ...item, quantity };
-      }
-      return item;
-    });
-
-    try {
-      const res = await fetch(`/api/projects/${selectedProjectId}/analysis-result`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bom: updatedBOM })
-      });
-      if (res.ok) {
-        const { result: updatedResult } = await res.json();
-        setAnalysisResult(updatedResult);
-        fetchGlobalConfigs();
-      }
-    } catch (e) {
-      console.error(e);
+      alert(locale === "pt" ? "Erro ao salvar a mitigação do risco." : "Error saving the risk mitigation.");
     }
   };
 
@@ -318,7 +301,6 @@ export function useWorkspace(params: UseWorkspaceParams) {
   return {
     handleUpdateRequirement,
     handleUpdateRisk,
-    handleUpdateBOM,
     handleGenerateTechnicalProposal,
     handleGenerateCommercialProposal,
     handleSendChatMessage,

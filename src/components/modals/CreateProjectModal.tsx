@@ -20,14 +20,18 @@ export default function CreateProjectModal({ locale, onClose, onCreated }: Creat
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newProject)
       });
-      if (res.ok) {
-        const created = await res.json();
-        onCreated(created);
-        setNewProject(initialProjectFieldsValues);
-        onClose();
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.message || (locale === "pt" ? "Não foi possível criar o projeto." : "Could not create the project."));
+        return;
       }
+      const created = await res.json();
+      onCreated(created);
+      setNewProject(initialProjectFieldsValues);
+      onClose();
     } catch (err) {
       console.error("Could not create project node", err);
+      alert(locale === "pt" ? "Erro ao criar o projeto." : "Error creating the project.");
     }
   };
 

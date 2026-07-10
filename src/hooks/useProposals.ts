@@ -41,12 +41,16 @@ export function useProposals(params: UseProposalsParams) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ manual_pricing_table: updatedTable })
       });
-      if (res.ok) {
-        fetchProjectDetails(selectedProjectId);
-        fetchGlobalConfigs();
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.message || (locale === "pt" ? "Não foi possível salvar a alteração de preço." : "Could not save the pricing change."));
+        return;
       }
+      fetchProjectDetails(selectedProjectId);
+      fetchGlobalConfigs();
     } catch (e) {
       console.error(e);
+      alert(locale === "pt" ? "Erro ao salvar a alteração de preço." : "Error saving the pricing change.");
     }
   };
 
@@ -58,12 +62,16 @@ export function useProposals(params: UseProposalsParams) {
 
     try {
       const res = await fetch(`/api/proposals/${propId}/approval/submit`, { method: "POST" });
-      if (res.ok) {
-        fetchProjectDetails(selectedProjectId);
-        fetchGlobalConfigs();
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.message || (locale === "pt" ? "Não foi possível enviar a proposta para aprovação." : "Could not submit the proposal for approval."));
+        return;
       }
+      fetchProjectDetails(selectedProjectId);
+      fetchGlobalConfigs();
     } catch (e) {
       console.error(e);
+      alert(locale === "pt" ? "Erro ao enviar a proposta para aprovação." : "Error submitting the proposal for approval.");
     }
   };
 

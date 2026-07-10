@@ -132,6 +132,29 @@ export default function Workspace({
       setExportingQuestions(false);
     }
   };
+
+  // Single save path for every BOM mutation (add/edit-field/delete item) - previously each of the
+  // 3 call sites duplicated this exact fetch with no res.ok check at all, so a failed save (e.g.
+  // permission error, network blip) silently refetched the unchanged project and looked like
+  // nothing happened, with no indication to the user that their edit was lost.
+  const saveBOM = async (updatedBOM: BOMItem[]) => {
+    try {
+      const res = await fetch(`/api/projects/${selectedProjectId}/analysis-result`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bom: updatedBOM })
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.message || (locale === "pt" ? "Não foi possível salvar a alteração na lista de materiais." : "Could not save the bill of materials change."));
+        return;
+      }
+      await fetchProjectDetails(selectedProjectId);
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao salvar a lista de materiais." : "Error saving the bill of materials.");
+    }
+  };
   const [currentFolder, setCurrentFolder] = useState<string>(""); // "" means root/raiz
   const [projectFolders, setProjectFolders] = useState<string[]>([]);
   const [virtualFiles, setVirtualFiles] = useState<any[]>([]);
@@ -159,7 +182,6 @@ export default function Workspace({
   const {
     handleUpdateRequirement,
     handleUpdateRisk,
-    handleUpdateBOM,
     handleGenerateTechnicalProposal,
     handleGenerateCommercialProposal,
     handleSendChatMessage,
@@ -695,11 +717,7 @@ export default function Workspace({
                               source_reference: "",
                             };
                             const updatedBOM = [...analysisResult.bom, newBOMItem];
-                            fetch(`/api/projects/${selectedProjectId}/analysis-result`, {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ bom: updatedBOM })
-                            }).then(() => fetchProjectDetails(selectedProjectId));
+                            saveBOM(updatedBOM);
                           }}
                           className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-white text-xs px-2.5 py-1.5 rounded font-bold font-mono transition-all shadow-sm cursor-pointer"
                         >
@@ -741,11 +759,7 @@ export default function Workspace({
                                         ...(SOURCING_FIELDS.includes(field) ? { sourced_via_web_search: false, edited_by: currentUserName } : {}),
                                       }
                                     : b);
-                                  fetch(`/api/projects/${selectedProjectId}/analysis-result`, {
-                                    method: "POST",
-                                    headers: { "Content-Type": "application/json" },
-                                    body: JSON.stringify({ bom: updatedBOM })
-                                  }).then(() => fetchProjectDetails(selectedProjectId));
+                                  saveBOM(updatedBOM);
                                 };
                                 return (
                                 <tr key={item.item_id || idx} className="hover:bg-slate-50/50">
@@ -813,11 +827,7 @@ export default function Workspace({
                                     <button
                                       onClick={() => {
                                         const updatedBOM = analysisResult!.bom.filter(b => b.item_id !== item.item_id);
-                                        fetch(`/api/projects/${selectedProjectId}/analysis-result`, {
-                                          method: "POST",
-                                          headers: { "Content-Type": "application/json" },
-                                          body: JSON.stringify({ bom: updatedBOM })
-                                        }).then(() => fetchProjectDetails(selectedProjectId));
+                                        saveBOM(updatedBOM);
                                       }}
                                       className="text-slate-400 hover:text-red-600 transition-colors"
                                     >

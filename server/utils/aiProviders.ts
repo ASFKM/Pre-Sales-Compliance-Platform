@@ -178,14 +178,23 @@ export async function generateJsonWithProvider(provider: ConnectedProvider, mode
 
 // Same provider dispatch as generateJsonWithProvider, but for conversational free-text
 // answers (the spec copilot chat) - no forced JSON response format/instruction, since a JSON
-// object isn't what a chat answer should look like.
-export async function generateTextWithProvider(provider: ConnectedProvider, model: string, prompt: string): Promise<ProviderJsonResult> {
+// object isn't what a chat answer should look like. `files` lets the copilot answer questions
+// about vision-only documents (scanned PDFs with no extractable text) the same way the main
+// analysis pipeline does, instead of only ever seeing pre-extracted text.
+export async function generateTextWithProvider(provider: ConnectedProvider, model: string, prompt: string, files?: ProviderFileInput[]): Promise<ProviderJsonResult> {
   if (provider === "openai") {
+    if (files?.some((f) => f.mimeType === "application/pdf")) {
+      throw new Error("OpenAI não aceita PDF para esta tarefa. Troque o serviço de IA desta tarefa para Gemini ou Anthropic em Admin > IA, Prompts e Custos.");
+    }
     const apiKey = await getConfiguredOpenAiApiKey();
     const client = new OpenAI({ apiKey });
+    const content: any[] = [{ type: "text", text: prompt }];
+    for (const f of files || []) {
+      content.push({ type: "image_url", image_url: { url: `data:${f.mimeType};base64,${f.base64Data}` } });
+    }
     const response = await client.chat.completions.create({
       model,
-      messages: [{ role: "user", content: prompt }],
+      messages: [{ role: "user", content }],
     });
     return {
       text: response.choices[0]?.message?.content || "",
@@ -197,10 +206,19 @@ export async function generateTextWithProvider(provider: ConnectedProvider, mode
   if (provider === "anthropic") {
     const apiKey = await getConfiguredAnthropicApiKey();
     const client = new Anthropic({ apiKey });
+    const content: any[] = [];
+    for (const f of files || []) {
+      if (f.mimeType === "application/pdf") {
+        content.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: f.base64Data } });
+      } else {
+        content.push({ type: "image", source: { type: "base64", media_type: f.mimeType, data: f.base64Data } });
+      }
+    }
+    content.push({ type: "text", text: prompt });
     const stream = client.messages.stream({
       model,
       max_tokens: 4096,
-      messages: [{ role: "user", content: prompt }],
+      messages: [{ role: "user", content }],
     });
     const response = await stream.finalMessage();
     const textBlock = response.content.find((block) => block.type === "text");
@@ -213,9 +231,13 @@ export async function generateTextWithProvider(provider: ConnectedProvider, mode
 
   if (provider === "gemini") {
     const ai = await getGeminiClient();
+    const parts: any[] = [{ text: prompt }];
+    for (const f of files || []) {
+      parts.push({ inlineData: { mimeType: f.mimeType, data: f.base64Data } });
+    }
     const response = await ai.models.generateContent({
       model,
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      contents: [{ role: "user", parts }],
     });
     return {
       text: response.text || "",
@@ -224,6 +246,9 @@ export async function generateTextWithProvider(provider: ConnectedProvider, mode
     };
   }
 
+  if (files?.length) {
+    throw new Error("Provedores personalizados não suportam envio de arquivo/visão nesta integração. Troque este serviço para Gemini ou Anthropic em Admin > IA, Prompts e Custos.");
+  }
   const { baseUrl, apiKey } = await getCustomProviderConfig(provider);
   const client = new OpenAI({ apiKey, baseURL: baseUrl });
   const response = await client.chat.completions.create({

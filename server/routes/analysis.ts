@@ -368,72 +368,81 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
   const tenantId = req.headers["x-tenant-id"] as string;
   const tenantContext = { tenantId };
 
-  const project = await dbStore.getProject(projectId);
-  if (!project) {
-    return res.status(404).json({ success: false, message: "Project not found." });
-  }
+  // Everything through the 202 response was previously outside any try/catch - a failure in any
+  // of these setup steps (DB error, provider resolution, etc.) threw as an unhandled rejection
+  // that bypassed Express's error middleware entirely, leaving the client's request hanging with
+  // no response ever sent instead of a clean error.
+  let project, platformSettings, providerResolution, userId, job, task, analysisInstructions;
+  try {
+    project = await dbStore.getProject(projectId);
+    if (!project) {
+      return res.status(404).json({ success: false, message: "Project not found." });
+    }
 
-  const platformSettings = await dbStore.getSettings();
-  const providerResolution = await resolveProvider("document_analysis", platformSettings);
+    platformSettings = await dbStore.getSettings();
+    providerResolution = await resolveProvider("document_analysis", platformSettings);
 
-  // Phase 5 (AI orchestrator): the monthly cap is a real block, not just a number on a
-  // dashboard - checked before any AI-calling task starts, not just tracked after the fact.
-  const costCap = await checkCostCap(tenantId, platformSettings.monthly_cost_cap_usd ?? null);
-  if (costCap.blocked) {
-    return res.status(402).json({
-      success: false,
-      message: `Monthly AI cost cap reached ($${costCap.currentSpendUsd.toFixed(2)} of $${costCap.capUsd?.toFixed(2)}). Analysis blocked until next month or the cap is raised in Admin > AI, Prompts e Custos.`
+    // Phase 5 (AI orchestrator): the monthly cap is a real block, not just a number on a
+    // dashboard - checked before any AI-calling task starts, not just tracked after the fact.
+    const costCap = await checkCostCap(tenantId, platformSettings.monthly_cost_cap_usd ?? null);
+    if (costCap.blocked) {
+      return res.status(402).json({
+        success: false,
+        message: `Monthly AI cost cap reached ($${costCap.currentSpendUsd.toFixed(2)} of $${costCap.capUsd?.toFixed(2)}). Analysis blocked until next month or the cap is raised in Admin > AI, Prompts e Custos.`
+      });
+    }
+
+    // 1. Create Background AI Analysis Job and log it
+    userId = (req.headers["x-user-id"] as string) || "u1";
+    const user = await dbStore.getUserById(userId);
+    const userName = user ? user.name : "System User";
+
+    if (providerResolution.isFallback) {
+      await recordProviderFallback({
+        tenantId,
+        taskType: "document_analysis",
+        intendedProvider: providerResolution.intendedProvider,
+        userId,
+      });
+    }
+
+    // Fetched here (not just inside the detached block below) so the job record's
+    // prompt_template_version reflects which version was really active for this run, instead of a
+    // hardcoded placeholder - this is the historical audit trail admins rely on to know which
+    // prompt text actually produced a given analysis.
+    const analysisPromptRow = await prisma.promptTemplate.findFirst({ where: { type: "analysis", isActive: true } });
+    analysisInstructions = analysisPromptRow?.content?.trim() || FACTORY_DEFAULT_ANALYSIS_PROMPT;
+
+    job = await dbStore.createJob({
+      project_id: projectId,
+      status: "running",
+      ai_provider: providerResolution.provider,
+      ai_model: providerResolution.model,
+      prompt_template_version: analysisPromptRow?.version || "factory-default",
+      started_at: new Date().toISOString(),
+      created_by: userName,
+      correlation_id: correlationId
     });
-  }
 
-  // 1. Create Background AI Analysis Job and log it
-  const userId = (req.headers["x-user-id"] as string) || "u1";
-  const user = await dbStore.getUserById(userId);
-  const userName = user ? user.name : "System User";
-
-  if (providerResolution.isFallback) {
-    await recordProviderFallback({
-      tenantId,
-      taskType: "document_analysis",
-      intendedProvider: providerResolution.intendedProvider,
-      userId,
+    await dbStore.addAuditLog({
+      user_id: userName,
+      action: "Trigger AI Document Analysis",
+      entity_type: "AIAnalysisJob",
+      entity_id: job.id,
+      project_id: projectId,
+      ip_address: req.ip || "127.0.0.1",
+      user_agent: req.headers["user-agent"] || "unknown",
+      metadata: JSON.stringify({ ai_model: job.ai_model, prompt_template: job.prompt_template_version })
     });
+
+    // Analysis runs in the background from here - respond immediately with the task id and
+    // let the frontend watch progress over the Phase 1 SSE stream instead of holding the
+    // request open for the whole Gemini call.
+    task = await createTask({ userId, type: "document_analysis", currentStep: "Iniciando análise...", resultId: projectId });
+    res.status(202).json({ success: true, task_id: task.id, job_id: job.id });
+  } catch (err) {
+    return next(err);
   }
-
-  // Fetched here (not just inside the detached block below) so the job record's
-  // prompt_template_version reflects which version was really active for this run, instead of a
-  // hardcoded placeholder - this is the historical audit trail admins rely on to know which
-  // prompt text actually produced a given analysis.
-  const analysisPromptRow = await prisma.promptTemplate.findFirst({ where: { type: "analysis", isActive: true } });
-  const analysisInstructions = analysisPromptRow?.content?.trim() || FACTORY_DEFAULT_ANALYSIS_PROMPT;
-
-  const job = await dbStore.createJob({
-    project_id: projectId,
-    status: "running",
-    ai_provider: providerResolution.provider,
-    ai_model: providerResolution.model,
-    prompt_template_version: analysisPromptRow?.version || "factory-default",
-    started_at: new Date().toISOString(),
-    created_by: userName,
-    correlation_id: correlationId
-  });
-
-  await dbStore.addAuditLog({
-    user_id: userName,
-    action: "Trigger AI Document Analysis",
-    entity_type: "AIAnalysisJob",
-    entity_id: job.id,
-    project_id: projectId,
-    ip_address: req.ip || "127.0.0.1",
-    user_agent: req.headers["user-agent"] || "unknown",
-    metadata: JSON.stringify({ ai_model: job.ai_model, prompt_template: job.prompt_template_version })
-  });
-
-  // Analysis runs in the background from here - respond immediately with the task id and
-  // let the frontend watch progress over the Phase 1 SSE stream instead of holding the
-  // request open for the whole Gemini call.
-  const task = await createTask({ userId, type: "document_analysis", currentStep: "Iniciando análise...", resultId: projectId });
-  res.status(202).json({ success: true, task_id: task.id, job_id: job.id });
 
   // Everything from here runs detached from the request/response cycle - re-enter the tenant
   // context captured at the top of this handler for the whole background block.
@@ -832,16 +841,34 @@ router.post("/projects/:projectId/chat", requirePermission("analysis:read"), asy
 
     const analysis = await dbStore.getAnalysisResult(projectId);
     const docs = await dbStore.getDocuments(projectId);
+    const platformSettings = await dbStore.getSettings();
 
+    // Same vision fallback as the main analysis pipeline (see the /analyze route above) - a
+    // scanned PDF or one with no ToUnicode map has no text any local extractor can recover, so
+    // the copilot was silently unable to answer questions about it, always saying the material
+    // "isn't covered" even when the document genuinely has the answer. Sending the real file
+    // lets the model's own vision/OCR read it directly instead.
+    const VISION_MIME_TYPES = new Set(["application/pdf", "image/png", "image/jpeg", "image/webp"]);
+    const storageAdapterForDocs = createStorageAdapter(platformSettings);
     let combinedExtractedText = "";
+    const documentFiles: ProviderFileInput[] = [];
     for (const doc of docs) {
+      if (VISION_MIME_TYPES.has(doc.mime_type)) {
+        try {
+          const buffer = await storageAdapterForDocs.readFile(doc.storage_path);
+          documentFiles.push({ mimeType: doc.mime_type, base64Data: buffer.toString("base64") });
+          combinedExtractedText += `\n--- ${doc.filename} - sent as a real file below, read it directly ---\n`;
+        } catch (err) {
+          console.error(`Failed to read document file for vision chat: ${doc.filename}`, err);
+        }
+        continue;
+      }
       const text = await dbStore.getDocumentContent(doc.id);
       if (text) {
         combinedExtractedText += `\n--- ${doc.filename} ---\n${text.substring(0, 6000)}\n`;
       }
     }
 
-    const platformSettings = await dbStore.getSettings();
     const providerResolution = await resolveProvider("spec_copilot", platformSettings);
 
     // Previously uncapped and uncounted - this is a real synchronous AI call like any other, not
@@ -878,7 +905,7 @@ Answer concisely and specifically, citing the source document/section when the a
 extracted text or analysis above. If the answer isn't covered by the material provided, say so plainly
 instead of inventing information.`;
 
-    const { text: answer, inputTokens, outputTokens } = await generateTextWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);
+    const { text: answer, inputTokens, outputTokens } = await generateTextWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt, documentFiles);
 
     const userId = (req.headers["x-user-id"] as string) || "u1";
 

@@ -61,11 +61,6 @@ import {
   Proposal,
   AuditLog,
   DebugLog,
-  CriticalRequirement,
-  ProjectRisk,
-  ProjectOpportunity,
-  BOMItem,
-  ClarificationQuestion,
   BrandingSettings,
   PromptTemplate,
   PlatformSettings,
@@ -414,156 +409,9 @@ export default function App() {
   const [showAuditModal, setShowAuditModal] = useState<boolean>(false);
 
   // Helper to translate project data dynamically
-  const getTranslatedProject = (proj: any) => {
-    if (!proj) return proj;
-    const overrides: Record<string, any> = {
-      p1: {
-        name: "Modernização de ITS Rodoviário",
-        description: "Modernização abrangente de rodovias, incluindo detecção inteligente de velocidade, câmeras automáticas de incidentes e redes de telemetria de fibra óptica.",
-        vertical: "Infraestrutura",
-        customer_name: "Autoridade de Trânsito Metropolitano (MTA)",
-        ai_orientation_mode: "Neutro em relação ao fornecedor",
-        ai_orientation_text: "Garantir que o hardware de ITS seja totalmente independente de fabricante, utilizando padrões abertos ONVIF Perfil T para comunicação de câmeras e compatibilidade com controladores de vários fornecedores."
-      },
-      p2: {
-        name: "Expansão de Estacionamento Inteligente",
-        description: "Integração de rede de estacionamento inteligente cobrindo 12.000 sensores de ocupação IoT no nível da rua, conexão de gateway de faturamento e aplicativos móveis de orientação.",
-        vertical: "Cidades Inteligentes",
-        customer_name: "Prefeitura Municipal de São Paulo"
-      },
-      p3: {
-        name: "Fronteira Biométrica Aeroportuária",
-        description: "Implementação de portões eletrônicos biométricos, motor de varredura automática de ameaças de bagagem e módulos de verificação facial seguros para autenticação de fronteira.",
-        vertical: "Infraestrutura Crítica",
-        customer_name: "Autoridade Aeroportuária de Guarulhos"
-      }
-    };
-    if (overrides[proj.id]) {
-      return { ...proj, ...overrides[proj.id] };
-    }
-    return proj;
-  };
-
-  const getTranslatedAnalysisResult = (res: AnalysisResult | null) => {
-    if (!res) return res;
-    return {
-      ...res,
-      // executive_summary, preliminary_schedule, and point_to_point_table are AI-generated content
-      // whose shape is specific to each project (point_to_point_table's columns are literally
-      // decided per-analysis, there's no fixed "item_id" to match a demo override against) -
-      // there's no safe per-project key to translate them by (unlike the fields below, which only
-      // ever substitute when the English text matches this fixed demo project exactly, and
-      // otherwise fall back to the original untouched). Leaving them out of this override lets
-      // them pass through unchanged via the `...res` spread above.
-      bom: res.bom?.map((b: BOMItem) => {
-        if (b.item_id === "bom1") {
-          return {
-            ...b,
-            equipment_name: "Câmera Inteligente CAM-ALPR-10X",
-            specification: "Câmera de tráfego de alta resolução com obturador global, lentes varifocais motorizadas e processador de rede neural integrado para placas (ALPR). Atende diretamente ao requisito de reconhecimento de veículos a 180 km/h da MTA.",
-            category: "Hardware de Campo"
-          };
-        }
-        if (b.item_id === "bom2") {
-          return {
-            ...b,
-            equipment_name: "Switch Industrial RuggedCOM 8G",
-            specification: "Switch gerenciado com 8 portas Gigabit Ethernet, classificação térmica de -40°C a +75°C, sem ventoinha e com suporte a PoE+ redundante. Fornece conectividade robusta na via e energia PoE para as câmeras.",
-            category: "Rede"
-          };
-        }
-        if (b.item_id === "bom3") {
-          return {
-            ...b,
-            equipment_name: "Licença de Fluxo Edge AI",
-            specification: "Licença de fluxo de tráfego de inteligência artificial de borda e classificação de veículos. Atualiza firmware das câmeras para relatórios de tráfego em tempo real. Oportunidade de upsell para fornecer métricas de cidades inteligentes sem hardware extra.",
-            category: "Software"
-          };
-        }
-        return b;
-      }),
-      critical_requirements: res.critical_requirements?.map((req: CriticalRequirement) => {
-        const reqMap: Record<string, string> = {
-          "req-1": "O equipamento de via deve operar estavelmente sob temperatura ambiente de +55°C.",
-          "req-2": "Reconhecimento automático de placas de veículos em velocidades de até 180 km/h.",
-          "req-3": "Latência de atualização de despacho de API REST inferior a 500ms."
-        };
-        const notesMap: Record<string, string> = {
-          "req-1": "O switch industrial RuggedCOM selecionado possui classificação térmica de até +75°C, excedendo em muito as exigências do projeto.",
-          "req-2": "Câmera CAM-ALPR-10X com obturador global de ultra-alta velocidade garante foco total mesmo a 200 km/h.",
-          "req-3": "Exige canal de túnel VPN direto para o servidor Oracle do cliente para otimização de latência."
-        };
-        return {
-          ...req,
-          description: reqMap[req.requirement_id] || req.description,
-          notes: notesMap[req.requirement_id] || req.notes
-        };
-      }),
-      risks: res.risks?.map((risk: ProjectRisk) => {
-        const titleMap: Record<string, string> = {
-          "Roadside thermal dissipation constraints": "Restrições de Dissipação Térmica na Via",
-          "High speed shutter exposure blur": "Desfoque de Exposição em Alta Velocidade",
-          "SLA penalty clause risk": "Risco de Cláusula de Penalidade de SLA"
-        };
-        const descMap: Record<string, string> = {
-          "Roadside thermal dissipation constraints": "Gabinete sob luz solar direta sem refrigeração ativa pode exceder os limites térmicos, resultando em falhas de hardware se os switches não forem industriais.",
-          "High speed shutter exposure blur": "Veículos a 180 km/h requerem tempo de exposição inferior a 1/2000s, caso contrário ocorrerá borrão nas fotos dificultando o ALPR.",
-          "SLA penalty clause risk": "Penalidade estrita para tempo de inatividade superior a 2 horas consecutivas. Requer fonte redundante e PoE robusto."
-        };
-        const mitMap: Record<string, string> = {
-          "Roadside thermal dissipation constraints": "Utilizar switches sem ventoinha RuggedCOM com tolerância industrial a calor extremo (+75°C).",
-          "High speed shutter exposure blur": "Configurar obturador global com sensor CMOS de disparo rápido na câmera CAM-ALPR-10X.",
-          "SLA penalty clause risk": "Implementar cabeamento de força blindado redundante e monitoramento SNMP em tempo real."
-        };
-        return {
-          ...risk,
-          title: titleMap[risk.title] || risk.title,
-          description: descMap[risk.title] || risk.description,
-          mitigation: mitMap[risk.title] || risk.mitigation
-        };
-      }),
-      opportunities: res.opportunities?.map((opp: ProjectOpportunity) => {
-        const titleMap: Record<string, string> = {
-          "Software licensing upsell model": "Modelo de Upsell de Licenciamento de Software",
-          "Professional site survey services retainer": "Retenção de Serviços de Pesquisa de Campo Profissional"
-        };
-        const descMap: Record<string, string> = {
-          "Software licensing upsell model": "Aproveitar recursos ociosos do processador da câmera para embarcar licenças extras de classificação de veículos sem novos custos de hardware.",
-          "Professional site survey services retainer": "A MTA não mapeou a fibra escura de forma abrangente; propor serviços de engenharia de campo adicionais como opcional de alto valor."
-        };
-        return {
-          ...opp,
-          title: titleMap[opp.title] || opp.title,
-          description: descMap[opp.title] || opp.description
-        };
-      }),
-      clarification_questions: res.clarification_questions?.map((q: ClarificationQuestion & { question_text?: string; context_or_reason?: string }) => {
-        const textMap: Record<string, string> = {
-          "Can MTA provide dark fiber attenuation parameters before field delivery?": "A MTA pode fornecer os parâmetros de atenuação de fibra escura antes da entrega em campo?",
-          "Is the REST dispatch API endpoint hosted inside MTA intranet?": "O endpoint da API REST de despacho está hospedado dentro da intranet da MTA?"
-        };
-        const contextMap: Record<string, string> = {
-          "Can MTA provide dark fiber attenuation parameters before field delivery?": "Garante compatibilidade adequada com os transceptores SFP RuggedCOM selecionados.",
-          "Is the REST dispatch API endpoint hosted inside MTA intranet?": "Afeta o design do túnel de segurança VPN e os requisitos de criptografia IPSec."
-        };
-        const origText = q.question || q.question_text || "";
-        const origReason = q.reason || q.context_or_reason || "";
-        const transText = textMap[origText] || origText;
-        const transReason = contextMap[origText] || origReason; // Map by question text key
-        return {
-          ...q,
-          question: transText,
-          question_text: transText,
-          reason: transReason,
-          context_or_reason: transReason
-        };
-      })
-    };
-  };
-
-  // active project object (translated dynamically if locale is PT)
+  // active project object
   const safeProjects = Array.isArray(projects) ? projects : [];
-  const activeProject = getTranslatedProject(safeProjects.find(p => p.id === selectedProjectId) || safeProjects[0]);
+  const activeProject = safeProjects.find(p => p.id === selectedProjectId) || safeProjects[0];
   // isAnalyzing (local state) gives instant feedback the moment the button is clicked, but
   // resets to false on any page reload even though the real background task keeps running -
   // activeTasks (fetched fresh from the server, survives reloads) is the real source of truth for
@@ -571,7 +419,7 @@ export default function App() {
   // disables immediately on click AND stays correctly disabled after a reload, preventing the
   // user from accidentally starting a second simultaneous analysis for the same project.
   const isProjectAnalyzing = isAnalyzing || activeTasks.some((t) => t.type === "document_analysis" && t.result_id === selectedProjectId && t.status !== "completed" && t.status !== "failed");
-  const displayAnalysisResult = getTranslatedAnalysisResult(analysisResult);
+  const displayAnalysisResult = analysisResult;
 
   // Fetch initial system settings & logs
   const fetchGlobalConfigs = async () => {
