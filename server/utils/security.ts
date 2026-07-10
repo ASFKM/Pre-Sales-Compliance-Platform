@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
-import { authenticator } from "otplib";
+import { generateSecret, generateURI, verify } from "otplib";
 import QRCode from "qrcode";
 import { isProductionRuntime } from "../config/runtime";
 import { redis } from "../../src/redis";
@@ -391,23 +391,30 @@ export function sanitizeAndMaskObject(obj: any): any {
 }
 
 // Real TOTP MFA (RFC 6238), compatible with Google Authenticator / Authy / 1Password etc.
-authenticator.options = { window: 1 };
+// otplib v13 is a complete rewrite (the old `authenticator` singleton was removed outright) - this
+// uses the new functional API. `epochTolerance: 30` (one 30s period each side) reproduces the old
+// `authenticator.options = { window: 1 }` behavior, which also allowed one period of clock drift
+// each direction.
+const TOTP_EPOCH_TOLERANCE_SECONDS = 30;
 
 export function generateTotpSecret(): string {
-  return authenticator.generateSecret();
+  return generateSecret();
 }
 
 export function buildTotpEnrollmentUri(email: string, secret: string): string {
-  return authenticator.keyuri(email, "Commercial Assistant AI", secret);
+  return generateURI({ issuer: "Commercial Assistant AI", label: email, secret });
 }
 
 export async function buildTotpQrCodeDataUrl(otpauthUri: string): Promise<string> {
   return QRCode.toDataURL(otpauthUri);
 }
 
-export function verifyTotpCode(secret: string, code: string): boolean {
+// otplib v13's verify() is async (it returns Promise<VerifyResult>, not a boolean) - every caller
+// of this function was already inside an async handler, so this just adds an `await`.
+export async function verifyTotpCode(secret: string, code: string): Promise<boolean> {
   try {
-    return authenticator.check(code, secret);
+    const result = await verify({ secret, token: code, epochTolerance: TOTP_EPOCH_TOLERANCE_SECONDS });
+    return result.valid;
   } catch {
     return false;
   }

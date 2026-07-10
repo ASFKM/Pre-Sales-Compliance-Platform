@@ -112,16 +112,16 @@ describe("sanitizeAndMaskObject", () => {
 
 describe("TOTP MFA", () => {
   it("generates a secret that produces a code verifyTotpCode accepts", async () => {
-    const { authenticator } = await import("otplib");
+    const { generate } = await import("otplib");
     const secret = generateTotpSecret();
-    const code = authenticator.generate(secret);
+    const code = await generate({ secret });
 
-    expect(verifyTotpCode(secret, code)).toBe(true);
+    expect(await verifyTotpCode(secret, code)).toBe(true);
   });
 
-  it("rejects an incorrect code", () => {
+  it("rejects an incorrect code", async () => {
     const secret = generateTotpSecret();
-    expect(verifyTotpCode(secret, "000000")).toBe(false);
+    expect(await verifyTotpCode(secret, "000000")).toBe(false);
   });
 
   it("builds a valid otpauth:// enrollment URI", () => {

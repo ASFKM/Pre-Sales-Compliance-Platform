@@ -417,7 +417,7 @@ router.post("/mfa/verify", async (req: Request, res: Response, next: NextFunctio
     let mfaAccepted = false;
 
     if (encryptedSecret) {
-      mfaAccepted = verifyTotpCode(decryptSecret(encryptedSecret), code);
+      mfaAccepted = await verifyTotpCode(decryptSecret(encryptedSecret), code);
     } else if (isDemoRuntime()) {
       mfaAccepted = code === "123456" || code === "000000" || code === "111111";
     }
