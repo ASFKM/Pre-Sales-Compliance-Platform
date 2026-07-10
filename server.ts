@@ -199,7 +199,10 @@ async function bootstrap() {
   }
 
   const PORT = 3000;
-  app.listen(PORT, "0.0.0.0", () => {
+  // Bound to loopback only - Caddy (Fase 1 of the Zero Trust rollout) is the only thing that
+  // should reach this port now, terminating TLS on :443 and reverse-proxying here. Direct LAN
+  // access to :3000 is removed from ufw once this is confirmed working end to end.
+  app.listen(PORT, "127.0.0.1", () => {
     logger.info({ port: PORT }, "Enterprise App Server listening");
   });
 
