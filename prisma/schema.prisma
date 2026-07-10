@@ -2,11 +2,15 @@ generator client {
   provider = "prisma-client-js"
 }
 
-// Prisma 7 no longer accepts a datasource url in the schema file itself - the CLI's connection
-// info now comes from prisma.config.ts (repo root), and the runtime client's from the
-// @prisma/adapter-pg driver adapter constructed in src/prisma.ts.
+// The installed Prisma CLI is 6.19.3, not 7 - prisma.config.ts's datasource.url override (a
+// Prisma 7 API) is silently not honored by this version, so `prisma generate`/`migrate` need the
+// url declared here too (confirmed: without it, `npm ci`'s postinstall `prisma generate` step
+// fails with "Argument url is missing", breaking CI and any fresh install). The runtime client
+// still gets its connection separately via the @prisma/adapter-pg driver adapter in
+// src/prisma.ts, so this has no effect on the running app - CLI-only.
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 enum UserStatus {
