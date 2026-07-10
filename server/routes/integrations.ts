@@ -212,7 +212,7 @@ router.post("/:id/test", requirePermission("integrations:manage"), async (req: R
     if (conn.api_key) {
       const actualKey = decryptSecret(conn.api_key);
       hasCredential = Boolean(actualKey);
-      console.log(`[Integration Test] Pinging ${conn.name} with credential ${maskSecret(actualKey)}`);
+      req.log?.info({ integrationId: conn.id, integrationName: conn.name, maskedCredential: maskSecret(actualKey) }, "Testing integration connection");
     }
 
     const configuration = parseConfiguration(conn.configuration);

@@ -174,7 +174,7 @@ Respond with ONLY a JSON object: { "reusable": true, "trigger": "...", "knowledg
     // A failed suggestion should never surface as an error to the user mid-edit - the edit
     // itself already saved successfully via the normal analysis-result save path; this is a
     // best-effort enrichment on top of it.
-    console.error("Knowledge base suggestion generation failed:", err.message);
+    req.log?.warn({ err }, "Knowledge base suggestion generation failed");
     res.json({ success: true, entry: null });
   }
 });
@@ -363,7 +363,7 @@ Respond with ONLY a JSON array (no markdown, no extra text):
             }
           } catch (docErr: any) {
             // One unreadable/unparsable document shouldn't abort the whole batch.
-            console.error(`Knowledge base analysis failed for document ${doc.id}:`, docErr.message);
+            req.log?.warn({ err: docErr, documentId: doc.id }, "Knowledge base analysis failed for document");
           }
 
           await dbStore.markKnowledgeBaseDocumentAnalyzed(doc.id);
@@ -371,7 +371,7 @@ Respond with ONLY a JSON array (no markdown, no extra text):
 
         await completeTask(task.id, { resultType: "knowledge_base", resultId: `created_${createdCount}` });
       } catch (err: any) {
-        console.error("Knowledge base document analysis failed:", err);
+        req.log?.error({ err, taskId: task.id }, "Knowledge base document analysis failed");
         await failTask(task.id, err.message || "Erro desconhecido ao analisar documentos.");
       }
     });

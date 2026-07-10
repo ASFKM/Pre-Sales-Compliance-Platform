@@ -3,6 +3,7 @@ import { z } from "zod";
 import { dbStore } from "../../src/dbStore";
 import { requirePermission } from "./auth";
 import { logDebugMessage, requireUserId } from "../middleware/security";
+import { logger } from "../utils/logger";
 import { AnalysisResult } from "../../src/types";
 import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
 import { generateJsonWithProvider, generateTextWithProvider, searchWebWithProvider, ConnectedProvider, ProviderFileInput } from "../utils/aiProviders";
@@ -64,7 +65,7 @@ function normalizedEnum<T extends [string, ...string[]]>(options: T) {
     if (ENUM_SYNONYMS[normalized]) return ENUM_SYNONYMS[normalized];
     const partialMatch = options.find((opt) => normalized.includes(stripAccents(opt.toLowerCase())));
     if (partialMatch) return partialMatch;
-    console.warn(`normalizedEnum: unrecognized value "${val}", defaulting to "${options[0]}". Options: ${options.join(", ")}`);
+    logger.warn({ value: val, defaultedTo: options[0], validOptions: options }, "normalizedEnum: unrecognized value");
     return options[0];
   }, z.enum(options));
 }
@@ -350,7 +351,7 @@ Respond with ONLY a JSON array (no markdown, no extra text), one object per item
       };
     });
   } catch (err: any) {
-    console.error("BOM web search enrichment failed, keeping original BOM:", err.message);
+    logger.warn({ err, tenantId }, "BOM web search enrichment failed, keeping original BOM");
     return bom;
   }
 }
@@ -474,7 +475,7 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
           documentFiles.push({ mimeType: doc.mime_type, base64Data: buffer.toString("base64") });
           combinedExtractedText += `\n--- DOCUMENT ${idx + 1}: ${doc.filename} (${doc.detected_document_type}) - sent as a real file below, read it directly ---\n`;
         } catch (err) {
-          console.error(`Failed to read document file for vision analysis: ${doc.filename}`, err);
+          req.log?.error({ err, documentId: doc.id, filename: doc.filename }, "Failed to read document file for vision analysis");
         }
         continue;
       }
@@ -782,8 +783,6 @@ Write all generated content fields strictly in ${project.proposal_language}. Mai
 
   } catch (err: any) {
     // 4. Proper error handling. No mock fallback silently marked as complete.
-    console.error("Gemini invocation or validation failed:", err);
-
     await dbStore.updateJob(job.id, {
       status: "failed", // Real failed status, no silent mock completed status!
       completed_at: new Date().toISOString(),
@@ -860,7 +859,7 @@ router.post("/projects/:projectId/chat", requirePermission("analysis:read"), asy
           documentFiles.push({ mimeType: doc.mime_type, base64Data: buffer.toString("base64") });
           combinedExtractedText += `\n--- ${doc.filename} - sent as a real file below, read it directly ---\n`;
         } catch (err) {
-          console.error(`Failed to read document file for vision chat: ${doc.filename}`, err);
+          req.log?.error({ err, documentId: doc.id, filename: doc.filename }, "Failed to read document file for vision chat");
         }
         continue;
       }
@@ -948,7 +947,7 @@ instead of inventing information.`;
 
     res.json({ success: true, answer: answer || "Nenhuma resposta gerada.", provider: providerResolution.provider });
   } catch (err: any) {
-    console.error("Chat copilot request failed:", err);
+    req.log?.error({ err, projectId }, "Chat copilot request failed");
     res.status(500).json({ success: false, message: `AI provider execution failed: ${err.message}` });
   }
 });

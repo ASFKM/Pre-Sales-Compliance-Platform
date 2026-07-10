@@ -4,6 +4,7 @@ import { dbStore } from "../../src/dbStore";
 import { prisma } from "../../src/prisma";
 import { decryptSecret } from "./security";
 import { getGeminiClient } from "./gemini";
+import { logger } from "./logger";
 
 // The 3 built-in providers keep their own bespoke handling below (vision input, streaming, native
 // web search tools). Anything else is treated as a user-added, OpenAI-compatible custom provider
@@ -128,7 +129,7 @@ export async function generateJsonWithProvider(provider: ConnectedProvider, mode
     const response = await stream.finalMessage();
     const textBlock = response.content.find((block) => block.type === "text");
     if (response.stop_reason === "max_tokens") {
-      console.error(`Anthropic response hit max_tokens (output_tokens=${response.usage?.output_tokens}) - JSON is likely truncated.`);
+      logger.warn({ outputTokens: response.usage?.output_tokens }, "Anthropic response hit max_tokens - JSON is likely truncated");
     }
     return {
       text: textBlock && "text" in textBlock ? textBlock.text : "{}",

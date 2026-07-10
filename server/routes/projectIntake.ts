@@ -237,7 +237,7 @@ Respond with ONLY a strictly parsable JSON object, no markdown, matching this sh
           backgroundTaskId: task.id,
         });
       } catch (err: any) {
-        console.error("Project intake analysis failed:", err);
+        req.log?.error({ err, taskId: task.id }, "Project intake analysis failed");
         await failTask(task.id, err.message || "Unknown error during project intake analysis");
       }
     });

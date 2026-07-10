@@ -4,6 +4,7 @@ import crypto from "crypto";
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadBucketCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { Storage as GCSClient } from "@google-cloud/storage";
 import { decryptSecret } from "./security";
+import { logger } from "./logger";
 
 export interface StorageAdapter {
   uploadFile(projectId: string, fileBuffer: Buffer, originalFilename: string, mimeType: string): Promise<string>;
@@ -69,7 +70,7 @@ export class LocalStorageAdapter implements StorageAdapter {
       await fs.promises.unlink(fullPath);
       return true;
     } catch (err: any) {
-      if (err.code !== "ENOENT") console.error("Failed to delete local file:", err);
+      if (err.code !== "ENOENT") logger.error({ err, storagePath }, "Failed to delete local file");
       return false;
     }
   }
@@ -137,7 +138,7 @@ export class S3StorageAdapter implements StorageAdapter {
       await this.client.send(new DeleteObjectCommand({ Bucket: this.bucketName, Key: this.parseKey(storagePath) }));
       return true;
     } catch (err) {
-      console.error("Failed to delete S3 object:", err);
+      logger.error({ err, storagePath }, "Failed to delete S3 object");
       return false;
     }
   }
@@ -204,7 +205,7 @@ export class GCSStorageAdapter implements StorageAdapter {
       await this.client.bucket(this.bucketName).file(this.parseObjectName(storagePath)).delete();
       return true;
     } catch (err) {
-      console.error("Failed to delete GCS object:", err);
+      logger.error({ err, storagePath }, "Failed to delete GCS object");
       return false;
     }
   }

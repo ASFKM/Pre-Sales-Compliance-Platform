@@ -2,6 +2,7 @@ import path from "path";
 import { PDFParse } from "pdf-parse";
 import mammoth from "mammoth";
 import ExcelJS from "exceljs";
+import { logger } from "./logger";
 
 export interface ExtractedDocument {
   text: string;
@@ -55,7 +56,7 @@ export async function extractTextFromDocument(fileBuffer: Buffer, originalFilena
       return fromText(fileBuffer.toString("utf8", 0, 5000), { extractionStatus: "warning", issues: ["Unsupported extension. Performed standard UTF-8 buffer conversion."] });
     }
   } catch (err: any) {
-    console.error(`Extraction failed for ${originalFilename}:`, err);
+    logger.error({ err, filename: originalFilename }, "Extraction failed");
     return {
       text: `Error extracting text from ${originalFilename}.`,
       metadata: {

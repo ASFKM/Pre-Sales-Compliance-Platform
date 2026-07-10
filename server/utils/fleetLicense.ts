@@ -6,6 +6,7 @@ import { runWithTenant } from "../../src/tenantContext";
 import { prisma } from "../../src/prisma";
 import { decryptSecret } from "./security";
 import { randomId } from "../../src/idGenerator";
+import { logger } from "./logger";
 
 // Phase 7 (fleet/license management): the public half of the fleet manager's Ed25519 signing
 // keypair, baked into this build (not fetched at runtime - a compromised heartbeat response
@@ -211,13 +212,13 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
       });
 
       if (!res.ok) {
-        console.error(`Fleet manager heartbeat failed for tenant ${tenantId}: HTTP ${res.status}`);
+        logger.error({ tenantId, httpStatus: res.status }, "Fleet manager heartbeat failed");
         return;
       }
 
       const data = await res.json();
       if (!verifyPayload(data.license, data.signature)) {
-        console.error(`Fleet manager heartbeat for tenant ${tenantId}: signature verification FAILED - ignoring response.`);
+        logger.error({ tenantId }, "Fleet manager heartbeat signature verification FAILED - ignoring response");
         return;
       }
 
@@ -262,7 +263,7 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
         }
       }
     } catch (err) {
-      console.error(`Fleet manager heartbeat error for tenant ${tenantId}:`, err);
+      logger.error({ err, tenantId }, "Fleet manager heartbeat error");
     }
   });
 }

@@ -2,6 +2,7 @@ import { prisma } from "./prisma";
 import { redis } from "./redis";
 import { getCurrentTenantId } from "./tenantContext";
 import { randomId } from "./idGenerator";
+import { logger } from "../server/utils/logger";
 
 export type BackgroundTaskType = "document_analysis" | "proposal_generation" | "project_intake_analysis" | "knowledge_base_analysis";
 export type BackgroundTaskStatus = "queued" | "running" | "completed" | "failed";
@@ -166,12 +167,12 @@ export function subscribeToUserTasks(tenantId: string, userId: string, onMessage
   const subscriber = redis.duplicate();
   const channel = channelFor(tenantId, userId);
 
-  subscriber.subscribe(channel).catch((err) => console.error("Failed to subscribe to task channel:", err));
+  subscriber.subscribe(channel).catch((err) => logger.error({ err, tenantId, userId }, "Failed to subscribe to task channel"));
   subscriber.on("message", (_channel, message) => {
     try {
       onMessage(JSON.parse(message));
     } catch (err) {
-      console.error("Failed to parse task update message:", err);
+      logger.error({ err, tenantId, userId }, "Failed to parse task update message");
     }
   });
 

@@ -234,7 +234,6 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
 
       await completeTask(task.id, { resultType: "proposal", resultId: proposal.id });
     } catch (genErr: any) {
-      console.error("Proposal generation failed:", genErr);
       logDebugMessage({
         operation: "Proposal Generation Failure",
         message: `Proposal generation failed: ${genErr.message}`,
