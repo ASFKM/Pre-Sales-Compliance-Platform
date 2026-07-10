@@ -162,10 +162,15 @@ export function errorHandler(err: any, req: Request, res: Response, next: NextFu
     error: err
   });
 
-  // Safe client-friendly response preventing internal leak of stack traces
+  // Safe client-friendly response - only a generic message reaches the client. Routes that want
+  // to surface a specific message to the client (e.g. Zod validation errors) already do so
+  // directly with their own res.status(...).json(...) before ever calling next(err); anything
+  // that reaches this handler is an unexpected error, and err.message may contain internal
+  // details (stack fragments, DB/driver errors, file paths) that must not leak. Full details are
+  // still captured via logDebugMessage above for internal diagnosis.
   res.status(err.status || 500).json({
     success: false,
-    message: err.message || "An unexpected system error occurred on the server.",
+    message: "An unexpected system error occurred on the server.",
     correlationId
   });
 }
