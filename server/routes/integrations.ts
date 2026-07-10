@@ -1,4 +1,5 @@
-import express, { Request, Response, NextFunction } from "express";
+import express, { Response, NextFunction } from "express";
+import type { Request } from "../types/express";
 import { dbStore } from "../../src/dbStore";
 import { requireAuth, requirePermission } from "./auth";
 import { encryptSecret, maskSecret, decryptSecret } from "../utils/security";

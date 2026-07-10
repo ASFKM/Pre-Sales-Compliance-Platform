@@ -1,4 +1,5 @@
-import express, { Request, Response, NextFunction } from "express";
+import express, { Response, NextFunction } from "express";
+import type { Request } from "../types/express";
 import { requireAuth } from "./auth";
 import { getActiveTasksForUser, getTask, subscribeToUserTasks } from "../../src/backgroundTasks";
 

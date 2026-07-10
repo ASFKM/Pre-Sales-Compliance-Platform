@@ -1,4 +1,5 @@
-import express, { Request, Response, NextFunction } from "express";
+import express, { Response, NextFunction } from "express";
+import type { Request } from "../types/express";
 import fs from "fs";
 import path from "path";
 import { dbStore } from "../../src/dbStore";

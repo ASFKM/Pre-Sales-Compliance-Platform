@@ -1,4 +1,5 @@
-import { Request, Response, NextFunction } from "express";
+import { Response, NextFunction } from "express";
+import type { Request } from "../types/express";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { dbStore } from "../../src/dbStore";

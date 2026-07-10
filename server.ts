@@ -1,4 +1,5 @@
-import express, { Request, Response, NextFunction } from "express";
+import express, { Response, NextFunction } from "express";
+import type { Request } from "./server/types/express";
 import path from "path";
 import fs from "fs";
 import pinoHttp from "pino-http";
@@ -182,7 +183,10 @@ async function bootstrap() {
   if (process.env.NODE_ENV === "production") {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("*", (req: Request, res: Response) => {
+    // Express 5's path-to-regexp v8 dropped bare "*" as a wildcard path - it now requires a named
+    // wildcard segment. "/{*splat}" matches every path including "/" itself (the {} makes the
+    // wildcard segment optional), reproducing the old catch-all behavior.
+    app.get("/{*splat}", (req: Request, res: Response) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   } else {

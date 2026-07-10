@@ -1,4 +1,5 @@
-import express, { Request, Response, NextFunction } from "express";
+import express, { Response, NextFunction } from "express";
+import type { Request } from "../types/express";
 import multer from "multer";
 import { z } from "zod";
 import { dbStore } from "../../src/dbStore";
