@@ -1,4 +1,14 @@
+// Prisma 6's bundled Rust query engine used to auto-load a .env file next to schema.prisma on its
+// own, independent of whatever the Node process itself had loaded - a well-known Prisma
+// convenience that "just worked" for any ad-hoc CLI usage (npm run prisma:seed, npx prisma
+// studio, etc.) without anyone needing to export DATABASE_URL manually. Prisma 7's driver-adapter
+// model has no such engine to do that anymore - the adapter just takes whatever
+// process.env.DATABASE_URL already is at construction time. Production (systemd's
+// EnvironmentFile=) and CI (an explicit workflow env var) both already set it directly, so this
+// line is a no-op safety net for those two, and the actual fix for local/manual CLI usage.
+import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { getTenantContext, TenantContext } from "./tenantContext";
 
 // Models that carry a tenant_id column (every model except Tenant itself). Scoping is
@@ -74,7 +84,11 @@ function buildVisibilityFilter(model: string, context: TenantContext): Record<st
   return null;
 }
 
-const basePrisma = new PrismaClient();
+// Prisma 7 removed the bundled Rust query engine that used to read the schema's datasource url
+// automatically - the generated client now needs an explicit driver adapter with its own
+// connection string (see prisma.config.ts for the CLI/migrate side of this same change).
+const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
+const basePrisma = new PrismaClient({ adapter });
 
 // findUnique/findUniqueOrThrow, and the singular update/delete, all require the unique field
 // (e.g. id) as a top-level `where` key - Prisma rejects it being nested inside an AND alongside
