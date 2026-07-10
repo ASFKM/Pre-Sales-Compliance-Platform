@@ -1,7 +1,9 @@
 // Bootstraps a fresh database (CI, new deployment, or local dev) with the minimal canonical
 // dataset the app and the regression scripts assume exists: a default tenant, default roles,
 // demo users, one project, proposal templates, and an approval workflow with role-targeted
-// stages. Safe to re-run (every write is an upsert).
+// stages. Safe to re-run (every write is findUnique-then-create/update - upsert() is disallowed
+// on tenant-scoped models by the extension in src/prisma.ts, see the comment on the role seeding
+// loop below for why).
 import crypto from "crypto";
 import { prisma } from "../src/prisma";
 import { runWithTenant } from "../src/tenantContext";
@@ -70,7 +72,15 @@ async function main() {
   ];
 
   for (const role of roles) {
-    await prisma.role.upsert({ where: { id: role.id }, create: { ...role, tenantId: tenant.id }, update: role });
+    // prisma.role.upsert() is disallowed on tenant-scoped models by the tenant-scoping extension
+    // (src/prisma.ts) - it can't safely inject tenantId into upsert's where clause unless tenantId
+    // is already part of the model's own unique constraint, which a bare @id on `id` isn't.
+    const existing = await prisma.role.findUnique({ where: { id: role.id } });
+    if (existing) {
+      await prisma.role.update({ where: { id: role.id }, data: role });
+    } else {
+      await prisma.role.create({ data: { ...role, tenantId: tenant.id } });
+    }
   }
 
   console.log("Seeding users (password: password123)...");
@@ -82,36 +92,41 @@ async function main() {
   ];
 
   for (const user of users) {
-    await prisma.user.upsert({
-      where: { id: user.id },
-      create: { ...user, tenantId: tenant.id, status: "ACTIVE", passwordHash },
-      update: { name: user.name, email: user.email, roleId: user.roleId, mfaEnabled: user.mfaEnabled }
-    });
+    const existing = await prisma.user.findUnique({ where: { id: user.id } });
+    if (existing) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { name: user.name, email: user.email, roleId: user.roleId, mfaEnabled: user.mfaEnabled }
+      });
+    } else {
+      await prisma.user.create({ data: { ...user, tenantId: tenant.id, status: "ACTIVE", passwordHash } });
+    }
   }
 
   console.log("Seeding project p1...");
-  await prisma.project.upsert({
-    where: { id: "p1" },
-    create: {
-      id: "p1",
-      tenantId: tenant.id,
-      name: "Highway ITS Modernization",
-      customerName: "Metropolitan Transit Authority",
-      opportunityName: "ITS-MTA-2026",
-      vertical: "Infrastructure",
-      description: "Comprehensive highway modernization including smart speed detection, automatic incident cameras, and fiber optic telemetry networks.",
-      status: "waiting_internal",
-      deadline: new Date("2026-08-15T00:00:00.000Z"),
-      proposalValidityDate: new Date("2026-11-15T00:00:00.000Z"),
-      ownerUserId: "u3",
-      outputLanguage: "English",
-      proposalLanguage: "English",
-      aiOrientationMode: "Vendor-neutral",
-      aiOrientationText: "Ensure the ITS hardware is fully vendor-neutral, utilizing ONVIF Profile T open standards for camera communication and multi-vendor controller compatibility.",
-      selectedApprovalWorkflowId: "w1",
-    },
-    update: {}
-  });
+  const existingProject = await prisma.project.findUnique({ where: { id: "p1" } });
+  if (!existingProject) {
+    await prisma.project.create({
+      data: {
+        id: "p1",
+        tenantId: tenant.id,
+        name: "Highway ITS Modernization",
+        customerName: "Metropolitan Transit Authority",
+        opportunityName: "ITS-MTA-2026",
+        vertical: "Infrastructure",
+        description: "Comprehensive highway modernization including smart speed detection, automatic incident cameras, and fiber optic telemetry networks.",
+        status: "waiting_internal",
+        deadline: new Date("2026-08-15T00:00:00.000Z"),
+        proposalValidityDate: new Date("2026-11-15T00:00:00.000Z"),
+        ownerUserId: "u3",
+        outputLanguage: "English",
+        proposalLanguage: "English",
+        aiOrientationMode: "Vendor-neutral",
+        aiOrientationText: "Ensure the ITS hardware is fully vendor-neutral, utilizing ONVIF Profile T open standards for camera communication and multi-vendor controller compatibility.",
+        selectedApprovalWorkflowId: "w1",
+      }
+    });
+  }
 
   console.log("Seeding proposal templates...");
   const templates = [
@@ -160,48 +175,55 @@ async function main() {
   ];
 
   for (const tpl of templates) {
-    await prisma.proposalTemplate.upsert({ where: { id: tpl.id }, create: { ...tpl, tenantId: tenant.id }, update: tpl });
+    const existing = await prisma.proposalTemplate.findUnique({ where: { id: tpl.id } });
+    if (existing) {
+      await prisma.proposalTemplate.update({ where: { id: tpl.id }, data: tpl });
+    } else {
+      await prisma.proposalTemplate.create({ data: { ...tpl, tenantId: tenant.id } });
+    }
   }
 
   console.log("Seeding approval workflows w1/w2...");
-  await prisma.approvalWorkflow.upsert({
-    where: { id: "w1" },
-    create: {
-      id: "w1",
-      tenantId: tenant.id,
-      name: "High-Value Infrastructure Approval Workflow",
-      description: "Rigorous 3-stage validation required for public tenders, infrastructure vertical bids, or any proposal valued over USD 50,000.",
-      active: true,
-      appliesTo: "all",
-      stages: {
-        create: [
-          { id: "w1-s1", tenantId: tenant.id, name: "Pre-Sales Technical Verification", order: 1, approverType: "role", approverRoleId: "r3", mandatory: true, conditions: "Always mandatory" },
-          { id: "w1-s2", tenantId: tenant.id, name: "Commercial & Margin Validation", order: 2, approverType: "role", approverRoleId: "r2", mandatory: true, conditions: "Valued > $10,000" },
-          { id: "w1-s3", tenantId: tenant.id, name: "Executive & Director Sign-off", order: 3, approverType: "role", approverRoleId: "r1", mandatory: true, conditions: "Valued > $50,000" }
-        ]
+  // Nothing re-updates an existing workflow's stages on a re-run (the original upsert() this
+  // replaces also had `update: {}` - a no-op on the update path), so this only ever creates once.
+  if (!(await prisma.approvalWorkflow.findUnique({ where: { id: "w1" } }))) {
+    await prisma.approvalWorkflow.create({
+      data: {
+        id: "w1",
+        tenantId: tenant.id,
+        name: "High-Value Infrastructure Approval Workflow",
+        description: "Rigorous 3-stage validation required for public tenders, infrastructure vertical bids, or any proposal valued over USD 50,000.",
+        active: true,
+        appliesTo: "all",
+        stages: {
+          create: [
+            { id: "w1-s1", tenantId: tenant.id, name: "Pre-Sales Technical Verification", order: 1, approverType: "role", approverRoleId: "r3", mandatory: true, conditions: "Always mandatory" },
+            { id: "w1-s2", tenantId: tenant.id, name: "Commercial & Margin Validation", order: 2, approverType: "role", approverRoleId: "r2", mandatory: true, conditions: "Valued > $10,000" },
+            { id: "w1-s3", tenantId: tenant.id, name: "Executive & Director Sign-off", order: 3, approverType: "role", approverRoleId: "r1", mandatory: true, conditions: "Valued > $50,000" }
+          ]
+        }
       }
-    },
-    update: {}
-  });
+    });
+  }
 
-  await prisma.approvalWorkflow.upsert({
-    where: { id: "w2" },
-    create: {
-      id: "w2",
-      tenantId: tenant.id,
-      name: "Standard Smart City Bid Flow",
-      description: "Fast-tracked 2-stage verification for smart city vertical contracts.",
-      active: true,
-      appliesTo: "Smart Cities",
-      stages: {
-        create: [
-          { id: "w2-s1", tenantId: tenant.id, name: "Technical Specification Verification", order: 1, approverType: "role", approverRoleId: "r3", mandatory: true, conditions: "Always mandatory" },
-          { id: "w2-s2", tenantId: tenant.id, name: "Commercial Approvals", order: 2, approverType: "role", approverRoleId: "r2", mandatory: true, conditions: "Always mandatory" }
-        ]
+  if (!(await prisma.approvalWorkflow.findUnique({ where: { id: "w2" } }))) {
+    await prisma.approvalWorkflow.create({
+      data: {
+        id: "w2",
+        tenantId: tenant.id,
+        name: "Standard Smart City Bid Flow",
+        description: "Fast-tracked 2-stage verification for smart city vertical contracts.",
+        active: true,
+        appliesTo: "Smart Cities",
+        stages: {
+          create: [
+            { id: "w2-s1", tenantId: tenant.id, name: "Technical Specification Verification", order: 1, approverType: "role", approverRoleId: "r3", mandatory: true, conditions: "Always mandatory" },
+            { id: "w2-s2", tenantId: tenant.id, name: "Commercial Approvals", order: 2, approverType: "role", approverRoleId: "r2", mandatory: true, conditions: "Always mandatory" }
+          ]
+        }
       }
-    },
-    update: {}
-  });
+    });
+  }
 
   console.log("Seeding prompt templates...");
   const prompts = [
@@ -228,57 +250,59 @@ async function main() {
   ];
 
   for (const prompt of prompts) {
-    await prisma.promptTemplate.upsert({ where: { id: prompt.id }, create: { ...prompt, tenantId: tenant.id }, update: {} });
+    if (!(await prisma.promptTemplate.findUnique({ where: { id: prompt.id } }))) {
+      await prisma.promptTemplate.create({ data: { ...prompt, tenantId: tenant.id } });
+    }
   }
 
   console.log("Seeding platform settings...");
-  await prisma.platformSettings.upsert({
-    where: { tenantId: tenant.id },
-    create: {
-      id: "settings-global",
-      tenantId: tenant.id,
-      aiProvider: "Google Gemini",
-      defaultModel: "gemini-3.5-flash",
-      documentAnalysisModel: "gemini-3.5-flash",
-      proposalGenerationModel: "gemini-3.5-flash",
-      storageMode: "local",
-      localStoragePath: "./uploads",
-      s3Bucket: "",
-      gcsBucket: "",
-      defaultLanguage: "English",
-      defaultLogLevel: "DEBUG"
-    },
-    update: {}
-  });
+  if (!(await prisma.platformSettings.findUnique({ where: { tenantId: tenant.id } }))) {
+    await prisma.platformSettings.create({
+      data: {
+        id: "settings-global",
+        tenantId: tenant.id,
+        aiProvider: "Google Gemini",
+        defaultModel: "gemini-3.5-flash",
+        documentAnalysisModel: "gemini-3.5-flash",
+        proposalGenerationModel: "gemini-3.5-flash",
+        storageMode: "local",
+        localStoragePath: "./uploads",
+        s3Bucket: "",
+        gcsBucket: "",
+        defaultLanguage: "English",
+        defaultLogLevel: "DEBUG"
+      }
+    });
+  }
 
   console.log("Seeding branding settings...");
-  await prisma.brandingSettings.upsert({
-    where: { tenantId: tenant.id },
-    create: {
-      id: "branding-global",
-      tenantId: tenant.id,
-      companyName: "Commercial Assistant AI",
-      companyLogoPath: "",
-      loginLogoPath: "",
-      sidebarLogoPath: "",
-      reportLogoPath: "",
-      faviconPath: "",
-      primaryColor: "#0f172a",
-      secondaryColor: "#1e293b",
-      accentColor: "#06b6d4",
-      backgroundColor: "#f8fafc",
-      textColor: "#0f172a",
-      fontFamily: "Inter",
-      borderRadius: "rounded-xl",
-      buttonStyle: "solid",
-      defaultTheme: "light",
-      customCssVariables: "",
-      footerText: "Commercial Assistant AI - Enterprise Pre-Sales Solution © 2026",
-      supportContact: "support@assistantai-corp.com",
-      legalText: "CONFIDENTIALITY NOTICE: This system handles proprietary and sensitive customer bidding documentation. Unauthorized disclosure of technical specification summaries or commercial tables is strictly prohibited."
-    },
-    update: {}
-  });
+  if (!(await prisma.brandingSettings.findUnique({ where: { tenantId: tenant.id } }))) {
+    await prisma.brandingSettings.create({
+      data: {
+        id: "branding-global",
+        tenantId: tenant.id,
+        companyName: "Commercial Assistant AI",
+        companyLogoPath: "",
+        loginLogoPath: "",
+        sidebarLogoPath: "",
+        reportLogoPath: "",
+        faviconPath: "",
+        primaryColor: "#0f172a",
+        secondaryColor: "#1e293b",
+        accentColor: "#06b6d4",
+        backgroundColor: "#f8fafc",
+        textColor: "#0f172a",
+        fontFamily: "Inter",
+        borderRadius: "rounded-xl",
+        buttonStyle: "solid",
+        defaultTheme: "light",
+        customCssVariables: "",
+        footerText: "Commercial Assistant AI - Enterprise Pre-Sales Solution © 2026",
+        supportContact: "support@assistantai-corp.com",
+        legalText: "CONFIDENTIALITY NOTICE: This system handles proprietary and sensitive customer bidding documentation. Unauthorized disclosure of technical specification summaries or commercial tables is strictly prohibited."
+      }
+    });
+  }
 
   console.log("Seed complete.");
   });
