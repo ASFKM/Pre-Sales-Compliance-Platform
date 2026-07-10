@@ -1,19 +1,39 @@
 import express, { Request, Response, NextFunction } from "express";
 import path from "path";
 import fs from "fs";
+import pinoHttp from "pino-http";
 import { createServer as createViteServer } from "vite";
 import { prisma } from "./src/prisma";
 import { redis } from "./src/redis";
 import { dbStore } from "./src/dbStore";
 import { createStorageAdapter } from "./server/utils/storage";
+import { logger } from "./server/utils/logger";
 
 // Middleware Imports
-import { 
-  helmetMiddleware, 
-  apiRateLimiter, 
-  correlationIdMiddleware, 
-  errorHandler 
+import {
+  helmetMiddleware,
+  apiRateLimiter,
+  correlationIdMiddleware,
+  errorHandler
 } from "./server/middleware/security";
+
+// Fatal-level safety net: neither of these had any handler before, so an exception escaping every
+// other try/catch (in particular, the "void runWithTenant(...)" detached background blocks used
+// throughout server/routes/analysis.ts, proposals.ts, projectIntake.ts, knowledgeBase.ts) would
+// either crash the process with an unstructured stack trace (uncaughtException) or, from Node 15+,
+// also crash it silently by default (unhandledRejection) - either way with zero structured log of
+// why. This is a last resort, not the primary mechanism: every one of those background blocks
+// already has its own try/catch from earlier hardening work: this only fires for something that
+// escapes all of them.
+process.on("uncaughtException", (err) => {
+  logger.fatal({ err }, "uncaughtException - process will exit");
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason) => {
+  logger.fatal({ err: reason }, "unhandledRejection - process will exit");
+  process.exit(1);
+});
 
 // Router Imports
 import authRouter from "./server/routes/auth";
@@ -54,6 +74,24 @@ app.use(express.json());
 
 // 2. Correlation ID injection
 app.use(correlationIdMiddleware);
+
+// 2b. Structured, per-request logging - attaches req.log (a Pino child logger) directly on the
+// request object rather than relying on AsyncLocalStorage, which this codebase has repeatedly
+// found unreliable inside route handlers ("AsyncLocalStorage context set by requireAuth's
+// middleware isn't reliably reaching route handlers" - see comments throughout server/routes/).
+// req.log is guaranteed present in every handler because Express always threads the same req
+// object through the chain; requireAuth (server/routes/auth.ts) further enriches it with
+// userId/tenantId/roleId the moment those are known. Also auto-logs one line per request with
+// method/path/status/response time - visibility the app had none of before.
+app.use(pinoHttp({
+  logger,
+  genReqId: (req) => req.headers["x-correlation-id"] as string,
+  customLogLevel: (req, res, err) => {
+    if (err || res.statusCode >= 500) return "error";
+    if (res.statusCode >= 400) return "warn";
+    return "info";
+  },
+}));
 
 // 3. API Rate Limiting
 app.use("/api", apiRateLimiter);
@@ -158,17 +196,18 @@ async function bootstrap() {
 
   const PORT = 3000;
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Enterprise App Server listening on http://0.0.0.0:${PORT}`);
+    logger.info({ port: PORT }, "Enterprise App Server listening");
   });
 
   // Phase 7 (fleet/license management): reports to the vendor's fleet manager and picks up any
   // pending admin commands - client-initiated, since on-prem installs sit behind NAT/firewalls
   // that block inbound but allow outbound. Runs once shortly after boot, then every 20 minutes.
   const { runHeartbeatForAllEnabledTenants } = await import("./server/utils/fleetLicense");
-  setTimeout(() => runHeartbeatForAllEnabledTenants().catch((err) => console.error("Initial fleet heartbeat failed:", err)), 30000);
-  setInterval(() => runHeartbeatForAllEnabledTenants().catch((err) => console.error("Fleet heartbeat failed:", err)), 20 * 60 * 1000);
+  setTimeout(() => runHeartbeatForAllEnabledTenants().catch((err) => logger.error({ err }, "Initial fleet heartbeat failed")), 30000);
+  setInterval(() => runHeartbeatForAllEnabledTenants().catch((err) => logger.error({ err }, "Fleet heartbeat failed")), 20 * 60 * 1000);
 }
 
 bootstrap().catch((err) => {
-  console.error("Failed to bootstrap enterprise server:", err);
+  logger.fatal({ err }, "Failed to bootstrap enterprise server - process will exit");
+  process.exit(1);
 });

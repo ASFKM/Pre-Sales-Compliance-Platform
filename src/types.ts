@@ -276,6 +276,11 @@ export interface DebugLog {
   environment: string;
   correlation_id: string;
   request_id: string;
+  // Explicit, caller-supplied tenant id (from the request's x-tenant-id header) - preferred over
+  // the AsyncLocalStorage-based fallback in dbStore.addDebugLog, which is frequently absent by the
+  // time a catch block or the central error handler runs (documented elsewhere in this codebase as
+  // "AsyncLocalStorage context isn't reliably reaching route handlers").
+  tenant_id?: string;
   user_id?: string;
   project_id?: string;
   document_id?: string;

@@ -228,6 +228,7 @@ function mapDebugLog(g: any): DebugLog {
     environment: g.environment,
     correlation_id: g.correlationId,
     request_id: g.requestId,
+    tenant_id: g.tenantId ?? undefined,
     user_id: g.userId ?? undefined,
     project_id: g.projectId ?? undefined,
     document_id: g.documentId ?? undefined,
@@ -1031,9 +1032,14 @@ class DBStore {
     await prisma.debugLog.create({
       data: {
         id: randomId("dbg"),
-        // Optional: some diagnostic events (e.g. failed login for a nonexistent email)
-        // genuinely happen before any tenant is known.
-        tenantId: getCurrentTenantId(),
+        // Prefer the caller's explicit tenant_id (usually read straight from the request's
+        // x-tenant-id header, which is reliably present) over the AsyncLocalStorage-based
+        // fallback - many debug-log call sites (the central error handler in particular) run
+        // outside any active runWithTenant() context, so getCurrentTenantId() alone left this
+        // column null far more often than the real tenant was actually known. Still nullable for
+        // the genuine case of a diagnostic event before any tenant is known (e.g. failed login for
+        // a nonexistent email).
+        tenantId: log.tenant_id || getCurrentTenantId(),
         logLevel: log.log_level,
         serviceName: log.service_name,
         moduleName: log.module_name,

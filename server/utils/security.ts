@@ -349,19 +349,34 @@ export function maskSecret(secret: string): string {
   return `${secret.substring(0, 4)}...${secret.substring(secret.length - 4)}`;
 }
 
+// Single source of truth for "this field name means the value is a secret/PII and must never
+// reach a log or an exported report in the clear". Matched as a substring of the (lowercased) key
+// name, so e.g. "token" alone already covers "refreshToken"/"refresh_token", and "secret" already
+// covers "clientSecret"/"webhook_secret" - no need to enumerate every compound name. Exported so
+// server/utils/logger.ts's Pino `redact` config derives from this exact list instead of a second,
+// independently-maintained copy.
+//
+// "apikey"/"privatekey" below (lowercase), not "apiKey"/"privateKey" - the match lowercases the
+// real key name before comparing, but .includes() itself is case-sensitive, so those two entries
+// in their original mixed-case form never actually matched anything
+// ("apikey".includes("apiKey") is false). A camelCase field named `apiKey` was silently never
+// caught by this sanitizer; the snake_case `api_key` form happened to still work since it had no
+// case mismatch.
+export const SENSITIVE_KEY_SUBSTRINGS = [
+  "password", "token", "apikey", "api_key", "secret", "privatekey",
+  "private_key", "authorization", "cookie", "session",
+  "totp", // catches mfaTotpSecret/mfa_totp_secret too
+  "cpf", "cnpj", "ssn", // Brazilian/US PII identifiers
+];
+
 export function sanitizeAndMaskObject(obj: any): any {
   if (!obj) return obj;
   const cloned = JSON.parse(JSON.stringify(obj));
-  
-  const sensitiveKeys = [
-    "password", "token", "apiKey", "api_key", "secret", "privateKey", 
-    "private_key", "authorization", "cookie", "session"
-  ];
-  
+
   const mask = (item: any) => {
     if (typeof item !== "object" || item === null) return;
     for (const key in item) {
-      if (sensitiveKeys.some(sk => key.toLowerCase().includes(sk))) {
+      if (SENSITIVE_KEY_SUBSTRINGS.some(sk => key.toLowerCase().includes(sk))) {
         if (typeof item[key] === "string") {
           item[key] = maskSecret(item[key]);
         }
@@ -370,7 +385,7 @@ export function sanitizeAndMaskObject(obj: any): any {
       }
     }
   };
-  
+
   mask(cloned);
   return cloned;
 }

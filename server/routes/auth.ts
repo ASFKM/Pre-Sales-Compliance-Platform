@@ -131,6 +131,14 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     req.headers["x-session-token"] = token;
     req.headers["x-tenant-id"] = user.tenant_id;
 
+    // Enrich the request-scoped logger (attached by pino-http in server.ts, present on every
+    // request regardless of AsyncLocalStorage) the moment identity is actually known - every log
+    // line from here on for this request carries userId/tenantId/roleId without each call site
+    // having to pass them explicitly.
+    if (req.log) {
+      req.log = req.log.child({ userId: session.userId, tenantId: user.tenant_id, roleId: session.roleId });
+    }
+
     runWithTenant(
       { tenantId: user.tenant_id, userId: session.userId, roleId: session.roleId, canSeeAllProjects },
       () => next()
