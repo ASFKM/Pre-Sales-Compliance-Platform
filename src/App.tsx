@@ -371,21 +371,34 @@ export default function App() {
   // updating.
   const fetchGlobalConfigs = async () => {
     const tasks = [
-      (async () => {
-        const res = await fetch("/api/settings");
-        const data = await res.json();
-        if (res.ok) setPlatformSettings(data.platform ?? data ?? null);
-      })(),
-      (async () => {
-        const res = await fetch("/api/branding");
-        const data = await res.json();
-        if (res.ok && data) {
-          setBrandingSettings(data);
-          setBrandLogoDataUrl(data.company_logo_path || "");
-          setBrandPrimaryColor(data.primary_color || "#059669");
-          setBrandAccentColor(data.accent_color || "#10b981");
-        }
-      })(),
+      // /api/settings, /api/branding and /api/settings/prompts now require the same permission
+      // as their write counterpart (admin:settings / branding:manage / ai:settings - Fase 0 of
+      // the Zero Trust rollout) - skip the call entirely for roles that don't have it instead of
+      // firing a request that will 403. Built-in roles like "Pre-Sales Engineer" have none of
+      // these by default, so this is the normal path for a lot of real users, not an edge case.
+      ...(hasPermission("admin:settings")
+        ? [
+            (async () => {
+              const res = await fetch("/api/settings");
+              const data = await res.json();
+              if (res.ok) setPlatformSettings(data.platform ?? data ?? null);
+            })()
+          ]
+        : []),
+      ...(hasPermission("branding:manage")
+        ? [
+            (async () => {
+              const res = await fetch("/api/branding");
+              const data = await res.json();
+              if (res.ok && data) {
+                setBrandingSettings(data);
+                setBrandLogoDataUrl(data.company_logo_path || "");
+                setBrandPrimaryColor(data.primary_color || "#059669");
+                setBrandAccentColor(data.accent_color || "#10b981");
+              }
+            })()
+          ]
+        : []),
       (async () => {
         const res = await fetch("/api/users");
         const data = await res.json();
@@ -396,16 +409,26 @@ export default function App() {
         const data = await res.json();
         if (res.ok) setRoles(Array.isArray(data) ? data : []);
       })(),
-      (async () => {
-        const res = await fetch("/api/settings/prompts");
-        const data = await res.json();
-        if (res.ok) setPromptTemplates(Array.isArray(data) ? data : []);
-      })(),
-      (async () => {
-        const res = await fetch("/api/settings/ai-providers");
-        const data = await res.json();
-        if (res.ok) setAiProviderConfigs(Array.isArray(data) ? data : []);
-      })(),
+      ...(hasPermission("ai:settings")
+        ? [
+            (async () => {
+              const res = await fetch("/api/settings/prompts");
+              const data = await res.json();
+              if (res.ok) setPromptTemplates(Array.isArray(data) ? data : []);
+            })()
+          ]
+        : []),
+      // /api/settings/ai-providers already required ai:settings before this session - same
+      // unguarded-call bug as prompts above, fixed here too since it's the identical pattern.
+      ...(hasPermission("ai:settings")
+        ? [
+            (async () => {
+              const res = await fetch("/api/settings/ai-providers");
+              const data = await res.json();
+              if (res.ok) setAiProviderConfigs(Array.isArray(data) ? data : []);
+            })()
+          ]
+        : []),
       (async () => {
         const res = await fetch("/api/templates/proposals");
         const data = await res.json();

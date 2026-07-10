@@ -1,7 +1,7 @@
 import express, { Response, NextFunction } from "express";
 import type { Request } from "../types/express";
 import { dbStore } from "../../src/dbStore";
-import { requireAuth, requirePermission } from "./auth";
+import { requirePermission } from "./auth";
 import { encryptSecret, maskSecret, decryptSecret } from "../utils/security";
 import { requireUserId } from "../middleware/security";
 
@@ -121,7 +121,7 @@ async function auditIntegration(req: Request, action: string, entityId: string, 
 }
 
 // Retrieve all integration connectors with masked credentials
-router.get("/", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+router.get("/", requirePermission("integrations:manage"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const integrations = await dbStore.getIntegrations();
     res.json(integrations.map(safeConnectorForResponse));

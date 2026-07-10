@@ -3,7 +3,7 @@ import type { Request } from "../types/express";
 import fs from "fs";
 import path from "path";
 import { dbStore } from "../../src/dbStore";
-import { requireAuth, requirePermission } from "./auth";
+import { requirePermission } from "./auth";
 import { encryptSecret, decryptSecret, maskSecret } from "../utils/security";
 import { requireUserId } from "../middleware/security";
 import { createStorageAdapter } from "../utils/storage";
@@ -133,7 +133,7 @@ function validateBrandingUpdates(updates: any) {
   return { valid: true, message: "" };
 }
 
-router.get("/settings/ai-cost-summary", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+router.get("/settings/ai-cost-summary", requirePermission("ai:settings"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const tenantId = getCurrentTenantId()!;
     const spendUsd = await getCurrentMonthSpendUsd(tenantId);
@@ -144,7 +144,7 @@ router.get("/settings/ai-cost-summary", requireAuth, async (req: Request, res: R
   }
 });
 
-router.get("/settings", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+router.get("/settings", requirePermission("admin:settings"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     res.json(await getSafePlatformSettings());
   } catch (err) {
@@ -194,7 +194,7 @@ router.put("/settings", requirePermission("admin:settings"), async (req: Request
   }
 });
 
-router.get("/branding", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+router.get("/branding", requirePermission("branding:manage"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     res.json(await dbStore.getBranding());
   } catch (err) {
@@ -571,7 +571,7 @@ router.get("/settings/storage/status", requirePermission("storage:manage"), asyn
 router.post("/settings/storage", requirePermission("storage:manage"), updateStorageSettings);
 router.put("/settings/storage", requirePermission("storage:manage"), updateStorageSettings);
 
-router.get("/settings/prompts", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+router.get("/settings/prompts", requirePermission("ai:settings"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const prompts = await dbStore.getPrompts();
     res.json(
