@@ -6,9 +6,34 @@ import { dbStore } from "../../src/dbStore";
 import { logger } from "../utils/logger";
 import { sanitizeAndMaskObject } from "../utils/security";
 
-// 1. Configure Helmet middleware
+// 1. Configure Helmet middleware. CSP is only enforced when NODE_ENV=production - that's the
+// same signal server.ts uses to decide between serving the static dist/ build and mounting Vite's
+// dev middleware (which needs its HMR websocket/eval and is never what's running in production).
+// The built SPA has no inline <script>, no external script/font/connect targets (single bundled
+// JS/CSS, same-origin fetch only - verified in dist/index.html and the API client) but does rely
+// on React's style={{...}} prop, which compiles to inline style="" attributes, so style-src needs
+// 'unsafe-inline'. upgradeInsecureRequests is explicitly disabled - Helmet includes it by default,
+// and this server (like Fleet Manager's) is still plain HTTP with no reverse proxy/TLS in front
+// yet (Fase 1 of the Zero Trust rollout), so it would make browsers try to upgrade requests to a
+// https:// origin that doesn't exist here.
+const isProductionEnv = process.env.NODE_ENV === "production";
 export const helmetMiddleware = helmet({
-  contentSecurityPolicy: false, // Turned off to allow Vite's client connection in dev iframe
+  contentSecurityPolicy: isProductionEnv
+    ? {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          imgSrc: ["'self'", "data:"],
+          fontSrc: ["'self'", "data:"],
+          connectSrc: ["'self'"],
+          objectSrc: ["'none'"],
+          baseUri: ["'self'"],
+          frameAncestors: ["'self'"],
+          upgradeInsecureRequests: null,
+        },
+      }
+    : false, // Turned off in dev to allow Vite's client connection in dev iframe
   crossOriginEmbedderPolicy: false,
 });
 
