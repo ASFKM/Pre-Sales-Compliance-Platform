@@ -19,23 +19,35 @@ export interface ProjectFieldsValues {
   custom_modality: string;
 }
 
-export const initialProjectFieldsValues: ProjectFieldsValues = {
-  name: "",
-  customer_name: "",
-  opportunity_name: "",
-  vertical: "Infrastructure",
-  description: "",
-  deadline: "2026-08-30",
-  proposal_validity_date: "2026-11-30",
-  output_language: "Portuguese",
-  proposal_language: "Portuguese",
-  ai_orientation_mode: "Vendor-neutral",
-  ai_orientation_text: "",
-  selected_approval_workflow_id: "w1",
-  procurement_modality: "Licitação",
-  procurement_subtype: "Pregão",
-  custom_modality: "",
-};
+function addDays(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+// A function, not a static object - the previous hardcoded "2026-08-30"/"2026-11-30" dates were
+// frozen at whenever this module happened to be written, so every new project's default deadline
+// silently drifted further into the past the longer the app ran. Computed fresh relative to today
+// every time a new project form actually opens.
+export function getInitialProjectFieldsValues(): ProjectFieldsValues {
+  return {
+    name: "",
+    customer_name: "",
+    opportunity_name: "",
+    vertical: "Infrastructure",
+    description: "",
+    deadline: addDays(60),
+    proposal_validity_date: addDays(120),
+    output_language: "Portuguese",
+    proposal_language: "Portuguese",
+    ai_orientation_mode: "Vendor-neutral",
+    ai_orientation_text: "",
+    selected_approval_workflow_id: "w1",
+    procurement_modality: "Licitação",
+    procurement_subtype: "Pregão",
+    custom_modality: "",
+  };
+}
 
 interface ProjectFieldsFormProps {
   locale: string;

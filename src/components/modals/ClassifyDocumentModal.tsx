@@ -20,23 +20,33 @@ export default function ClassifyDocumentModal({ document, tx, onClose, onReclass
           <p className="font-semibold">{tx("Modify manual document category metadata for", "Modificar manualmente a categoria do documento para")} <span className="font-mono bg-slate-100 px-1 rounded">{document.original_filename}</span>:</p>
 
           <div className="space-y-2">
+            {/* Matches the real taxonomy the AI classifier itself uses (server/utils/
+                documentClassification.ts's prompt) - the old English labels here ("Public tender /
+                edital", "Technical specification", "Customer requirements") predated that and no
+                longer matched any category the AI could actually assign. */}
             <button
-              onClick={() => onReclassify(document.id, "Public tender / edital")}
+              onClick={() => onReclassify(document.id, tx("Public Tender / RFP", "Edital / Termo de Referência"))}
               className="w-full p-2.5 text-left bg-slate-50 border border-slate-200 hover:border-emerald-500 rounded font-bold hover:bg-slate-100 block cursor-pointer text-xs"
             >
-              📜 Public tender / edital
+              📜 {tx("Public Tender / RFP", "Edital / Termo de Referência")}
             </button>
             <button
-              onClick={() => onReclassify(document.id, "Technical specification")}
+              onClick={() => onReclassify(document.id, tx("Technical Specification", "Especificação Técnica"))}
               className="w-full p-2.5 text-left bg-slate-50 border border-slate-200 hover:border-emerald-500 rounded font-bold hover:bg-slate-100 block cursor-pointer text-xs"
             >
-              🔧 Technical specification
+              🔧 {tx("Technical Specification", "Especificação Técnica")}
             </button>
             <button
-              onClick={() => onReclassify(document.id, "Customer requirements")}
+              onClick={() => onReclassify(document.id, tx("Contract/SLA", "Contrato/SLA"))}
               className="w-full p-2.5 text-left bg-slate-50 border border-slate-200 hover:border-emerald-500 rounded font-bold hover:bg-slate-100 block cursor-pointer text-xs"
             >
-              📝 Customer requirements
+              📄 {tx("Contract/SLA", "Contrato/SLA")}
+            </button>
+            <button
+              onClick={() => onReclassify(document.id, tx("Commercial Proposal", "Proposta Comercial"))}
+              className="w-full p-2.5 text-left bg-slate-50 border border-slate-200 hover:border-emerald-500 rounded font-bold hover:bg-slate-100 block cursor-pointer text-xs"
+            >
+              📝 {tx("Commercial Proposal", "Proposta Comercial")}
             </button>
           </div>
         </div>

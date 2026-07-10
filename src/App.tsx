@@ -87,121 +87,65 @@ const AI_ORIENTATION_MODE_LABEL: Record<string, string> = {
   "Custom instruction": "Instrução personalizada",
 };
 
+// `locale` (below) is a hardcoded "pt" literal type with no setter anywhere in the app - there
+// was never a way to reach translations.en, so it and the whole en/pt split were unreachable
+// dead code. t() now just reads directly from this single dictionary.
 const translations = {
-  en: {
-    workspace: "Workspace",
-    proposalsStudio: "Proposals Studio",
-    tenderTemplates: "Tender Templates",
-    approvalCenter: "Approval Center",
-    adminConsole: "Admin Console",
-    geminiOnline: "Gemini 2.5 Flash Online",
-    bidsManager: "Bids Manager",
-    newBid: "New Bid",
-    clientDetails: "Client Details",
-    aiOrientationMode: "AI Orientation Mode",
-    specifications: "Specifications",
-    tenderDocs: "Tender Docs",
-    clickToImport: "Click to import specification",
-    noDocs: "No documents uploaded yet",
-    runAi: "Run AI Analysis",
-    compiling: "Compiling Specifications...",
-    execSummary: "Executive Compliance Summary",
-    reqsGrid: "Requirements Datagrid",
-    risksOpps: "Risks & Opportunities",
-    bomBuilder: "Technical BOM & Compliance Builder",
-    proposalStudioGen: "Proposal Studio Generator",
-    language: "Language",
-    parsedDocs: "Specifications Parsed",
-    complianceScore: "Compliance Score",
-    criticalActionItems: "Critical Action Items",
-    bidsOverview: "Pre-Sales Bid Overview",
-    tenderAnalysis: "Tender Analysis Report",
-    complianceTitle: "Executive Compliance Dashboard",
-    risksFound: "Risks Detected",
-    oppsFound: "Opps Discovered",
-    pricingEstimate: "BOM Valuation Estimate",
-    clarificationQuestions: "Clarification Questions Log",
-    suggestedFeatures: "Suggested Features & Platform Improvements",
-    suggestedFeaturesDesc: "Below are premium recommended improvements and cutting-edge features proposed for the next version of the platform:",
-    sug1Title: "📊 Integrated Real-time SLA compliance audits",
-    sug1Desc: "Instantly cross-references draft SLA penalties against historical project execution telemetry to prevent margin bleed.",
-    sug2Title: "💱 Multi-currency automated bid calculation",
-    sug2Desc: "Smart financial modeling matching localized currency parameters, dynamic tax inclusions, and regional delivery risk pricing matrices.",
-    sug3Title: "🎨 Customized docx brand styling engine",
-    sug3Desc: "Provides dynamic corporate design schema overrides, matching color palettes and spacing automatically from client RFP uploads.",
-    sug4Title: "🔒 Offline offline-first airgapped compliance model",
-    sug4Desc: "Run fully airgapped models locally to comply with strict sovereign defense and public intelligence agency security standards.",
-    sug5Title: "🤖 Multi-agent consensus review loop",
-    sug5Desc: "Run concurrent Gemini agents representing technical, commercial, legal, and financial personas to reach unanimous pre-sales validation before human signoff.",
+  workspace: "Área de Trabalho",
+  proposalsStudio: "Estúdio de Propostas",
+  tenderTemplates: "Modelos de Licitação",
+  approvalCenter: "Centro de Aprovação",
+  adminConsole: "Console do Administrador",
+  geminiOnline: "Gemini 2.5 Flash Ativo",
+  bidsManager: "Gestor de Licitações",
+  newBid: "Nova Proposta",
+  clientDetails: "Detalhes do Cliente",
+  aiOrientationMode: "Modo de Orientação IA",
+  specifications: "Especificações",
+  tenderDocs: "Docs de Licitação",
+  clickToImport: "Clique para importar especificação",
+  noDocs: "Nenhum documento enviado ainda",
+  runAi: "Executar Análise IA",
+  compiling: "Compilando Especificações...",
+  execSummary: "Resumo Executivo de Conformidade",
+  reqsGrid: "Matriz de Requisitos",
+  risksOpps: "Riscos e Oportunidades",
+  bomBuilder: "Mecanismo de BOM & Conformidade",
+  proposalStudioGen: "Estúdio de Geração de Propostas",
+  language: "Idioma",
+  parsedDocs: "Docs Analisados",
+  complianceScore: "Pontuação de Conformidade",
+  criticalActionItems: "Ações Críticas Pendentes",
+  bidsOverview: "Visão Geral de Pré-Vendas",
+  tenderAnalysis: "Relatório de Análise de Licitação",
+  complianceTitle: "Painel Executivo de Conformidade",
+  risksFound: "Riscos Detectados",
+  oppsFound: "Op. Encontradas",
+  pricingEstimate: "Avaliação Estimada da BOM",
+  clarificationQuestions: "Registro de Dúvidas / Esclarecimentos",
+  suggestedFeatures: "Sugestões de Recursos & Melhorias na Plataforma",
+  suggestedFeaturesDesc: "Abaixo estão as recomendações premium de melhorias e novas funcionalidades propostas para a próxima versão da plataforma:",
+  sug1Title: "📊 Auditorias de Conformidade de SLA em Tempo Real",
+  sug1Desc: "Cruza instantaneamente as penalidades de SLA propostas com a telemetria histórica de execução de projetos para mitigar vazamento de margem.",
+  sug2Title: "💱 Cálculo Automatizado de Propostas Multimoeda",
+  sug2Desc: "Modelagem financeira inteligente que gerencia parâmetros cambiais localizados, impostos regionais e matrizes de risco de entrega.",
+  sug3Title: "🎨 Mecanismo Personalizado de Estilo de Marca DOCX",
+  sug3Desc: "Permite sobrepor esquemas visuais corporativos dinâmicos, aplicando paletas de cores e espaçamentos automaticamente de arquivos RFP.",
+  sug4Title: "🔒 Modelo de Conformidade Local Isolado (Airgapped)",
+  sug4Desc: "Execução totalmente offline e isolada de modelos locais para atender aos rígidos padrões de segurança de defesa e inteligência pública.",
+  sug5Title: "🤖 Loop de Consenso Multiagente de Pré-Vendas",
+  sug5Desc: "Executa agentes Gemini simultâneos (Técnico, Comercial, Jurídico e Financeiro) para alcançar validação unânime antes da assinatura humana.",
 
-    // Help Tooltips
-    workspaceHelp: "Workspace: Upload specifications, analyze compliance, build pricing BOM and generate proposals.",
-    proposalsHelp: "Proposals Studio: Craft custom commercial and technical proposal drafts using AI-assisted templates.",
-    templatesHelp: "Tender Templates: Manage boilerplate legal/technical clauses and variables for automatic document filling.",
-    approvalHelp: "Approval Center: Multi-stage consensus workflow showing manager review outcomes and legal sign-off.",
-    adminHelp: "Admin Console: Access user registry, system instructions, active model keys, API cost tracking & licenses.",
-    bomHelp: "BOM Mechanism: Design line items list matching compliance standards with interactive margins in USD and BRL.",
-    costHelp: "API Cost Manager: Monitor detailed token-consumption rates converted from USD to BRL.",
-    licenseHelp: "Corporate License: Active subscription details, validated keys, limits and upgrades.",
-    apiModelsHelp: "API Models Setup: Add Anthropic, OpenAI, DeepSeek, and custom API keys to run parallel analyses.",
-  },
-  pt: {
-    workspace: "Área de Trabalho",
-    proposalsStudio: "Estúdio de Propostas",
-    tenderTemplates: "Modelos de Licitação",
-    approvalCenter: "Centro de Aprovação",
-    adminConsole: "Console do Administrador",
-    geminiOnline: "Gemini 2.5 Flash Ativo",
-    bidsManager: "Gestor de Licitações",
-    newBid: "Nova Proposta",
-    clientDetails: "Detalhes do Cliente",
-    aiOrientationMode: "Modo de Orientação IA",
-    specifications: "Especificações",
-    tenderDocs: "Docs de Licitação",
-    clickToImport: "Clique para importar especificação",
-    noDocs: "Nenhum documento enviado ainda",
-    runAi: "Executar Análise IA",
-    compiling: "Compilando Especificações...",
-    execSummary: "Resumo Executivo de Conformidade",
-    reqsGrid: "Matriz de Requisitos",
-    risksOpps: "Riscos e Oportunidades",
-    bomBuilder: "Mecanismo de BOM & Conformidade",
-    proposalStudioGen: "Estúdio de Geração de Propostas",
-    language: "Idioma",
-    parsedDocs: "Docs Analisados",
-    complianceScore: "Pontuação de Conformidade",
-    criticalActionItems: "Ações Críticas Pendentes",
-    bidsOverview: "Visão Geral de Pré-Vendas",
-    tenderAnalysis: "Relatório de Análise de Licitação",
-    complianceTitle: "Painel Executivo de Conformidade",
-    risksFound: "Riscos Detectados",
-    oppsFound: "Op. Encontradas",
-    pricingEstimate: "Avaliação Estimada da BOM",
-    clarificationQuestions: "Registro de Dúvidas / Esclarecimentos",
-    suggestedFeatures: "Sugestões de Recursos & Melhorias na Plataforma",
-    suggestedFeaturesDesc: "Abaixo estão as recomendações premium de melhorias e novas funcionalidades propostas para a próxima versão da plataforma:",
-    sug1Title: "📊 Auditorias de Conformidade de SLA em Tempo Real",
-    sug1Desc: "Cruza instantaneamente as penalidades de SLA propostas com a telemetria histórica de execução de projetos para mitigar vazamento de margem.",
-    sug2Title: "💱 Cálculo Automatizado de Propostas Multimoeda",
-    sug2Desc: "Modelagem financeira inteligente que gerencia parâmetros cambiais localizados, impostos regionais e matrizes de risco de entrega.",
-    sug3Title: "🎨 Mecanismo Personalizado de Estilo de Marca DOCX",
-    sug3Desc: "Permite sobrepor esquemas visuais corporativos dinâmicos, aplicando paletas de cores e espaçamentos automaticamente de arquivos RFP.",
-    sug4Title: "🔒 Modelo de Conformidade Local Isolado (Airgapped)",
-    sug4Desc: "Execução totalmente offline e isolada de modelos locais para atender aos rígidos padrões de segurança de defesa e inteligência pública.",
-    sug5Title: "🤖 Loop de Consenso Multiagente de Pré-Vendas",
-    sug5Desc: "Executa agentes Gemini simultâneos (Técnico, Comercial, Jurídico e Financeiro) para alcançar validação unânime antes da assinatura humana.",
-
-    // Help Tooltips
-    workspaceHelp: "Área de Trabalho: Envie especificações, analise conformidade, monte precificação da BOM e gere propostas.",
-    proposalsHelp: "Estúdio de Propostas: Elabore rascunhos comerciais e técnicos personalizados com templates assistidos por IA.",
-    templatesHelp: "Modelos de Licitação: Gerencie cláusulas jurídicas/técnicas padrão e variáveis de preenchimento automático.",
-    approvalHelp: "Centro de Aprovação: Fluxo de aprovação em vários estágios mostrando assinaturas e decisões da gerência.",
-    adminHelp: "Console de Administração: Acesse usuários, instruções do sistema, chaves de modelos, consumo de API e licenças.",
-    bomHelp: "Mecanismo de BOM: Elabore a lista de itens vinculada a requisitos e calcule margens interativas em USD e BRL.",
-    costHelp: "Gestor de Custos: Monitore taxas de consumo detalhado de tokens de API convertidas de USD para BRL.",
-    licenseHelp: "Licenciamento Corporativo: Status da assinatura, chaves de ativação validadas, limites de usuários e upgrades.",
-    apiModelsHelp: "Configuração de Modelos: Adicione Anthropic, OpenAI, DeepSeek e chaves de API para rodar análises concorrentes.",
-  }
+  // Help Tooltips
+  workspaceHelp: "Área de Trabalho: Envie especificações, analise conformidade, monte precificação da BOM e gere propostas.",
+  proposalsHelp: "Estúdio de Propostas: Elabore rascunhos comerciais e técnicos personalizados com templates assistidos por IA.",
+  templatesHelp: "Modelos de Licitação: Gerencie cláusulas jurídicas/técnicas padrão e variáveis de preenchimento automático.",
+  approvalHelp: "Centro de Aprovação: Fluxo de aprovação em vários estágios mostrando assinaturas e decisões da gerência.",
+  adminHelp: "Console de Administração: Acesse usuários, instruções do sistema, chaves de modelos, consumo de API e licenças.",
+  bomHelp: "Mecanismo de BOM: Elabore a lista de itens vinculada a requisitos e calcule margens interativas em USD e BRL.",
+  costHelp: "Gestor de Custos: Monitore taxas de consumo detalhado de tokens de API convertidas de USD para BRL.",
+  licenseHelp: "Licenciamento Corporativo: Status da assinatura, chaves de ativação validadas, limites de usuários e upgrades.",
+  apiModelsHelp: "Configuração de Modelos: Adicione Anthropic, OpenAI, DeepSeek e chaves de API para rodar análises concorrentes.",
 };
 
 // Global window fetch interceptor to inject Authorization header
@@ -346,10 +290,7 @@ export default function App() {
     });
   };
 
-  const t = (key: string): string => {
-    const dict = translations[locale] || translations["pt"];
-    return (dict as any)[key] || key;
-  };
+  const t = (key: string): string => (translations as any)[key] || key;
 
   const tx = (en: string, pt: string) => locale === "pt" ? pt : en;
 
@@ -1080,7 +1021,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               {locale === "pt" ? "Prazo" : "Deadline"}: <span className="text-slate-700 font-mono font-semibold">{activeProject?.deadline}</span>
             </span>
             <span className="text-slate-400">
-              {locale === "pt" ? "Responsável" : "Bid Owner"}: <span className="text-slate-700 font-semibold">{currentSessionUser.id === activeProject?.owner_user_id ? (locale === "pt" ? "Você" : "You") : "Alex Rivera"}</span>
+              {locale === "pt" ? "Responsável" : "Bid Owner"}: <span className="text-slate-700 font-semibold">{currentSessionUser.id === activeProject?.owner_user_id ? (locale === "pt" ? "Você" : "You") : (users.find((u: any) => u.id === activeProject?.owner_user_id)?.name || (locale === "pt" ? "Desconhecido" : "Unknown"))}</span>
             </span>
           </span>
         </div>
@@ -1463,7 +1404,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
           debugLogs={debugLogs}
           locale={locale}
           tx={tx}
-          currentUserRole={currentSessionUser.role}
+          hasPermission={hasPermission}
           onClose={() => setShowDebugConsole(false)}
           onExportDiagnostics={handleExportDiagnosticsPackage}
         />

@@ -26,7 +26,7 @@ export default function AuditLogsModal({ auditLogs, tx, onClose, onExportCSV }: 
             onClick={onExportCSV}
             className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold px-3 py-1.5 rounded shadow-sm transition-all cursor-pointer"
           >
-            <Download size={13} /> Export Ledger (CSV)
+            <Download size={13} /> {tx("Export Ledger (CSV)", "Exportar Livro (CSV)")}
           </button>
         </div>
 
@@ -35,12 +35,12 @@ export default function AuditLogsModal({ auditLogs, tx, onClose, onExportCSV }: 
             <div key={log.id} className="p-2 border-b border-slate-800 flex justify-between items-start">
               <div>
                 <span className="text-emerald-400 font-bold block">[{new Date(log.created_at).toISOString()}] {log.action}</span>
-                <p className="text-slate-400 mt-0.5">Executor: {log.user_id} | Entity: {log.entity_type} ({log.entity_id})</p>
+                <p className="text-slate-400 mt-0.5">{tx("Executor", "Executor")}: {log.user_id} | {tx("Entity", "Entidade")}: {log.entity_type} ({log.entity_id})</p>
                 {log.metadata && (
-                  <span className="text-slate-500 text-[10px] block">Metadata: {log.metadata}</span>
+                  <span className="text-slate-500 text-[10px] block">{tx("Metadata", "Metadados")}: {log.metadata}</span>
                 )}
               </div>
-              <span className="text-slate-500 text-[10px]">IP: {log.ip_address}</span>
+              <span className="text-slate-500 text-[10px]">{tx("IP", "IP")}: {log.ip_address}</span>
             </div>
           ))}
         </div>

@@ -1,4 +1,5 @@
 import { redis } from "./redis";
+import { randomId } from "./idGenerator";
 
 // Short-lived staging area for the Phase 4 "upload-first" project creation flow: documents are
 // uploaded and analyzed before any Project row exists, tracked here by a session id, then
@@ -21,10 +22,6 @@ export interface StagingSession {
   files: StagedFile[];
   suggestedFields: Record<string, any> | null;
   createdAt: string;
-}
-
-function randomId(prefix: string): string {
-  return `${prefix}_` + Math.random().toString(36).substring(2, 11);
 }
 
 function sessionKey(id: string): string {

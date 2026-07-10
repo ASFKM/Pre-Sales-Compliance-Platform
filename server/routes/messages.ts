@@ -4,6 +4,7 @@ import { prisma } from "../../src/prisma";
 import { dbStore } from "../../src/dbStore";
 import { requireAuth, requirePermission } from "./auth";
 import { getCurrentTenantId } from "../../src/tenantContext";
+import { randomId } from "../../src/idGenerator";
 
 const router = express.Router();
 
@@ -59,7 +60,7 @@ router.post("/messages", requirePermission("admin:settings"), async (req: Reques
 
     const message = await prisma.systemMessage.create({
       data: {
-        id: `sysmsg_${Math.random().toString(36).substring(2, 11)}`,
+        id: randomId("sysmsg"),
         tenantId,
         source: "local",
         audience: validated.audience,

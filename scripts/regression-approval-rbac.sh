@@ -6,11 +6,9 @@ cd "$BASE_DIR"
 
 echo "=== REGRESSION: APPROVAL RBAC / STAGE TARGETS / RELEASE ==="
 
-npm run lint
-npm run build
-
-bash scripts/restart-app.sh
-sleep 2
+# lint/build/restart deliberately not repeated here - the CI workflow (.github/workflows/ci.yml)
+# already does all three immediately before running this script. Just confirm the already-running
+# server is actually up.
 curl -s -w "\nHTTP:%{http_code}\n" http://127.0.0.1:3000/api/health | grep -q "HTTP:200"
 
 cleanup() {

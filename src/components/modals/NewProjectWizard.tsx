@@ -2,7 +2,7 @@ import { useState } from "react";
 import { X, FileSpreadsheet, Trash2, Sparkles, ArrowLeft } from "lucide-react";
 import { Project } from "../../types";
 import { BackgroundTask } from "../../hooks/useBackgroundTasks";
-import ProjectFieldsForm, { initialProjectFieldsValues, ProjectFieldsValues } from "./ProjectFieldsForm";
+import ProjectFieldsForm, { getInitialProjectFieldsValues, ProjectFieldsValues } from "./ProjectFieldsForm";
 import CreateProjectModal from "./CreateProjectModal";
 
 interface NewProjectWizardProps {
@@ -33,8 +33,18 @@ export default function NewProjectWizard({ locale, onClose, onCreated, waitForTa
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisStep, setAnalysisStep] = useState("");
   const [error, setError] = useState("");
-  const [fields, setFields] = useState<ProjectFieldsValues>(initialProjectFieldsValues);
+  const [fields, setFields] = useState<ProjectFieldsValues>(getInitialProjectFieldsValues);
   const [isConfirming, setIsConfirming] = useState(false);
+
+  // Cleans up the staging session (and its uploaded files) the moment the user actually abandons
+  // the flow, instead of leaving it to expire on its own via Redis TTL (2h) - not a real leak
+  // either way, but no reason to wait.
+  const handleCancel = () => {
+    if (sessionId) {
+      fetch(`/api/project-intake/${sessionId}`, { method: "DELETE" }).catch(() => {});
+    }
+    onClose();
+  };
 
   const ensureSession = async (): Promise<string> => {
     if (sessionId) return sessionId;
@@ -104,7 +114,7 @@ export default function NewProjectWizard({ locale, onClose, onCreated, waitForTa
       const sessionRes = await fetch(`/api/project-intake/${sessionId}`);
       const sessionData = await sessionRes.json();
       if (sessionData.session?.suggested_fields) {
-        setFields({ ...initialProjectFieldsValues, ...sessionData.session.suggested_fields });
+        setFields({ ...getInitialProjectFieldsValues(), ...sessionData.session.suggested_fields });
       }
       setStep("validate");
     } catch (err) {
@@ -160,7 +170,7 @@ export default function NewProjectWizard({ locale, onClose, onCreated, waitForTa
                 : (locale === "pt" ? "Nova Proposta: Validar Dados" : "New Bid: Validate Details")}
             </h3>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white cursor-pointer"><X size={16} /></button>
+          <button onClick={handleCancel} className="text-slate-400 hover:text-white cursor-pointer"><X size={16} /></button>
         </div>
 
         {step === "upload" && (
@@ -204,7 +214,12 @@ export default function NewProjectWizard({ locale, onClose, onCreated, waitForTa
             {error && <div className="p-3 rounded bg-amber-50 border border-amber-200 text-amber-900">{error}</div>}
 
             <button
-              onClick={() => setShowManualFallback(true)}
+              onClick={() => {
+                // Switching to the manual form abandons any uploaded documents in this session
+                // just like cancelling does.
+                if (sessionId) fetch(`/api/project-intake/${sessionId}`, { method: "DELETE" }).catch(() => {});
+                setShowManualFallback(true);
+              }}
               className="text-emerald-600 hover:underline text-[11px] font-semibold cursor-pointer block"
             >
               {locale === "pt" ? "Não tenho documentos ainda, criar manualmente" : "I don't have documents yet, create manually"}
@@ -213,7 +228,7 @@ export default function NewProjectWizard({ locale, onClose, onCreated, waitForTa
             <div className="flex justify-end gap-2 pt-4 border-t border-slate-200">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={handleCancel}
                 className="px-3 py-1.5 border border-slate-300 rounded hover:bg-slate-100 font-mono text-xs cursor-pointer text-slate-500"
               >
                 {locale === "pt" ? "Cancelar" : "Cancel"}
@@ -242,7 +257,7 @@ export default function NewProjectWizard({ locale, onClose, onCreated, waitForTa
             <div className="flex justify-end gap-2 pt-4 mt-4 border-t border-slate-200">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={handleCancel}
                 className="px-3 py-1.5 border border-slate-300 rounded hover:bg-slate-100 font-mono text-xs cursor-pointer text-slate-500"
               >
                 {locale === "pt" ? "Cancelar" : "Cancel"}

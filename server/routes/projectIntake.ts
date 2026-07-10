@@ -330,4 +330,22 @@ router.post("/project-intake/:sessionId/confirm", requirePermission("project:cre
   }
 });
 
+// Explicit cleanup when the user cancels the wizard mid-flow - staging.deleteSession was already
+// used on the success path (after confirm migrates files to permanent storage) but nothing called
+// it on cancel. Redis TTL already expires an abandoned session within 2h regardless, so this isn't
+// a real leak, just makes cleanup immediate instead of waiting out the TTL.
+router.delete("/project-intake/:sessionId", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.headers["x-tenant-id"] as string;
+    const session = await getOwnedSession(req.params.sessionId, tenantId);
+    if (!session) {
+      return res.status(404).json({ success: false, message: "Upload session not found or expired." });
+    }
+    await staging.deleteSession(req.params.sessionId);
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

@@ -1,5 +1,6 @@
 import { prisma } from "./prisma";
 import { dbStore } from "./dbStore";
+import { randomId } from "./idGenerator";
 
 export type AiTaskType = "document_analysis" | "critical_extraction" | "web_grounding" | "proposal_generation" | "spec_copilot";
 
@@ -103,7 +104,7 @@ export async function recordAiUsage(params: {
 }): Promise<void> {
   await prisma.aiUsageLog.create({
     data: {
-      id: `ail_${Math.random().toString(36).substring(2, 11)}`,
+      id: randomId("ail"),
       tenantId: params.tenantId,
       taskType: params.taskType,
       provider: params.provider,

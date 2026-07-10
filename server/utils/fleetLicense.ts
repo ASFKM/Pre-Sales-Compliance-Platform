@@ -5,6 +5,7 @@ import { redis } from "../../src/redis";
 import { runWithTenant } from "../../src/tenantContext";
 import { prisma } from "../../src/prisma";
 import { decryptSecret } from "./security";
+import { randomId } from "../../src/idGenerator";
 
 // Phase 7 (fleet/license management): the public half of the fleet manager's Ed25519 signing
 // keypair, baked into this build (not fetched at runtime - a compromised heartbeat response
@@ -248,7 +249,7 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
         if (!existing) {
           await prisma.systemMessage.create({
             data: {
-              id: `sysmsg_${Math.random().toString(36).substring(2, 11)}`,
+              id: randomId("sysmsg"),
               tenantId,
               source: "fleet_manager",
               fleetMessageId: msg.id,

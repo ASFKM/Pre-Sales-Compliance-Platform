@@ -13,6 +13,7 @@ import { runWithTenant } from "../../src/tenantContext";
 import { prisma } from "../../src/prisma";
 import { FACTORY_DEFAULT_ANALYSIS_PROMPT } from "../utils/promptDefaults";
 import { buildDocxBuffer } from "../utils/docx";
+import { randomId } from "../../src/idGenerator";
 
 const router = express.Router();
 
@@ -723,7 +724,7 @@ Write all generated content fields strictly in ${project.proposal_language}. Mai
 
     // Save final Analysis Result
     const analysisResult: AnalysisResult = {
-      id: "ar_" + Math.random().toString(36).substring(2, 11),
+      id: randomId("ar"),
       project_id: projectId,
       job_id: job.id,
       executive_summary: validatedJson.executive_summary,

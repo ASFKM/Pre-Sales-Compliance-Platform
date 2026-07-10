@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { X } from "lucide-react";
 import { Project } from "../../types";
-import ProjectFieldsForm, { initialProjectFieldsValues } from "./ProjectFieldsForm";
+import ProjectFieldsForm, { getInitialProjectFieldsValues } from "./ProjectFieldsForm";
 
 interface CreateProjectModalProps {
   locale: string;
@@ -10,7 +10,7 @@ interface CreateProjectModalProps {
 }
 
 export default function CreateProjectModal({ locale, onClose, onCreated }: CreateProjectModalProps) {
-  const [newProject, setNewProject] = useState(initialProjectFieldsValues);
+  const [newProject, setNewProject] = useState(getInitialProjectFieldsValues);
 
   const handleCreateProject = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,7 +27,7 @@ export default function CreateProjectModal({ locale, onClose, onCreated }: Creat
       }
       const created = await res.json();
       onCreated(created);
-      setNewProject(initialProjectFieldsValues);
+      setNewProject(getInitialProjectFieldsValues());
       onClose();
     } catch (err) {
       console.error("Could not create project node", err);

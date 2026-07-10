@@ -1,5 +1,6 @@
 import { prisma } from "./prisma";
 import { getCurrentTenantId } from "./tenantContext";
+import { randomId } from "./idGenerator";
 import {
   User,
   UserStatus,
@@ -24,10 +25,6 @@ import {
   KnowledgeBaseEntry,
   KnowledgeBaseDocument,
 } from "./types";
-
-function randomId(prefix: string): string {
-  return `${prefix}_` + Math.random().toString(36).substring(2, 11);
-}
 
 // The Prisma extension (src/prisma.ts) auto-injects tenant_id from context at runtime for
 // every create/upsert, but Prisma's generated types don't know that - they still require the
@@ -840,11 +837,6 @@ class DBStore {
   // AI Jobs
   public async getJobs(): Promise<AIAnalysisJob[]> {
     return (await prisma.aIAnalysisJob.findMany({ orderBy: { startedAt: "desc" } })).map(mapJob);
-  }
-
-  public async getJob(id: string): Promise<AIAnalysisJob | undefined> {
-    const j = await prisma.aIAnalysisJob.findUnique({ where: { id } });
-    return j ? mapJob(j) : undefined;
   }
 
   public async createJob(job: Omit<AIAnalysisJob, "id">): Promise<AIAnalysisJob> {

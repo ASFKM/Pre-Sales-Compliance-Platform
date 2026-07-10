@@ -68,6 +68,20 @@ const PROVIDER_DISPLAY_NAME: Record<string, string> = {
   gemini: "Gemini",
 };
 
+// Single source of truth for the "Create New Role" module checkboxes and the permission set each
+// one grants - previously two separate hardcoded lists (the checkbox array and this map), which
+// could silently drift apart (a module checkbox with no matching permissions, or vice versa).
+const MODULE_PERMISSION_MAP: Record<string, string[]> = {
+  workspace: ["project:create", "project:read", "project:update", "document:upload", "document:read", "document:delete", "analysis:run", "analysis:read", "analysis:edit"],
+  proposals: ["proposal:generate", "proposal:read", "proposal:approve"],
+  templates: ["template:manage"],
+  approval: ["approval:manage"],
+  admin: ["admin:users", "admin:roles", "admin:settings"],
+  integrations: ["integrations:manage"],
+  branding: ["branding:manage"],
+  audit: ["admin:audit", "admin:debug", "admin:diagnostics"],
+};
+
 type AdminSection =
   | "overview" | "users" | "ai" | "templates" | "approval_flow"
   | "subscription" | "branding" | "integrations" | "storage" | "audit";
@@ -661,7 +675,7 @@ export default function AdminConsole({
                         <input value={newRoleDescription} onChange={(e) => setNewRoleDescription(e.target.value)} placeholder={locale === "pt" ? "Descrição do perfil" : "Role description"} className="p-2 bg-slate-50 border border-slate-200 rounded" />
                       </div>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                        {["workspace", "proposals", "templates", "approval", "admin", "integrations", "branding", "audit"].map(mod => (
+                        {Object.keys(MODULE_PERMISSION_MAP).map(mod => (
                           <label key={mod} className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded p-2 cursor-pointer">
                             <input
                               type="checkbox"
@@ -681,18 +695,7 @@ export default function AdminConsole({
                             return;
                           }
 
-                          const modulePermissionMap: Record<string, string[]> = {
-                            workspace: ["project:create", "project:read", "project:update", "document:upload", "document:read", "document:delete", "analysis:run", "analysis:read", "analysis:edit"],
-                            proposals: ["proposal:generate", "proposal:read", "proposal:approve"],
-                            templates: ["template:manage"],
-                            approval: ["approval:manage"],
-                            admin: ["admin:users", "admin:roles", "admin:settings"],
-                            integrations: ["integrations:manage"],
-                            branding: ["branding:manage"],
-                            audit: ["admin:audit", "admin:debug", "admin:diagnostics"],
-                          };
-
-                          const permissions = Array.from(new Set(newRoleModules.flatMap((mod) => modulePermissionMap[mod] || [])));
+                          const permissions = Array.from(new Set(newRoleModules.flatMap((mod) => MODULE_PERMISSION_MAP[mod] || [])));
 
                           try {
                             const res = await fetch("/api/roles", {

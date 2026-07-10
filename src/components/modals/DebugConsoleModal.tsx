@@ -5,12 +5,12 @@ interface DebugConsoleModalProps {
   debugLogs: DebugLog[];
   locale: string;
   tx: (en: string, pt: string) => string;
-  currentUserRole: string;
+  hasPermission: (permission: string) => boolean;
   onClose: () => void;
   onExportDiagnostics: () => void;
 }
 
-export default function DebugConsoleModal({ debugLogs, locale, tx, currentUserRole, onClose, onExportDiagnostics }: DebugConsoleModalProps) {
+export default function DebugConsoleModal({ debugLogs, locale, tx, hasPermission, onClose, onExportDiagnostics }: DebugConsoleModalProps) {
   return (
     <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50">
       <div className="bg-white rounded-xl border border-slate-200 w-[850px] h-[650px] overflow-hidden shadow-2xl flex flex-col">
@@ -31,7 +31,7 @@ export default function DebugConsoleModal({ debugLogs, locale, tx, currentUserRo
           </div>
           <button
             onClick={() => {
-              if (currentUserRole !== "Administrator") {
+              if (!hasPermission("admin:diagnostics")) {
                 alert(locale === "pt" ? "Acesso negado pela API administrativa. Verifique as permissões do usuário." : "Access denied by the administrative API. Check the current user's permissions.");
                 return;
               }
