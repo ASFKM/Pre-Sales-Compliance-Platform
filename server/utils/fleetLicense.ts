@@ -213,15 +213,22 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
       const logs = await collectRecentLogs(tenantId);
       const vulnerabilities = await runVulnerabilityScan();
 
+      const body = JSON.stringify({
+        logs,
+        vulnerabilities: vulnerabilities || undefined,
+        system_info: collectSystemInfo(),
+        config_snapshot: sanitizeSettingsForBackup(settings as unknown as Record<string, any>),
+      });
+      // Fase 1.6 of the Zero Trust rollout: HMAC over the exact bytes being sent, keyed with the
+      // same per-installation API key the Bearer header already carries - see the Fleet
+      // Manager's requireHmacSignature for what this catches (in-transit tampering independent
+      // of TLS) and what it doesn't (an attacker already holding this API key).
+      const signature = crypto.createHmac("sha256", apiKey).update(body).digest("hex");
+
       const res = await fetch(`${settings.fleet_manager_url}/api/heartbeat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          logs,
-          vulnerabilities: vulnerabilities || undefined,
-          system_info: collectSystemInfo(),
-          config_snapshot: sanitizeSettingsForBackup(settings as unknown as Record<string, any>),
-        }),
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}`, "X-Signature": signature },
+        body,
         signal: AbortSignal.timeout(10000),
       });
 
@@ -234,6 +241,25 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
       if (!verifyPayload(data.license, data.signature)) {
         logger.error({ tenantId }, "Fleet manager heartbeat signature verification FAILED - ignoring response");
         return;
+      }
+
+      // Anti-replay (Fase 1.6 of the Zero Trust rollout): a captured {payload, signature} pair
+      // stays validly signed for its whole valid_until window (up to 24h) - without this check,
+      // replaying an old "active" response would resurrect that status even after a real
+      // suspension. issued_at already exists on the payload and is set fresh by the Fleet
+      // Manager on every heartbeat, so it doubles as a monotonic nonce with no wire-format
+      // change on that end: reject anything that isn't strictly newer than what's already
+      // cached.
+      const previousRaw = await redis.get(licenseCacheKey(tenantId));
+      if (previousRaw) {
+        const previous: CachedLicense = JSON.parse(previousRaw);
+        if (new Date(data.license.issued_at).getTime() <= new Date(previous.payload.issued_at).getTime()) {
+          logger.error(
+            { tenantId, newIssuedAt: data.license.issued_at, cachedIssuedAt: previous.payload.issued_at },
+            "Fleet manager heartbeat replay suspected - issued_at not newer than cached, ignoring response"
+          );
+          return;
+        }
       }
 
       const cached: CachedLicense = { payload: data.license, signature: data.signature, verifiedAt: new Date().toISOString() };
