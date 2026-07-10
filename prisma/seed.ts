@@ -43,7 +43,7 @@ async function main() {
         "proposal:generate", "proposal:edit", "proposal:approve", "proposal:export",
         "template:manage", "approval:manage", "admin:users", "admin:roles", "admin:settings",
         "admin:audit", "admin:debug", "admin:diagnostics", "ai:settings", "branding:manage",
-        "storage:manage", "integrations:manage"
+        "storage:manage", "integrations:manage", "knowledge_base:read", "knowledge_base:write"
       ]
     },
     {
