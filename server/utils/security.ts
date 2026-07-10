@@ -2,7 +2,6 @@ import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import { generateSecret, generateURI, verify } from "otplib";
 import QRCode from "qrcode";
-import { isProductionRuntime } from "../config/runtime";
 import { redis } from "../../src/redis";
 
 const PASSWORD_HASH_ALGORITHM = "scrypt";
@@ -285,17 +284,12 @@ export async function rotateRefreshToken(oldToken: string): Promise<{ session: S
 }
 
 // Encrypt and mask sensitive keys
-const DEFAULT_SECRET_ENCRYPTION_KEY = "commercial-assistant-secret-key-32";
-
 function getSecretEncryptionKey(): Buffer {
   const raw = process.env.SECRET_ENCRYPTION_KEY;
-
-  if (isProductionRuntime() && (!raw || raw === DEFAULT_SECRET_ENCRYPTION_KEY || raw.length < 32)) {
-    throw new Error("SECRET_ENCRYPTION_KEY must be configured with a strong value in production runtime.");
+  if (!raw || raw.length < 32) {
+    throw new Error("SECRET_ENCRYPTION_KEY must be configured with a strong value.");
   }
-
-  const effective = raw || DEFAULT_SECRET_ENCRYPTION_KEY;
-  return crypto.createHash("sha256").update(effective).digest();
+  return crypto.createHash("sha256").update(raw).digest();
 }
 
 export function encryptSecret(plainText: string): string {
