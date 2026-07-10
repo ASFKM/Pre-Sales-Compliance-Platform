@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AlertTriangle, Download, Edit3, X } from "lucide-react";
+import { TriangleAlert, Download, PenLine, X } from "lucide-react";
 import { Proposal } from "../types";
 import { useProposals } from "../hooks/useProposals";
 
@@ -97,7 +97,7 @@ export default function Proposals({
 
               {proposals.length === 0 ? (
                 <div className="bg-slate-50 border border-slate-200 rounded-xl p-8 text-center py-16">
-                  <AlertTriangle className="text-amber-500 mx-auto mb-2" size={32} />
+                  <TriangleAlert className="text-amber-500 mx-auto mb-2" size={32} />
                   <h4 className="text-sm font-bold text-slate-800 uppercase font-mono">{locale === "pt" ? "Nenhuma Proposta Compilada Ainda" : "No Proposals Compiled Yet"}</h4>
                   <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 leading-relaxed">
                     {locale === "pt" ? "Acesse a Área de Trabalho e escolha a aba 'Estúdio de Geração de Propostas' para compilar especificações técnicas ou planilhas de preços em rascunhos de documentos reais." : "Go to your Workspace tab and choose the 'Proposal Studio Generator' sub-tab to compile technical specifications or pricing tables into actual document drafts."}
@@ -145,7 +145,7 @@ export default function Proposals({
                               onClick={() => openEditor(prop)}
                               className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-mono text-[11px] font-bold px-3 py-1.5 rounded border border-blue-200 transition-all shadow-sm cursor-pointer"
                             >
-                              <Edit3 size={12} /> {locale === "pt" ? "Revisar e Editar" : "Review & Edit"}
+                              <PenLine size={12} /> {locale === "pt" ? "Revisar e Editar" : "Review & Edit"}
                             </button>
                           )}
                           {hasPermission("proposal:export") && (

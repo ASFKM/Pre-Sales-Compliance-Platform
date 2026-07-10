@@ -1,4 +1,4 @@
-import { AlertTriangle } from "lucide-react";
+import { TriangleAlert } from "lucide-react";
 import { ApprovalWorkflow, Proposal } from "../types";
 import { useApprovalCenter } from "../hooks/useApprovalCenter";
 
@@ -58,7 +58,7 @@ export default function Approval({
               {/* Dynamic list of proposals and their approval workflow milestones */}
               {proposals.length === 0 ? (
                 <div className="bg-slate-50 border border-slate-200 rounded-xl p-8 text-center py-16">
-                  <AlertTriangle className="text-amber-500 mx-auto mb-2" size={32} />
+                  <TriangleAlert className="text-amber-500 mx-auto mb-2" size={32} />
                   <h4 className="text-sm font-bold text-slate-800 uppercase font-mono">{locale === "pt" ? "Nenhuma Proposta Enviada" : "No Proposals Submitted"}</h4>
                 </div>
               ) : (

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BookOpen, FileText, Trash2, Sparkles, Check, X, Edit2, Upload, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { BookOpen, FileText, Trash2, Sparkles, Check, X, Pen, Upload, Search, ChevronLeft, ChevronRight } from "lucide-react";
 import ApiClient from "../lib/api";
 import { KnowledgeBaseEntry, KnowledgeBaseDocument, KnowledgeBaseEntryCategory } from "../types";
 import { BackgroundTask } from "../hooks/useBackgroundTasks";
@@ -286,7 +286,7 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
             disabled={savingEntryId === entry.id}
             className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors cursor-pointer disabled:opacity-50"
           >
-            <Edit2 size={12} /> Editar
+            <Pen size={12} /> Editar
           </button>
           {entry.status !== "rejected" && (
             <button

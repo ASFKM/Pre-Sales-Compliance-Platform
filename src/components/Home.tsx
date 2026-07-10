@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Activity, CheckCircle2, ChevronRight, FileText, ListTodo, Plus, Trash2 } from "lucide-react";
+import { Activity, CircleCheck, ChevronRight, FileText, ListTodo, Plus, Trash2 } from "lucide-react";
 import { Project } from "../types";
 
 interface HomeProps {
@@ -231,7 +231,7 @@ export default function Home({
                 {/* Card 2: Average Compliance */}
                 <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
                   <div className="w-12 h-12 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shrink-0">
-                    <CheckCircle2 size={22} />
+                    <CircleCheck size={22} />
                   </div>
                   <div className="leading-tight">
                     <span className="text-[10px] uppercase font-bold text-slate-400 font-mono tracking-wider block">

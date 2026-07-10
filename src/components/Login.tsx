@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Shield, Key, Mail, Lock, CheckCircle2, AlertCircle, ArrowRight, Fingerprint } from "lucide-react";
+import { Shield, Key, Mail, Lock, CircleCheck, CircleAlert, ArrowRight, FingerprintPattern } from "lucide-react";
 import ApiClient from "../lib/api";
 
 interface LoginProps {
@@ -160,7 +160,7 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
             >
               {error && (
                 <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-3 rounded-lg flex items-center gap-2 text-xs">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <CircleAlert className="w-4 h-4 shrink-0" />
                   <span>{error}</span>
                 </div>
               )}
@@ -216,7 +216,7 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
                         className="py-2 px-3 bg-slate-950 hover:bg-slate-800 border border-slate-800/80 rounded-lg text-left text-xs text-slate-300 flex items-center justify-between transition-colors cursor-pointer"
                       >
                         <span>{dict.adminRole}</span>
-                        <Fingerprint className="w-3.5 h-3.5 text-emerald-500" />
+                        <FingerprintPattern className="w-3.5 h-3.5 text-emerald-500" />
                       </button>
                       <button
                         type="button"
@@ -224,7 +224,7 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
                         className="py-2 px-3 bg-slate-950 hover:bg-slate-800 border border-slate-800/80 rounded-lg text-left text-xs text-slate-300 flex items-center justify-between transition-colors cursor-pointer"
                       >
                         <span>{dict.managerRole}</span>
-                        <Fingerprint className="w-3.5 h-3.5 text-sky-500" />
+                        <FingerprintPattern className="w-3.5 h-3.5 text-sky-500" />
                       </button>
                       <button
                         type="button"
@@ -232,7 +232,7 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
                         className="py-2 px-3 bg-slate-950 hover:bg-slate-800 border border-slate-800/80 rounded-lg text-left text-xs text-slate-300 flex items-center justify-between transition-colors cursor-pointer"
                       >
                         <span>{dict.engineerRole}</span>
-                        <Fingerprint className="w-3.5 h-3.5 text-amber-500" />
+                        <FingerprintPattern className="w-3.5 h-3.5 text-amber-500" />
                       </button>
                     </div>
                   </div>
@@ -262,7 +262,7 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
 
               {error && (
                 <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-3 rounded-lg flex items-center gap-2 text-xs">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <CircleAlert className="w-4 h-4 shrink-0" />
                   <span>{error}</span>
                 </div>
               )}

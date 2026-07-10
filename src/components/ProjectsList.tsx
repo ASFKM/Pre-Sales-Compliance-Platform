@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Edit2, Trash2, FolderOpen, X } from "lucide-react";
+import { Pen, Trash2, FolderOpen, X } from "lucide-react";
 import { Project } from "../types";
 import ApiClient from "../lib/api";
 import ProjectFieldsForm, { ProjectFieldsValues } from "./modals/ProjectFieldsForm";
@@ -144,7 +144,7 @@ export default function ProjectsList({ locale, projects, hasPermission, onOpenPr
                         className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors cursor-pointer"
                         title="Editar Projeto"
                       >
-                        <Edit2 size={14} />
+                        <Pen size={14} />
                       </button>
                     )}
                     {canDelete && (

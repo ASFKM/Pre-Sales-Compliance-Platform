@@ -1,6 +1,6 @@
 import { Dispatch, ReactNode, SetStateAction, useEffect, useRef, useState } from "react";
 import {
-  AlertTriangle, ArrowLeft, DollarSign, Edit3, FileCode, FilePlus,
+  TriangleAlert, ArrowLeft, DollarSign, PenLine, FileCode, FilePlus,
   FolderOpen, FolderPlus, HardDrive, MessageSquare, Plus, Trash2, X,
 } from "lucide-react";
 import { AnalysisResult, BOMItem, Document } from "../types";
@@ -344,7 +344,7 @@ export default function Workspace({
 
                     {!displayAnalysisResult ? (
                       <div className="bg-slate-50 border border-slate-200 rounded-xl p-8 text-center flex flex-col items-center justify-center py-16">
-                        <AlertTriangle className="text-amber-500 mb-2" size={32} />
+                        <TriangleAlert className="text-amber-500 mb-2" size={32} />
                         <h4 className="text-sm font-bold text-slate-800 uppercase font-mono">{tx("Specifications Awaiting Analysis", "Especificações Aguardando Análise")}</h4>
                         <p className="text-xs text-slate-500 max-w-md mt-1 leading-relaxed">
                           Envie os arquivos de documentação da licitação ou as diretrizes de especificação do cliente na barra lateral e clique em <strong>"EXECUTAR ANÁLISE IA"</strong>. A IA vai extrair os requisitos estruturados, analisar possíveis riscos da licitação, montar uma lista de BOM padrão e compilar os quadros de conformidade automaticamente.
@@ -1232,7 +1232,7 @@ export default function Workspace({
                                         className="text-slate-400 hover:text-slate-700 p-1 rounded hover:bg-slate-100 cursor-pointer"
                                         title={locale === "pt" ? "Renomear" : "Rename"}
                                       >
-                                        <Edit3 size={11} />
+                                        <PenLine size={11} />
                                       </button>
                                       <button
                                         onClick={() => setShowMoveFileModal({ type: "virtual", item: file })}
@@ -1335,7 +1335,7 @@ export default function Workspace({
                                           className="text-slate-400 hover:text-slate-700 p-1 rounded hover:bg-slate-100 cursor-pointer"
                                           title={locale === "pt" ? "Renomear" : "Rename"}
                                         >
-                                          <Edit3 size={11} />
+                                          <PenLine size={11} />
                                         </button>
                                         <button
                                           onClick={() => setShowMoveFileModal({ type: "real", item: doc })}
