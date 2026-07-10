@@ -123,7 +123,7 @@ ${JSON.stringify(sanitizedData.auditLogs, null, 2)}
 
 router.get("/admin/logs/debug", requirePermission("admin:debug"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const logs = await dbStore.getDebugLogs();
+    const logs = await dbStore.getDebugLogs(req.headers["x-tenant-id"] as string);
     const safeLogs = logs.map(log => sanitizeAndMaskObject(log));
     res.json(safeLogs);
   } catch (err) {

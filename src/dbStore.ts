@@ -1014,8 +1014,46 @@ class DBStore {
     });
   }
 
-  public async getDebugLogs(): Promise<DebugLog[]> {
-    return (await prisma.debugLog.findMany({ orderBy: { timestamp: "desc" }, take: 1000 })).map(mapDebugLog);
+  // Explicit tenantId param, not the tenant-scoping Prisma extension's ALS-based auto-injection:
+  // found while working on the Fleet Manager heartbeat (which had the same bug in an even more
+  // exposed form - see getDebugLogsSince below) that this was the one call site actually reaching
+  // the database unscoped. The extension's own auto-scoping is a silent pass-through when there's
+  // no active ALS context (documented on TENANT_SCOPED_MODELS in src/prisma.ts) rather than a
+  // throw, so a caller can't tell the difference between "correctly scoped" and "ALS context
+  // wasn't there" from the result alone - passing tenantId explicitly here removes that ambiguity
+  // for the one place (the admin console's own debug log viewer, requirePermission("admin:debug"))
+  // where a silent unscoped fallback would mean any tenant's admin could browse every other
+  // tenant's debug logs.
+  public async getDebugLogs(tenantId: string): Promise<DebugLog[]> {
+    return (await prisma.debugLog.findMany({ where: { tenantId }, orderBy: { timestamp: "desc" }, take: 1000 })).map(mapDebugLog);
+  }
+
+  // Used by the Fleet Manager heartbeat (server/utils/fleetLicense.ts's collectRecentLogs) to ship
+  // this tenant's own recent diagnostic events - and only this tenant's. The previous
+  // implementation called the untenanted getDebugLogs() above (cross-tenant, up to 1000 rows) and
+  // filtered by "since" in JS afterwards - for a multi-tenant install, every tenant's heartbeat was
+  // shipping every OTHER tenant's debug logs to the Fleet Manager too.
+  //
+  // warn/error/fatal are never truncated (an incident window is exactly when losing log lines
+  // matters most); info/debug are capped to sampleLimit and only fill whatever budget remains -
+  // the previous .filter().slice(0,100) applied that cut uniformly, silently dropping the oldest
+  // events of a large batch regardless of severity.
+  public async getDebugLogsSince(tenantId: string, since: Date, sampleLimit: number): Promise<DebugLog[]> {
+    const priority = await prisma.debugLog.findMany({
+      where: { tenantId, timestamp: { gt: since }, logLevel: { in: ["WARN", "ERROR", "FATAL"] } },
+      orderBy: { timestamp: "desc" },
+    });
+
+    const remainingBudget = Math.max(sampleLimit - priority.length, 0);
+    const sample = remainingBudget > 0
+      ? await prisma.debugLog.findMany({
+          where: { tenantId, timestamp: { gt: since }, logLevel: { in: ["INFO", "DEBUG", "TRACE"] } },
+          orderBy: { timestamp: "desc" },
+          take: remainingBudget,
+        })
+      : [];
+
+    return [...priority, ...sample].map(mapDebugLog);
   }
 
   // Real counts for the system-status card - it only ever displayed .length, not read the

@@ -51,15 +51,29 @@ function verifyPayload(payload: LicenseStatusPayload, signature: string): boolea
   }
 }
 
+// Additive payload only: correlation_id/user_id/safe_metadata are new fields alongside the
+// original timestamp/operation/level/message - a Fleet Manager build that only reads the
+// original 4 keeps working unchanged.
 async function collectRecentLogs(tenantId: string): Promise<Record<string, any>[]> {
   const lastSync = await redis.get(lastLogSyncKey(tenantId));
   const since = lastSync ? new Date(lastSync) : new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-  const logs = await dbStore.getDebugLogs();
-  return logs
-    .filter((l) => new Date(l.timestamp) > since)
-    .slice(0, 100)
-    .map((l) => ({ timestamp: l.timestamp, operation: l.operation, level: l.log_level, message: l.message }));
+  // getDebugLogsSince is tenant-scoped and DB-filtered (the previous dbStore.getDebugLogs() call
+  // here had neither: it returned up to 1000 rows across ALL tenants, filtered by "since" in JS
+  // afterwards - a multi-tenant install's heartbeat was shipping every other tenant's debug logs
+  // to the Fleet Manager too). It also never truncates warn/error/fatal, only caps the info/debug
+  // sample - the old .slice(0, 100) applied after filtering could silently drop the oldest events
+  // of a busy window regardless of severity.
+  const logs = await dbStore.getDebugLogsSince(tenantId, since, 100);
+  return logs.map((l) => ({
+    timestamp: l.timestamp,
+    operation: l.operation,
+    level: l.log_level,
+    message: l.message,
+    correlation_id: l.correlation_id,
+    user_id: l.user_id,
+    safe_metadata: l.safe_metadata,
+  }));
 }
 
 interface VulnerabilityFinding {
