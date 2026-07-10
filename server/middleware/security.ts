@@ -42,6 +42,24 @@ export const loginRateLimiter = rateLimit({
   }
 });
 
+// Every route below runs behind requireAuth or requirePermission (server/routes/auth.ts), which
+// always sets req.headers["x-user-id"] from the verified session before calling next() - so a
+// missing header here means the request reached a handler it never should have (a route wired up
+// without one of those two middlewares). Previously every call site silently fell back to the
+// literal "u1" (a real administrator account) instead - which isn't just a missing log line, it's
+// a wrong attribution in a compliance platform's own audit trail. Throwing here routes the failure
+// through errorHandler instead, where it's now actually visible (correct level, correlation id,
+// and once Fase D ships, in the Fleet Manager heartbeat too).
+export function requireUserId(req: Request): string {
+  const userId = req.headers["x-user-id"] as string | undefined;
+  if (!userId) {
+    throw new Error(
+      `Missing x-user-id context on ${req.method} ${req.path} - this route must run behind requireAuth/requirePermission.`
+    );
+  }
+  return userId;
+}
+
 // 3. Configure correlation ID injection - also the earliest point in the middleware chain, so
 // this is where request start time is stamped for real duration measurement in errorHandler
 // (which previously hardcoded durationMs to 0).

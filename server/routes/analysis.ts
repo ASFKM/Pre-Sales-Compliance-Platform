@@ -2,7 +2,7 @@ import express, { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { dbStore } from "../../src/dbStore";
 import { requirePermission } from "./auth";
-import { logDebugMessage } from "../middleware/security";
+import { logDebugMessage, requireUserId } from "../middleware/security";
 import { AnalysisResult } from "../../src/types";
 import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
 import { generateJsonWithProvider, generateTextWithProvider, searchWebWithProvider, ConnectedProvider, ProviderFileInput } from "../utils/aiProviders";
@@ -257,7 +257,7 @@ router.post("/projects/:projectId/analysis-result", requirePermission("analysis:
 
     await dbStore.saveAnalysisResult(result);
 
-    const userId = (req.headers["x-user-id"] as string) || "u1";
+    const userId = requireUserId(req);
     await dbStore.addAuditLog({
       user_id: userId,
       action: "Update AI Analysis Content",
@@ -394,7 +394,7 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
     }
 
     // 1. Create Background AI Analysis Job and log it
-    userId = (req.headers["x-user-id"] as string) || "u1";
+    userId = requireUserId(req);
     const user = await dbStore.getUserById(userId);
     const userName = user ? user.name : "System User";
 
@@ -908,7 +908,7 @@ instead of inventing information.`;
 
     const { text: answer, inputTokens, outputTokens } = await generateTextWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt, documentFiles);
 
-    const userId = (req.headers["x-user-id"] as string) || "u1";
+    const userId = requireUserId(req);
 
     await dbStore.addConversationMessage({
       project_id: projectId,

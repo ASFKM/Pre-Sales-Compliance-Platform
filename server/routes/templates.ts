@@ -4,6 +4,7 @@ import path from "path";
 import { z } from "zod";
 import { dbStore } from "../../src/dbStore";
 import { requireAuth, requirePermission } from "./auth";
+import { requireUserId } from "../middleware/security";
 import { createStorageAdapter, validateUploadedFile } from "../utils/storage";
 import { extractTemplatePlaceholders } from "../utils/docxTemplateEngine";
 
@@ -67,7 +68,7 @@ async function hasDuplicateTemplateName(name: string, ignoreId?: string) {
 }
 
 async function auditTemplateChange(req: Request, action: string, templateId: string, updates: any) {
-  const userId = (req.headers["x-user-id"] as string) || "u1";
+  const userId = requireUserId(req);
   await dbStore.addAuditLog({
     user_id: userId,
     action,

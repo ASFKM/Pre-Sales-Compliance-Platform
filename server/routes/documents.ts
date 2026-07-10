@@ -5,7 +5,7 @@ import { requireAuth, requirePermission } from "./auth";
 import { createStorageAdapter, validateUploadedFile } from "../utils/storage";
 import { extractTextFromDocument } from "../utils/extraction";
 import { classifyDocument } from "../utils/documentClassification";
-import { logDebugMessage } from "../middleware/security";
+import { logDebugMessage, requireUserId } from "../middleware/security";
 import { runWithTenant } from "../../src/tenantContext";
 
 const router = express.Router();
@@ -85,7 +85,7 @@ router.post(
 
       await runWithTenant(tenantContext, async () => {
         // 4. Save to Database
-        const userId = (req.headers["x-user-id"] as string) || "u1";
+        const userId = requireUserId(req);
         const docRecord = await dbStore.addDocument({
           project_id: projectId,
           filename: file.originalname,
@@ -181,7 +181,7 @@ router.delete("/documents/:id", requirePermission("document:delete"), async (req
     // Remove from DB (document_contents row cascades automatically)
     await dbStore.deleteDocument(docId);
 
-    const userId = (req.headers["x-user-id"] as string) || "u1";
+    const userId = requireUserId(req);
     await dbStore.addAuditLog({
       user_id: userId,
       action: "Delete Document",
@@ -218,7 +218,7 @@ router.post("/documents/:id/reclassify", requirePermission("document:upload"), a
       detected_document_type: document_type, // also update active type
     });
 
-    const userId = (req.headers["x-user-id"] as string) || "u1";
+    const userId = requireUserId(req);
     await dbStore.addAuditLog({
       user_id: userId,
       action: "Reclassify Document",
@@ -252,7 +252,7 @@ router.put("/documents/:id/rename", requirePermission("document:upload"), async 
 
     const updatedDoc = await dbStore.updateDocument(req.params.id, { original_filename: newName });
 
-    const userId = (req.headers["x-user-id"] as string) || "u1";
+    const userId = requireUserId(req);
     await dbStore.addAuditLog({
       user_id: userId,
       action: "Rename Document",

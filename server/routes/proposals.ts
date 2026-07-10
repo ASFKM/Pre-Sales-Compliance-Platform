@@ -5,7 +5,7 @@ import { requireAuth, requirePermission } from "./auth";
 import { buildProposalText, writeProposalFiles } from "../utils/docx";
 import { renderDocxFromTemplate } from "../utils/docxTemplateEngine";
 import { createStorageAdapter } from "../utils/storage";
-import { logDebugMessage } from "../middleware/security";
+import { logDebugMessage, requireUserId } from "../middleware/security";
 import { ProposalTemplate } from "../../src/types";
 import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
 import { runWithTenant } from "../../src/tenantContext";
@@ -114,7 +114,7 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
     const platformSettings = await dbStore.getSettings();
     const physicalFileFound = await checkTemplatePhysicalFile(template, platformSettings);
 
-    const userId = (req.headers["x-user-id"] as string) || "u1";
+    const userId = requireUserId(req);
     const tenantId = req.headers["x-tenant-id"] as string;
     const user = await dbStore.getUserById(userId);
     const userName = user ? user.name : "System User";
@@ -305,7 +305,7 @@ router.put("/proposals/:id", requirePermission("proposal:edit"), async (req: Req
       });
     }
 
-    const userId = (req.headers["x-user-id"] as string) || "u1";
+    const userId = requireUserId(req);
     await dbStore.addAuditLog({
       user_id: userId,
       action: validated.editable_content !== undefined ? "Edit Proposal Content" : "Update Proposal Pricing Details",
@@ -368,7 +368,7 @@ router.post("/proposals/:id/release", requirePermission("proposal:approve"), asy
       projectId: proposal.project_id
     });
 
-    const userId = (req.headers["x-user-id"] as string) || "u1";
+    const userId = requireUserId(req);
     await dbStore.addAuditLog({
       user_id: userId,
       action: "Release Final Proposal",

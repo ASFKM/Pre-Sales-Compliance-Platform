@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { dbStore } from "../../src/dbStore";
 import { requireAuth, requirePermission } from "./auth";
+import { requireUserId } from "../middleware/security";
 
 const router = express.Router();
 
@@ -74,7 +75,7 @@ async function validateApprovalWorkflowStages(stages: any[]) {
 }
 
 async function auditApprovalChange(req: Request, action: string, entityType: string, entityId: string, metadata: any, projectId?: string) {
-  const userId = (req.headers["x-user-id"] as string) || "u1";
+  const userId = requireUserId(req);
   await dbStore.addAuditLog({
     user_id: userId,
     action,

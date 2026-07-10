@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { dbStore } from "../../src/dbStore";
 import { requirePermission } from "./auth";
+import { requireUserId } from "../middleware/security";
 import { UserStatus } from "../../src/types";
 import { hashPassword } from "../utils/security";
 
@@ -64,7 +65,7 @@ router.post("/", requirePermission("admin:users"), async (req: Request, res: Res
 
     // Audit Log
     await dbStore.addAuditLog({
-      user_id: (req.headers["x-user-id"] as string) || "u1",
+      user_id: requireUserId(req),
       action: "Create User",
       entity_type: "User",
       entity_id: newUser.id,
@@ -127,7 +128,7 @@ router.put("/:id", requirePermission("admin:users"), async (req: Request, res: R
     }
 
     await dbStore.addAuditLog({
-      user_id: (req.headers["x-user-id"] as string) || "u1",
+      user_id: requireUserId(req),
       action: "Update User Record",
       entity_type: "User",
       entity_id: req.params.id,
@@ -147,7 +148,7 @@ router.put("/:id", requirePermission("admin:users"), async (req: Request, res: R
 
 router.delete("/:id", requirePermission("admin:users"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const actorUserId = (req.headers["x-user-id"] as string) || "u1";
+    const actorUserId = requireUserId(req);
     const user = await dbStore.getUserById(req.params.id);
 
     if (!user) {
@@ -205,7 +206,7 @@ router.post("/teams", requirePermission("admin:users"), async (req: Request, res
 
     const membership = await dbStore.addTeamMembership(manager_id, engineer_id);
 
-    const actorUserId = (req.headers["x-user-id"] as string) || "u1";
+    const actorUserId = requireUserId(req);
     await dbStore.addAuditLog({
       user_id: actorUserId,
       action: "Add Team Membership",
@@ -236,7 +237,7 @@ router.delete("/teams/:id", requirePermission("admin:users"), async (req: Reques
       return res.status(404).json({ success: false, message: "Team membership not found." });
     }
 
-    const actorUserId = (req.headers["x-user-id"] as string) || "u1";
+    const actorUserId = requireUserId(req);
     await dbStore.addAuditLog({
       user_id: actorUserId,
       action: "Remove Team Membership",

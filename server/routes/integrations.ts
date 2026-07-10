@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from "express";
 import { dbStore } from "../../src/dbStore";
 import { requireAuth, requirePermission } from "./auth";
 import { encryptSecret, maskSecret, decryptSecret } from "../utils/security";
+import { requireUserId } from "../middleware/security";
 
 const router = express.Router();
 
@@ -106,7 +107,7 @@ function buildConnectorPayload(input: any, existing?: any) {
 }
 
 async function auditIntegration(req: Request, action: string, entityId: string, metadata: any) {
-  const userId = (req.headers["x-user-id"] as string) || "u1";
+  const userId = requireUserId(req);
   await dbStore.addAuditLog({
     user_id: userId,
     action,

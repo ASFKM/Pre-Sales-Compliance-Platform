@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../../src/prisma";
 import { dbStore } from "../../src/dbStore";
 import { requireAuth, requirePermission } from "./auth";
+import { requireUserId } from "../middleware/security";
 import { getCurrentTenantId } from "../../src/tenantContext";
 import { randomId } from "../../src/idGenerator";
 
@@ -55,7 +56,7 @@ router.post("/messages", requirePermission("admin:settings"), async (req: Reques
   try {
     const validated = SendMessageSchema.parse(req.body);
     const tenantId = getCurrentTenantId()!;
-    const userId = (req.headers["x-user-id"] as string) || "u1";
+    const userId = requireUserId(req);
     const expiresAt = validated.expires_in_minutes ? new Date(Date.now() + validated.expires_in_minutes * 60_000) : null;
 
     const message = await prisma.systemMessage.create({

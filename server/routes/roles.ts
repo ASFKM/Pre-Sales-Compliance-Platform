@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { dbStore } from "../../src/dbStore";
 import { requirePermission } from "./auth";
+import { requireUserId } from "../middleware/security";
 
 const router = express.Router();
 
@@ -79,7 +80,7 @@ router.post("/", requirePermission("admin:roles"), async (req: Request, res: Res
     });
 
     await dbStore.addAuditLog({
-      user_id: (req.headers["x-user-id"] as string) || "u1",
+      user_id: requireUserId(req),
       action: "Create Role",
       entity_type: "Role",
       entity_id: role.id,
@@ -128,7 +129,7 @@ router.put("/:id", requirePermission("admin:roles"), async (req: Request, res: R
     }
 
     await dbStore.addAuditLog({
-      user_id: (req.headers["x-user-id"] as string) || "u1",
+      user_id: requireUserId(req),
       action: "Update Role",
       entity_type: "Role",
       entity_id: role.id,
@@ -157,7 +158,7 @@ router.delete("/:id", requirePermission("admin:roles"), async (req: Request, res
     }
 
     await dbStore.addAuditLog({
-      user_id: (req.headers["x-user-id"] as string) || "u1",
+      user_id: requireUserId(req),
       action: "Delete Role",
       entity_type: "Role",
       entity_id: req.params.id,

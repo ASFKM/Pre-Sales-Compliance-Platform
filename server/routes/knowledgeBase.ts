@@ -3,6 +3,7 @@ import multer from "multer";
 import { z } from "zod";
 import { dbStore } from "../../src/dbStore";
 import { requirePermission } from "./auth";
+import { requireUserId } from "../middleware/security";
 import { createStorageAdapter, validateUploadedFile } from "../utils/storage";
 import { generateJsonWithProvider, generateTextWithProvider, ConnectedProvider, ProviderFileInput } from "../utils/aiProviders";
 import { resolveProvider, checkCostCap, recordAiUsage } from "../../src/aiOrchestrator";
@@ -57,7 +58,7 @@ const UpdateEntrySchema = z.object({
 router.put("/knowledge-base/entries/:id", requirePermission("knowledge_base:write"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validated = UpdateEntrySchema.parse(req.body);
-    const userId = (req.headers["x-user-id"] as string) || "u1";
+    const userId = requireUserId(req);
     const isReviewDecision = validated.status === "approved" || validated.status === "rejected";
 
     const entry = await dbStore.updateKnowledgeBaseEntry(req.params.id, {
@@ -156,7 +157,7 @@ Respond with ONLY a JSON object: { "reusable": true, "trigger": "...", "knowledg
       return res.json({ success: true, entry: null });
     }
 
-    const userId = (req.headers["x-user-id"] as string) || "u1";
+    const userId = requireUserId(req);
     const entry = await dbStore.createKnowledgeBaseEntry({
       category: validated.category,
       trigger: parsed.trigger,
@@ -221,7 +222,7 @@ router.post(
       // documents have no real project of origin.
       const storagePath = await storageAdapter.uploadFile("knowledge-base", file.buffer, file.originalname, file.mimetype);
 
-      const userId = (req.headers["x-user-id"] as string) || "u1";
+      const userId = requireUserId(req);
       const doc = await runWithTenant(tenantContext, () =>
         dbStore.createKnowledgeBaseDocument({
           filename: file.originalname,
@@ -269,7 +270,7 @@ router.post("/knowledge-base/documents/analyze", requirePermission("knowledge_ba
   try {
     const tenantId = req.headers["x-tenant-id"] as string;
     const tenantContext = { tenantId };
-    const userId = (req.headers["x-user-id"] as string) || "u1";
+    const userId = requireUserId(req);
 
     const allDocs = await dbStore.getKnowledgeBaseDocuments();
     const pendingDocs = allDocs.filter((d) => !d.analyzed_at);

@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { dbStore } from "../../src/dbStore";
 import { requireAuth, requirePermission } from "./auth";
+import { requireUserId } from "../middleware/security";
 
 const router = express.Router();
 
@@ -48,7 +49,7 @@ router.get("/:id", requireAuth, async (req: Request, res: Response, next: NextFu
 router.post("/", requirePermission("project:create"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validated = ProjectSchema.parse(req.body);
-    const userId = (req.headers["x-user-id"] as string) || "u1";
+    const userId = requireUserId(req);
 
     const project = await dbStore.createProject({
       ...validated,
@@ -82,7 +83,7 @@ router.put("/:id", requirePermission("project:update"), async (req: Request, res
       return res.status(404).json({ success: false, message: "Project not found" });
     }
 
-    const userId = (req.headers["x-user-id"] as string) || "u1";
+    const userId = requireUserId(req);
     await dbStore.addAuditLog({
       user_id: userId,
       action: "Update Project",
@@ -157,7 +158,7 @@ router.delete("/:id", requirePermission("project:delete"), async (req: Request, 
       return res.status(404).json({ success: false, message: "Project not found" });
     }
 
-    const userId = (req.headers["x-user-id"] as string) || "u1";
+    const userId = requireUserId(req);
     await dbStore.addAuditLog({
       user_id: userId,
       action: "Delete Project",

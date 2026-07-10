@@ -4,6 +4,7 @@ import path from "path";
 import { dbStore } from "../../src/dbStore";
 import { requireAuth, requirePermission } from "./auth";
 import { encryptSecret, decryptSecret, maskSecret } from "../utils/security";
+import { requireUserId } from "../middleware/security";
 import { createStorageAdapter } from "../utils/storage";
 import { getFleetLicenseStatus } from "../utils/fleetLicense";
 import { getCurrentTenantId } from "../../src/tenantContext";
@@ -80,7 +81,7 @@ function sanitizeSettingsAudit(updates: any) {
 
 
 async function auditSettingsChange(req: Request, action: string, entityType: string, entityId: string, updates: any) {
-  const userId = (req.headers["x-user-id"] as string) || "u1";
+  const userId = requireUserId(req);
   await dbStore.addAuditLog({
     user_id: userId,
     action,
@@ -625,7 +626,7 @@ router.post("/settings/prompts", requirePermission("ai:settings"), async (req: R
       return res.status(400).json({ success: false, message: promptValidation.message });
     }
 
-    const userId = (req.headers["x-user-id"] as string) || "u1";
+    const userId = requireUserId(req);
     const prompt = await dbStore.createPromptVersion({ name, type, content, language, version, created_by: userId });
 
     await auditSettingsChange(req, "Create AI Prompt Template Version", "PromptTemplate", prompt.id, { type, version });
