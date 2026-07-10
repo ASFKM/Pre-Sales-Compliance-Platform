@@ -33,10 +33,12 @@ services:
       - POSTGRES_DB=commercial_assistant
       - POSTGRES_USER=app_user
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+    command: ["postgres", "-c", "ssl=on", "-c", "ssl_cert_file=/certs/server.crt", "-c", "ssl_key_file=/certs/server.key"]
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - /etc/postgresql-certs:/certs:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U app_user -d commercial_assistant"]
       interval: 10s

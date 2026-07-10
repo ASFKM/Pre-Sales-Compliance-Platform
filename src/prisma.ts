@@ -7,6 +7,7 @@
 // EnvironmentFile=) and CI (an explicit workflow env var) both already set it directly, so this
 // line is a no-op safety net for those two, and the actual fix for local/manual CLI usage.
 import "dotenv/config";
+import fs from "fs";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { getTenantContext, TenantContext } from "./tenantContext";
@@ -87,7 +88,19 @@ function buildVisibilityFilter(model: string, context: TenantContext): Record<st
 // Prisma 7 removed the bundled Rust query engine that used to read the schema's datasource url
 // automatically - the generated client now needs an explicit driver adapter with its own
 // connection string (see prisma.config.ts for the CLI/migrate side of this same change).
-const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
+// Fase 1 of the Zero Trust rollout (SSL on Postgres). Only enabled when DATABASE_SSL_CA_PATH is
+// set, pointing at the internal CA's public cert (not a secret) - keeps CI and any environment
+// without that CA (which only exists on this deployment) working unchanged with a plain
+// connection, while production connects with server-cert verification. Postgres itself still
+// accepts non-SSL connections too (ssl=on doesn't force hostssl in pg_hba.conf) - deliberately
+// not tightened further yet, since this DB is loopback-only already; see Fase 1.7 log.
+const sslConfig = process.env.DATABASE_SSL_CA_PATH
+  ? { ca: fs.readFileSync(process.env.DATABASE_SSL_CA_PATH, "utf8"), rejectUnauthorized: true }
+  : undefined;
+const adapter = new PrismaPg({
+  connectionString: process.env.DATABASE_URL,
+  ssl: sslConfig,
+});
 const basePrisma = new PrismaClient({ adapter });
 
 // findUnique/findUniqueOrThrow, and the singular update/delete, all require the unique field
