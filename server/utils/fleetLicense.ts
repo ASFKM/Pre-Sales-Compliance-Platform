@@ -284,6 +284,12 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
       for (const command of data.commands || []) {
         // force_log_collection/force_vulnerability_scan already happened above (this heartbeat
         // always sends both) - acknowledging just tells the fleet manager it was delivered.
+        // force_kb_sync is different: it clears every locally-approved entry's "already synced"
+        // marker so a full resync goes up on the NEXT heartbeat (this one's body was already
+        // built before this response arrived) rather than only newly-approved ones.
+        if (command.type === "force_kb_sync") {
+          await dbStore.resetKnowledgeBaseSyncCursor().catch((err) => logger.warn({ err, tenantId }, "Failed to reset knowledge base sync cursor for force_kb_sync"));
+        }
         await fetch(`${settings.fleet_manager_url}/api/heartbeat/commands/${command.id}/ack`, {
           method: "POST",
           headers: { Authorization: `Bearer ${apiKey}` },

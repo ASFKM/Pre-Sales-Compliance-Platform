@@ -1775,6 +1775,16 @@ class DBStore {
     await prisma.knowledgeBaseEntry.updateMany({ where: { id: { in: ids } }, data: { syncedToFleetAt: new Date() } });
   }
 
+  // Triggered by the Fleet Manager's force_kb_sync command (see fleetLicense.ts) - clears every
+  // locally-approved entry's sync marker so getKnowledgeBaseEntriesToSync picks all of them up
+  // again on the next heartbeat, not just ones approved since the last sync.
+  public async resetKnowledgeBaseSyncCursor(): Promise<void> {
+    await prisma.knowledgeBaseEntry.updateMany({
+      where: { status: "approved", source: { not: "fleet_manager_global" } },
+      data: { syncedToFleetAt: null },
+    });
+  }
+
   // findFirst, not findUnique: fleetGlobalEntryId isn't @unique on its own (see the schema
   // comment - a single physical install can host multiple tenants, each legitimately able to
   // receive the same global entry id). The tenant-scoping extension (src/prisma.ts) still injects
