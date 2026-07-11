@@ -89,7 +89,7 @@ const KEYWORD_STOPWORDS = new Set([
 // of topic. Keywords keep their original accents (unlike stripAccents elsewhere in this file) since
 // they're matched via a plain ILIKE `contains` against trigger/knowledge text that isn't
 // accent-folded - only the stopword comparison itself is accent-insensitive.
-function extractKnowledgeBaseKeywords(text: string, maxKeywords = 40): string[] {
+export function extractKnowledgeBaseKeywords(text: string, maxKeywords = 40): string[] {
   const counts = new Map<string, number>();
   for (const raw of text.toLowerCase().split(/[^\p{L}\p{N}-]+/u)) {
     const word = raw.trim();

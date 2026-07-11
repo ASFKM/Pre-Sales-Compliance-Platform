@@ -824,6 +824,7 @@ enum KnowledgeBaseEntryStatus {
 enum KnowledgeBaseEntrySource {
   reactive_edit
   uploaded_document
+  fleet_manager_global
 }
 
 // A document (manufacturer datasheet, technical catalog...) uploaded specifically to seed the
@@ -873,6 +874,18 @@ model KnowledgeBaseEntry {
   reviewedBy         String?                    @map("reviewed_by")
   createdAt          DateTime                   @default(now()) @map("created_at")
   reviewedAt         DateTime?                  @map("reviewed_at")
+  // Set only when source = fleet_manager_global: the id of the PresalesKbEntry on the Fleet
+  // Manager side this was delivered from - used to recognize a redelivered entry (heartbeat retry)
+  // before its ack registers, so it's never created twice. Not @unique on its own: a single
+  // physical install's database can host multiple tenants, each with its own Fleet Manager
+  // connection (PlatformSettings is tenant-scoped), so two different tenants legitimately
+  // receiving the same global entry is a real case, not a bug - lookups go through findFirst
+  // (tenant-scoped automatically by src/prisma.ts), not findUnique.
+  fleetGlobalEntryId String?                    @map("fleet_global_entry_id")
+  // Set only for locally-created entries (reactive_edit/uploaded_document) once they've been
+  // uploaded to the Fleet Manager on a heartbeat - see server/utils/fleetLicense.ts. Never set for
+  // fleet_manager_global entries, which never sync back up.
+  syncedToFleetAt    DateTime?                  @map("synced_to_fleet_at")
 
   @@index([tenantId])
   @@index([status])

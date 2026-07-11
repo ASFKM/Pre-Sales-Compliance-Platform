@@ -7,6 +7,7 @@ import { prisma } from "../../src/prisma";
 import { decryptSecret } from "./security";
 import { randomId } from "../../src/idGenerator";
 import { logger } from "./logger";
+import { reconcileIncomingKnowledgeEntry, IncomingGlobalKbEntry } from "./knowledgeBaseReconciliation";
 
 // Phase 7 (fleet/license management): the public half of the fleet manager's Ed25519 signing
 // keypair, baked into this build (not fetched at runtime - a compromised heartbeat response
@@ -212,12 +213,25 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
       const apiKey = decryptSecret(settings.fleet_manager_api_key_encrypted);
       const logs = await collectRecentLogs(tenantId);
       const vulnerabilities = await runVulnerabilityScan();
+      // Locally-approved entries not yet uploaded - see dbStore.getKnowledgeBaseEntriesToSync.
+      // Received synchronously by the Fleet Manager within this same request (unlike
+      // commands/messages below, this direction needs no queue/ack - see
+      // knowledgeBaseReconciliation.ts and heartbeat.ts for what happens to these on each end).
+      const kbEntriesToSync = await dbStore.getKnowledgeBaseEntriesToSync(50);
 
       const body = JSON.stringify({
         logs,
         vulnerabilities: vulnerabilities || undefined,
         system_info: collectSystemInfo(),
         config_snapshot: sanitizeSettingsForBackup(settings as unknown as Record<string, any>),
+        knowledge_base_entries: kbEntriesToSync.map((e) => ({
+          id: e.id,
+          category: e.category,
+          trigger: e.trigger,
+          knowledge: e.knowledge,
+          source_project_name: e.source_project_name,
+          source_document_name: e.source_document_name,
+        })),
       });
       // Fase 1.6 of the Zero Trust rollout: HMAC over the exact bytes being sent, keyed with the
       // same per-installation API key the Bearer header already carries - see the Fleet
@@ -301,6 +315,45 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
             },
           });
         }
+      }
+
+      // Global Knowledge Base entries pushed down from the Fleet Manager - see
+      // server/routes/heartbeat.ts on the Fleet Manager side for how these are queued
+      // (PresalesKbDelivery, one per installation) and knowledgeBaseReconciliation.ts for the
+      // duplicate/contradiction check each one goes through before landing locally.
+      for (const kbItem of (data.knowledge_base_entries || []) as Array<IncomingGlobalKbEntry & { delivery_id: string }>) {
+        try {
+          const alreadyReceived = await dbStore.findKnowledgeBaseEntryByFleetGlobalId(kbItem.entry_id);
+          if (!alreadyReceived) {
+            const outcome = await reconcileIncomingKnowledgeEntry(kbItem, settings, tenantId);
+            if (outcome.action === "create") {
+              await dbStore.createKnowledgeBaseEntry({
+                category: kbItem.category as any,
+                trigger: kbItem.trigger,
+                knowledge: outcome.status === "pending" ? `${outcome.conflictNote}${kbItem.knowledge}` : kbItem.knowledge,
+                status: outcome.status,
+                source: "fleet_manager_global",
+                created_by: "Fleet Manager",
+                fleet_global_entry_id: kbItem.entry_id,
+              });
+            }
+          }
+        } catch (kbErr) {
+          logger.warn({ err: kbErr, tenantId, entryId: kbItem.entry_id }, "Failed to apply incoming Fleet Manager knowledge base entry");
+        }
+
+        // Acknowledged regardless of outcome above (create/skip/already-received) - the delivery
+        // itself was received and processed, which is all the Fleet Manager's ack tracks (same
+        // "delivered vs acted-on-already-happened" semantics as the commands loop above).
+        await fetch(`${settings.fleet_manager_url}/api/heartbeat/knowledge-base/${kbItem.delivery_id}/ack`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${apiKey}` },
+          signal: AbortSignal.timeout(10000),
+        }).catch(() => {});
+      }
+
+      if (kbEntriesToSync.length > 0) {
+        await dbStore.markKnowledgeBaseEntriesSynced(kbEntriesToSync.map((e) => e.id));
       }
     } catch (err) {
       logger.error({ err, tenantId }, "Fleet manager heartbeat error");

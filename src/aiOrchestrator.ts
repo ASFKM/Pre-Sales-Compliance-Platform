@@ -91,6 +91,7 @@ export const AI_SPENDING_TASK_TYPES = [
   "bom_web_search",
   "kb_suggest",
   "document_classification",
+  "kb_reconciliation",
 ] as const;
 export type AiSpendingTaskType = (typeof AI_SPENDING_TASK_TYPES)[number];
 

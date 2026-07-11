@@ -125,6 +125,8 @@ function mapKnowledgeBaseEntry(e: any): KnowledgeBaseEntry {
     reviewed_by: e.reviewedBy ?? undefined,
     created_at: e.createdAt.toISOString(),
     reviewed_at: e.reviewedAt ? e.reviewedAt.toISOString() : undefined,
+    fleet_global_entry_id: e.fleetGlobalEntryId ?? undefined,
+    synced_to_fleet_at: e.syncedToFleetAt ? e.syncedToFleetAt.toISOString() : undefined,
   };
 }
 
@@ -1750,9 +1752,57 @@ class DBStore {
         createdBy: entry.created_by,
         reviewedBy: entry.reviewed_by,
         reviewedAt: entry.reviewed_at ? new Date(entry.reviewed_at) : undefined,
+        fleetGlobalEntryId: entry.fleet_global_entry_id,
       },
     });
     return mapKnowledgeBaseEntry(e);
+  }
+
+  // Entries this tenant created locally (never ones already sourced from the Fleet Manager, which
+  // never sync back up) that are approved and haven't been uploaded yet - see
+  // server/utils/fleetLicense.ts, called once per heartbeat.
+  public async getKnowledgeBaseEntriesToSync(limit = 50): Promise<KnowledgeBaseEntry[]> {
+    const rows = await prisma.knowledgeBaseEntry.findMany({
+      where: { status: "approved", source: { not: "fleet_manager_global" }, syncedToFleetAt: null },
+      orderBy: { createdAt: "asc" },
+      take: limit,
+    });
+    return rows.map(mapKnowledgeBaseEntry);
+  }
+
+  public async markKnowledgeBaseEntriesSynced(ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    await prisma.knowledgeBaseEntry.updateMany({ where: { id: { in: ids } }, data: { syncedToFleetAt: new Date() } });
+  }
+
+  // findFirst, not findUnique: fleetGlobalEntryId isn't @unique on its own (see the schema
+  // comment - a single physical install can host multiple tenants, each legitimately able to
+  // receive the same global entry id). The tenant-scoping extension (src/prisma.ts) still injects
+  // tenantId into this filter automatically.
+  public async findKnowledgeBaseEntryByFleetGlobalId(fleetGlobalEntryId: string): Promise<KnowledgeBaseEntry | undefined> {
+    const e = await prisma.knowledgeBaseEntry.findFirst({ where: { fleetGlobalEntryId } });
+    return e ? mapKnowledgeBaseEntry(e) : undefined;
+  }
+
+  // Used only by the incoming-entry reconciliation check (server/utils/knowledgeBaseReconciliation.ts)
+  // to find candidate entries a newly-received global entry might duplicate or contradict - unlike
+  // searchApprovedKnowledgeBase above, deliberately NOT status-filtered (a pending entry can still
+  // be a real duplicate/contradiction) but IS category-filtered (comparing across categories, e.g.
+  // a part number against an engineering note, is never meaningful).
+  public async searchKnowledgeBaseByCategory(category: string, keywords: string[], limit = 10): Promise<KnowledgeBaseEntry[]> {
+    if (keywords.length === 0) return [];
+    const rows = await prisma.knowledgeBaseEntry.findMany({
+      where: {
+        category: category as any,
+        OR: keywords.flatMap((kw) => [
+          { trigger: { contains: kw, mode: "insensitive" as const } },
+          { knowledge: { contains: kw, mode: "insensitive" as const } },
+        ]),
+      },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+    });
+    return rows.map(mapKnowledgeBaseEntry);
   }
 
   public async updateKnowledgeBaseEntry(id: string, updates: Partial<KnowledgeBaseEntry>): Promise<KnowledgeBaseEntry | undefined> {

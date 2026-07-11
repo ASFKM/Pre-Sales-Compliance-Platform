@@ -501,7 +501,7 @@ export interface IntegrationConnector {
 
 export type KnowledgeBaseEntryCategory = "bom_part_number" | "engineering_note" | "compliance_status" | "datasheet";
 export type KnowledgeBaseEntryStatus = "pending" | "approved" | "rejected";
-export type KnowledgeBaseEntrySource = "reactive_edit" | "uploaded_document";
+export type KnowledgeBaseEntrySource = "reactive_edit" | "uploaded_document" | "fleet_manager_global";
 
 export interface KnowledgeBaseEntry {
   id: string;
@@ -518,6 +518,11 @@ export interface KnowledgeBaseEntry {
   reviewed_by?: string;
   created_at: string;
   reviewed_at?: string;
+  // Set only when source = "fleet_manager_global": the id of the entry on the Fleet Manager side
+  // this was delivered from.
+  fleet_global_entry_id?: string;
+  // Set only for locally-created entries once uploaded to the Fleet Manager on a heartbeat.
+  synced_to_fleet_at?: string;
 }
 
 export interface KnowledgeBaseDocument {
