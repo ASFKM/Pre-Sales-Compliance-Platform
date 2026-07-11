@@ -32,13 +32,15 @@ services:
     environment:
       - POSTGRES_DB=commercial_assistant
       - POSTGRES_USER=app_user
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      - POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password
     command: ["postgres", "-c", "ssl=on", "-c", "ssl_cert_file=/certs/server.crt", "-c", "ssl_key_file=/certs/server.key"]
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - /etc/postgresql-certs:/certs:ro
+    secrets:
+      - postgres_password
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U app_user -d commercial_assistant"]
       interval: 10s
@@ -87,6 +89,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt
 
 volumes:
   pgdata:
