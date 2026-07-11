@@ -756,7 +756,7 @@ export default function Workspace({
                                     ? {
                                         ...b,
                                         [field]: value,
-                                        ...(SOURCING_FIELDS.includes(field) ? { sourced_via_web_search: false, edited_by: currentUserName } : {}),
+                                        ...(SOURCING_FIELDS.includes(field) ? { sourced_via_web_search: false, sourced_via_knowledge_base: false, edited_by: currentUserName } : {}),
                                       }
                                     : b);
                                   saveBOM(updatedBOM);
@@ -791,6 +791,13 @@ export default function Workspace({
                                         title="Valor corrigido/verificado manualmente"
                                       >
                                         ✏️ Editado por {item.edited_by}
+                                      </span>
+                                    ) : item.sourced_via_knowledge_base ? (
+                                      <span
+                                        className="inline-block mt-1 text-[9px] font-bold text-purple-700 bg-purple-50 border border-purple-100 px-1.5 py-0.5 rounded-full"
+                                        title="Resolvido a partir da Base de Conhecimento aprovada (conhecimento validado de projetos anteriores)"
+                                      >
+                                        📚 Via Base de Conhecimento
                                       </span>
                                     ) : item.sourced_via_web_search && (
                                       <span

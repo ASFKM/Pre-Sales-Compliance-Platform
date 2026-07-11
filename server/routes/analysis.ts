@@ -172,8 +172,14 @@ const BOMItemSchema = z.object({
   // rather than found in the source document - the two have very different reliability, and the
   // user needs to know which is which before quoting a part number in a real proposal.
   sourced_via_web_search: z.boolean().optional().default(false),
+  // True when the same lookup step instead resolved the item from an approved Knowledge Base
+  // entry (human-reviewed, from a past project) - checked before falling back to a live web
+  // search, so this is the more trustworthy of the two provenance flags. Mutually exclusive with
+  // sourced_via_web_search.
+  sourced_via_knowledge_base: z.boolean().optional().default(false),
   // Set client-side the moment a user hand-edits sku/part_number/manufacturer - takes over from
-  // sourced_via_web_search in the UI badge once a person has verified/corrected the value.
+  // sourced_via_web_search/sourced_via_knowledge_base in the UI badge once a person has verified/
+  // corrected the value.
   edited_by: z.string().optional(),
 });
 
@@ -283,12 +289,15 @@ router.post("/projects/:projectId/analysis-result", requirePermission("analysis:
 });
 
 // Looks up a real part number/manufacturer for BOM items the document itself didn't specify
-// (sku/part_number left blank by the main analysis, per its own "never invent" instruction) via
-// the configured web_grounding provider's native search tool - a real internet lookup, not the
-// model guessing from training data. Never throws: if the provider isn't configured for web
-// search, the API errors, or the response isn't parsable JSON, the original BOM is returned
-// unchanged and the failure is only logged - this is an enrichment step, losing it should never
-// fail (or even flag as failed) an otherwise-successful analysis.
+// (sku/part_number left blank by the main analysis, per its own "never invent" instruction).
+// Consults the approved Knowledge Base per item FIRST - the document-wide KB pass earlier in the
+// analysis (see knowledgeBaseKeywords above) is keyed off the whole document's keywords and can
+// miss an item whose own name/category/spec never surfaced there - and only falls back to a real,
+// live web search (via the configured web_grounding provider's native search tool) for items the
+// KB doesn't confidently cover. Never throws: if the provider isn't configured for web search, the
+// API errors, or the response isn't parsable JSON, the original BOM is returned unchanged and the
+// failure is only logged - this is an enrichment step, losing it should never fail (or even flag
+// as failed) an otherwise-successful analysis.
 async function enrichBomWithWebSearch(bom: any[], platformSettings: any, proposalLanguage: string, tenantId: string): Promise<any[]> {
   // Only a missing part_number is treated as "needs lookup" here. A part_number already present
   // (e.g. filled from an approved Knowledge Base entry) but missing manufacturer used to also
@@ -302,22 +311,43 @@ async function enrichBomWithWebSearch(bom: any[], platformSettings: any, proposa
   if (itemsNeedingLookup.length === 0) return bom;
 
   try {
-    const providerResolution = await resolveProvider("web_grounding", platformSettings);
-    const lookupList = itemsNeedingLookup.map((item) => ({
-      item_id: item.item_id,
-      equipment_name: item.equipment_name,
-      category: item.category,
-      specification: item.specification,
-      known_part_number: item.part_number?.trim() || null,
-    }));
+    // Per-item KB pass: same heuristic keyword match used for the document-wide pass earlier
+    // (extractKnowledgeBaseKeywords), scoped this time to just each item's own equipment_name/
+    // category/specification, so an item can match approved knowledge even if its terms never
+    // made the cut in the whole-document keyword extraction. One batched searchApprovedKnowledgeBase
+    // call over the union of all items' keywords, then filtered back out per item, to avoid one
+    // DB round-trip per BOM item.
+    const itemKeywordSets = itemsNeedingLookup.map((item) =>
+      extractKnowledgeBaseKeywords([item.equipment_name, item.category, item.specification].filter(Boolean).join(" "), 15)
+    );
+    const unionKeywords = [...new Set(itemKeywordSets.flat())];
+    const candidateKnowledge = unionKeywords.length > 0 ? await dbStore.searchApprovedKnowledgeBase(unionKeywords, 50) : [];
 
-    const prompt = `Search the web for a real, currently-sold product that matches or exceeds each equipment specification below. If "known_part_number" is set for an item, that part number is already correct/authoritative - only search for which real manufacturer makes that exact part number, do not substitute a different product. If "known_part_number" is null, find an actual manufacturer and part number/SKU from a real product page, datasheet, or distributor listing - never invent one. If you cannot find a confident real match after searching, leave sku/part_number/manufacturer as empty strings for that item rather than guessing.
+    const providerResolution = await resolveProvider("web_grounding", platformSettings);
+    const lookupList = itemsNeedingLookup.map((item, idx) => {
+      const itemKeywords = itemKeywordSets[idx];
+      const relevantKnowledge = candidateKnowledge.filter((k) =>
+        itemKeywords.some((kw) => k.trigger.toLowerCase().includes(kw) || k.knowledge.toLowerCase().includes(kw))
+      );
+      return {
+        item_id: item.item_id,
+        equipment_name: item.equipment_name,
+        category: item.category,
+        specification: item.specification,
+        known_part_number: item.part_number?.trim() || null,
+        known_knowledge: relevantKnowledge.length > 0
+          ? relevantKnowledge.map((k) => `Se: ${k.trigger} → Então: ${k.knowledge}`)
+          : null,
+      };
+    });
+
+    const prompt = `For each item below, first check "known_knowledge" - human-approved internal knowledge from past projects, already vetted by a person. If it clearly states a concrete real manufacturer and/or part number/SKU for this exact item, use that value instead of searching the web, and set "source" to "knowledge_base". Only actually search the web for items where known_knowledge is null or doesn't give a concrete manufacturer/part number, and set "source" to "web_search" for those found that way. If "known_part_number" is set for an item, that part number is already correct/authoritative - only search for (or find in known_knowledge) which real manufacturer makes that exact part number, do not substitute a different product. If neither known_knowledge nor a web search yields a confident real match, leave sku/part_number/manufacturer as empty strings and set "source" to "not_found" rather than guessing.
 
 ITEMS TO LOOK UP:
 ${JSON.stringify(lookupList, null, 2)}
 
 Respond with ONLY a JSON array (no markdown, no extra text), one object per item_id above, in this exact shape:
-[{ "item_id": "...", "sku": "real SKU or empty string", "part_number": "real part number or empty string", "manufacturer": "real manufacturer name or empty string", "note": "one short sentence in ${proposalLanguage} - what you found and its source, or why nothing confident was found" }]`;
+[{ "item_id": "...", "sku": "real SKU or empty string", "part_number": "real part number or empty string", "manufacturer": "real manufacturer name or empty string", "source": "knowledge_base" | "web_search" | "not_found", "note": "one short sentence in ${proposalLanguage} - what you found and its source, or why nothing confident was found" }]`;
 
     const { text, inputTokens, outputTokens } = await searchWebWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);
     await recordAiUsage({
@@ -336,19 +366,21 @@ Respond with ONLY a JSON array (no markdown, no extra text), one object per item
     const fenceMatch = text.match(/```json\s*([\s\S]*?)```/);
     const rawJsonText = fenceMatch ? fenceMatch[1] : text.slice(text.lastIndexOf("["));
     if (!rawJsonText.includes("[")) throw new Error("Web search response did not contain a JSON array");
-    const results: Array<{ item_id: string; sku: string; part_number: string; manufacturer: string; note: string }> = JSON.parse(rawJsonText.trim());
+    const results: Array<{ item_id: string; sku: string; part_number: string; manufacturer: string; source?: string; note: string }> = JSON.parse(rawJsonText.trim());
 
     const resultsByItemId = new Map(results.map((r) => [r.item_id, r]));
     return bom.map((item) => {
       const found = resultsByItemId.get(item.item_id);
       if (!found || (!found.part_number?.trim() && !found.manufacturer?.trim())) return item;
+      const fromKnowledgeBase = found.source === "knowledge_base";
       return {
         ...item,
         sku: item.sku?.trim() || found.sku || item.sku,
         part_number: item.part_number?.trim() || found.part_number || item.part_number,
         manufacturer: item.manufacturer?.trim() || found.manufacturer || item.manufacturer,
         specification: found.note ? `${item.specification} (${found.note})` : item.specification,
-        sourced_via_web_search: true,
+        sourced_via_knowledge_base: fromKnowledgeBase,
+        sourced_via_web_search: !fromKnowledgeBase,
       };
     });
   } catch (err: any) {
