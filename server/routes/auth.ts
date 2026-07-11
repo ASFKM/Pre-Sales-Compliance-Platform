@@ -149,26 +149,6 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   }
 }
 
-// Admin validation middleware
-export function requireAdmin(req: Request, res: Response, next: NextFunction) {
-  requireAuth(req, res, async () => {
-    try {
-      const roleId = req.headers["x-role-id"] as string;
-      const role = await dbStore.getRoleById(roleId);
-
-      if (!role || role.name !== "Administrator") {
-        return res.status(403).json({
-          success: false,
-          message: "Access Denied: Administrator privileges required."
-        });
-      }
-      next();
-    } catch (err) {
-      next(err);
-    }
-  });
-}
-
 // RBAC Authorization Middleware creator
 export function requirePermission(permission: string) {
   return (req: Request, res: Response, next: NextFunction) => {
