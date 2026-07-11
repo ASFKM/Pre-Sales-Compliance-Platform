@@ -261,23 +261,32 @@ router.put("/branding", requirePermission("branding:manage"), async (req: Reques
 
 
 
-const KNOWN_PROVIDERS = ["gemini", "anthropic", "openai", "deepseek"];
+// Built-in providers only - was a hardcoded 4-item snapshot ("gemini", "anthropic", "openai",
+// "deepseek") completely disconnected from the real, tenant-managed list of custom providers in
+// AiProviderConfig, so it silently rejected any custom provider not on that stale list (broke
+// the very first time someone tried a legitimate one not already on it, e.g. Perplexity).
+// validateAISettingsUpdates now takes the real list of currently-configured custom provider keys
+// as a parameter instead.
+const BUILT_IN_PROVIDERS = ["gemini", "anthropic", "openai"];
 
-function validateAISettingsUpdates(updates: any) {
+function validateAISettingsUpdates(updates: any, customProviderKeys: string[] = []) {
+  const validProviders = [...BUILT_IN_PROVIDERS, ...customProviderKeys];
   const modelFields = [
     "default_model",
     "document_analysis_model",
     "proposal_generation_model",
     "critical_extraction_model",
     "web_grounding_model",
-    "spec_copilot_model"
+    "spec_copilot_model",
+    "document_classification_model"
   ];
   const providerFields = [
     "document_analysis_provider",
     "critical_extraction_provider",
     "web_grounding_provider",
     "proposal_generation_provider",
-    "spec_copilot_provider"
+    "spec_copilot_provider",
+    "document_classification_provider"
   ];
   const allowedLanguages = ["Portuguese", "English", "Spanish"];
   const allowedLogLevels = ["DEBUG", "INFO", "WARN", "ERROR"];
@@ -293,8 +302,8 @@ function validateAISettingsUpdates(updates: any) {
   }
 
   for (const field of providerFields) {
-    if (updates[field] !== undefined && !KNOWN_PROVIDERS.includes(String(updates[field]))) {
-      return { valid: false, message: `${field} must be one of: ${KNOWN_PROVIDERS.join(", ")}.` };
+    if (updates[field] !== undefined && !validProviders.includes(String(updates[field]))) {
+      return { valid: false, message: `${field} must be one of: ${validProviders.join(", ")}.` };
     }
   }
 
@@ -391,7 +400,8 @@ router.put("/settings/ai", requirePermission("ai:settings"), async (req: Request
       return res.status(400).json({ success: false, message: "No valid AI/settings fields provided." });
     }
 
-    const aiValidation = validateAISettingsUpdates(updates);
+    const customProviders = await dbStore.getAiProviderConfigs();
+    const aiValidation = validateAISettingsUpdates(updates, customProviders.map((p) => p.provider_key));
     if (!aiValidation.valid) {
       return res.status(400).json({ success: false, message: aiValidation.message });
     }
