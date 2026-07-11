@@ -12,12 +12,31 @@ import { logger } from "./logger";
 // be added without a code change.
 export type ConnectedProvider = string;
 
-async function getCustomProviderConfig(providerKey: string): Promise<{ baseUrl: string; apiKey: string }> {
+async function getCustomProviderConfig(providerKey: string): Promise<{ baseUrl: string; apiKey: string; supportsVision: boolean; supportsWebSearch: boolean }> {
   const config = await prisma.aiProviderConfig.findFirst({ where: { providerKey } });
   if (!config) {
     throw new Error(`AI provider "${providerKey}" is not configured. Add it in Admin > IA, Prompts e Custos > Provedores Personalizados.`);
   }
-  return { baseUrl: config.baseUrl, apiKey: decryptSecret(config.apiKeyEncrypted) };
+  return {
+    baseUrl: config.baseUrl,
+    apiKey: decryptSecret(config.apiKeyEncrypted),
+    supportsVision: config.supportsVision,
+    supportsWebSearch: config.supportsWebSearch,
+  };
+}
+
+// OpenAI's file-input content block: images still use the "image_url" shape (unchanged, vision
+// has worked for a while), but PDF needs "type": "file" with a data URI - added to the Chat
+// Completions API in ~March 2026 (see developers.openai.com/api/docs/guides/file-inputs). This was
+// previously hard-blocked here as unsupported, which was correct when that block was written and
+// is no longer correct - kept as one shared builder since OpenAI-compatible custom providers
+// (declared supportsVision) use the identical request shape.
+function buildOpenAiCompatibleFileBlocks(files: ProviderFileInput[]): any[] {
+  return files.map((f, idx) =>
+    f.mimeType === "application/pdf"
+      ? { type: "file", file: { filename: `document-${idx + 1}.pdf`, file_data: `data:${f.mimeType};base64,${f.base64Data}` } }
+      : { type: "image_url", image_url: { url: `data:${f.mimeType};base64,${f.base64Data}` } }
+  );
 }
 
 async function getConfiguredOpenAiApiKey(): Promise<string> {
@@ -74,19 +93,15 @@ export interface ProviderFileInput {
 // aiPricing.ts), regardless of which provider actually served the request. `files` lets a caller
 // hand over real document binaries (PDF/image) instead of pre-extracted text - needed because some
 // real-world PDFs (scanned documents, or ones using a font encoding with no ToUnicode map) have no
-// text a local extractor can ever recover; Gemini/Anthropic read the document directly via native
-// vision/OCR instead. OpenAI's Chat Completions API has no PDF support at all (image only).
+// text a local extractor can ever recover; all three providers read the document directly via
+// native vision/OCR instead (OpenAI's Chat Completions API gained real PDF support in ~March
+// 2026, via the "file" content block - it was correctly unsupported when this comment last said
+// otherwise, it no longer is).
 export async function generateJsonWithProvider(provider: ConnectedProvider, model: string, prompt: string, files?: ProviderFileInput[]): Promise<ProviderJsonResult> {
   if (provider === "openai") {
-    if (files?.some((f) => f.mimeType === "application/pdf")) {
-      throw new Error("OpenAI não aceita PDF para esta tarefa. Troque o serviço de IA desta tarefa para Gemini ou Anthropic em Admin > IA, Prompts e Custos.");
-    }
     const apiKey = await getConfiguredOpenAiApiKey();
     const client = new OpenAI({ apiKey });
-    const content: any[] = [{ type: "text", text: prompt }];
-    for (const f of files || []) {
-      content.push({ type: "image_url", image_url: { url: `data:${f.mimeType};base64,${f.base64Data}` } });
-    }
+    const content: any[] = [{ type: "text", text: prompt }, ...buildOpenAiCompatibleFileBlocks(files || [])];
     const response = await client.chat.completions.create({
       model,
       messages: [{ role: "user", content }],
@@ -156,18 +171,23 @@ export async function generateJsonWithProvider(provider: ConnectedProvider, mode
     };
   }
 
-  // User-added custom provider (Grok/xAI, DeepSeek, Mistral AI, or any other OpenAI-compatible
-  // endpoint) - dispatched generically via the `openai` SDK pointed at the provider's own base
-  // URL, since all of them mirror OpenAI's chat completions request/response shape including JSON
-  // mode. This is what makes adding a new provider a config-only action, no code change.
-  if (files?.length) {
-    throw new Error("Provedores personalizados não suportam envio de arquivo/visão nesta integração. Troque este serviço para Gemini ou Anthropic em Admin > IA, Prompts e Custos.");
+  // User-added custom provider (Grok/xAI, DeepSeek, Mistral AI, Perplexity, or any other
+  // OpenAI-compatible endpoint) - dispatched generically via the `openai` SDK pointed at the
+  // provider's own base URL, since all of them mirror OpenAI's chat completions request/response
+  // shape including JSON mode. This is what makes adding a new provider a config-only action, no
+  // code change. File input is only attempted if the admin declared supportsVision when adding
+  // this provider (most custom providers genuinely don't support it - reusing OpenAI's own
+  // "file"/"image_url" content block shape only for the ones self-declared as OpenAI-compatible
+  // enough to also handle it).
+  const { baseUrl, apiKey, supportsVision } = await getCustomProviderConfig(provider);
+  if (files?.length && !supportsVision) {
+    throw new Error("Este provedor não suporta envio de arquivo/visão. Marque \"Suporta PDF/visão\" ao configurá-lo (se for realmente compatível) ou troque este serviço para Gemini, Anthropic ou OpenAI em Admin > IA, Prompts e Custos.");
   }
-  const { baseUrl, apiKey } = await getCustomProviderConfig(provider);
   const client = new OpenAI({ apiKey, baseURL: baseUrl });
+  const content: any = files?.length ? [{ type: "text", text: prompt }, ...buildOpenAiCompatibleFileBlocks(files)] : prompt;
   const response = await client.chat.completions.create({
     model,
-    messages: [{ role: "user", content: prompt }],
+    messages: [{ role: "user", content }],
     response_format: { type: "json_object" },
   });
   return {
@@ -184,15 +204,9 @@ export async function generateJsonWithProvider(provider: ConnectedProvider, mode
 // analysis pipeline does, instead of only ever seeing pre-extracted text.
 export async function generateTextWithProvider(provider: ConnectedProvider, model: string, prompt: string, files?: ProviderFileInput[]): Promise<ProviderJsonResult> {
   if (provider === "openai") {
-    if (files?.some((f) => f.mimeType === "application/pdf")) {
-      throw new Error("OpenAI não aceita PDF para esta tarefa. Troque o serviço de IA desta tarefa para Gemini ou Anthropic em Admin > IA, Prompts e Custos.");
-    }
     const apiKey = await getConfiguredOpenAiApiKey();
     const client = new OpenAI({ apiKey });
-    const content: any[] = [{ type: "text", text: prompt }];
-    for (const f of files || []) {
-      content.push({ type: "image_url", image_url: { url: `data:${f.mimeType};base64,${f.base64Data}` } });
-    }
+    const content: any[] = [{ type: "text", text: prompt }, ...buildOpenAiCompatibleFileBlocks(files || [])];
     const response = await client.chat.completions.create({
       model,
       messages: [{ role: "user", content }],
@@ -247,14 +261,15 @@ export async function generateTextWithProvider(provider: ConnectedProvider, mode
     };
   }
 
-  if (files?.length) {
-    throw new Error("Provedores personalizados não suportam envio de arquivo/visão nesta integração. Troque este serviço para Gemini ou Anthropic em Admin > IA, Prompts e Custos.");
+  const { baseUrl, apiKey, supportsVision } = await getCustomProviderConfig(provider);
+  if (files?.length && !supportsVision) {
+    throw new Error("Este provedor não suporta envio de arquivo/visão. Marque \"Suporta PDF/visão\" ao configurá-lo (se for realmente compatível) ou troque este serviço para Gemini, Anthropic ou OpenAI em Admin > IA, Prompts e Custos.");
   }
-  const { baseUrl, apiKey } = await getCustomProviderConfig(provider);
   const client = new OpenAI({ apiKey, baseURL: baseUrl });
+  const content: any = files?.length ? [{ type: "text", text: prompt }, ...buildOpenAiCompatibleFileBlocks(files)] : prompt;
   const response = await client.chat.completions.create({
     model,
-    messages: [{ role: "user", content: prompt }],
+    messages: [{ role: "user", content }],
   });
   return {
     text: response.choices[0]?.message?.content || "",
@@ -264,16 +279,45 @@ export async function generateTextWithProvider(provider: ConnectedProvider, mode
 }
 
 // Real web search, not the model's own training-data guess - used for the BOM's part-number
-// lookup (web_grounding task). Only Gemini and Anthropic have a native search tool the provider
-// runs server-side; OpenAI's Chat Completions API has none, so it's rejected here with a clear
-// error rather than silently returning a hallucinated part number.
+// lookup (web_grounding task). All three built-in providers now have a real path: Gemini
+// (googleSearch tool) and Anthropic (web_search tool) run search as an opt-in tool; OpenAI has no
+// such tool on Chat Completions, but its dedicated gpt-5-search-api model always searches before
+// answering, enabled via the top-level web_search_options param instead of a tools array - the
+// orchestrator UI only offers this one model for OpenAI + web_grounding, so no extra validation
+// is needed here. Custom providers only reach the search path if self-declared supportsWebSearch
+// when added (e.g. Perplexity Sonar, which - like OpenAI's search model - always grounds its
+// answer in a real search, no opt-in parameter needed on this end).
 export async function searchWebWithProvider(provider: ConnectedProvider, model: string, prompt: string): Promise<ProviderJsonResult> {
   if (provider === "openai") {
-    throw new Error("OpenAI não possui ferramenta de busca web nesta integração. Troque o serviço 'Pesquisa com Grounding Web' para Gemini ou Anthropic em Admin > IA, Prompts e Custos.");
+    const apiKey = await getConfiguredOpenAiApiKey();
+    const client = new OpenAI({ apiKey });
+    const response = await client.chat.completions.create({
+      model,
+      web_search_options: {},
+      messages: [{ role: "user", content: prompt }],
+    } as any);
+    return {
+      text: response.choices[0]?.message?.content || "",
+      inputTokens: response.usage?.prompt_tokens || 0,
+      outputTokens: response.usage?.completion_tokens || 0,
+    };
   }
 
   if (provider !== "anthropic" && provider !== "gemini") {
-    throw new Error("Provedores personalizados não possuem ferramenta de busca web nesta integração. Troque o serviço 'Pesquisa com Grounding Web' para Gemini ou Anthropic em Admin > IA, Prompts e Custos.");
+    const { baseUrl, apiKey, supportsWebSearch } = await getCustomProviderConfig(provider);
+    if (!supportsWebSearch) {
+      throw new Error("Este provedor não possui ferramenta de busca web. Marque \"Suporta busca web\" ao configurá-lo (se for realmente compatível, ex: Perplexity Sonar) ou troque o serviço 'Pesquisa com Grounding Web' para Gemini, Anthropic ou OpenAI em Admin > IA, Prompts e Custos.");
+    }
+    const client = new OpenAI({ apiKey, baseURL: baseUrl });
+    const response = await client.chat.completions.create({
+      model,
+      messages: [{ role: "user", content: prompt }],
+    });
+    return {
+      text: response.choices[0]?.message?.content || "",
+      inputTokens: response.usage?.prompt_tokens || 0,
+      outputTokens: response.usage?.completion_tokens || 0,
+    };
   }
 
   if (provider === "anthropic") {

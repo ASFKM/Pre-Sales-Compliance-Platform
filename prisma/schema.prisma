@@ -509,6 +509,11 @@ model PlatformSettings {
   proposalGenerationProvider    String          @default("anthropic") @map("proposal_generation_provider")
   specCopilotModel              String          @default("gemini-3.5-flash") @map("spec_copilot_model")
   specCopilotProvider           String          @default("gemini") @map("spec_copilot_provider")
+  // AI Orchestrator UI redesign (2026-07): document_classification was previously hardcoded to
+  // Gemini in server/utils/documentClassification.ts, bypassing the orchestrator entirely - now
+  // routed through resolveProvider() like the other real task types.
+  documentClassificationModel   String          @default("gemini-3.5-flash") @map("document_classification_model")
+  documentClassificationProvider String        @default("gemini") @map("document_classification_provider")
   // Per-tenant monthly AI spend cap - null means uncapped. Enforced (hard block once reached,
   // not just tracked), with an 80%-of-cap warning logged before that point.
   monthlyCostCapUsd             Float?          @map("monthly_cost_cap_usd")
@@ -910,6 +915,13 @@ model AiProviderConfig {
   baseUrl         String   @map("base_url")
   apiKeyEncrypted String   @map("api_key_encrypted")
   defaultModel    String   @map("default_model")
+  // AI Orchestrator UI redesign (2026-07): self-declared capability flags, admin-set when adding
+  // the provider - lets a custom provider that genuinely supports vision/PDF input or has native
+  // web search (e.g. Perplexity Sonar, which always grounds its answers in a real web search, no
+  // opt-in tool parameter needed) show up as a valid choice for those orchestrator tasks, instead
+  // of every custom provider being treated as text-only by default.
+  supportsVision    Boolean @default(false) @map("supports_vision")
+  supportsWebSearch Boolean @default(false) @map("supports_web_search")
   createdAt       DateTime @default(now()) @map("created_at")
 
   @@unique([tenantId, providerKey])

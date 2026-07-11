@@ -25,24 +25,82 @@ interface FleetLicenseStatus {
   last_verified_at: string | null;
 }
 
-// Sensible default model per provider - applied automatically whenever a task's provider
-// dropdown changes, so the paired model field never keeps a stale value from a different
-// provider (e.g. a Gemini model name left behind after switching a task to OpenAI).
-const DEFAULT_MODEL_FOR_PROVIDER: Record<string, string> = {
-  gemini: "gemini-3.5-flash",
-  openai: "gpt-4o-mini",
-  anthropic: "claude-sonnet-5",
+// AI Orchestrator UI redesign (2026-07): each task needs a different real capability from the
+// model that serves it - document analysis and the spec copilot need to read a real PDF/image
+// (vision), web-grounded research needs a live web search, document classification only ever
+// sends already-extracted text. The model combobox for each orchestrator task is filtered to
+// only the models that can actually do what that task requires, instead of a free-text field an
+// admin could set to any string regardless of whether it fits.
+type TaskCapability = "vision" | "web_search" | "text";
+
+const TASK_CAPABILITY: Record<string, TaskCapability> = {
+  document_analysis: "vision",
+  spec_copilot: "vision",
+  web_grounding: "web_search",
+  document_classification: "text",
 };
 
-// Providers researched as realistically integrable today: all three expose an OpenAI-compatible
-// chat completions endpoint (including JSON mode), so they work through the same generic custom-
+// Curated, not exhaustive - especially for OpenAI, whose model lineup changes fast across several
+// parallel series (gpt-5.4/5.5/5.6 all shipping at once). Researched against each provider's
+// official docs (2026-07): Gemini 3.x and Anthropic's current Claude models all support both
+// PDF/vision and native web search; OpenAI gained real PDF support in the Chat Completions API in
+// ~March 2026 (same vision-capable models, gpt-4o onward - developers.openai.com/api/docs/guides/
+// file-inputs), but its web search is a *separate* dedicated model (gpt-5-search-api) rather than
+// a toggle on the normal chat models - it always searches before answering, so it's the only
+// valid choice for OpenAI + web-grounded research.
+const MODEL_OPTIONS_BY_PROVIDER: Record<string, Record<TaskCapability, string[]>> = {
+  gemini: {
+    vision: ["gemini-3.5-flash", "gemini-3.1-pro", "gemini-3.1-flash-lite"],
+    web_search: ["gemini-3.5-flash", "gemini-3.1-pro", "gemini-3.1-flash-lite"],
+    text: ["gemini-3.5-flash", "gemini-3.1-pro", "gemini-3.1-flash-lite"],
+  },
+  anthropic: {
+    vision: ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-4-8", "claude-fable-5"],
+    web_search: ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-4-8", "claude-fable-5"],
+    text: ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-4-8", "claude-fable-5"],
+  },
+  openai: {
+    vision: ["gpt-4o-mini", "gpt-4o", "gpt-4.1", "gpt-5.4-mini", "gpt-5.4", "gpt-5.5", "gpt-5.6-sol"],
+    web_search: ["gpt-5-search-api"],
+    text: ["gpt-4o-mini", "gpt-4o", "gpt-4.1", "gpt-5.4-mini", "gpt-5.4", "gpt-5.5", "gpt-5.6-sol"],
+  },
+};
+
+type CustomProviderCapabilities = { provider_key: string; display_name: string; default_model: string; supports_vision: boolean; supports_web_search: boolean };
+
+// Custom providers don't have a curated model list of their own - the only model we know it can
+// actually serve is whatever the admin configured as its default_model, so that's the single
+// option offered once a custom provider is selected for a task it's capable of.
+function modelOptionsFor(provider: string, capability: TaskCapability, customProviders: CustomProviderCapabilities[]): string[] {
+  if (MODEL_OPTIONS_BY_PROVIDER[provider]) return MODEL_OPTIONS_BY_PROVIDER[provider][capability];
+  const custom = customProviders.find((p) => p.provider_key === provider);
+  return custom ? [custom.default_model] : [];
+}
+
+// A custom provider only shows up as a provider choice for vision/web_search tasks if the admin
+// explicitly declared that capability when adding it (see the checkboxes in "Adicionar
+// Provedor") - defaults to not showing up, rather than every custom provider being offered for a
+// task it almost certainly can't actually do.
+function customProvidersForCapability(capability: TaskCapability, customProviders: CustomProviderCapabilities[]): CustomProviderCapabilities[] {
+  if (capability === "text") return customProviders;
+  return customProviders.filter((p) => (capability === "vision" ? p.supports_vision : p.supports_web_search));
+}
+
+// Providers researched as realistically integrable today: all expose an OpenAI-compatible chat
+// completions endpoint (including JSON mode), so they work through the same generic custom-
 // provider code path with no bespoke integration - these presets just pre-fill the add-provider
-// form. Any other OpenAI-compatible endpoint (Groq, Together AI, Fireworks, OpenRouter, etc.) can
-// still be added manually the same way, just without a one-click preset.
-const KNOWN_PROVIDER_PRESETS: { key: string; name: string; baseUrl: string; defaultModel: string }[] = [
-  { key: "grok", name: "Grok (xAI)", baseUrl: "https://api.x.ai/v1", defaultModel: "grok-4" },
-  { key: "deepseek", name: "DeepSeek", baseUrl: "https://api.deepseek.com", defaultModel: "deepseek-chat" },
-  { key: "mistral", name: "Mistral AI", baseUrl: "https://api.mistral.ai/v1", defaultModel: "mistral-large-latest" },
+// form (including the capability checkboxes). Any other OpenAI-compatible endpoint (Groq,
+// Together AI, Fireworks, OpenRouter, etc.) can still be added manually the same way, just
+// without a one-click preset - and without the capability boxes pre-checked, since we haven't
+// verified those specifically.
+// Perplexity Sonar always grounds its answer in a real web search by product design (no opt-in
+// "tools" parameter, unlike Gemini/Anthropic/OpenAI's search model) - confirmed against
+// docs.perplexity.ai. It doesn't support PDF/vision, so supportsVision stays false.
+const KNOWN_PROVIDER_PRESETS: { key: string; name: string; baseUrl: string; defaultModel: string; supportsVision: boolean; supportsWebSearch: boolean }[] = [
+  { key: "grok", name: "Grok (xAI)", baseUrl: "https://api.x.ai/v1", defaultModel: "grok-4", supportsVision: false, supportsWebSearch: false },
+  { key: "deepseek", name: "DeepSeek", baseUrl: "https://api.deepseek.com", defaultModel: "deepseek-chat", supportsVision: false, supportsWebSearch: false },
+  { key: "mistral", name: "Mistral AI", baseUrl: "https://api.mistral.ai/v1", defaultModel: "mistral-large-latest", supportsVision: false, supportsWebSearch: false },
+  { key: "perplexity", name: "Perplexity Sonar", baseUrl: "https://api.perplexity.ai", defaultModel: "sonar-pro", supportsVision: false, supportsWebSearch: true },
 ];
 
 // Every AI-spending task type recorded in AiUsageLog (see AI_SPENDING_TASK_TYPES in
@@ -106,7 +164,7 @@ interface AdminConsoleProps {
   brandingSettings: BrandingSettings | null;
   setBrandingSettings: (settings: BrandingSettings) => void;
   promptTemplates: PromptTemplate[];
-  aiProviderConfigs: { id: string; provider_key: string; display_name: string; base_url: string; default_model: string; api_key_masked: string }[];
+  aiProviderConfigs: { id: string; provider_key: string; display_name: string; base_url: string; default_model: string; api_key_masked: string; supports_vision: boolean; supports_web_search: boolean }[];
   proposalTemplates: ProposalTemplate[];
   approvalWorkflows: any[];
   setApprovalWorkflows: (workflows: any[]) => void;
@@ -168,6 +226,8 @@ export default function AdminConsole({
   const [newProviderBaseUrl, setNewProviderBaseUrl] = useState("");
   const [newProviderApiKey, setNewProviderApiKey] = useState("");
   const [newProviderDefaultModel, setNewProviderDefaultModel] = useState("");
+  const [newProviderSupportsVision, setNewProviderSupportsVision] = useState(false);
+  const [newProviderSupportsWebSearch, setNewProviderSupportsWebSearch] = useState(false);
   const [editingPromptId, setEditingPromptId] = useState<string | null>(null);
   const [promptDrafts, setPromptDrafts] = useState<Record<string, string>>({});
   // Which version of each prompt type is currently displayed/selected in the combobox - defaults
@@ -987,6 +1047,13 @@ export default function AdminConsole({
                                 <div className="min-w-0">
                                   <p className="text-[11px] font-bold text-slate-700 truncate">{p.display_name} <span className="text-slate-400 font-normal">({p.provider_key})</span></p>
                                   <p className="text-[10px] text-slate-400 font-mono truncate">{p.base_url} · {p.default_model} · {p.api_key_masked}</p>
+                                  {(p.supports_vision || p.supports_web_search) && (
+                                    <p className="text-[9px] text-emerald-600 font-mono mt-0.5">
+                                      {[p.supports_vision && (locale === "pt" ? "PDF/visão" : "PDF/vision"), p.supports_web_search && (locale === "pt" ? "busca web" : "web search")]
+                                        .filter(Boolean)
+                                        .join(" · ")}
+                                    </p>
+                                  )}
                                 </div>
                                 <button
                                   onClick={() => handleDeleteAiProvider(p.id)}
@@ -1010,6 +1077,8 @@ export default function AdminConsole({
                                     setNewProviderDisplayName(preset.name);
                                     setNewProviderBaseUrl(preset.baseUrl);
                                     setNewProviderDefaultModel(preset.defaultModel);
+                                    setNewProviderSupportsVision(preset.supportsVision);
+                                    setNewProviderSupportsWebSearch(preset.supportsWebSearch);
                                   }}
                                   className="text-[10px] bg-white border border-slate-300 text-slate-600 px-2 py-1 rounded font-mono font-bold cursor-pointer"
                                 >
@@ -1052,6 +1121,29 @@ export default function AdminConsole({
                               onChange={(e) => setNewProviderApiKey(e.target.value)}
                               className="w-full p-2 text-xs font-mono bg-white border border-slate-200 rounded"
                             />
+                            <div className="flex flex-col gap-1 pt-1">
+                              <label className="flex items-center gap-2 text-[11px] text-slate-600 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={newProviderSupportsVision}
+                                  onChange={(e) => setNewProviderSupportsVision(e.target.checked)}
+                                />
+                                {locale === "pt" ? "Suporta PDF/visão (análise de documentos)" : "Supports PDF/vision (document analysis)"}
+                              </label>
+                              <label className="flex items-center gap-2 text-[11px] text-slate-600 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={newProviderSupportsWebSearch}
+                                  onChange={(e) => setNewProviderSupportsWebSearch(e.target.checked)}
+                                />
+                                {locale === "pt" ? "Suporta busca web nativa (ex: Perplexity Sonar)" : "Supports native web search (e.g. Perplexity Sonar)"}
+                              </label>
+                              <p className="text-[10px] text-slate-400">
+                                {locale === "pt"
+                                  ? "Marque só se você confirmou que o provedor realmente suporta - controla em quais tarefas do orquestrador ele aparece como opção."
+                                  : "Only check if you've confirmed the provider genuinely supports it - controls which orchestrator tasks it shows up as an option for."}
+                              </p>
+                            </div>
                             <button
                               onClick={async () => {
                                 const created = await handleAddAiProvider({
@@ -1060,6 +1152,8 @@ export default function AdminConsole({
                                   base_url: newProviderBaseUrl.trim(),
                                   api_key: newProviderApiKey,
                                   default_model: newProviderDefaultModel.trim(),
+                                  supports_vision: newProviderSupportsVision,
+                                  supports_web_search: newProviderSupportsWebSearch,
                                 });
                                 if (created) {
                                   setShowAddProviderForm(false);
@@ -1068,6 +1162,8 @@ export default function AdminConsole({
                                   setNewProviderBaseUrl("");
                                   setNewProviderApiKey("");
                                   setNewProviderDefaultModel("");
+                                  setNewProviderSupportsVision(false);
+                                  setNewProviderSupportsWebSearch(false);
                                 }
                               }}
                               className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-3 rounded shadow-sm transition-all cursor-pointer"
@@ -1080,69 +1176,70 @@ export default function AdminConsole({
 
                       <div className="pt-3 border-t border-slate-100 space-y-3">
                         <div>
-                          <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">
-                            {locale === "pt" ? "Modelo de Análise de Documentos" : "Document Analysis Model"}
-                          </label>
-                          <input
-                            type="text"
-                            defaultValue={platformSettings?.document_analysis_model || ""}
-                            onBlur={(e) => handleSavePlatformSettings("document_analysis_model", e.target.value)}
-                            placeholder="gemini-3.5-flash / gpt-5 / claude-sonnet-5..."
-                            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-mono text-slate-700"
-                          />
-                          <p className="text-[10px] text-slate-400 mt-1">
-                            {locale === "pt"
-                              ? "Precisa ser um modelo válido para o provedor selecionado abaixo em \"Análise de Documentos\"."
-                              : "Must be a valid model for the provider selected below under \"Document Analysis\"."}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="pt-3 border-t border-slate-100 space-y-3">
-                        <div>
                           <h4 className="text-xs font-bold text-slate-700">
-                            {locale === "pt" ? "Orquestrador de IA: Mapa Tarefa → Provedor" : "AI Orchestrator: Task → Provider Map"}
+                            {locale === "pt" ? "Orquestrador de IA: Mapa Tarefa → Provedor → Modelo" : "AI Orchestrator: Task → Provider → Model Map"}
                           </h4>
                           <p className="text-[10px] text-slate-400 mt-0.5">
                             {locale === "pt"
-                              ? "Uma tarefa configurada para um provedor sem chave configurada usa Gemini como fallback, registrado em auditoria."
-                              : "A task configured for a provider without a configured key falls back to Gemini, logged in the audit trail."}
+                              ? "Uma tarefa configurada para um provedor sem chave configurada usa Gemini como fallback, registrado em auditoria. O combobox de modelo só mostra opções que a tarefa realmente consegue usar (ex: análise de documentos exige um modelo com suporte a PDF/visão; provedores personalizados só aparecem nas tarefas cuja capacidade foi marcada ao adicioná-los)."
+                              : "A task configured for a provider without a configured key falls back to Gemini, logged in the audit trail. The model combobox only shows options the task can actually use (e.g. document analysis needs a model with PDF/vision support; custom providers only show up for tasks whose capability was checked when adding them)."}
                           </p>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           {[
-                            { field: "document_analysis_provider", modelField: "document_analysis_model", label: locale === "pt" ? "Análise de Documentos" : "Document Analysis" },
-                            { field: "critical_extraction_provider", modelField: null, label: locale === "pt" ? "Extração Crítica" : "Critical Extraction" },
-                            { field: "web_grounding_provider", modelField: null, label: locale === "pt" ? "Pesquisa com Grounding Web" : "Web-Grounded Research" },
-                            { field: "proposal_generation_provider", modelField: null, label: locale === "pt" ? "Redação de Propostas" : "Proposal Writing" },
-                            { field: "spec_copilot_provider", modelField: "spec_copilot_model", label: locale === "pt" ? "Copiloto de Especificações (Chat)" : "Spec Copilot (Chat)" },
-                          ].map(({ field, modelField, label }) => (
-                            <div key={field}>
-                              <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{label}</label>
-                              <select
-                                value={(platformSettings as any)?.[field] || "gemini"}
-                                onChange={(e) => {
-                                  const newProvider = e.target.value;
-                                  handleSavePlatformSettings(field, newProvider);
-                                  // Keep the model field a valid pair for the newly selected provider -
-                                  // this is exactly what broke document analysis before: the provider
-                                  // dropdown changed but the model text field kept a Gemini model name.
-                                  if (modelField) {
-                                    const customPreset = aiProviderConfigs.find((p) => p.provider_key === newProvider);
-                                    handleSavePlatformSettings(modelField, customPreset?.default_model || DEFAULT_MODEL_FOR_PROVIDER[newProvider] || DEFAULT_MODEL_FOR_PROVIDER.gemini);
-                                  }
-                                }}
-                                className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-semibold text-slate-700"
-                              >
-                                <option value="gemini">Google Gemini</option>
-                                <option value="anthropic">Anthropic Claude {!PROVIDER_STATUS.find(p => p.id === "anthropic")?.configured ? (locale === "pt" ? "(não conectado)" : "(not connected)") : ""}</option>
-                                <option value="openai">OpenAI ChatGPT {!PROVIDER_STATUS.find(p => p.id === "openai")?.configured ? (locale === "pt" ? "(não conectado)" : "(not connected)") : ""}</option>
-                                {aiProviderConfigs.map((p) => (
-                                  <option key={p.provider_key} value={p.provider_key}>{p.display_name}</option>
-                                ))}
-                              </select>
-                            </div>
-                          ))}
+                            { field: "document_analysis_provider", modelField: "document_analysis_model", taskKey: "document_analysis", label: locale === "pt" ? "Análise de Documentos" : "Document Analysis" },
+                            { field: "web_grounding_provider", modelField: "web_grounding_model", taskKey: "web_grounding", label: locale === "pt" ? "Pesquisa com Grounding Web" : "Web-Grounded Research" },
+                            { field: "spec_copilot_provider", modelField: "spec_copilot_model", taskKey: "spec_copilot", label: locale === "pt" ? "Copiloto de Especificações (Chat)" : "Spec Copilot (Chat)" },
+                            { field: "document_classification_provider", modelField: "document_classification_model", taskKey: "document_classification", label: locale === "pt" ? "Classificação de Documentos" : "Document Classification" },
+                          ].map(({ field, modelField, taskKey, label }) => {
+                            const capability = TASK_CAPABILITY[taskKey];
+                            const currentProvider = (platformSettings as any)?.[field] || "gemini";
+                            const validCustomProviders = customProvidersForCapability(capability, aiProviderConfigs);
+                            const modelOptions = modelOptionsFor(currentProvider, capability, aiProviderConfigs);
+                            const currentModel = (platformSettings as any)?.[modelField] || "";
+                            return (
+                              <div key={field}>
+                                <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{label}</label>
+                                <div className="flex gap-2">
+                                  <select
+                                    value={currentProvider}
+                                    onChange={(e) => {
+                                      const newProvider = e.target.value;
+                                      handleSavePlatformSettings(field, newProvider);
+                                      // Keep the model field a valid pair for the newly selected provider -
+                                      // this is exactly what broke document analysis before: the provider
+                                      // dropdown changed but the model field kept a stale value.
+                                      const newModelOptions = modelOptionsFor(newProvider, capability, aiProviderConfigs);
+                                      if (newModelOptions.length > 0) {
+                                        handleSavePlatformSettings(modelField, newModelOptions[0]);
+                                      }
+                                    }}
+                                    className="w-1/2 p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-semibold text-slate-700"
+                                  >
+                                    <option value="gemini">Google Gemini</option>
+                                    <option value="anthropic">Anthropic Claude {!PROVIDER_STATUS.find(p => p.id === "anthropic")?.configured ? (locale === "pt" ? "(não conectado)" : "(not connected)") : ""}</option>
+                                    <option value="openai">OpenAI ChatGPT {!PROVIDER_STATUS.find(p => p.id === "openai")?.configured ? (locale === "pt" ? "(não conectado)" : "(not connected)") : ""}</option>
+                                    {validCustomProviders.map((p) => (
+                                      <option key={p.provider_key} value={p.provider_key}>{p.display_name}</option>
+                                    ))}
+                                  </select>
+                                  <select
+                                    value={modelOptions.includes(currentModel) ? currentModel : (modelOptions[0] || "")}
+                                    onChange={(e) => handleSavePlatformSettings(modelField, e.target.value)}
+                                    disabled={modelOptions.length === 0}
+                                    className="w-1/2 p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-mono text-slate-700 disabled:opacity-50"
+                                  >
+                                    {modelOptions.length === 0 && (
+                                      <option value="">{locale === "pt" ? "Sem modelo válido" : "No valid model"}</option>
+                                    )}
+                                    {modelOptions.map((m) => (
+                                      <option key={m} value={m}>{m}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
 
                         <div>

@@ -319,6 +319,8 @@ export interface PlatformSettings {
   proposal_generation_provider: string;
   spec_copilot_model: string;
   spec_copilot_provider: string;
+  document_classification_model: string;
+  document_classification_provider: string;
   monthly_cost_cap_usd?: number | null;
   // Phase 7 (fleet/license management): this tenant's registration with the vendor's fleet
   // manager (a separate server). See src/fleetLicense.ts.

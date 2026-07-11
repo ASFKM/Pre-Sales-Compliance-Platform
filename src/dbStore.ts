@@ -262,6 +262,8 @@ function mapSettings(s: any): PlatformSettings {
     proposal_generation_provider: s.proposalGenerationProvider,
     spec_copilot_model: s.specCopilotModel,
     spec_copilot_provider: s.specCopilotProvider,
+    document_classification_model: s.documentClassificationModel,
+    document_classification_provider: s.documentClassificationProvider,
     monthly_cost_cap_usd: s.monthlyCostCapUsd ?? null,
     fleet_manager_url: s.fleetManagerUrl ?? null,
     fleet_manager_api_key_encrypted: s.fleetManagerApiKeyEncrypted ?? undefined,
@@ -1135,6 +1137,8 @@ class DBStore {
         proposalGenerationProvider: updates.proposal_generation_provider,
         specCopilotModel: updates.spec_copilot_model,
         specCopilotProvider: updates.spec_copilot_provider,
+        documentClassificationModel: updates.document_classification_model,
+        documentClassificationProvider: updates.document_classification_provider,
         monthlyCostCapUsd: updates.monthly_cost_cap_usd,
         fleetManagerUrl: updates.fleet_manager_url,
         fleetManagerApiKeyEncrypted: updates.fleet_manager_api_key_encrypted,
@@ -1257,6 +1261,8 @@ class DBStore {
       base_url: r.baseUrl,
       api_key_encrypted: r.apiKeyEncrypted,
       default_model: r.defaultModel,
+      supports_vision: r.supportsVision,
+      supports_web_search: r.supportsWebSearch,
       created_at: r.createdAt,
     }));
   }
@@ -1267,6 +1273,8 @@ class DBStore {
     base_url: string;
     api_key_encrypted: string;
     default_model: string;
+    supports_vision: boolean;
+    supports_web_search: boolean;
   }) {
     const row = await prisma.aiProviderConfig.create({
       data: {
@@ -1277,6 +1285,8 @@ class DBStore {
         baseUrl: params.base_url,
         apiKeyEncrypted: params.api_key_encrypted,
         defaultModel: params.default_model,
+        supportsVision: params.supports_vision,
+        supportsWebSearch: params.supports_web_search,
       },
     });
     return {
@@ -1285,6 +1295,8 @@ class DBStore {
       display_name: row.displayName,
       base_url: row.baseUrl,
       default_model: row.defaultModel,
+      supports_vision: row.supportsVision,
+      supports_web_search: row.supportsWebSearch,
       created_at: row.createdAt,
     };
   }

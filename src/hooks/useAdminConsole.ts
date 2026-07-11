@@ -671,6 +671,8 @@ export function useAdminConsole(params: UseAdminConsoleParams) {
       "proposal_generation_provider",
       "spec_copilot_model",
       "spec_copilot_provider",
+      "document_classification_model",
+      "document_classification_provider",
       "monthly_cost_cap_usd",
       "default_language",
       "default_log_level"
@@ -774,7 +776,7 @@ export function useAdminConsole(params: UseAdminConsoleParams) {
 
   // Custom, user-added AI providers (any OpenAI-compatible endpoint - Grok/xAI, DeepSeek,
   // Mistral AI, etc.) on top of the 3 built-in ones.
-  const handleAddAiProvider = async (params: { provider_key: string; display_name: string; base_url: string; api_key: string; default_model: string }) => {
+  const handleAddAiProvider = async (params: { provider_key: string; display_name: string; base_url: string; api_key: string; default_model: string; supports_vision: boolean; supports_web_search: boolean }) => {
     try {
       const res = await fetch("/api/settings/ai-providers", {
         method: "POST",

@@ -2,7 +2,14 @@ import { prisma } from "./prisma";
 import { dbStore } from "./dbStore";
 import { randomId } from "./idGenerator";
 
-export type AiTaskType = "document_analysis" | "critical_extraction" | "web_grounding" | "proposal_generation" | "spec_copilot";
+// critical_extraction and proposal_generation were removed (2026-07 AI Orchestrator redesign) -
+// both had provider/model settings in the UI but resolveProvider() was never actually called for
+// either anywhere in the codebase (confirmed via a full grep before removing) - the full analysis
+// schema (critical_requirements/risks/opportunities/bom/proposal drafts) is produced by a single
+// document_analysis call, not separate steps. document_classification was hardcoded to Gemini in
+// server/utils/documentClassification.ts before this - now routed through here like the other
+// real task types.
+export type AiTaskType = "document_analysis" | "web_grounding" | "spec_copilot" | "document_classification";
 
 export interface ProviderResolution {
   provider: string;
@@ -15,14 +22,12 @@ interface TaskProviderSettings {
   default_model: string;
   document_analysis_model: string;
   document_analysis_provider: string;
-  critical_extraction_model: string;
-  critical_extraction_provider: string;
   web_grounding_model: string;
   web_grounding_provider: string;
-  proposal_generation_model: string;
-  proposal_generation_provider: string;
   spec_copilot_model: string;
   spec_copilot_provider: string;
+  document_classification_model: string;
+  document_classification_provider: string;
   openai_api_key_encrypted?: string;
   anthropic_api_key_encrypted?: string;
 }

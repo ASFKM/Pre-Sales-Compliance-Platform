@@ -355,6 +355,8 @@ router.put("/settings/ai", requirePermission("ai:settings"), async (req: Request
       "proposal_generation_provider",
       "spec_copilot_model",
       "spec_copilot_provider",
+      "document_classification_model",
+      "document_classification_provider",
       "monthly_cost_cap_usd",
       "default_language",
       "default_log_level"
@@ -681,7 +683,7 @@ router.get("/settings/ai-providers", requirePermission("ai:settings"), async (re
 
 router.post("/settings/ai-providers", requirePermission("ai:settings"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { provider_key, display_name, base_url, api_key, default_model } = req.body || {};
+    const { provider_key, display_name, base_url, api_key, default_model, supports_vision, supports_web_search } = req.body || {};
 
     if (!PROVIDER_KEY_PATTERN.test(String(provider_key || ""))) {
       return res.status(400).json({ success: false, message: "provider_key must be 2-40 lowercase letters, numbers, hyphens or underscores (e.g. 'grok', 'deepseek', 'mistral')." });
@@ -711,6 +713,12 @@ router.post("/settings/ai-providers", requirePermission("ai:settings"), async (r
       base_url: parsedUrl.toString(),
       api_key_encrypted: encryptSecret(String(api_key).trim()),
       default_model: String(default_model).trim(),
+      // Admin-declared capability flags (2026-07 AI Orchestrator redesign) - lets a custom
+      // provider that genuinely supports vision/PDF input or has always-on native web search
+      // (e.g. Perplexity Sonar) show up as a valid choice for those orchestrator tasks, instead
+      // of every custom provider defaulting to text-only.
+      supports_vision: Boolean(supports_vision),
+      supports_web_search: Boolean(supports_web_search),
     });
 
     await auditSettingsChange(req, "Add Custom AI Provider", "AiProviderConfig", provider.id, { provider_key: provider.provider_key, base_url: provider.base_url });

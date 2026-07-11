@@ -1,10 +1,9 @@
 import { prisma } from "../../src/prisma";
-import { getGeminiClient } from "./gemini";
+import { dbStore } from "../../src/dbStore";
 import { FACTORY_DEFAULT_CLASSIFICATION_PROMPT } from "./promptDefaults";
 import { estimateCostUsd } from "./aiPricing";
-import { recordAiUsage } from "../../src/aiOrchestrator";
-
-const CLASSIFICATION_MODEL = "gemini-3.5-flash";
+import { recordAiUsage, resolveProvider, recordProviderFallback } from "../../src/aiOrchestrator";
+import { generateJsonWithProvider, ConnectedProvider } from "./aiProviders";
 
 export interface DocumentClassification {
   document_type: string;
@@ -15,9 +14,9 @@ const FALLBACK: DocumentClassification = { document_type: "Other", confidence: 0
 
 // Real AI-driven classification, replacing what used to be a hardcoded mimetype guess (PDF ->
 // "RFP / Bid Document", anything else -> "Contract/SLA") with an always-identical fake 0.92
-// confidence. Runs on every upload, so it deliberately uses Gemini (the one key required
-// platform-wide) rather than going through the task->provider orchestrator built for the
-// heavier document_analysis flow - this is a small, frequent, low-stakes call.
+// confidence. Previously hardcoded to always call Gemini directly, bypassing the task->provider
+// orchestrator entirely (2026-07 AI Orchestrator redesign fixed this - now routed through
+// resolveProvider() like the other real task types, admin-configurable same as the rest).
 export async function classifyDocument(filename: string, extractedText: string, tenantId: string): Promise<DocumentClassification> {
   try {
     const promptRow = await prisma.promptTemplate.findFirst({ where: { type: "classification", isActive: true } });
@@ -36,26 +35,23 @@ Respond in Brazilian Portuguese. Respond with ONLY a JSON object matching this s
   "confidence": 0.0 to 1.0
 }`;
 
-    const ai = await getGeminiClient();
-    const response = await ai.models.generateContent({
-      model: CLASSIFICATION_MODEL,
-      contents: prompt,
-      config: { responseMimeType: "application/json" },
-    });
+    const settings = await dbStore.getSettings();
+    const resolution = await resolveProvider("document_classification", settings as any);
+    if (resolution.isFallback) {
+      await recordProviderFallback({ tenantId, taskType: "document_classification", intendedProvider: resolution.intendedProvider, userId: "system" });
+    }
+
+    const { text, inputTokens, outputTokens } = await generateJsonWithProvider(resolution.provider as ConnectedProvider, resolution.model, prompt);
 
     await recordAiUsage({
       tenantId,
       taskType: "document_classification",
-      provider: "gemini",
-      model: CLASSIFICATION_MODEL,
-      estimatedCostUsd: estimateCostUsd(
-        CLASSIFICATION_MODEL,
-        response.usageMetadata?.promptTokenCount || 0,
-        response.usageMetadata?.candidatesTokenCount || 0
-      ),
+      provider: resolution.provider,
+      model: resolution.model,
+      estimatedCostUsd: estimateCostUsd(resolution.model, inputTokens, outputTokens),
     });
 
-    const parsed = JSON.parse((response.text || "{}").trim());
+    const parsed = JSON.parse(text.trim());
     if (typeof parsed.document_type !== "string" || typeof parsed.confidence !== "number") {
       return FALLBACK;
     }
