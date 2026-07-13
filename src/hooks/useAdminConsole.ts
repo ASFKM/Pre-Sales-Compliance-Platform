@@ -1,4 +1,6 @@
-import { BrandingSettings, PlatformSettings, Role } from "../types";
+import { useCallback, useEffect, useState } from "react";
+import { BrandingSettings, PlatformSettings, ProposalTemplate, Role } from "../types";
+import type { TemplateVariableEntry } from "../../server/utils/templateVariableCatalog";
 
 interface UseAdminConsoleParams {
   locale: string;
@@ -49,18 +51,16 @@ interface UseAdminConsoleParams {
   templateUploadName: string;
   templateUploadDescription: string;
   templateUploadVersion: string;
-  templateUploadType: "technical" | "commercial";
+  templateUploadType: ProposalTemplate["template_type"];
   templateUploadLanguage: "Portuguese" | "English" | "Spanish";
-  templateUploadVariables: string;
   proposalTemplates: any[];
   setTemplateUploadFile: (v: File | null) => void;
   setTemplateUploadFileName: (v: string) => void;
   setTemplateUploadName: (v: string) => void;
   setTemplateUploadDescription: (v: string) => void;
   setTemplateUploadVersion: (v: string) => void;
-  setTemplateUploadType: (v: "technical" | "commercial") => void;
+  setTemplateUploadType: (v: ProposalTemplate["template_type"]) => void;
   setTemplateUploadLanguage: (v: "Portuguese" | "English" | "Spanish") => void;
-  setTemplateUploadVariables: (v: string) => void;
 }
 
 // All handlers exclusive to the Admin Console (users, roles, AI/prompts, templates,
@@ -77,10 +77,29 @@ export function useAdminConsole(params: UseAdminConsoleParams) {
     newConnectorName, newConnectorType, newConnectorUrl, newConnectorToken,
     setShowNewConnectorForm, setNewConnectorName, setNewConnectorType, setNewConnectorUrl, setNewConnectorToken,
     templateUploadFile, templateUploadFileName, templateUploadName, templateUploadDescription, templateUploadVersion,
-    templateUploadType, templateUploadLanguage, templateUploadVariables, proposalTemplates,
+    templateUploadType, templateUploadLanguage, proposalTemplates,
     setTemplateUploadFile, setTemplateUploadFileName, setTemplateUploadName, setTemplateUploadDescription, setTemplateUploadVersion,
-    setTemplateUploadType, setTemplateUploadLanguage, setTemplateUploadVariables,
+    setTemplateUploadType, setTemplateUploadLanguage,
   } = params;
+
+  // Canonical variable glossary (name + human-readable description) shown next to the upload
+  // form - fetched once and reused for every template, since it doesn't depend on which template
+  // is selected (every template can use every variable buildTemplateVariables() computes).
+  const [proposalVariableCatalog, setProposalVariableCatalog] = useState<TemplateVariableEntry[]>([]);
+
+  const fetchProposalVariableCatalog = useCallback(async () => {
+    try {
+      const res = await fetch("/api/templates/proposals/variables");
+      const data = await res.json();
+      if (res.ok) setProposalVariableCatalog(data.variables || []);
+    } catch (err) {
+      console.error(err);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchProposalVariableCatalog();
+  }, [fetchProposalVariableCatalog]);
 
   const normalizeApprovalWorkflowPayload = (flow: any) => ({
     name: flow.name,
@@ -456,10 +475,6 @@ export function useAdminConsole(params: UseAdminConsoleParams) {
     }
 
     const safeName = templateUploadName.trim() || templateUploadFileName.replace(/\.[^.]+$/, "");
-    const variables = templateUploadVariables
-      .split(",")
-      .map((v) => v.trim())
-      .filter(Boolean);
 
     const formData = new FormData();
     formData.append("file", templateUploadFile);
@@ -467,7 +482,6 @@ export function useAdminConsole(params: UseAdminConsoleParams) {
     formData.append("description", templateUploadDescription.trim() || (locale === "pt" ? "Template enviado pela área administrativa." : "Template uploaded from the admin console."));
     formData.append("template_type", templateUploadType);
     formData.append("language", templateUploadLanguage);
-    formData.append("variables_schema", JSON.stringify(variables));
     formData.append("version", templateUploadVersion || "v1.0");
     formData.append("active", "true");
     formData.append("default_template", "false");
@@ -492,7 +506,6 @@ export function useAdminConsole(params: UseAdminConsoleParams) {
       setTemplateUploadVersion("v1.0");
       setTemplateUploadType("technical");
       setTemplateUploadLanguage("Portuguese");
-      setTemplateUploadVariables("{{project.name}}, {{customer.name}}, {{analysis.executive_summary}}, {{analysis.bom}}");
       await fetchGlobalConfigs();
       alert(locale === "pt" ? "Template criado com sucesso." : "Template created successfully.");
     } catch (err) {
@@ -511,9 +524,16 @@ export function useAdminConsole(params: UseAdminConsoleParams) {
         return;
       }
 
-      alert(locale === "pt"
+      const unknown: string[] = data.unknown_variables || [];
+      const unknownWarning = unknown.length > 0
+        ? (locale === "pt"
+            ? `\n\nATENÇÃO: ${unknown.length} variável(is) não reconhecida(s) - vão aparecer em branco no documento gerado: ${unknown.join(", ")}`
+            : `\n\nWARNING: ${unknown.length} unrecognized variable(s) - they will render blank in the generated document: ${unknown.join(", ")}`)
+        : "";
+
+      alert((locale === "pt"
         ? `Template validado. Variáveis: ${(data.variables || []).join(", ") || "nenhuma"}`
-        : `Template validated. Variables: ${(data.variables || []).join(", ") || "none"}`);
+        : `Template validated. Variables: ${(data.variables || []).join(", ") || "none"}`) + unknownWarning);
     } catch (err) {
       console.error(err);
       alert(locale === "pt" ? "Erro ao validar template." : "Error validating template.");
@@ -815,6 +835,7 @@ export function useAdminConsole(params: UseAdminConsoleParams) {
   };
 
   return {
+    proposalVariableCatalog,
     handleCreateApprovalWorkflow,
     handleSaveApprovalWorkflow,
     handleDuplicateApprovalWorkflow,

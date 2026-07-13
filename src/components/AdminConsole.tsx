@@ -286,9 +286,9 @@ export default function AdminConsole({
   const [templateUploadName, setTemplateUploadName] = useState<string>("");
   const [templateUploadDescription, setTemplateUploadDescription] = useState<string>("");
   const [templateUploadVersion, setTemplateUploadVersion] = useState<string>("v1.0");
-  const [templateUploadType, setTemplateUploadType] = useState<"technical" | "commercial">("technical");
+  const [templateUploadType, setTemplateUploadType] = useState<ProposalTemplate["template_type"]>("technical");
   const [templateUploadLanguage, setTemplateUploadLanguage] = useState<"Portuguese" | "English" | "Spanish">("Portuguese");
-  const [templateUploadVariables, setTemplateUploadVariables] = useState<string>("{{project.name}}, {{customer.name}}, {{analysis.executive_summary}}, {{analysis.bom}}");
+  const [isTemplateDragOver, setIsTemplateDragOver] = useState(false);
 
   const [newRoleName, setNewRoleName] = useState<string>("");
   const [newRoleDescription, setNewRoleDescription] = useState<string>("");
@@ -343,6 +343,7 @@ export default function AdminConsole({
     handleClearAiApiKey,
     handleAddAiProvider,
     handleDeleteAiProvider,
+    proposalVariableCatalog,
   } = useAdminConsole({
     locale,
     currentUserName: currentSessionUser.name,
@@ -390,7 +391,6 @@ export default function AdminConsole({
     templateUploadVersion,
     templateUploadType,
     templateUploadLanguage,
-    templateUploadVariables,
     proposalTemplates,
     setTemplateUploadFile,
     setTemplateUploadFileName,
@@ -399,7 +399,6 @@ export default function AdminConsole({
     setTemplateUploadVersion,
     setTemplateUploadType,
     setTemplateUploadLanguage,
-    setTemplateUploadVariables,
   });
 
   const updateApprovalWorkflowLocal = (flowId: string, updater: (flow: any) => any) => {
@@ -1503,7 +1502,19 @@ export default function AdminConsole({
                       <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
                         {locale === "pt" ? "Enviar Template" : "Upload Template"}
                       </h3>
-                      <div className="p-4 border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 text-center space-y-3">
+                      <div
+                        onDragOver={(e) => { e.preventDefault(); setIsTemplateDragOver(true); }}
+                        onDragEnter={(e) => { e.preventDefault(); setIsTemplateDragOver(true); }}
+                        onDragLeave={(e) => { e.preventDefault(); setIsTemplateDragOver(false); }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          setIsTemplateDragOver(false);
+                          const file = e.dataTransfer.files?.[0] || null;
+                          setTemplateUploadFile(file);
+                          setTemplateUploadFileName(file?.name || "");
+                        }}
+                        className={`p-4 border-2 border-dashed rounded-xl text-center space-y-3 transition-colors ${isTemplateDragOver ? "border-emerald-500 bg-emerald-50/40" : "border-slate-300 bg-slate-50"}`}
+                      >
                         <input
                           type="file"
                           accept=".doc,.docx,.pdf"
@@ -1515,15 +1526,22 @@ export default function AdminConsole({
                           className="text-xs w-full"
                         />
                         <p className="text-[11px] text-slate-500">
-                          {locale === "pt" ? "Formatos: DOCX, DOC ou PDF. Recomendado: DOCX com variáveis {{cliente}}, {{escopo}}, {{bom}}, {{preco}}." : "Formats: DOCX, DOC or PDF."}
+                          {locale === "pt"
+                            ? "Formatos: DOCX, DOC ou PDF. Arraste e solte o arquivo aqui, ou selecione acima. Veja o glossário de variáveis ao lado para saber quais {{...}} o template pode usar."
+                            : "Formats: DOCX, DOC or PDF. Drag and drop the file here, or select above. See the variable glossary alongside for which {{...}} placeholders the template can use."}
                         </p>
                       </div>
                       <div className="grid grid-cols-2 gap-3 text-xs">
                         <div>
                           <label className="text-[10px] uppercase font-bold text-slate-400 font-mono block mb-1">{locale === "pt" ? "Tipo" : "Type"}</label>
-                          <select value={templateUploadType} onChange={(e) => setTemplateUploadType(e.target.value as any)} className="w-full p-2 bg-slate-50 border border-slate-200 rounded">
-                            <option value="technical">{locale === "pt" ? "Técnico" : "Technical"}</option>
+                          <select value={templateUploadType} onChange={(e) => setTemplateUploadType(e.target.value as ProposalTemplate["template_type"])} className="w-full p-2 bg-slate-50 border border-slate-200 rounded">
+                            <option value="technical">{locale === "pt" ? "Técnica" : "Technical"}</option>
                             <option value="commercial">{locale === "pt" ? "Comercial" : "Commercial"}</option>
+                            <option value="technical_commercial">{locale === "pt" ? "Técnico-Comercial" : "Technical-Commercial"}</option>
+                            <option value="executive_summary">{locale === "pt" ? "Resumo Executivo" : "Executive Summary"}</option>
+                            <option value="risk_report">{locale === "pt" ? "Relatório de Riscos" : "Risk Report"}</option>
+                            <option value="bom_report">{locale === "pt" ? "Relatório de BOM" : "BOM Report"}</option>
+                            <option value="questions_report">{locale === "pt" ? "Relatório de Perguntas" : "Questions Report"}</option>
                           </select>
                         </div>
                         <div>
@@ -1585,10 +1603,59 @@ export default function AdminConsole({
                                 </button>
                               </div>
                             </div>
-                            <pre className="mt-3 p-3 bg-white border border-slate-200 rounded text-[10px] text-slate-500 overflow-x-auto">{JSON.stringify(tpl.variables_schema || {}, null, 2)}</pre>
                           </div>
                         ))}
                       </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeAdminSection === "templates" && canAccessAdminSection("templates") && (
+                  <div className="w-full bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4 mt-6">
+                    <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
+                      {locale === "pt" ? "Glossário de Variáveis" : "Variable Glossary"}
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      {locale === "pt"
+                        ? "Toda variável que um template DOCX pode usar, com o que cada uma traz. Blocos em negrito são listas (loops) - use {{#nome}}...{{/nome}} no Word."
+                        : "Every variable a DOCX template can use, with what each one brings. Bold entries are loops - use {{#name}}...{{/name}} in Word."}
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                      {Object.entries(
+                        proposalVariableCatalog.reduce((acc: Record<string, typeof proposalVariableCatalog>, entry) => {
+                          (acc[entry.category] = acc[entry.category] || []).push(entry);
+                          return acc;
+                        }, {})
+                      ).map(([category, entries]) => (
+                        <div key={category} className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+                          <h4 className="text-[10px] uppercase font-bold text-slate-500 font-mono">{category}</h4>
+                          {entries.map((entry) => (
+                            <div key={entry.name} className="text-xs border-b border-slate-200 last:border-0 pb-2 last:pb-0">
+                              <div className="flex items-center justify-between gap-2">
+                                <code className={`text-[11px] font-mono ${entry.kind === "loop" ? "font-bold text-emerald-700" : "text-slate-800"}`}>
+                                  {entry.kind === "loop" ? `{{#${entry.name}}}` : `{{${entry.name}}}`}
+                                </code>
+                                <button
+                                  onClick={() => navigator.clipboard.writeText(entry.kind === "loop" ? `{{#${entry.name}}}{{/${entry.name}}}` : `{{${entry.name}}}`)}
+                                  className="text-[9px] uppercase font-bold text-slate-400 hover:text-slate-700 cursor-pointer shrink-0"
+                                >
+                                  {locale === "pt" ? "Copiar" : "Copy"}
+                                </button>
+                              </div>
+                              <p className="text-[10px] text-slate-500 mt-0.5">{entry.description}</p>
+                              {entry.loopFields && entry.loopFields.length > 0 && (
+                                <ul className="mt-1 space-y-0.5 pl-2 border-l border-slate-200">
+                                  {entry.loopFields.map((field) => (
+                                    <li key={field.name} className="text-[10px] text-slate-500">
+                                      <code className="font-mono text-slate-700">{`{{${field.name}}}`}</code> — {field.description}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}

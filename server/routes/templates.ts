@@ -8,6 +8,9 @@ import { requireAuth, requirePermission } from "./auth";
 import { requireUserId } from "../middleware/security";
 import { createStorageAdapter, validateUploadedFile } from "../utils/storage";
 import { extractTemplatePlaceholders } from "../utils/docxTemplateEngine";
+import { TEMPLATE_VARIABLE_CATALOG, getAllKnownVariableNames } from "../utils/templateVariableCatalog";
+import { PROPOSAL_TYPES } from "../utils/proposalTypes";
+import { runWithTenant } from "../../src/tenantContext";
 
 const router = express.Router();
 
@@ -29,7 +32,7 @@ const formBoolean = (defaultValue: boolean) =>
 const ProposalTemplateFormSchema = z.object({
   name: z.string().min(2, "Template name is required"),
   description: z.string().optional().default(""),
-  template_type: z.enum(["technical", "commercial", "executive_summary", "risk_report", "bom_report", "questions_report"]),
+  template_type: z.enum(PROPOSAL_TYPES),
   language: z.enum(["Portuguese", "English", "Spanish"]).default("Portuguese"),
   variables_schema: z.string().optional().default("[]"),
   version: z.string().min(1).default("v1.0"),
@@ -121,28 +124,37 @@ router.post("/proposals", requirePermission("template:manage"), upload.single("f
 
     const validated = ProposalTemplateFormSchema.parse(req.body);
 
-    if (await hasDuplicateTemplateName(validated.name)) {
-      return res.status(409).json({ success: false, message: "Template name already exists." });
-    }
+    // AsyncLocalStorage context set by requireAuth's middleware isn't reliably reaching this
+    // handler through multer's upload.single() - same issue already fixed in documents.ts.
+    // Rebuilt directly from the tenant id requireAuth also stashes on the request headers, a
+    // plain object property not dependent on any async-context propagation.
+    const tenantId = req.headers["x-tenant-id"] as string;
+    const tenantContext = { tenantId };
 
-    const platformSettings = await dbStore.getSettings();
-    const storageAdapter = createStorageAdapter(platformSettings);
-    const filePath = await storageAdapter.uploadFile(TEMPLATE_STORAGE_NAMESPACE, file.buffer, file.originalname, file.mimetype);
+    await runWithTenant(tenantContext, async () => {
+      if (await hasDuplicateTemplateName(validated.name)) {
+        return res.status(409).json({ success: false, message: "Template name already exists." });
+      }
 
-    const tpl = await dbStore.createProposalTemplate({
-      ...validated,
-      file_type: fileType,
-      file_path: filePath,
-      storage_provider: platformSettings.storage_mode,
+      const platformSettings = await dbStore.getSettings();
+      const storageAdapter = createStorageAdapter(platformSettings);
+      const filePath = await storageAdapter.uploadFile(TEMPLATE_STORAGE_NAMESPACE, file.buffer, file.originalname, file.mimetype);
+
+      const tpl = await dbStore.createProposalTemplate({
+        ...validated,
+        file_type: fileType,
+        file_path: filePath,
+        storage_provider: platformSettings.storage_mode,
+      });
+
+      let result = tpl;
+      if (validated.default_template) {
+        result = (await dbStore.setDefaultProposalTemplate(tpl.id)) || tpl;
+      }
+
+      await auditTemplateChange(req, "Create Proposal Template", result.id, { ...validated, file_path: filePath });
+      res.status(201).json(result);
     });
-
-    let result = tpl;
-    if (validated.default_template) {
-      result = (await dbStore.setDefaultProposalTemplate(tpl.id)) || tpl;
-    }
-
-    await auditTemplateChange(req, "Create Proposal Template", result.id, { ...validated, file_path: filePath });
-    res.status(201).json(result);
   } catch (err) {
     if (err instanceof z.ZodError) {
       return res.status(400).json({ success: false, message: err.issues[0].message });
@@ -211,6 +223,18 @@ router.delete("/proposals/:id", requirePermission("template:manage"), async (req
   }
 });
 
+// Canonical glossary of every variable buildTemplateVariables() can fill in a real template -
+// used by the Admin Console's reference panel next to the upload form, and by the cross-check in
+// /validate below. GET, not requirePermission("template:manage"): any authenticated user who can
+// see the upload form should be able to see what variables exist.
+router.get("/proposals/variables", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    res.json({ success: true, variables: TEMPLATE_VARIABLE_CATALOG });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post("/proposals/:id/validate", requirePermission("template:manage"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const templates = await dbStore.getProposalTemplates();
@@ -218,6 +242,15 @@ router.post("/proposals/:id/validate", requirePermission("template:manage"), asy
     if (!tpl) {
       return res.status(404).json({ success: false, message: "Template not found" });
     }
+
+    const knownVariables = getAllKnownVariableNames();
+    // A placeholder in the file that isn't in the canonical catalog will always render empty -
+    // usually a typo (e.g. {{preco}} instead of {{preco_total}}) or a variable the author assumed
+    // exists but doesn't. Flagged here instead of only failing silently at generation time.
+    const flagUnknown = (variables: string[]) => ({
+      variables,
+      unknown_variables: variables.filter((v) => !knownVariables.has(v)),
+    });
 
     // Real placeholders found in the actual uploaded file (docxtemplater's own parser) - only
     // possible for .docx (a real OOXML zip); .doc/.pdf templates fall back to whatever variables
@@ -227,26 +260,30 @@ router.post("/proposals/:id/validate", requirePermission("template:manage"), asy
         const settings = await dbStore.getSettings();
         const adapter = createStorageAdapter({ ...settings, storage_mode: tpl.storage_provider });
         const buffer = await adapter.readFile(tpl.file_path);
-        const variables = extractTemplatePlaceholders(buffer);
+        const { variables, unknown_variables } = flagUnknown(extractTemplatePlaceholders(buffer));
 
         return res.json({
           success: true,
-          message: "Variáveis extraídas do arquivo real do template.",
+          message: unknown_variables.length > 0
+            ? `Variáveis extraídas do arquivo real do template. ${unknown_variables.length} não reconhecida(s) - vão aparecer em branco no documento gerado.`
+            : "Variáveis extraídas do arquivo real do template.",
           variables,
-          variable_count: variables.length
+          variable_count: variables.length,
+          unknown_variables,
         });
       } catch (err: any) {
         return res.status(400).json({ success: false, message: err.message || "Não foi possível ler as variáveis do arquivo do template." });
       }
     }
 
-    const variables = extractTemplateVariables(tpl.variables_schema || "[]");
+    const { variables, unknown_variables } = flagUnknown(extractTemplateVariables(tpl.variables_schema || "[]"));
 
     res.json({
       success: true,
       message: `Arquivo .${tpl.file_type} não pode ser inspecionado diretamente - variáveis registradas manualmente.`,
       variables,
-      variable_count: variables.length
+      variable_count: variables.length,
+      unknown_variables,
     });
   } catch (err) {
     next(err);

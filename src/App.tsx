@@ -12,6 +12,7 @@ import Approval from "./components/Approval";
 import NewProjectWizard from "./components/modals/NewProjectWizard";
 import { useBackgroundTasks } from "./hooks/useBackgroundTasks";
 import { useSilentRefresh } from "./hooks/useSilentRefresh";
+import { PROPOSAL_TYPES } from "../server/utils/proposalTypes";
 import ClassifyDocumentModal from "./components/modals/ClassifyDocumentModal";
 import AuditLogsModal from "./components/modals/AuditLogsModal";
 import DebugConsoleModal from "./components/modals/DebugConsoleModal";
@@ -299,9 +300,10 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<"home" | "workspace" | "projectsList" | "proposals" | "approval" | "knowledgeBase" | "admin">("home");
   const [activeAdminSection, setActiveAdminSection] = useState<"overview" | "users" | "ai" | "templates" | "approval_flow" | "subscription" | "branding" | "integrations" | "storage" | "audit">("overview");
 
-  // Shared with fetchGlobalConfigs (auto-selects defaults) and Workspace's proposal builder
-  const [selectedTechnicalTemplateId, setSelectedTechnicalTemplateId] = useState("");
-  const [selectedCommercialTemplateId, setSelectedCommercialTemplateId] = useState("");
+  // Shared with fetchGlobalConfigs (auto-selects defaults) and Workspace's proposal builder -
+  // one entry per proposal type (see server/utils/proposalTypes.ts) rather than a separate
+  // useState per type, since there are 7 of them now.
+  const [selectedTemplateIdByType, setSelectedTemplateIdByType] = useState<Record<string, string>>({});
   // Shared with fetchProjectDetails (loads history on project switch) and Workspace's chat panel
   const [chatHistory, setChatHistory] = useState<{role: string, message: string}[]>([]);
 
@@ -436,13 +438,16 @@ export default function App() {
         const safeTemplates = Array.isArray(data) ? data : [];
         setProposalTemplates(safeTemplates);
 
-        const defaultTechnicalTemplate = safeTemplates.find((tpl: any) => tpl.template_type === "technical" && tpl.default_template && tpl.active)
-          || safeTemplates.find((tpl: any) => tpl.template_type === "technical" && tpl.active);
-        const defaultCommercialTemplate = safeTemplates.find((tpl: any) => tpl.template_type === "commercial" && tpl.default_template && tpl.active)
-          || safeTemplates.find((tpl: any) => tpl.template_type === "commercial" && tpl.active);
-
-        if (defaultTechnicalTemplate) setSelectedTechnicalTemplateId((current) => current || defaultTechnicalTemplate.id);
-        if (defaultCommercialTemplate) setSelectedCommercialTemplateId((current) => current || defaultCommercialTemplate.id);
+        setSelectedTemplateIdByType((current) => {
+          const next = { ...current };
+          for (const type of PROPOSAL_TYPES) {
+            if (next[type]) continue;
+            const defaultTpl = safeTemplates.find((tpl: any) => tpl.template_type === type && tpl.default_template && tpl.active)
+              || safeTemplates.find((tpl: any) => tpl.template_type === type && tpl.active);
+            if (defaultTpl) next[type] = defaultTpl.id;
+          }
+          return next;
+        });
       })(),
       (async () => {
         const res = await fetch("/api/approval-workflows");
@@ -1220,10 +1225,8 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               canAccessAdminSection={canAccessAdminSection}
               handleDeleteDocument={handleDeleteDocument}
               getDocTag={getDocTag}
-              selectedTechnicalTemplateId={selectedTechnicalTemplateId}
-              setSelectedTechnicalTemplateId={setSelectedTechnicalTemplateId}
-              selectedCommercialTemplateId={selectedCommercialTemplateId}
-              setSelectedCommercialTemplateId={setSelectedCommercialTemplateId}
+              selectedTemplateIdByType={selectedTemplateIdByType}
+              setSelectedTemplateIdByType={setSelectedTemplateIdByType}
               chatHistory={chatHistory}
               setChatHistory={setChatHistory}
               waitForTask={waitForTask}

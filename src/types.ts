@@ -366,7 +366,7 @@ export interface ProposalTemplate {
   id: string;
   name: string;
   description: string;
-  template_type: "technical" | "commercial" | "executive_summary" | "risk_report" | "bom_report" | "questions_report";
+  template_type: "technical" | "commercial" | "technical_commercial" | "executive_summary" | "risk_report" | "bom_report" | "questions_report";
   language: "Portuguese" | "English" | "Spanish";
   file_type: "docx" | "doc" | "pdf";
   file_path: string;
@@ -383,7 +383,7 @@ export interface ProposalTemplate {
 export interface Proposal {
   id: string;
   project_id: string;
-  proposal_type: "technical" | "commercial";
+  proposal_type: "technical" | "commercial" | "technical_commercial" | "executive_summary" | "risk_report" | "bom_report" | "questions_report";
   template_id: string;
   template_version: string;
   status: "draft" | "submitted" | "approved" | "rejected" | "released";

@@ -10,12 +10,13 @@ import { logDebugMessage, requireUserId } from "../middleware/security";
 import { ProposalTemplate } from "../../src/types";
 import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
 import { runWithTenant } from "../../src/tenantContext";
+import { PROPOSAL_TYPES, ProposalTypeValue } from "../utils/proposalTypes";
 
 const router = express.Router();
 
 async function resolveRegisteredTemplate(
   templateId: string,
-  proposalType: "technical" | "commercial"
+  proposalType: ProposalTypeValue
 ): Promise<{ errorStatus: number; errorMessage: string } | { template: ProposalTemplate }> {
   const templates = await dbStore.getProposalTemplates();
   const template = templates.find(t => t.id === templateId);
@@ -91,9 +92,9 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
   const correlationId = (req.headers["x-correlation-id"] as string) || "corr-proposal";
   const startTime = Date.now();
   const projectId = req.params.projectId;
-  const proposalType = req.params.type as "technical" | "commercial";
+  const proposalType = req.params.type as ProposalTypeValue;
 
-  if (!["technical", "commercial"].includes(proposalType)) {
+  if (!(PROPOSAL_TYPES as readonly string[]).includes(proposalType)) {
     return res.status(400).json({ success: false, message: "Invalid proposal type." });
   }
 
@@ -119,6 +120,7 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
     const tenantId = req.headers["x-tenant-id"] as string;
     const user = await dbStore.getUserById(userId);
     const userName = user ? user.name : "System User";
+    const owner = await dbStore.getUserById(project.owner_user_id);
 
     // 1. Compile template data from projects, analysis result, and manual pricings
     const templateData = {
@@ -134,13 +136,24 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
         name: project.name,
         customer_name: project.customer_name,
         description: project.description,
-        vertical: project.vertical
+        vertical: project.vertical,
+        opportunity_name: project.opportunity_name,
+        status: project.status,
+        deadline: project.deadline,
+        proposal_validity_date: project.proposal_validity_date,
+        procurement_modality: project.procurement_modality,
+        procurement_subtype: project.procurement_subtype,
+        owner_name: owner ? owner.name : undefined,
       },
       analysis: analysis ? {
         executive_summary: analysis.executive_summary,
         critical_requirements: analysis.critical_requirements,
         risks: analysis.risks,
-        bom: analysis.bom
+        opportunities: analysis.opportunities,
+        bom: analysis.bom,
+        point_to_point_table: analysis.point_to_point_table,
+        preliminary_schedule: analysis.preliminary_schedule,
+        clarification_questions: analysis.clarification_questions
       } : undefined,
       proposal: {
         manual_pricing_table: validated.manual_pricing_table,

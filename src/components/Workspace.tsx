@@ -6,8 +6,56 @@ import {
 import { AnalysisResult, BOMItem, Document } from "../types";
 import { useWorkspace } from "../hooks/useWorkspace";
 import { BackgroundTask } from "../hooks/useBackgroundTasks";
+import { PROPOSAL_TYPES, PROPOSAL_TYPE_LABELS, ProposalTypeValue } from "../../server/utils/proposalTypes";
 
 type SubTab = "summary" | "requirements" | "risks" | "bom" | "proposal_builder" | "explorer";
+
+// Card copy/icon for each of the 7 proposal types in the Studio generator grid - purely
+// presentational metadata, the actual type list/labels come from server/utils/proposalTypes.ts.
+const PROPOSAL_TYPE_GENERATOR_META: Record<ProposalTypeValue, { icon: typeof FileCode; titleEn: string; titlePt: string; descriptionEn: string; descriptionPt: string }> = {
+  technical: {
+    icon: FileCode,
+    titleEn: "Technical Proposal Document", titlePt: "Documento de Proposta Técnica",
+    descriptionEn: "Compiles detailed executive summaries, full specs compliance tables, proposed engineering schedule phases, and points traceability matrices into a unified engineering bid.",
+    descriptionPt: "Reúne resumos executivos detalhados, tabelas de conformidade técnica, fases de cronograma de engenharia e matrizes de rastreabilidade num único documento técnico.",
+  },
+  commercial: {
+    icon: DollarSign,
+    titleEn: "Commercial Proposal Document", titlePt: "Documento de Proposta Comercial",
+    descriptionEn: "Designs beautifully structured commercial pricing tables, custom discount allocations, delivery timetables, assumptions and legal liability exclusion paragraphs.",
+    descriptionPt: "Monta tabelas de precificação comercial, descontos, prazos de entrega, premissas e cláusulas de exclusão de responsabilidade.",
+  },
+  technical_commercial: {
+    icon: FilePlus,
+    titleEn: "Technical-Commercial Proposal Document", titlePt: "Documento de Proposta Técnico-Comercial",
+    descriptionEn: "Fuses the technical and commercial content into a single document - full specs, schedule and compliance alongside pricing and commercial terms.",
+    descriptionPt: "Funde o conteúdo técnico e comercial num único documento - especificações, cronograma e conformidade junto com preços e termos comerciais.",
+  },
+  executive_summary: {
+    icon: PenLine,
+    titleEn: "Executive Summary Document", titlePt: "Documento de Resumo Executivo",
+    descriptionEn: "A concise, leadership-facing summary of the project overview, context, main requirements, risks, opportunities and recommended strategy.",
+    descriptionPt: "Um resumo conciso, voltado à liderança, com visão geral do projeto, contexto, principais requisitos, riscos, oportunidades e estratégia recomendada.",
+  },
+  risk_report: {
+    icon: TriangleAlert,
+    titleEn: "Risk Report Document", titlePt: "Documento de Relatório de Riscos",
+    descriptionEn: "A dedicated report listing every identified risk with severity, probability, impact, mitigation and the area responsible for each.",
+    descriptionPt: "Um relatório dedicado listando cada risco identificado com severidade, probabilidade, impacto, mitigação e área responsável.",
+  },
+  bom_report: {
+    icon: HardDrive,
+    titleEn: "BOM Report Document", titlePt: "Documento de Relatório de BOM",
+    descriptionEn: "A standalone bill-of-materials report with every item, manufacturer, quantity and specification from the analysis.",
+    descriptionPt: "Um relatório autônomo de lista de materiais com todos os itens, fabricantes, quantidades e especificações da análise.",
+  },
+  questions_report: {
+    icon: MessageSquare,
+    titleEn: "Clarification Questions Document", titlePt: "Documento de Perguntas de Esclarecimento",
+    descriptionEn: "A document listing every clarification question the analysis recommends sending to the customer, with reason and priority.",
+    descriptionPt: "Um documento listando cada pergunta de esclarecimento recomendada pela análise para enviar ao cliente, com motivo e prioridade.",
+  },
+};
 
 // Lightweight markdown rendering for chat replies - just **bold** and "- " bullet lines, the two
 // things AI answers actually use here. No markdown library pulled in for this; the copilot never
@@ -54,10 +102,8 @@ interface WorkspaceProps {
   canAccessAdminSection: (section: string) => boolean;
   handleDeleteDocument: (id: string) => void;
   getDocTag: (filename: string) => { label: string; style: string };
-  selectedTechnicalTemplateId: string;
-  setSelectedTechnicalTemplateId: Dispatch<SetStateAction<string>>;
-  selectedCommercialTemplateId: string;
-  setSelectedCommercialTemplateId: Dispatch<SetStateAction<string>>;
+  selectedTemplateIdByType: Record<string, string>;
+  setSelectedTemplateIdByType: Dispatch<SetStateAction<Record<string, string>>>;
   chatHistory: { role: string; message: string }[];
   setChatHistory: Dispatch<SetStateAction<{ role: string; message: string }[]>>;
   waitForTask: (taskId: string) => Promise<BackgroundTask>;
@@ -70,8 +116,7 @@ export default function Workspace({
   analysisError, docsCount, reqsCount, risksCount, oppsCount,
   proposalTemplates, fetchGlobalConfigs, fetchProjectDetails,
   setActiveTab, setActiveAdminSection, canAccessAdminSection, handleDeleteDocument, getDocTag,
-  selectedTechnicalTemplateId, setSelectedTechnicalTemplateId,
-  selectedCommercialTemplateId, setSelectedCommercialTemplateId,
+  selectedTemplateIdByType, setSelectedTemplateIdByType,
   chatHistory, setChatHistory, waitForTask, currentUserName,
 }: WorkspaceProps) {
   const [subTab, setSubTab] = useState<SubTab>("summary");
@@ -182,8 +227,7 @@ export default function Workspace({
   const {
     handleUpdateRequirement,
     handleUpdateRisk,
-    handleGenerateTechnicalProposal,
-    handleGenerateCommercialProposal,
+    handleGenerateProposal,
     handleSendChatMessage,
     saveFoldersToStorage,
     saveVirtualFilesToStorage,
@@ -192,7 +236,7 @@ export default function Workspace({
   } = useWorkspace({
     locale, tx, hasPermission, selectedProjectId,
     analysisResult, setAnalysisResult, fetchGlobalConfigs, fetchProjectDetails, setActiveTab, waitForTask,
-    proposalTemplates, selectedTechnicalTemplateId, selectedCommercialTemplateId,
+    proposalTemplates, selectedTemplateIdByType,
     documents, projectFolders, setProjectFolders, docFolderMapping, setDocFolderMapping,
     virtualFiles, setVirtualFiles,
     chatMessage, setChatMessage, setChatHistory, setIsChatSending,
@@ -906,68 +950,39 @@ export default function Workspace({
                       <span className="text-xs text-slate-400">{tx("Generate fully compliant documents from templates", "Gere documentos totalmente conformes a partir de modelos")}</span>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-6">
-
-                      {/* Technical Bid Generator Block */}
-                      <div className="p-5 bg-slate-50 border border-slate-200 rounded-xl flex flex-col gap-3 shadow-sm">
-                        <div className="w-10 h-10 bg-emerald-500/10 text-emerald-700 rounded-lg flex items-center justify-center">
-                          <FileCode size={20} />
-                        </div>
-                        <h4 className="text-sm font-bold text-slate-800 uppercase font-mono leading-none">{tx("Technical Proposal Document", "Documento de Proposta Técnica")}</h4>
-                        <p className="text-xs text-slate-500 leading-relaxed">
-                          Compiles detailed executive summaries, full specs compliance tables, proposed engineering schedule phases, and points traceability matrices into a unified engineering bid.
-                        </p>
-                        <div className="mt-2 pt-2 border-t border-slate-200">
-                          <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{tx("Select Document Template", "Selecionar Modelo de Documento")}</label>
-                          <select
-                            value={selectedTechnicalTemplateId}
-                            onChange={(e) => setSelectedTechnicalTemplateId(e.target.value)}
-                            className="text-xs p-1.5 rounded border border-slate-300 w-full focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                          >
-                            {proposalTemplates.filter(t => t.template_type === "technical" && t.active).map(t => (
-                              <option key={t.id} value={t.id}>{t.name} ({t.version})</option>
-                            ))}
-                          </select>
-                        </div>
-                        <button
-                          onClick={handleGenerateTechnicalProposal}
-                          disabled={!analysisResult || !hasPermission("proposal:generate")}
-                          className="mt-3 bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-2 px-4 rounded shadow-sm transition-all text-center cursor-pointer disabled:opacity-50"
-                        >
-                          Generate Technical Draft (DOCX/PDF)
-                        </button>
-                      </div>
-
-                      {/* Commercial Framework Block */}
-                      <div className="p-5 bg-slate-50 border border-slate-200 rounded-xl flex flex-col gap-3 shadow-sm">
-                        <div className="w-10 h-10 bg-emerald-500/10 text-emerald-700 rounded-lg flex items-center justify-center">
-                          <DollarSign size={20} />
-                        </div>
-                        <h4 className="text-sm font-bold text-slate-800 uppercase font-mono leading-none">{tx("Commercial Proposal Document", "Documento de Proposta Comercial")}</h4>
-                        <p className="text-xs text-slate-500 leading-relaxed">
-                          Designs beautifully structured commercial pricing tables, custom discount allocations, delivery timetables, assumptions and legal liability exclusion paragraphs.
-                        </p>
-                        <div className="mt-2 pt-2 border-t border-slate-200">
-                          <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{tx("Select Document Template", "Selecionar Modelo de Documento")}</label>
-                          <select
-                            value={selectedCommercialTemplateId}
-                            onChange={(e) => setSelectedCommercialTemplateId(e.target.value)}
-                            className="text-xs p-1.5 rounded border border-slate-300 w-full focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                          >
-                            {proposalTemplates.filter(t => t.template_type === "commercial" && t.active).map(t => (
-                              <option key={t.id} value={t.id}>{t.name} ({t.version})</option>
-                            ))}
-                          </select>
-                        </div>
-                        <button
-                          onClick={handleGenerateCommercialProposal}
-                          disabled={!analysisResult || !hasPermission("proposal:generate")}
-                          className="mt-3 bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-2 px-4 rounded shadow-sm transition-all text-center cursor-pointer disabled:opacity-50"
-                        >
-                          Generate Commercial Draft (DOCX/PDF)
-                        </button>
-                      </div>
-
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                      {PROPOSAL_TYPES.map((proposalType) => {
+                        const meta = PROPOSAL_TYPE_GENERATOR_META[proposalType];
+                        const Icon = meta.icon;
+                        return (
+                          <div key={proposalType} className="p-5 bg-slate-50 border border-slate-200 rounded-xl flex flex-col gap-3 shadow-sm">
+                            <div className="w-10 h-10 bg-emerald-500/10 text-emerald-700 rounded-lg flex items-center justify-center">
+                              <Icon size={20} />
+                            </div>
+                            <h4 className="text-sm font-bold text-slate-800 uppercase font-mono leading-none">{tx(meta.titleEn, meta.titlePt)}</h4>
+                            <p className="text-xs text-slate-500 leading-relaxed">{tx(meta.descriptionEn, meta.descriptionPt)}</p>
+                            <div className="mt-2 pt-2 border-t border-slate-200">
+                              <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{tx("Select Document Template", "Selecionar Modelo de Documento")}</label>
+                              <select
+                                value={selectedTemplateIdByType[proposalType] || ""}
+                                onChange={(e) => setSelectedTemplateIdByType((current) => ({ ...current, [proposalType]: e.target.value }))}
+                                className="text-xs p-1.5 rounded border border-slate-300 w-full focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                              >
+                                {proposalTemplates.filter(t => t.template_type === proposalType && t.active).map(t => (
+                                  <option key={t.id} value={t.id}>{t.name} ({t.version})</option>
+                                ))}
+                              </select>
+                            </div>
+                            <button
+                              onClick={() => handleGenerateProposal(proposalType)}
+                              disabled={!analysisResult || !hasPermission("proposal:generate")}
+                              className="mt-3 bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-2 px-4 rounded shadow-sm transition-all text-center cursor-pointer disabled:opacity-50"
+                            >
+                              {tx(`Generate ${PROPOSAL_TYPE_LABELS[proposalType]} (DOCX/PDF)`, `Gerar ${PROPOSAL_TYPE_LABELS[proposalType]} (DOCX/PDF)`)}
+                            </button>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}

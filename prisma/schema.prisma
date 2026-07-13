@@ -94,6 +94,7 @@ enum LogLevel {
 enum ProposalTemplateType {
   technical
   commercial
+  technical_commercial
   executive_summary
   risk_report
   bom_report
@@ -109,6 +110,11 @@ enum ProposalFileType {
 enum ProposalType {
   technical
   commercial
+  technical_commercial
+  executive_summary
+  risk_report
+  bom_report
+  questions_report
 }
 
 enum ProposalStatus {

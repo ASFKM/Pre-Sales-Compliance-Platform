@@ -3,18 +3,29 @@ import Docxtemplater from "docxtemplater";
 import InspectModule from "docxtemplater/js/inspect-module";
 import { DocxTemplateData } from "./docx";
 
-// Every placeholder a real uploaded template can use, documented here once instead of scattered
-// across the Admin Console's upload hint and this engine. {{#loop}}...{{/loop}} sections repeat
-// once per array item - when both tags sit inside the same table row, docxtemplater repeats the
-// whole row (its own documented behavior, not something built here).
-//   {{cliente}}, {{projeto}}, {{vertical}}, {{escopo}}, {{resumo_executivo}}
-//   {{termos_pagamento}}, {{termos_entrega}}, {{validade_proposta}}, {{premissas_comerciais}}, {{exclusoes}}
-//   {{preco_total}}
-//   {{#bom}} {{equipamento}} {{fabricante}} {{quantidade}} {{unidade}} {{categoria}} {{especificacao}} {{/bom}}
-//   {{#requisitos_criticos}} {{descricao}} {{status}} {{prioridade}} {{/requisitos_criticos}}
-//   {{#riscos}} {{titulo}} {{severidade}} {{mitigacao}} {{/riscos}}
-//   {{#precificacao}} {{item}} {{quantidade}} {{preco_unitario}} {{preco_total_item}} {{moeda}} {{/precificacao}}
+// Every placeholder a real uploaded template can use is documented in ./templateVariableCatalog
+// (name + human-readable description, in Portuguese, shown in the Admin Console's variable
+// glossary panel) - this function is the implementation that actually computes each of those
+// variables from project/analysis data. Keep the two in sync: every key returned below should
+// have a matching entry in TEMPLATE_VARIABLE_CATALOG, and vice-versa.
 const DELIMITERS = { start: "{{", end: "}}" };
+
+// Point-to-point matrices have per-discipline dynamic columns (see DynamicMatrixSchema in
+// analysis.ts) - a real DOCX table needs fixed columns, so there's no clean way to loop over
+// arbitrary columns in docxtemplater. Flatten each discipline's rows into a plain-text table
+// instead (one line per row, "label: value" pairs joined by " | "), so a template author can still
+// drop the whole matrix into a document without needing to know its columns in advance.
+function renderMatrixAsText(matrix: { columns?: Array<{ key: string; label: string }>; rows?: Array<Record<string, unknown>> }): string {
+  const columns = matrix.columns || [];
+  const rows = matrix.rows || [];
+  return rows
+    .map((row) =>
+      columns
+        .map((col) => `${col.label}: ${row[col.key] ?? "N/D"}`)
+        .join(" | ")
+    )
+    .join("\n");
+}
 
 function buildTemplateVariables(data: DocxTemplateData) {
   const bom = (data.analysis?.bom || []).map((item: any) => ({
@@ -30,12 +41,49 @@ function buildTemplateVariables(data: DocxTemplateData) {
     descricao: req.description,
     status: req.compliance_status || "not_enough_information",
     prioridade: req.priority || "",
+    obrigatorio: req.mandatory_or_optional || "",
+    confianca: req.confidence != null ? Number(req.confidence).toFixed(2) : "",
   }));
 
   const riscos = (data.analysis?.risks || []).map((risk: any) => ({
     titulo: risk.title,
+    descricao: risk.description || "",
     severidade: risk.severity || "medium",
+    probabilidade: risk.probability || "",
+    impacto: risk.impact || "",
     mitigacao: risk.mitigation || "N/D",
+    area_responsavel: risk.owner_area || "",
+  }));
+
+  const oportunidades = (data.analysis?.opportunities || []).map((opp: any) => ({
+    titulo: opp.title,
+    descricao: opp.description || "",
+    valor_negocio: opp.business_value || "",
+    solucao_sugerida: opp.suggested_solution || "",
+    estrategia_venda: opp.sales_strategy || "",
+    prioridade: opp.priority || "",
+  }));
+
+  const cronograma_preliminar = (data.analysis?.preliminary_schedule || []).map((phase: any) => ({
+    fase: phase.phase_name,
+    atividades: (phase.activities || []).join("; "),
+    duracao_estimada: phase.estimated_duration || "",
+    dependencias: (phase.dependencies || []).join("; "),
+    area_responsavel: phase.responsible_area || "",
+    premissas: phase.assumptions || "",
+    riscos_fase: phase.risks || "",
+  }));
+
+  const matriz_requisitos = (data.analysis?.point_to_point_table || []).map((matrix: any) => ({
+    disciplina: matrix.discipline,
+    tabela_texto: renderMatrixAsText(matrix),
+  }));
+
+  const perguntas_esclarecimento = (data.analysis?.clarification_questions || []).map((q: any) => ({
+    pergunta: q.question,
+    motivo: q.reason || "",
+    prioridade: q.priority || "",
+    publico_alvo: q.target_audience || "",
   }));
 
   const precificacao = (data.proposal?.manual_pricing_table || []).map((p: any) => {
@@ -53,15 +101,34 @@ function buildTemplateVariables(data: DocxTemplateData) {
     return sum + Number(p.total_price ?? Number(p.quantity || 0) * Number(p.unit_price || 0));
   }, 0);
 
+  const executiveSummary = data.analysis?.executive_summary || {};
+
   return {
     cliente: data.project.customer_name,
     projeto: data.project.name,
+    codigo_oportunidade: data.project.opportunity_name || "",
     vertical: data.project.vertical,
     escopo: data.project.description,
-    resumo_executivo: data.analysis?.executive_summary?.project_overview || "",
+    status_projeto: data.project.status || "",
+    prazo_projeto: data.project.deadline || "",
+    data_validade_projeto: data.project.proposal_validity_date || "",
+    modalidade_contratacao: [data.project.procurement_modality, data.project.procurement_subtype].filter(Boolean).join(" - "),
+    responsavel_projeto: data.project.owner_name || "",
+    resumo_executivo: executiveSummary.project_overview || "",
+    contexto_cliente: executiveSummary.customer_context || "",
+    principais_requisitos: executiveSummary.main_requirements || "",
+    principais_riscos: executiveSummary.main_risks || "",
+    principais_oportunidades: executiveSummary.main_opportunities || "",
+    estrategia_recomendada: executiveSummary.recommended_strategy || "",
+    premissas_tecnicas: executiveSummary.assumptions || "",
+    proximos_passos: executiveSummary.next_steps || "",
     bom,
     requisitos_criticos,
     riscos,
+    oportunidades,
+    cronograma_preliminar,
+    matriz_requisitos,
+    perguntas_esclarecimento,
     precificacao,
     preco_total: precoTotal.toFixed(2),
     termos_pagamento: data.proposal?.payment_terms || "30 dias líquidos (padrão)",

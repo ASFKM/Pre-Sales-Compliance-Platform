@@ -14,12 +14,23 @@ export interface DocxTemplateData {
     customer_name: string;
     description: string;
     vertical: string;
+    opportunity_name?: string;
+    status?: string;
+    deadline?: string;
+    proposal_validity_date?: string;
+    procurement_modality?: string;
+    procurement_subtype?: string;
+    owner_name?: string;
   };
   analysis?: {
     executive_summary?: any;
     critical_requirements?: any[];
     risks?: any[];
+    opportunities?: any[];
     bom?: any[];
+    point_to_point_table?: any[];
+    preliminary_schedule?: any[];
+    clarification_questions?: any[];
   };
   proposal?: {
     manual_pricing_table?: Array<Record<string, any>>;
