@@ -373,7 +373,11 @@ async function enrichBomWithWebSearch(bom: any[], platformSettings: any, proposa
     // out the context-mismatched candidates here means the model never sees them as a tempting
     // "complete" but wrong alternative in the first place, instead of hoping it rejects them itself.
     const FIXED_INSTALL_TERMS = ["poste", "parede", "mastro"];
-    const MOBILE_VEHICLE_TERMS = ["portátil", "portatil", "veicular", "veículo", "veiculo", "viatura", "embarcad", "fiscalização móvel", "fiscalizacao movel", "mobile enforcement", "mobile surveillance"];
+    // "embarcad" was here as a bare substring and had to go - "DAI/processamento embarcado" (onboard/
+    // edge AI processing) is common phrasing on the FIXED-camera items themselves, and matched the
+    // same substring as "veículo embarcado" (vehicle-mounted), silently defeating this whole filter
+    // on any item whose own spec happened to mention onboard/edge processing.
+    const MOBILE_VEHICLE_TERMS = ["portátil", "portatil", "veicular", "veículo embarcado", "veiculo embarcado", "viatura", "fiscalização móvel", "fiscalizacao movel", "mobile enforcement", "mobile surveillance"];
     const hasAny = (text: string, terms: string[]) => {
       const lower = text.toLowerCase();
       return terms.some((t) => lower.includes(t));
