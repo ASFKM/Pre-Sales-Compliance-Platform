@@ -300,17 +300,94 @@ opções — os três são só decoração de UI hoje, sem integração real.
 
 ## Fase 6 — Módulos futuros: POC e CRM
 
-**Status**: nomeados, desenho detalhado fica para uma sessão futura de discussão dedicada.
+**Status**: **Gestão de POC** em implementação faseada (plano de 6 fases aprovado em 2026-07-13,
+`/home/sakae/.claude/plans/parsed-dancing-fountain.md`). **Fase A concluída e verificada** (commit
+`ce18168`, 2026-07-13): schema `Poc`, `enabled_modules` na sessão via `getFleetLicenseStatus`,
+middleware `requireModule` (defesa em profundidade ao lado de `requirePermission`), permissões
+`poc:read`/`poc:manage`, rotas `/api/pocs`, aba "Gestão de POC · Add-on" com kanban por status e
+detalhe editável. Testado ponta a ponta com usuário/role de teste descartáveis (removidos depois);
+encontrado e corrigido nesse teste um bug real de `.partial()` + `.refine()` do Zod que resetava o
+status silenciosamente em qualquer update parcial. Migração aditiva aplicada com backup prévio, dado
+existente intacto. Faltam Fases B–F (Visão Geral com critérios de sucesso, Equipamento, Cronograma
+Gantt, Cadernos de Teste por IA, Aceite do Cliente). **CRM** continua apenas nomeado, sem detalhe
+(fica para sessão futura dedicada).
 
 Dois módulos novos, ambos vendidos por assinatura separadamente (ligado à Fase 7 — um cliente pode
 contratar um sem o outro):
 
-- **Gestão de POCs (provas de conceito)**: ainda sem nenhum detalhe além do nome.
 - **CRM**: "simples e funcional" — inspirado em ideias de CRMs de sucesso do mercado, mas aderente
   à forma real desta plataforma, não um clone genérico. Blocos já nomeados pelo responsável pelo
   produto: cadastro de cliente, projetos de cada cliente, acompanhamento, integração com Google
   Workspace e/ou Microsoft 365, funil de vendas, carteira. Usa exatamente a mesma base de dono +
   equipe construída na Fase 3.
+
+### Gestão de POC (provas de conceito) — desenho conceitual
+
+**Mecanismo de add-on (confirmado em código, não é suposição)**: o lado fornecedor (Fleet Manager,
+`saasmanager-01`) já tem tudo que este módulo precisa consumir — `enum ModuleName { base, poc, crm }`,
+`model Plan { modules: String[] }` e `model ModuleEntitlement { installationId, module, enabled }`
+no schema do Fleet Manager, e o heartbeat (`server/routes/heartbeat.ts`) já envia
+`modules: entitlements.map(e => e.module)` a cada check-in. Do lado desta instalação,
+`server/utils/fleetLicense.ts` já cacheia e verifica a assinatura dessa lista, hoje só consumida para
+*exibir* "Assinatura e Licença" no Admin Console (`AdminConsole.tsx`). Ou seja: o módulo POC nasce
+como consumidor novo de um cano que já existe — só falta a "torneira".
+
+**Gap identificado a fechar na implementação**: `GET /api/settings/fleet-license-status` hoje exige
+`admin:settings`, então só admin vê os módulos habilitados. A aba de POC precisa aparecer pra
+qualquer usuário de pré-vendas, não só admin — então a lista de módulos habilitados do tenant precisa
+entrar no bootstrap de sessão que todo usuário já recebe no login, com o gate replicado no backend
+(bloquear as rotas de API da POC por entitlement, não só esconder a aba no front — mesmo padrão de
+defesa em profundidade já usado no resto do sistema).
+
+**Navegação**: nova aba de nível superior "Gestão de POC" na barra de topo, mesmo padrão visual das
+abas existentes (`slate-900` + destaque `emerald-500` na aba ativa, sem nenhum token de cor/fonte
+novo — a paleta e a fonte do sistema não mudam). Aba só existe quando o tenant tem o módulo
+contratado (`modules.includes('poc')`) e o usuário tem a permissão correspondente; sem o módulo, a
+aba simplesmente não aparece — não é um cadeado visível.
+
+**Vínculo com `Project`**: uma POC pode nascer a partir de um `Project` existente (herdando cliente,
+oportunidade, vertical, dono) **ou** existir de forma independente (POC exploratória sem oportunidade
+formal ainda), com um mini-cadastro próprio de cliente/contato espelhando os mesmos campos que
+`Project` já usa.
+
+**Telas**:
+- **Lista/Kanban** de todas as POCs do tenant, colunas por status
+  (`planejada → em andamento → bloqueada → concluída [ganha/perdida]`).
+- **Detalhe da POC**, em 5 abas internas:
+  1. **Visão Geral** — objetivo, critérios de sucesso (checklist), stakeholders (responsável interno
+     + contato técnico do cliente), projeto vinculado.
+  2. **Cronograma** — tarefas da POC com **dependências e Gantt interativo completo** (arrastar pra
+     reagendar, redimensionar duração, caminho crítico destacado). É o item de maior investimento
+     técnico do módulo — foge do padrão de tarefa simples já existente (`Task`/`UserTask` são lista
+     plana, sem predecessor/sucessor) e exige escolha de abordagem/biblioteca de Gantt em um spike
+     técnico à parte antes de codar.
+  3. **Equipamento** — itens físicos emprestados ao cliente durante a POC (serial, descrição,
+     status), cada um com anexo de **NF de envio** e **NF de devolução** (reaproveita o padrão de
+     upload/storage do `Document` já existente), com alerta automático se o prazo da POC vencer sem
+     devolução registrada. **Sem estoque central** entre POCs na v1 — cada POC só registra o que ela
+     própria enviou.
+  4. **Cadernos de Teste (IA)** — casos de teste gerados a partir do objetivo/critérios de sucesso da
+     POC, **regeneráveis e editáveis** (mesmo padrão "IA rascunha, humano valida" já usado no Estúdio
+     de Propostas), plugando como mais um tipo de tarefa no orquestrador de IA já existente (Fase 5) —
+     sem infraestrutura nova. Exportação formatada reaproveitaria o motor de templates DOCX já usado
+     nas propostas.
+  5. **Aceite do Cliente** — registro de decisão final (ganha/perdida) com upload de documento
+     assinado como placeholder; **mecanismo de assinatura eletrônica formal fica para decidir depois**
+     (registrado aqui deliberadamente como aberto, não é omissão).
+
+**Protótipo**: mockup HTML navegável (lista Kanban + detalhe com as 5 abas, Gantt arrastável de
+verdade) construído e aprovado pelo responsável do produto em 2026-07-13, fiel aos tokens de cor e
+fonte reais do app (nenhuma paleta nova, nenhuma fonte nova) — serve de referência visual para a
+implementação, não é o produto final.
+
+**Itens deliberadamente em aberto para a próxima sessão (não bloqueiam o desenho, mas bloqueiam
+codar)**:
+- Escolha técnica da biblioteca/abordagem de Gantt (arrastar/redimensionar/caminho crítico).
+- Mecanismo de aceite do cliente (assinatura eletrônica vs. upload manual definitivo).
+- Granularidade de permissões dentro do módulo POC (quem cria, quem edita, quem só visualiza).
+- Modelagem exata de tabelas novas no Prisma schema desta instalação (POC, tarefas com dependência,
+  itens de equipamento, casos de teste, registro de aceite) — desenhada em conceito acima, não em
+  schema ainda.
 
 ---
 
