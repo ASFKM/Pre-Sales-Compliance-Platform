@@ -860,11 +860,8 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               <img src={brandLogoDataUrl} alt="Company logo" className="max-h-8 max-w-[170px] object-contain" />
             </div>
           ) : (
-            <div
-              className="w-10 h-10 rounded flex items-center justify-center font-black text-white shadow-sm border border-white/10"
-              style={{ backgroundColor: brandPrimaryColor }}
-            >
-              PSC
+            <div className="h-10 max-w-[190px] flex items-center justify-center">
+              <img src="/logo-mountain.png" alt="CloudMountain" className="max-h-9 max-w-[170px] object-contain" />
             </div>
           )}
           <div className="flex flex-col">

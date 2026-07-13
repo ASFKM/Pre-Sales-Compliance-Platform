@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Shield, Key, Mail, Lock, CircleCheck, CircleAlert, ArrowRight, FingerprintPattern } from "lucide-react";
+import { Key, Mail, Lock, CircleCheck, CircleAlert, ArrowRight } from "lucide-react";
 import ApiClient from "../lib/api";
 
 interface LoginProps {
@@ -25,17 +25,12 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
       subtitle: "Enterprise Pre-Sales & Proposal Hardening Platform",
       emailLabel: "Work Email",
       passwordLabel: "Password",
-      loginBtn: "Sign In Securely",
+      loginBtn: "Sign In",
       mfaTitle: "Multi-Factor Authentication",
       mfaSubtitle: "Enter the 6-digit verification code sent to your device",
       mfaLabel: "MFA Verification Code",
       mfaBtn: "Verify & Authenticate",
       mfaPlaceholder: isDemoRuntime ? "e.g., 123456" : "Verification code",
-      quickSelect: isDemoRuntime ? "Select B2B Seeded Role for Verification" : "",
-      adminRole: isDemoRuntime ? "System Administrator (Sarah / Alex)" : "",
-      managerRole: isDemoRuntime ? "Sales Manager (Marcus)" : "",
-      engineerRole: isDemoRuntime ? "Pre-Sales Engineer (Elena)" : "",
-      demoNotice: isDemoRuntime ? "Secure prototype mode. Default credentials: password123" : "",
       mfaNotice: isDemoRuntime ? "MFA code: 123456, 000000, or 111111" : "",
       invalidCreds: "Invalid email or password.",
       invalidMfa: "Invalid verification code."
@@ -45,17 +40,12 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
       subtitle: "Plataforma de Engenharia de Pré-Vendas e Propostas",
       emailLabel: "E-mail Corporativo",
       passwordLabel: "Senha",
-      loginBtn: "Entrar com Segurança",
+      loginBtn: "Entrar",
       mfaTitle: "Autenticação de Dois Fatores",
       mfaSubtitle: "Digite o código de 6 dígitos enviado para seu dispositivo",
       mfaLabel: "Código de Verificação MFA",
       mfaBtn: "Verificar e Autenticar",
       mfaPlaceholder: isDemoRuntime ? "ex: 123456" : "Código de verificação",
-      quickSelect: isDemoRuntime ? "Selecionar Papel Semeado para Verificação" : "",
-      adminRole: isDemoRuntime ? "Administrador do Sistema (Alex Rivera)" : "",
-      managerRole: isDemoRuntime ? "Gerente de Vendas (Marcus Vance)" : "",
-      engineerRole: isDemoRuntime ? "Engenheira de Pré-Vendas (Elena Rostova)" : "",
-      demoNotice: isDemoRuntime ? "Modo protótipo seguro. Senha padrão: password123" : "",
       mfaNotice: isDemoRuntime ? "Código MFA válido: 123456, 000000 ou 111111" : "",
       invalidCreds: "E-mail ou senha inválidos.",
       invalidMfa: "Código de verificação MFA inválido."
@@ -114,18 +104,6 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
     }
   };
 
-  const quickLogin = (type: "admin" | "manager" | "engineer") => {
-    const creds = {
-      admin: { email: "alex.rivera@enterprise.com", pass: "password123" },
-      manager: { email: "marcus.vance@enterprise.com", pass: "password123" },
-      engineer: { email: "elena.rostova@enterprise.com", pass: "password123" }
-    }[type];
-
-    setEmail(creds.email);
-    setPassword(creds.pass);
-    setError("");
-  };
-
   return (
     <div id="login-screen-wrapper" className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 relative overflow-hidden font-sans">
       {/* Background Decorative Gradients */}
@@ -141,9 +119,7 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
       >
         {/* Header Branding */}
         <div className="text-center mb-8">
-          <div className="mx-auto w-12 h-12 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-center mb-4 text-emerald-400">
-            <Shield className="w-6 h-6" />
-          </div>
+          <img src="/logo-mountain.png" alt="CloudMountain" className="mx-auto h-14 w-auto object-contain mb-4" />
           <h1 className="text-xl font-bold text-white tracking-tight leading-none mb-1.5">{dict.title}</h1>
           <p className="text-xs text-slate-400 max-w-xs mx-auto leading-relaxed">{dict.subtitle}</p>
         </div>
@@ -174,6 +150,7 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }}
                     className="w-full pl-10 pr-4 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 transition-colors"
                     placeholder="you@company.com"
                   />
@@ -189,6 +166,7 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }}
                     className="w-full pl-10 pr-4 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors"
                     placeholder="••••••••"
                   />
@@ -200,48 +178,9 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
                 disabled={loading}
                 className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
               >
-                {loading ? (dict.loginBtn === "Entrar com Segurança" ? "Autenticando..." : "Authenticating...") : dict.loginBtn}
+                {loading ? (locale === "pt" ? "Autenticando..." : "Authenticating...") : dict.loginBtn}
                 <ArrowRight className="w-4 h-4" />
               </button>
-
-              {isDemoRuntime && (
-                <>
-                  {/* Quick Profile Selection */}
-                  <div className="pt-6 border-t border-slate-800/60 mt-4">
-                    <span className="block text-[10px] font-mono text-slate-500 uppercase tracking-wider mb-3 text-center">{dict.quickSelect}</span>
-                    <div className="grid grid-cols-1 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => quickLogin("admin")}
-                        className="py-2 px-3 bg-slate-950 hover:bg-slate-800 border border-slate-800/80 rounded-lg text-left text-xs text-slate-300 flex items-center justify-between transition-colors cursor-pointer"
-                      >
-                        <span>{dict.adminRole}</span>
-                        <FingerprintPattern className="w-3.5 h-3.5 text-emerald-500" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => quickLogin("manager")}
-                        className="py-2 px-3 bg-slate-950 hover:bg-slate-800 border border-slate-800/80 rounded-lg text-left text-xs text-slate-300 flex items-center justify-between transition-colors cursor-pointer"
-                      >
-                        <span>{dict.managerRole}</span>
-                        <FingerprintPattern className="w-3.5 h-3.5 text-sky-500" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => quickLogin("engineer")}
-                        className="py-2 px-3 bg-slate-950 hover:bg-slate-800 border border-slate-800/80 rounded-lg text-left text-xs text-slate-300 flex items-center justify-between transition-colors cursor-pointer"
-                      >
-                        <span>{dict.engineerRole}</span>
-                        <FingerprintPattern className="w-3.5 h-3.5 text-amber-500" />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="text-center text-[10px] text-slate-500 pt-4 leading-normal font-mono">
-                    {dict.demoNotice}
-                  </div>
-                </>
-              )}
             </motion.form>
           ) : (
             <motion.form
@@ -297,6 +236,12 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
             </motion.form>
           )}
         </AnimatePresence>
+
+        {/* Discreet footer mark -- not part of the product branding above, just credits the platform provider */}
+        <div className="mt-8 pt-4 border-t border-slate-800/60 flex flex-col items-center gap-1">
+          <span className="text-[9px] text-slate-600 uppercase tracking-wider font-mono">Powered by</span>
+          <img src="/logo-cloudmountain-full.png" alt="CloudMountain" className="h-8 w-auto object-contain opacity-80" />
+        </div>
       </motion.div>
     </div>
   );
