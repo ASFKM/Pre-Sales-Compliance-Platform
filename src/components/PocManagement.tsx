@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Plus, X, ArrowLeft, Pen } from "lucide-react";
-import { Poc, PocStatus, Project } from "../types";
+import { Plus, X, ArrowLeft, Pen, Check, Trash2 } from "lucide-react";
+import { Poc, PocStatus, PocSuccessCriterion, Project } from "../types";
 import ApiClient from "../lib/api";
 
 const STATUS_LABEL: Record<PocStatus, string> = {
@@ -104,6 +104,11 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
 
+  const [criteria, setCriteria] = useState<PocSuccessCriterion[]>([]);
+  const [loadingCriteria, setLoadingCriteria] = useState(false);
+  const [newCriterionText, setNewCriterionText] = useState("");
+  const [addingCriterion, setAddingCriterion] = useState(false);
+
   const fetchPocs = async () => {
     setLoading(true);
     setError("");
@@ -124,15 +129,64 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
   const selectedPoc = pocs.find((p) => p.id === selectedPocId) || null;
   const linkedProject = selectedPoc?.project_id ? projects.find((pr) => pr.id === selectedPoc.project_id) || null : null;
 
+  const fetchCriteria = async (pocId: string) => {
+    setLoadingCriteria(true);
+    try {
+      const data = await ApiClient.get<PocSuccessCriterion[]>(`/api/pocs/${pocId}/success-criteria`);
+      setCriteria(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setCriteria([]);
+    } finally {
+      setLoadingCriteria(false);
+    }
+  };
+
   const openDetail = (poc: Poc) => {
     setSelectedPocId(poc.id);
     setIsEditing(false);
     setSaveError("");
+    fetchCriteria(poc.id);
   };
 
   const backToList = () => {
     setSelectedPocId(null);
     setIsEditing(false);
+    setCriteria([]);
+    setNewCriterionText("");
+  };
+
+  const addCriterion = async () => {
+    if (!selectedPoc || !newCriterionText.trim()) return;
+    setAddingCriterion(true);
+    try {
+      await ApiClient.post(`/api/pocs/${selectedPoc.id}/success-criteria`, { description: newCriterionText.trim() });
+      setNewCriterionText("");
+      await fetchCriteria(selectedPoc.id);
+    } catch (e: any) {
+      alert(e.message || "Não foi possível adicionar o critério.");
+    } finally {
+      setAddingCriterion(false);
+    }
+  };
+
+  const toggleCriterion = async (criterion: PocSuccessCriterion) => {
+    if (!selectedPoc) return;
+    try {
+      await ApiClient.put(`/api/pocs/${selectedPoc.id}/success-criteria/${criterion.id}`, { done: !criterion.done });
+      await fetchCriteria(selectedPoc.id);
+    } catch (e: any) {
+      alert(e.message || "Não foi possível atualizar o critério.");
+    }
+  };
+
+  const removeCriterion = async (criterion: PocSuccessCriterion) => {
+    if (!selectedPoc) return;
+    try {
+      await ApiClient.delete(`/api/pocs/${selectedPoc.id}/success-criteria/${criterion.id}`);
+      await fetchCriteria(selectedPoc.id);
+    } catch (e: any) {
+      alert(e.message || "Não foi possível remover o critério.");
+    }
   };
 
   const startEdit = () => {
@@ -265,6 +319,81 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                   <div className="text-xs text-slate-500">{linkedProject.customer_name} · {linkedProject.vertical}</div>
                 </div>
               )}
+
+              <div>
+                <div className="text-[11px] font-semibold uppercase text-slate-400 mb-2">Stakeholders</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="flex items-center gap-2 border border-slate-200 rounded-md px-3 py-2 bg-emerald-50/40">
+                    <span className="w-7 h-7 rounded-full bg-emerald-100 text-emerald-700 text-[11px] font-bold flex items-center justify-center shrink-0">
+                      {(selectedPoc.owner_name || "?").slice(0, 2).toUpperCase()}
+                    </span>
+                    <div>
+                      <div className="text-xs font-semibold text-slate-800">{selectedPoc.owner_name || "Responsável interno"}</div>
+                      <div className="text-[11px] text-slate-500">Responsável interno</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 border border-slate-200 rounded-md px-3 py-2 bg-blue-50/40">
+                    <span className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 text-[11px] font-bold flex items-center justify-center shrink-0">
+                      {selectedPoc.customer_contact_name.slice(0, 2).toUpperCase()}
+                    </span>
+                    <div>
+                      <div className="text-xs font-semibold text-slate-800">{selectedPoc.customer_contact_name}</div>
+                      <div className="text-[11px] text-slate-500">{selectedPoc.customer_contact_role} · cliente</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-[11px] font-semibold uppercase text-slate-400 mb-2">Critérios de sucesso</div>
+                {loadingCriteria ? (
+                  <p className="text-xs text-slate-400">Carregando...</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {criteria.map((c) => (
+                      <div
+                        key={c.id}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-md border text-sm ${c.done ? "bg-emerald-50 border-emerald-100" : "bg-slate-50 border-slate-200"}`}
+                      >
+                        <button
+                          onClick={() => canManage && toggleCriterion(c)}
+                          disabled={!canManage}
+                          className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 ${c.done ? "bg-emerald-600 border-emerald-600 text-white" : "border-slate-300 bg-white"}`}
+                        >
+                          {c.done && <Check size={12} />}
+                        </button>
+                        <span className={`flex-1 ${c.done ? "text-slate-500 line-through" : "text-slate-800"}`}>{c.description}</span>
+                        {canManage && (
+                          <button onClick={() => removeCriterion(c)} className="text-slate-300 hover:text-red-500">
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    {criteria.length === 0 && (
+                      <p className="text-xs text-slate-400 italic">Nenhum critério de sucesso definido ainda.</p>
+                    )}
+                  </div>
+                )}
+                {canManage && (
+                  <div className="flex items-center gap-2 mt-2">
+                    <input
+                      className="flex-1 border border-slate-300 rounded-md px-3 py-1.5 text-sm"
+                      placeholder="Novo critério de sucesso..."
+                      value={newCriterionText}
+                      onChange={(e) => setNewCriterionText(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") addCriterion(); }}
+                    />
+                    <button
+                      onClick={addCriterion}
+                      disabled={addingCriterion || !newCriterionText.trim()}
+                      className="text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-white rounded-md px-3 py-1.5 disabled:opacity-50"
+                    >
+                      Adicionar
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           ) : (
             <div className="space-y-4">

@@ -157,4 +157,72 @@ router.delete("/:id", requirePermission("poc:manage"), requireModule("poc"), asy
   }
 });
 
+// Success criteria (Fase B) - a short checklist agreed upfront with the customer.
+router.get("/:id/success-criteria", requirePermission("poc:read"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const poc = await dbStore.getPoc(req.params.id);
+    if (!poc) {
+      return res.status(404).json({ success: false, message: "POC not found" });
+    }
+    const criteria = await dbStore.getPocSuccessCriteria(req.params.id);
+    res.json(criteria);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/:id/success-criteria", requirePermission("poc:manage"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { description } = z.object({ description: z.string().min(2, "Description is required") }).parse(req.body);
+
+    const poc = await dbStore.getPoc(req.params.id);
+    if (!poc) {
+      return res.status(404).json({ success: false, message: "POC not found" });
+    }
+
+    const criterion = await dbStore.createPocSuccessCriterion(req.params.id, description);
+    res.status(201).json(criterion);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ success: false, message: err.issues[0].message });
+    }
+    next(err);
+  }
+});
+
+router.put("/:id/success-criteria/:criterionId", requirePermission("poc:manage"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const validated = z.object({ description: z.string().min(2).optional(), done: z.boolean().optional() }).parse(req.body);
+
+    const criteria = await dbStore.getPocSuccessCriteria(req.params.id);
+    const target = criteria.find((c) => c.id === req.params.criterionId);
+    if (!target) {
+      return res.status(404).json({ success: false, message: "Success criterion not found for this POC." });
+    }
+
+    const updated = await dbStore.updatePocSuccessCriterion(req.params.criterionId, validated);
+    res.json(updated);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ success: false, message: err.issues[0].message });
+    }
+    next(err);
+  }
+});
+
+router.delete("/:id/success-criteria/:criterionId", requirePermission("poc:manage"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const criteria = await dbStore.getPocSuccessCriteria(req.params.id);
+    const target = criteria.find((c) => c.id === req.params.criterionId);
+    if (!target) {
+      return res.status(404).json({ success: false, message: "Success criterion not found for this POC." });
+    }
+
+    await dbStore.deletePocSuccessCriterion(req.params.criterionId);
+    res.json({ success: true, message: "Success criterion deleted successfully" });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

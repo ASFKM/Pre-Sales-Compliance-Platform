@@ -74,8 +74,19 @@ export interface Poc {
   start_date: string;
   end_date: string;
   owner_user_id: string;
+  owner_name?: string;
   customer_contact_name: string;
   customer_contact_role: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PocSuccessCriterion {
+  id: string;
+  poc_id: string;
+  description: string;
+  done: boolean;
+  order: number;
   created_at: string;
   updated_at: string;
 }

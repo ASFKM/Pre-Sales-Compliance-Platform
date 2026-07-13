@@ -7,6 +7,7 @@ import {
   Role,
   Project,
   Poc,
+  PocSuccessCriterion,
   Document,
   AIAnalysisJob,
   AnalysisResult,
@@ -104,11 +105,24 @@ function mapPoc(p: any): Poc {
     start_date: p.startDate.toISOString().substring(0, 10),
     end_date: p.endDate.toISOString().substring(0, 10),
     owner_user_id: p.ownerUserId,
+    owner_name: p.owner?.name ?? undefined,
     customer_contact_name: p.customerContactName,
     customer_contact_role: p.customerContactRole,
     created_at: p.createdAt.toISOString(),
     updated_at: p.updatedAt.toISOString(),
   } as Poc;
+}
+
+function mapPocSuccessCriterion(c: any): PocSuccessCriterion {
+  return {
+    id: c.id,
+    poc_id: c.pocId,
+    description: c.description,
+    done: c.done,
+    order: c.order,
+    created_at: c.createdAt.toISOString(),
+    updated_at: c.updatedAt.toISOString(),
+  } as PocSuccessCriterion;
 }
 
 function mapDocument(d: any): Document {
@@ -729,11 +743,14 @@ class DBStore {
   // Pocs (Fase 6, add-on) - gated at the route layer by requireModule("poc"), not here; this
   // layer just persists whatever the caller already confirmed is entitled.
   public async getPocs(): Promise<Poc[]> {
-    return (await prisma.poc.findMany({ orderBy: { createdAt: "desc" } })).map(mapPoc);
+    // Owner name is denormalized onto the payload (not left for the frontend to resolve via
+    // /api/users) because that endpoint is admin-gated - a regular poc:manage user without
+    // admin:users still needs to see who owns each POC.
+    return (await prisma.poc.findMany({ orderBy: { createdAt: "desc" }, include: { owner: true } })).map(mapPoc);
   }
 
   public async getPoc(id: string): Promise<Poc | undefined> {
-    const p = await prisma.poc.findUnique({ where: { id } });
+    const p = await prisma.poc.findUnique({ where: { id }, include: { owner: true } });
     return p ? mapPoc(p) : undefined;
   }
 
@@ -756,6 +773,7 @@ class DBStore {
         customerContactName: poc.customer_contact_name,
         customerContactRole: poc.customer_contact_role,
       },
+      include: { owner: true },
     });
     return mapPoc(p);
   }
@@ -766,6 +784,7 @@ class DBStore {
 
     const p = await prisma.poc.update({
       where: { id },
+      include: { owner: true },
       data: {
         projectId: updates.project_id,
         standaloneCustomerName: updates.standalone_customer_name,
@@ -788,6 +807,52 @@ class DBStore {
   public async deletePoc(id: string): Promise<boolean> {
     try {
       await prisma.poc.delete({ where: { id } });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // Poc success criteria (Fase 6, Fase B)
+  public async getPocSuccessCriteria(pocId: string): Promise<PocSuccessCriterion[]> {
+    const rows = await prisma.pocSuccessCriterion.findMany({
+      where: { pocId },
+      orderBy: { order: "asc" },
+    });
+    return rows.map(mapPocSuccessCriterion);
+  }
+
+  public async createPocSuccessCriterion(pocId: string, description: string): Promise<PocSuccessCriterion> {
+    const count = await prisma.pocSuccessCriterion.count({ where: { pocId } });
+    const c = await prisma.pocSuccessCriterion.create({
+      data: {
+        id: randomId("crit"),
+        tenantId: requireTenantId(),
+        pocId,
+        description,
+        order: count,
+      },
+    });
+    return mapPocSuccessCriterion(c);
+  }
+
+  public async updatePocSuccessCriterion(id: string, updates: { description?: string; done?: boolean }): Promise<PocSuccessCriterion | undefined> {
+    const exists = await prisma.pocSuccessCriterion.findUnique({ where: { id } });
+    if (!exists) return undefined;
+
+    const c = await prisma.pocSuccessCriterion.update({
+      where: { id },
+      data: {
+        description: updates.description,
+        done: updates.done,
+      },
+    });
+    return mapPocSuccessCriterion(c);
+  }
+
+  public async deletePocSuccessCriterion(id: string): Promise<boolean> {
+    try {
+      await prisma.pocSuccessCriterion.delete({ where: { id } });
       return true;
     } catch {
       return false;

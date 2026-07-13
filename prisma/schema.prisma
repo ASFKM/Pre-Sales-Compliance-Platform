@@ -209,6 +209,7 @@ model Tenant {
   aiUsageLogs            AiUsageLog[]
   aiProviderConfigs      AiProviderConfig[]
   pocs                   Poc[]
+  pocSuccessCriteria     PocSuccessCriterion[]
 
   @@map("tenants")
 }
@@ -332,8 +333,31 @@ model Poc {
   createdAt              DateTime  @default(now()) @map("created_at")
   updatedAt              DateTime  @updatedAt @map("updated_at")
 
+  successCriteria PocSuccessCriterion[]
+
   @@index([tenantId])
   @@map("pocs")
+}
+
+// Fase 6 (add-on), Fase B: a short checklist agreed upfront with the customer - the roadmap's own
+// benchmark research (Vivun/Dock/Recapped) flagged vague success criteria as the #1 cause of a
+// POC that never ends, so this is deliberately just a description + done flag, not a scored
+// rubric - simple enough that a presales engineer fills it out during kickoff, not after.
+model PocSuccessCriterion {
+  id          String   @id
+  tenantId    String   @map("tenant_id")
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  pocId       String   @map("poc_id")
+  poc         Poc      @relation(fields: [pocId], references: [id], onDelete: Cascade)
+  description String
+  done        Boolean  @default(false)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@index([pocId])
+  @@map("poc_success_criteria")
 }
 
 model Document {
