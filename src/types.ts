@@ -58,6 +58,28 @@ export interface Project {
   updated_at: string;
 }
 
+// Add-on module (Fase 6) - only relevant for tenants with the "poc" module entitlement.
+export type PocStatus = "planned" | "in_progress" | "blocked" | "completed_won" | "completed_lost";
+
+export interface Poc {
+  id: string;
+  project_id?: string;
+  standalone_customer_name?: string;
+  standalone_contact_name?: string;
+  standalone_contact_email?: string;
+  standalone_contact_phone?: string;
+  name: string;
+  objective: string;
+  status: PocStatus;
+  start_date: string;
+  end_date: string;
+  owner_user_id: string;
+  customer_contact_name: string;
+  customer_contact_role: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Document {
   id: string;
   project_id: string;

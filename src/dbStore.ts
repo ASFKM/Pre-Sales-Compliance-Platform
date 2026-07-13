@@ -6,6 +6,7 @@ import {
   UserStatus,
   Role,
   Project,
+  Poc,
   Document,
   AIAnalysisJob,
   AnalysisResult,
@@ -87,6 +88,27 @@ function mapProject(p: any): Project {
     created_at: p.createdAt.toISOString(),
     updated_at: p.updatedAt.toISOString(),
   } as Project;
+}
+
+function mapPoc(p: any): Poc {
+  return {
+    id: p.id,
+    project_id: p.projectId ?? undefined,
+    standalone_customer_name: p.standaloneCustomerName ?? undefined,
+    standalone_contact_name: p.standaloneContactName ?? undefined,
+    standalone_contact_email: p.standaloneContactEmail ?? undefined,
+    standalone_contact_phone: p.standaloneContactPhone ?? undefined,
+    name: p.name,
+    objective: p.objective,
+    status: p.status,
+    start_date: p.startDate.toISOString().substring(0, 10),
+    end_date: p.endDate.toISOString().substring(0, 10),
+    owner_user_id: p.ownerUserId,
+    customer_contact_name: p.customerContactName,
+    customer_contact_role: p.customerContactRole,
+    created_at: p.createdAt.toISOString(),
+    updated_at: p.updatedAt.toISOString(),
+  } as Poc;
 }
 
 function mapDocument(d: any): Document {
@@ -698,6 +720,74 @@ class DBStore {
     try {
       // Documents/analysisResults/proposals/tasks cascade via FK onDelete: Cascade
       await prisma.project.delete({ where: { id } });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // Pocs (Fase 6, add-on) - gated at the route layer by requireModule("poc"), not here; this
+  // layer just persists whatever the caller already confirmed is entitled.
+  public async getPocs(): Promise<Poc[]> {
+    return (await prisma.poc.findMany({ orderBy: { createdAt: "desc" } })).map(mapPoc);
+  }
+
+  public async getPoc(id: string): Promise<Poc | undefined> {
+    const p = await prisma.poc.findUnique({ where: { id } });
+    return p ? mapPoc(p) : undefined;
+  }
+
+  public async createPoc(poc: Omit<Poc, "id" | "created_at" | "updated_at">): Promise<Poc> {
+    const p = await prisma.poc.create({
+      data: {
+        id: randomId("poc"),
+        tenantId: requireTenantId(),
+        projectId: poc.project_id || null,
+        standaloneCustomerName: poc.standalone_customer_name,
+        standaloneContactName: poc.standalone_contact_name,
+        standaloneContactEmail: poc.standalone_contact_email,
+        standaloneContactPhone: poc.standalone_contact_phone,
+        name: poc.name,
+        objective: poc.objective,
+        status: poc.status,
+        startDate: new Date(poc.start_date),
+        endDate: new Date(poc.end_date),
+        ownerUserId: poc.owner_user_id,
+        customerContactName: poc.customer_contact_name,
+        customerContactRole: poc.customer_contact_role,
+      },
+    });
+    return mapPoc(p);
+  }
+
+  public async updatePoc(id: string, updates: Partial<Poc>): Promise<Poc | undefined> {
+    const exists = await prisma.poc.findUnique({ where: { id } });
+    if (!exists) return undefined;
+
+    const p = await prisma.poc.update({
+      where: { id },
+      data: {
+        projectId: updates.project_id,
+        standaloneCustomerName: updates.standalone_customer_name,
+        standaloneContactName: updates.standalone_contact_name,
+        standaloneContactEmail: updates.standalone_contact_email,
+        standaloneContactPhone: updates.standalone_contact_phone,
+        name: updates.name,
+        objective: updates.objective,
+        status: updates.status,
+        startDate: updates.start_date ? new Date(updates.start_date) : undefined,
+        endDate: updates.end_date ? new Date(updates.end_date) : undefined,
+        ownerUserId: updates.owner_user_id,
+        customerContactName: updates.customer_contact_name,
+        customerContactRole: updates.customer_contact_role,
+      },
+    });
+    return mapPoc(p);
+  }
+
+  public async deletePoc(id: string): Promise<boolean> {
+    try {
+      await prisma.poc.delete({ where: { id } });
       return true;
     } catch {
       return false;

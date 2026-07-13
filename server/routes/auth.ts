@@ -23,7 +23,7 @@ import { logDebugMessage, loginRateLimiter } from "../middleware/security";
 import { isProductionRuntime, isDemoRuntime } from "../config/runtime";
 import { runWithTenant } from "../../src/tenantContext";
 import { isLockedOut, recordFailedAttempt, clearFailedAttempts } from "../utils/lockout";
-import { checkLicenseEnforcement } from "../utils/fleetLicense";
+import { checkLicenseEnforcement, getFleetLicenseStatus } from "../utils/fleetLicense";
 
 const router = express.Router();
 
@@ -62,7 +62,12 @@ async function ensurePasswordHashes() {
   }
 }
 
-function buildSessionUser(user: any, role: any) {
+// Async because enabled_modules comes from the cached, signature-verified Fleet Manager
+// heartbeat (server/utils/fleetLicense.ts) - the same source AdminConsole's "Assinatura e
+// Licença" already reads, just no longer gated behind admin:settings, so any authenticated user
+// gets the module list needed to decide whether to render add-on nav tabs (e.g. Gestão de POC).
+async function buildSessionUser(user: any, role: any) {
+  const license = await getFleetLicenseStatus(user.tenant_id);
   return {
     id: user.id,
     name: user.name,
@@ -70,7 +75,8 @@ function buildSessionUser(user: any, role: any) {
     mfa_enabled: user.mfa_enabled,
     role_id: user.role_id,
     role: role?.name || "Unknown Role",
-    permissions: role?.permissions || []
+    permissions: role?.permissions || [],
+    enabled_modules: license.modules
   };
 }
 
@@ -161,6 +167,29 @@ export function requirePermission(permission: string) {
           return res.status(403).json({
             success: false,
             message: `Forbidden: Missing required permission [${permission}]`
+          });
+        }
+        next();
+      } catch (err) {
+        next(err);
+      }
+    });
+  };
+}
+
+// Add-on gating (Fase 6): defense in depth alongside hiding the nav tab on the frontend - a
+// tenant without the module entitled gets a real 403 from the API, not just an invisible tab.
+// Always chained after requirePermission/requireAuth so req.headers["x-tenant-id"] is already set.
+export function requireModule(moduleName: string) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    requireAuth(req, res, async () => {
+      try {
+        const tenantId = req.headers["x-tenant-id"] as string;
+        const license = await getFleetLicenseStatus(tenantId);
+        if (!license.modules.includes(moduleName)) {
+          return res.status(403).json({
+            success: false,
+            message: `Forbidden: the "${moduleName}" module is not enabled for this installation.`
           });
         }
         next();
@@ -288,7 +317,7 @@ router.post("/login", loginRateLimiter, async (req: Request, res: Response, next
         success: true,
         mfa_required: mfaRequired,
         token: session.token,
-        user: buildSessionUser(user, role)
+        user: await buildSessionUser(user, role)
       });
     });
 
@@ -430,7 +459,7 @@ router.post("/mfa/verify", async (req: Request, res: Response, next: NextFunctio
         });
 
         const role = await dbStore.getRoleById(user.role_id);
-        return buildSessionUser(user, role);
+        return await buildSessionUser(user, role);
       }) : Promise.resolve(null));
 
       logDebugMessage({
@@ -545,7 +574,7 @@ router.get("/me", async (req: Request, res: Response, next: NextFunction) => {
 
     res.json({
       success: true,
-      user: buildSessionUser(user, role)
+      user: await buildSessionUser(user, role)
     });
   } catch (err) {
     next(err);

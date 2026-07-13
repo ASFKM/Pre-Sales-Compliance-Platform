@@ -9,6 +9,7 @@ import KnowledgeBase from "./components/KnowledgeBase";
 import Home from "./components/Home";
 import Proposals from "./components/Proposals";
 import Approval from "./components/Approval";
+import PocManagement from "./components/PocManagement";
 import NewProjectWizard from "./components/modals/NewProjectWizard";
 import { useBackgroundTasks } from "./hooks/useBackgroundTasks";
 import { useSilentRefresh } from "./hooks/useSilentRefresh";
@@ -191,11 +192,18 @@ export default function App() {
     email: "",
     role_id: "",
     role: "",
-    permissions: [] as string[]
+    permissions: [] as string[],
+    enabled_modules: [] as string[]
   });
 
   const hasPermission = (permission: string) =>
     Array.isArray(currentSessionUser.permissions) && currentSessionUser.permissions.includes(permission);
+
+  // Add-on gating (Fase 6): a nav tab like "Gestão de POC" only renders when the tenant's Fleet
+  // Manager entitlement includes the module AND the user's role has the matching permission -
+  // the backend re-checks both independently (requirePermission + requireModule) on every route.
+  const hasModule = (moduleName: string) =>
+    Array.isArray(currentSessionUser.enabled_modules) && currentSessionUser.enabled_modules.includes(moduleName);
 
   const adminSectionPermissions: Record<string, string[]> = {
     overview: [
@@ -287,7 +295,8 @@ export default function App() {
       email: "",
       role_id: "",
       role: "",
-      permissions: []
+      permissions: [],
+      enabled_modules: []
     });
   };
 
@@ -297,7 +306,7 @@ export default function App() {
 
 
   // Navigation / Views
-  const [activeTab, setActiveTab] = useState<"home" | "workspace" | "projectsList" | "proposals" | "approval" | "knowledgeBase" | "admin">("home");
+  const [activeTab, setActiveTab] = useState<"home" | "workspace" | "projectsList" | "proposals" | "approval" | "knowledgeBase" | "admin" | "pocManagement">("home");
   const [activeAdminSection, setActiveAdminSection] = useState<"overview" | "users" | "ai" | "templates" | "approval_flow" | "subscription" | "branding" | "integrations" | "storage" | "audit">("overview");
 
   // Shared with fetchGlobalConfigs (auto-selects defaults) and Workspace's proposal builder -
@@ -944,6 +953,20 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
             </button>
           </div>
 
+          {hasModule("poc") && hasAnyPermission(["poc:read", "poc:manage"]) && (
+            <div className="flex items-center">
+              <button
+                onClick={() => setActiveTab("pocManagement")}
+                className={`py-4 px-1 border-b-2 transition-all flex items-center gap-2 ${activeTab === "pocManagement" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
+              >
+                Gestão de POC
+                <span className="text-[9px] font-bold tracking-wide uppercase text-emerald-400 bg-emerald-400/10 border border-emerald-400/40 rounded-full px-1.5 py-0.5">
+                  Add-on
+                </span>
+              </button>
+            </div>
+          )}
+
           {canAccessAdminConsole() && (
             <div className="flex items-center">
               <button
@@ -1288,6 +1311,16 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               hasPermission={hasPermission}
               activeTasks={activeTasks}
               waitForTask={waitForTask}
+            />
+          )}
+
+          {/* TAB: GESTÃO DE POC - add-on module (Fase 6), gated above by hasModule("poc") +
+              hasAnyPermission before the nav button even renders; the API independently re-checks
+              both on every request (requirePermission + requireModule). */}
+          {activeTab === "pocManagement" && hasModule("poc") && hasAnyPermission(["poc:read", "poc:manage"]) && (
+            <PocManagement
+              hasPermission={hasPermission}
+              projects={projects}
             />
           )}
 

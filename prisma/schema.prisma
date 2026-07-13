@@ -44,6 +44,17 @@ enum ProjectStatus {
   canceled
 }
 
+// Add-on module (Fase 6 do roadmap) - only meaningful for tenants whose Fleet Manager
+// ModuleEntitlement includes "poc" (see server/utils/fleetLicense.ts). Mirrors the funnel a
+// presales team actually runs a proof of concept through, ending in a recorded customer decision.
+enum PocStatus {
+  planned
+  in_progress
+  blocked
+  completed_won
+  completed_lost
+}
+
 enum StorageProvider {
   local
   s3
@@ -197,6 +208,7 @@ model Tenant {
   knowledgeBaseEntries   KnowledgeBaseEntry[]
   aiUsageLogs            AiUsageLog[]
   aiProviderConfigs      AiProviderConfig[]
+  pocs                   Poc[]
 
   @@map("tenants")
 }
@@ -220,6 +232,7 @@ model User {
   ownedProjects    Project[]        @relation("ProjectOwner")
   managedEngineers TeamMembership[] @relation("TeamManager")
   teamMemberships  TeamMembership[] @relation("TeamEngineer")
+  ownedPocs        Poc[]            @relation("PocOwner")
 
   @@index([tenantId])
   @@map("users")
@@ -287,9 +300,40 @@ model Project {
   proposals           Proposal[]
   tasks               Task[]
   conversationHistory ConversationMessage[]
+  pocs                Poc[]
 
   @@index([tenantId])
   @@map("projects")
+}
+
+// Fase 6 (add-on): a POC either hangs off an existing Project/opportunity (inheriting its
+// customer/vertical/owner) or stands alone for exploratory evaluations that don't have a formal
+// opportunity yet - hence projectId is nullable and the standalone* fields exist as a fallback
+// customer record, mirroring the same shape Project already uses instead of inventing a new one.
+model Poc {
+  id                     String    @id
+  tenantId               String    @map("tenant_id")
+  tenant                 Tenant    @relation(fields: [tenantId], references: [id])
+  projectId              String?   @map("project_id")
+  project                Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  standaloneCustomerName String?   @map("standalone_customer_name")
+  standaloneContactName  String?   @map("standalone_contact_name")
+  standaloneContactEmail String?   @map("standalone_contact_email")
+  standaloneContactPhone String?   @map("standalone_contact_phone")
+  name                   String
+  objective              String    @db.Text
+  status                 PocStatus @default(planned)
+  startDate              DateTime  @map("start_date")
+  endDate                DateTime  @map("end_date")
+  ownerUserId            String    @map("owner_user_id")
+  owner                  User      @relation("PocOwner", fields: [ownerUserId], references: [id])
+  customerContactName    String    @map("customer_contact_name")
+  customerContactRole    String    @map("customer_contact_role")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@map("pocs")
 }
 
 model Document {

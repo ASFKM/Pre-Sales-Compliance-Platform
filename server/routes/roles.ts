@@ -19,7 +19,10 @@ const ALLOWED_PERMISSIONS = new Set<string>([
   "ai:settings",
   "branding:manage",
   "storage:manage",
-  "integrations:manage"
+  "integrations:manage",
+  // Add-on (Fase 6) - only actually usable when the tenant also has the "poc" module
+  // entitlement (checked separately by requireModule); this is just the RBAC half.
+  "poc:read", "poc:manage"
 ]);
 
 function validatePermissions(permissions: string[]) {
