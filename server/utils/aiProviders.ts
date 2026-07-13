@@ -326,7 +326,13 @@ export async function searchWebWithProvider(provider: ConnectedProvider, model: 
     const stream = client.messages.stream({
       model,
       max_tokens: 8192,
-      tools: [{ type: "web_search_20260318", name: "web_search" }] as any,
+      // allowed_callers is required by the API for models that don't support programmatic tool
+      // calling (e.g. the Haiku family) - without it, every request 400s with "does not support
+      // programmatic tool calling" and this whole function throws, silently failing 100% of BOM
+      // enrichment attempts whenever Admin > IA's "Web Grounding" provider is set to such a model
+      // (confirmed: zero successful bom_web_search entries in ai_usage_logs despite real, relevant
+      // approved Knowledge Base entries existing for both test projects).
+      tools: [{ type: "web_search_20260318", name: "web_search", allowed_callers: ["direct"] }] as any,
       messages: [{ role: "user", content: prompt }],
     });
     const response = await stream.finalMessage();
