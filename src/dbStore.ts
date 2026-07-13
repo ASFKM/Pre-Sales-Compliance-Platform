@@ -1721,6 +1721,13 @@ class DBStore {
   // wired up (this used to be dead code - every approved entry was sent unconditionally instead).
   public async searchApprovedKnowledgeBase(keywords: string[], limit = 30): Promise<KnowledgeBaseEntry[]> {
     if (keywords.length === 0) return [];
+    // No `take` at the DB level here on purpose: with a broad OR across many keywords, ordering by
+    // createdAt and cutting off at `limit` let recent-but-barely-relevant entries crowd out older
+    // entries that actually match far more of the keywords (confirmed: a PTZ camera BOM item's
+    // union of keywords matched enough generic ITS entries to fill the whole `limit` before the
+    // specific Hikvision camera entries - which matched several more keywords each - were ever
+    // considered). Approved-entry volume is small enough (low hundreds) that fetching every
+    // matching row and ranking by actual keyword-match count in JS is cheap and far more correct.
     const rows = await prisma.knowledgeBaseEntry.findMany({
       where: {
         status: "approved",
@@ -1730,7 +1737,49 @@ class DBStore {
         ]),
       },
       orderBy: { createdAt: "desc" },
-      take: limit,
+    });
+
+    // Plain match-count scoring (one point per matched keyword, regardless of which keyword) rates
+    // generic jargon shared by every product in a category ("câmera", "zoom", "tipo", "resolução")
+    // the same as genuinely distinctive terms ("poste", "DAI", a specific SKU) - so whichever
+    // competing product's datasheet happens to repeat more generic jargon per row (or, tried next,
+    // has more total rows to sum across) wins, regardless of whether it's actually the right
+    // product for the item's stated use. Confirmed on two real, different failure modes for the
+    // same pole-mounted-camera BOM item: (1) per-row count let a vehicle-mounted "mobile
+    // enforcement" camera's generic-heavy entries outrank a fixed pole-mount speed dome's atomic
+    // ones; (2) summing per-row scores within a sourceDocumentId group (an earlier attempt at
+    // fixing (1)) just swapped which wrong product won, since it now favored whichever product
+    // happened to have the MOST total ingested rows rather than the most relevant ones.
+    // IDF-style weighting fixes both at once without needing any grouping: a keyword's weight is
+    // inverse to how many of THIS query's own candidate rows contain it, so "poste" (rare - a
+    // handful of rows) counts far more than "câmera"/"zoom" (common - most rows), and the score no
+    // longer scales with how many rows a product happens to have.
+    const lowerKeywords = keywords.map((kw) => kw.toLowerCase());
+    const haystacks = rows.map((row) => `${row.trigger} ${row.knowledge}`.toLowerCase());
+    const keywordWeights = new Map<string, number>(
+      lowerKeywords.map((kw) => {
+        const docFreq = haystacks.reduce((acc, h) => acc + (h.includes(kw) ? 1 : 0), 0);
+        return [kw, docFreq > 0 ? 1 / docFreq : 0];
+      })
+    );
+    const scored = rows.map((row, i) => {
+      const haystack = haystacks[i];
+      const score = lowerKeywords.reduce((acc, kw) => acc + (haystack.includes(kw) ? keywordWeights.get(kw)! : 0), 0);
+      return { row, score };
+    });
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, limit).map((s) => mapKnowledgeBaseEntry(s.row));
+  }
+
+  // Used by BOM enrichment's context-mismatch check (see enrichBomWithWebSearch) to see a
+  // product's FULL disclosed context (e.g. "mobile enforcement system... viaturas policiais"),
+  // not just whichever of that product's entries happened to keyword-match a specific BOM item -
+  // a product's mobile/vehicle-mounted nature is often stated in only one of its many atomic KB
+  // entries, and that one entry may not itself contain the specific item's own search keywords.
+  public async getApprovedKnowledgeBaseEntriesByDocument(sourceDocumentIds: string[]): Promise<KnowledgeBaseEntry[]> {
+    if (sourceDocumentIds.length === 0) return [];
+    const rows = await prisma.knowledgeBaseEntry.findMany({
+      where: { status: "approved", sourceDocumentId: { in: sourceDocumentIds } },
     });
     return rows.map(mapKnowledgeBaseEntry);
   }

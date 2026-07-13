@@ -5,7 +5,7 @@ import { dbStore } from "../../src/dbStore";
 import { requirePermission } from "./auth";
 import { logDebugMessage, requireUserId } from "../middleware/security";
 import { logger } from "../utils/logger";
-import { AnalysisResult } from "../../src/types";
+import { AnalysisResult, KnowledgeBaseEntry } from "../../src/types";
 import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
 import { generateJsonWithProvider, generateTextWithProvider, searchWebWithProvider, ConnectedProvider, ProviderFileInput } from "../utils/aiProviders";
 import { createStorageAdapter } from "../utils/storage";
@@ -89,14 +89,43 @@ const KEYWORD_STOPWORDS = new Set([
 // of topic. Keywords keep their original accents (unlike stripAccents elsewhere in this file) since
 // they're matched via a plain ILIKE `contains` against trigger/knowledge text that isn't
 // accent-folded - only the stopword comparison itself is accent-insensitive.
-export function extractKnowledgeBaseKeywords(text: string, maxKeywords = 40): string[] {
+// minLength defaults to 4 (unchanged whole-document behavior). The per-item BOM lookup (see
+// enrichBomWithWebSearch) passes 3 instead - equipment specs in this domain are full of short,
+// highly-distinguishing acronyms (PTZ, DAI, DVR, LPR, VMS) that a 4-char floor silently drops,
+// while the frequency ranking below (ties broken by first-seen order, since most terms in a spec
+// list appear only once) then surfaces whatever generic words happen to come first in the text
+// instead - confirmed on a real item ("Câmera IP tipo PTZ com DAI...") extracting only generic
+// filler ("mínimo", "zoom", "tipo", "suporte"...) and none of PTZ/DAI/Hikvision/IP66/IK10, so the
+// Knowledge Base search that follows had nothing distinctive to match against.
+export function extractKnowledgeBaseKeywords(text: string, maxKeywords = 40, minLength = 4): string[] {
   const counts = new Map<string, number>();
   for (const raw of text.toLowerCase().split(/[^\p{L}\p{N}-]+/u)) {
     const word = raw.trim();
-    if (word.length < 4 || KEYWORD_STOPWORDS.has(stripAccents(word))) continue;
+    if (word.length < minLength || KEYWORD_STOPWORDS.has(stripAccents(word))) continue;
     counts.set(word, (counts.get(word) || 0) + 1);
   }
   return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, maxKeywords).map(([w]) => w);
+}
+
+// The main analysis prompt asks for raw JSON, but on large outputs (e.g. a project with a long
+// BOM array, many similar objects in a row) the model occasionally emits a trailing comma before
+// a closing `}`/`]` - invalid JSON that fails the whole analysis (confirmed on a real run: a
+// SyntaxError several minutes into a job, after the AI call had already succeeded and been
+// billed, wasting the whole attempt). Strip a code fence first (existing behavior), then retry
+// once with trailing commas removed before giving up - if the repaired text still doesn't parse,
+// re-throw the ORIGINAL error so a genuinely different syntax problem is never masked.
+function parseAiJson(rawText: string): any {
+  const stripped = rawText.trim().replace(/^```json\s*|```\s*$/g, "");
+  try {
+    return JSON.parse(stripped);
+  } catch (err) {
+    const repaired = stripped.replace(/,(\s*[}\]])/g, "$1");
+    try {
+      return JSON.parse(repaired);
+    } catch {
+      throw err;
+    }
+  }
 }
 
 // 1. Zod Schema for Structured Output Validation
@@ -314,21 +343,91 @@ async function enrichBomWithWebSearch(bom: any[], platformSettings: any, proposa
     // Per-item KB pass: same heuristic keyword match used for the document-wide pass earlier
     // (extractKnowledgeBaseKeywords), scoped this time to just each item's own equipment_name/
     // category/specification, so an item can match approved knowledge even if its terms never
-    // made the cut in the whole-document keyword extraction. One batched searchApprovedKnowledgeBase
-    // call over the union of all items' keywords, then filtered back out per item, to avoid one
-    // DB round-trip per BOM item.
+    // made the cut in the whole-document keyword extraction.
+    // manufacturer included too (when the base analysis already guessed one, e.g. "Hikvision") -
+    // it's an unusually strong signal for this kind of lookup on its own. maxKeywords raised and
+    // minLength lowered to 3 vs. the whole-document pass's defaults - see extractKnowledgeBaseKeywords'
+    // own comment for why a per-item equipment spec needs both.
+    // One searchApprovedKnowledgeBase call PER ITEM (not a single query over the union of every
+    // item's keywords) - a shared top-N slice let one item's generic keywords crowd out another
+    // item's genuinely relevant candidates (confirmed: a pole-mounted camera's correct KB matches
+    // nearly missed the cut once other BOM items' keywords joined the same ranked pool). The KB is
+    // small enough (low hundreds of approved entries) for one query per item to be cheap.
     const itemKeywordSets = itemsNeedingLookup.map((item) =>
-      extractKnowledgeBaseKeywords([item.equipment_name, item.category, item.specification].filter(Boolean).join(" "), 15)
+      extractKnowledgeBaseKeywords(
+        [item.equipment_name, item.category, item.specification, item.manufacturer].filter(Boolean).join(" "),
+        25,
+        3
+      )
     );
-    const unionKeywords = [...new Set(itemKeywordSets.flat())];
-    const candidateKnowledge = unionKeywords.length > 0 ? await dbStore.searchApprovedKnowledgeBase(unionKeywords, 50) : [];
+    const relevantKnowledgeSets = await Promise.all(
+      itemKeywordSets.map((itemKeywords) => (itemKeywords.length > 0 ? dbStore.searchApprovedKnowledgeBase(itemKeywords, 30) : []))
+    );
+
+    // Some equipment categories exist in both a fixed pole/wall-mounted variant and a portable/
+    // vehicle-mounted variant with near-identical specs (PTZ, zoom, IP rating) - keyword relevance
+    // ranking alone can't tell them apart, and confirmed in production that instructing the model
+    // (see the prompt below) isn't reliable either: it kept picking whichever known_knowledge entry
+    // had the most complete-looking spec sheet, not the one actually matching the item's stated
+    // installation context, even when the correct one was present in known_knowledge too. Filtering
+    // out the context-mismatched candidates here means the model never sees them as a tempting
+    // "complete" but wrong alternative in the first place, instead of hoping it rejects them itself.
+    const FIXED_INSTALL_TERMS = ["poste", "parede", "mastro"];
+    const MOBILE_VEHICLE_TERMS = ["portátil", "portatil", "veicular", "veículo", "veiculo", "viatura", "embarcad", "fiscalização móvel", "fiscalizacao movel", "mobile enforcement", "mobile surveillance"];
+    const hasAny = (text: string, terms: string[]) => {
+      const lower = text.toLowerCase();
+      return terms.some((t) => lower.includes(t));
+    };
+    const isContextMismatch = (itemText: string, candidateText: string) => {
+      const itemWantsFixed = hasAny(itemText, FIXED_INSTALL_TERMS);
+      const itemWantsMobile = hasAny(itemText, MOBILE_VEHICLE_TERMS);
+      const candidateIsFixed = hasAny(candidateText, FIXED_INSTALL_TERMS);
+      const candidateIsMobile = hasAny(candidateText, MOBILE_VEHICLE_TERMS);
+      if (itemWantsFixed && !itemWantsMobile && candidateIsMobile && !candidateIsFixed) return true;
+      if (itemWantsMobile && !itemWantsFixed && candidateIsFixed && !candidateIsMobile) return true;
+      return false;
+    };
 
     const providerResolution = await resolveProvider("web_grounding", platformSettings);
-    const lookupList = itemsNeedingLookup.map((item, idx) => {
-      const itemKeywords = itemKeywordSets[idx];
-      const relevantKnowledge = candidateKnowledge.filter((k) =>
-        itemKeywords.some((kw) => k.trigger.toLowerCase().includes(kw) || k.knowledge.toLowerCase().includes(kw))
-      );
+    const lookupList = await Promise.all(itemsNeedingLookup.map(async (item, idx) => {
+      const itemText = [item.equipment_name, item.specification].filter(Boolean).join(" ");
+
+      // The mismatch check runs per PRODUCT (grouped by source document), not per individual row -
+      // a product's mobile/vehicle-mounted nature is often stated in only SOME of its many atomic
+      // KB entries (one entry says "câmera portátil...", a sibling entry about just its lens specs
+      // doesn't repeat that word) - checking row-by-row let those undisclosed sibling rows slip
+      // through untouched (confirmed: several iDS-TCC246/iDS-MCD202 rows without the word
+      // "portátil"/"veicular" in their own text survived a per-row version of this same filter).
+      // Even grouping just the rows already retrieved AS CANDIDATES for this item isn't enough -
+      // the one sibling entry that actually discloses "sistema de fiscalização móvel... viaturas
+      // policiais" can describe the whole multi-component system rather than the camera alone, so
+      // it may not itself match this item's own camera-specific keywords and never even enters the
+      // candidate set. Re-fetching every approved entry for each candidate's source document (a
+      // handful of extra rows, not a full extra table scan) gets that product's FULL disclosed
+      // context regardless of which of its own entries this item's keywords happened to hit.
+      const groups = new Map<string, KnowledgeBaseEntry[]>();
+      for (const k of relevantKnowledgeSets[idx]) {
+        const key = k.source_document_id ?? `row:${k.id}`;
+        const group = groups.get(key);
+        if (group) group.push(k);
+        else groups.set(key, [k]);
+      }
+      const documentIds = [...groups.keys()].filter((key) => !key.startsWith("row:"));
+      const fullDocumentEntries = documentIds.length > 0 ? await dbStore.getApprovedKnowledgeBaseEntriesByDocument(documentIds) : [];
+      const fullContextByDocument = new Map<string, string>();
+      for (const entry of fullDocumentEntries) {
+        if (!entry.source_document_id) continue;
+        const existing = fullContextByDocument.get(entry.source_document_id) ?? "";
+        fullContextByDocument.set(entry.source_document_id, `${existing} ${entry.trigger} ${entry.knowledge}`);
+      }
+
+      const relevantKnowledge = [...groups.entries()]
+        .filter(([key, group]) => {
+          const contextText = fullContextByDocument.get(key) ?? group.map((k) => `${k.trigger} ${k.knowledge}`).join(" ");
+          return !isContextMismatch(itemText, contextText);
+        })
+        .flatMap(([, group]) => group);
+
       return {
         item_id: item.item_id,
         equipment_name: item.equipment_name,
@@ -339,9 +438,9 @@ async function enrichBomWithWebSearch(bom: any[], platformSettings: any, proposa
           ? relevantKnowledge.map((k) => `Se: ${k.trigger} → Então: ${k.knowledge}`)
           : null,
       };
-    });
+    }));
 
-    const prompt = `For each item below, first check "known_knowledge" - human-approved internal knowledge from past projects, already vetted by a person. If it clearly states a concrete real manufacturer and/or part number/SKU for this exact item, use that value instead of searching the web, and set "source" to "knowledge_base". Only actually search the web for items where known_knowledge is null or doesn't give a concrete manufacturer/part number, and set "source" to "web_search" for those found that way. If "known_part_number" is set for an item, that part number is already correct/authoritative - only search for (or find in known_knowledge) which real manufacturer makes that exact part number, do not substitute a different product. If neither known_knowledge nor a web search yields a confident real match, leave sku/part_number/manufacturer as empty strings and set "source" to "not_found" rather than guessing.
+    const prompt = `For each item below, first check "known_knowledge" - human-approved internal knowledge from past projects, already vetted by a person. If it clearly states a concrete real manufacturer and/or part number/SKU for this exact item, use that value instead of searching the web, and set "source" to "knowledge_base". known_knowledge entries were retrieved by keyword overlap and can include a product that is technically similar but actually the wrong product line for this item's stated use - e.g. a vehicle-mounted/portable/mobile-enforcement camera is NOT a match for an item that specifies a fixed pole/wall-mounted installation, and vice-versa, even when general specs (PTZ, zoom, IP rating, resolution) look alike. Before accepting a known_knowledge match, check that its stated application/mounting/context actually matches this item's own description; if it doesn't, treat known_knowledge as not applicable for that item and fall back to web search or not_found instead. Only actually search the web for items where known_knowledge is null or doesn't give a confident, context-matching manufacturer/part number, and set "source" to "web_search" for those found that way. If "known_part_number" is set for an item, that part number is already correct/authoritative - only search for (or find in known_knowledge) which real manufacturer makes that exact part number, do not substitute a different product. If neither known_knowledge nor a web search yields a confident real match, leave sku/part_number/manufacturer as empty strings and set "source" to "not_found" rather than guessing.
 
 ITEMS TO LOOK UP:
 ${JSON.stringify(lookupList, null, 2)}
@@ -746,8 +845,9 @@ Write all generated content fields strictly in ${project.proposal_language}. Mai
     // 3. Add Structured Output Validation using Zod
     // Every provider is explicitly told to respond with raw JSON only, but Claude in particular
     // still sometimes wraps it in a markdown code fence anyway - strip it defensively rather than
-    // fail the whole analysis over formatting.
-    const parsedJson = JSON.parse(rawText.trim().replace(/^```json\s*|```\s*$/g, ""));
+    // fail the whole analysis over formatting. parseAiJson also tolerates a trailing comma before
+    // a closing brace/bracket (see its own comment) - the other formatting slip seen in practice.
+    const parsedJson = parseAiJson(rawText);
     const validatedJson = AnalysisResultSchema.parse(parsedJson);
 
     // 4. Look up real part numbers/manufacturers for any BOM item the document itself didn't
