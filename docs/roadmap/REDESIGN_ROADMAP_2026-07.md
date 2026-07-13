@@ -308,9 +308,16 @@ middleware `requireModule` (defesa em profundidade ao lado de `requirePermission
 detalhe editável. Testado ponta a ponta com usuário/role de teste descartáveis (removidos depois);
 encontrado e corrigido nesse teste um bug real de `.partial()` + `.refine()` do Zod que resetava o
 status silenciosamente em qualquer update parcial. Migração aditiva aplicada com backup prévio, dado
-existente intacto. Faltam Fases B–F (Visão Geral com critérios de sucesso, Equipamento, Cronograma
-Gantt, Cadernos de Teste por IA, Aceite do Cliente). **CRM** continua apenas nomeado, sem detalhe
-(fica para sessão futura dedicada).
+existente intacto.
+
+**Fase B concluída e verificada** (commit `47ab5c0`, 2026-07-13): modelo `PocSuccessCriterion`
+(checklist simples, sem rubrica com peso), sub-rotas `/api/pocs/:id/success-criteria` (CRUD),
+`owner_name` denormalizado no payload da POC (não depende de `/api/users`, que é admin-gated).
+Tela mostra checklist marcável/removível e stakeholders (responsável interno + contato do cliente).
+Testado ponta a ponta da mesma forma que a Fase A; migração aditiva aplicada com backup prévio.
+
+Faltam Fases C–F (Equipamento, Cronograma Gantt, Cadernos de Teste por IA, Aceite do Cliente).
+**CRM** continua apenas nomeado, sem detalhe (fica para sessão futura dedicada).
 
 Dois módulos novos, ambos vendidos por assinatura separadamente (ligado à Fase 7 — um cliente pode
 contratar um sem o outro):
