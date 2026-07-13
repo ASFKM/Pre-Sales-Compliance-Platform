@@ -12,12 +12,13 @@ A plataforma já possui os principais módulos administrativos funcionais:
 
 - Usuários e acessos
 - Perfis e permissões
-- Configurações de IA e prompts
-- Templates de propostas
+- Configurações de IA e prompts (multi-provedor: Anthropic, OpenAI, Google, por tipo de tarefa)
+- Templates de propostas (7 tipos ponta a ponta, incl. Técnico-Comercial) e glossário de 32 variáveis
+- Base de Conhecimento e enriquecimento de BOM (aprovação humana, busca web como fallback)
 - Fluxos de aprovação
 - Identidade visual / branding
 - Integrações e conectores
-- Armazenamento e documentos
+- Armazenamento e documentos (local, S3, GCS)
 - Auditoria e diagnóstico básico
 
 ---

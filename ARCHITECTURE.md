@@ -1,69 +1,127 @@
 # Platform Architecture & Module Layout
 
-Commercial Assistant AI is built on a robust, full-stack, decoupled architecture that provides secure pre-sales analysis and document compilation.
+Commercial Assistant AI is a full-stack, decoupled platform for pre-sales tender analysis and
+proposal generation, backed by a real relational database (not an in-memory store) and a
+multi-provider AI abstraction (not locked to a single vendor).
 
 ## 1. System Topology Overview
 
 ```
 +--------------------------------------------------------+
-|                      CLIENT WEB SPA                    |
-|          React / Vite / Tailwind CSS / Lucide          |
-+---------------------------+----------------------------+
+|                      CLIENT WEB SPA                     |
+|          React / Vite / Tailwind CSS / Lucide           |
++---------------------------+------------------------------+
                             | HTTP(S) Request
                             v
 +--------------------------------------------------------+
-|                API GATEWAY & SECURITY LAYER            |
-|       Helmet | Express-Rate-Limit | Correlation ID     |
-+---------------------------+----------------------------+
-                            | Protected Routing
+|                API GATEWAY & SECURITY LAYER              |
+|  Helmet | express-rate-limit | Correlation ID | Pino     |
++---------------------------+------------------------------+
+                            | requireAuth / requirePermission
                             v
 +--------------------------------------------------------+
-|                    EXPRESS BACKEND CORE                |
-|      Auth | Projects | Uploads | Analysis | Proposals  |
-+---------------------------+----------------------------+
-       |                    |                    |
-       | Local FS / S3      | @google/genai      | DOCX Engine
-       v                    v                    v
-+--------------+     +--------------+     +--------------+
-| STORAGE      |     | GEMINI MODEL |     | PRE-SALES    |
-| ADAPTER      |     | gemini-3.5-  |     | GENERATOR    |
-| Local/S3/GCS |     | flash        |     | DOCX / PDF   |
-+--------------+     +--------------+     +--------------+
+|                    EXPRESS BACKEND CORE                  |
+| Auth | Projects | Documents | Analysis | Proposals |     |
+| Templates | Knowledge Base | Approvals | Settings |      |
+| Integrations | Audit | Diagnostics | Tasks | Dashboard    |
++------+-------------------+-------------------+-----------+
+       |                   |                   |
+       | Prisma / Postgres | Storage Adapter   | AI Provider Abstraction
+       v                   v                   v
++--------------+   +----------------+   +--------------------------+
+| POSTGRESQL   |   | Local / S3 /   |   | Anthropic / OpenAI /     |
+| (Prisma ORM) |   | GCS Adapter    |   | Google (per task type)  |
++--------------+   +----------------+   +--------------------------+
+       |
+       v
++--------------+
+| REDIS        |
+| cache/session|
++--------------+
 ```
 
 ---
 
 ## 2. Core Modules & Directory Layout
 
-- **`/server.ts`**: Express application bootstrapping, loading Vite middleware in development or static assets in production, and applying security headers.
-- **`/server/middleware/security.ts`**: Core middleware for defensive posture: Helmet headers, API request throttling, correlation tracking, and sanitized error captures.
-- **`/server/routes/`**:
-  - `auth.ts`: Authentication, session verification, logout, and Multi-Factor Challenges (MFA).
-  - `users.ts`: Zod-validated User profiles and user registry query handlers.
-  - `roles.ts`: Access to pre-loaded B2B role-permission matrices.
-  - `projects.ts`: Core project, tender bid, and workflow configuration endpoints.
-  - `documents.ts`: Multer-based multipart file processing, secure file storage, and text extraction pipelines.
-  - `analysis.ts`: Integration with Google Gemini SDK (`@google/genai`) to conduct multi-document pre-sales audit analysis.
-  - `proposals.ts`: Compiles proposal assets (DOCX/PDF) by parsing variables and repeating grids.
-  - `settings.ts`: Configurations for platform branding and AI prompt templates.
-  - `integrations.ts`: Connector config with AES-256 encrypted fields.
-  - `audit.ts`: Human audit logs separate from diagnostic traces.
-  - `diagnostics.ts`: Sanitizes debugging snapshots for system admin support.
+- **`/server.ts`**: Express bootstrapping. Mounts Helmet, JSON body parsing, correlation ID
+  middleware, Pino HTTP logging, the global API rate limiter, and every route module (see below).
+  Serves the Vite dev middleware in development or the compiled `/dist` static assets in
+  production.
+- **`/server/middleware/security.ts`**: `requireAuth`/`requirePermission` guards, correlation ID
+  propagation, and sanitized error capture (never leaks stack traces or internals to the client).
+- **`/server/routes/`** (each mounted under `/api` in `server.ts`):
+  - `auth.ts` — login, session verification, logout, real TOTP-based MFA with a demo-only fallback
+    (see [SECURITY.md](./SECURITY.md)).
+  - `users.ts`, `roles.ts` — user directory and RBAC role/permission matrices.
+  - `projects.ts` — tender project/workspace CRUD and configuration.
+  - `documents.ts` — Multer-based multipart upload, storage adapter dispatch, text extraction.
+  - `analysis.ts` — multi-provider AI analysis: document-wide extraction (executive summary,
+    critical requirements, risks, opportunities, point-to-point matrix, preliminary schedule,
+    clarification questions, BOM) and BOM enrichment (`enrichBomWithWebSearch`) against the
+    approved Knowledge Base and/or live web search.
+  - `knowledgeBase.ts` — Knowledge Base entry review/approval workflow, and the document-analysis
+    pipeline that proposes new entries from uploaded reference datasheets/standards.
+  - `proposals.ts` — compiles DOCX/PDF proposal documents (7 types — see
+    [TEMPLATE_GUIDE.md](./TEMPLATE_GUIDE.md)) from project + analysis data.
+  - `templates.ts` — proposal template upload/management, the variable glossary endpoint
+    (`GET /api/templates/proposals/variables`), and template validation (`/validate`, which
+    cross-checks a real uploaded `.docx`'s placeholders against the canonical variable catalog).
+  - `approvals.ts` — configurable multi-role approval workflows for proposals.
+  - `settings.ts` — platform branding, AI provider/model configuration per task type, prompt
+    templates, and cost caps.
+  - `integrations.ts` — connector configuration with AES-256-CBC encrypted credential fields.
+  - `audit.ts` — business/compliance audit trail (who did what, when — distinct from technical
+    debug logs).
+  - `diagnostics.ts` — sanitized diagnostic export bundle for support.
+  - `tasks.ts`, `userTasks.ts`, `dashboard.ts`, `projectIntake.ts`, `verticals.ts`, `messages.ts` —
+    background task tracking, per-user task queues, dashboard aggregates, intake/vertical
+    configuration, and the in-app conversational copilot.
 - **`/server/utils/`**:
-  - `security.ts`: Crypto utilities for password comparison, token signatures, and key encryption.
-  - `storage.ts`: Extensible local filesystem, AWS S3, and GCS storage interfaces.
-  - `extraction.ts`: Physical text extraction parsers for PDF, DOCX, CSV, XLSX, and TXT.
-  - `docx.ts`: Pre-sales template compilers.
+  - `security.ts` — scrypt password hashing/verification, JWT session signing, TOTP verification,
+    AES-256-CBC secret encryption/decryption.
+  - `aiProviders.ts` — the provider abstraction: `generateJsonWithProvider`,
+    `generateTextWithProvider`, `searchWebWithProvider` (Anthropic/OpenAI/Google, including
+    provider-native web search tools), and AI usage cost estimation/recording.
+  - `storage.ts` — local filesystem, AWS S3, and GCS storage adapters behind one interface, plus
+    upload validation (size/MIME/extension whitelist, randomized storage paths).
+  - `extraction.ts` — text extraction for PDF/DOCX/XLSX/CSV/TXT; vision-capable formats are passed
+    directly to the AI provider instead.
+  - `docx.ts` / `docxTemplateEngine.ts` — the DOCX template compiler (`buildTemplateVariables()`,
+    32 variables across 9 categories) and placeholder inspection (`extractTemplatePlaceholders`,
+    via `docxtemplater`'s `InspectModule`).
+  - `templateVariableCatalog.ts` — the single source of truth for every variable a template can
+    use: name, human-readable description, category, and (for loop variables) the inner fields
+    available inside `{{#name}}...{{/name}}`. Used by both the glossary endpoint and the `/validate`
+    cross-check, so they can never drift apart.
+  - `proposalTypes.ts` — the 7 proposal/template type values and their display labels, shared by
+    the upload form validation and the generation route.
 
 ---
 
-## 3. Data Persistence & State Model
+## 3. Data Persistence
 
-The platform utilizes a structured, transaction-isolated in-memory store defined in `/src/dbStore.ts` that acts as a secure local database. It mimics relational schemas with tables for:
-- `users`, `roles`, `permissions`: RBAC identity tables.
-- `projects`, `documents`: Tender workspace resources.
-- `analysis_jobs`, `document_contents`: Processing queues and text extracts.
-- `proposals`, `approval_decisions`: Presales artifacts and review traces.
-- `settings`, `prompt_templates`, `proposal_templates`: Global variables.
-- `integrations`: Connected platforms.
-- `audit_logs`, `debug_logs`: Separate logs for observability.
+All persistent state lives in **PostgreSQL**, accessed through **Prisma ORM**
+(`prisma/schema.prisma` is the source of truth for every table). Key models:
+
+- `Tenant`, `User`, `Role` — multi-tenant identity and RBAC.
+- `Project` — a tender/opportunity workspace (customer, opportunity name/code, vertical,
+  procurement modality, deadlines).
+- `Document` — uploaded tender documents and their extracted text/metadata.
+- `AIAnalysisJob` / `AnalysisResult` — one analysis run per job; the result holds the
+  semi-structured JSON sections (executive summary, requirements, risks, opportunities, BOM,
+  point-to-point table, preliminary schedule, clarification questions) plus the technical/
+  commercial proposal drafts.
+- `KnowledgeBaseEntry` — approved (human-reviewed) facts used to enrich BOM items, categorized as
+  `datasheet`, `engineering_note`, or `bom_part_number`.
+- `ProposalTemplate` / `Proposal` — uploaded template files and generated proposal documents.
+- `PlatformSettings` — per-task-type AI provider/model configuration, branding, cost caps.
+- `AiUsageLog` — recorded cost/usage per successful AI call, by task type and provider/model.
+- `AuditLog` — compliance/business audit trail.
+
+**Redis** backs session storage and short-lived caches — it is not the system of record for any
+business data.
+
+**File storage** (uploaded documents, generated proposals, template files) goes through the
+storage adapter abstraction in `server/utils/storage.ts`: local filesystem by default, or AWS S3 /
+Google Cloud Storage when configured in Admin → Settings.

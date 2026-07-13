@@ -1,58 +1,134 @@
-# pre-Sales Proposal Template & Substitution Guide
+# Proposal Template & Variable Guide
 
-The Commercial Assistant AI document compiler (`/server/utils/docx.ts`) provides full support for automated variables and repeating tables. This guide outlines how to format Microsoft Word (`.docx`) pre-sales templates to use this compiler.
+The DOCX template engine (`server/utils/docxTemplateEngine.ts`, backed by `docxtemplater`) lets you
+upload a real Microsoft Word (`.docx`) file with `{{variable}}` placeholders and generate a
+compliant proposal document from real project/analysis data.
 
----
+This guide is a human-readable mirror of the canonical variable catalog
+(`server/utils/templateVariableCatalog.ts`) — the same source of truth used by:
+- the **variable glossary panel** in Admin → Templates de Propostas (with copy-to-clipboard per
+  variable), and
+- the **`POST /proposals/:id/validate`** endpoint, which reads the real placeholders out of an
+  uploaded `.docx` and flags any that aren't a real recognized variable (those would otherwise
+  silently render blank in the generated document).
 
-## 1. Simple Variable Substitutions
-
-The compiler scans the `.docx` file structure and replaces simple placeholders with project and analysis parameters. Place variables in your document using double curly brackets: `{{variable_name}}`.
-
-| Placeholder | Context | Value Source |
-|---|---|---|
-| `{{project_name}}` | Project Details | Project Name |
-| `{{customer_name}}` | Client Metadata | Customer / Client Name |
-| `{{project_description}}` | Brief Summary | Project Scope |
-| `{{project_vertical}}` | Sector Segment | Business Vertical |
-| `{{executive_summary}}` | Compliance Audit | AI-Generated Audit Summary |
-| `{{payment_terms}}` | Payment Rules | Manually added terms |
-| `{{delivery_terms}}` | Logistics | Manually added delivery rules |
-| `{{proposal_validity}}` | Lifespan | Validity period (e.g., "90 Days") |
-| `{{exclusions}}` | Out of Scope | Excluded works or products |
+If you add or rename a variable in `templateVariableCatalog.ts`, the glossary panel and the
+validation check both update automatically — there is nothing else to keep in sync.
 
 ---
 
-## 2. Repeating Tables (Arrays)
+## 1. Simple variables
 
-To list multiple rows (such as Bill of Materials, risk items, or manual pricing tables), create a Microsoft Word table and tag the first row of your data loop. The compiler will dynamically duplicate that table row for every record in the array.
+Place a variable anywhere in the document body using `{{variable_name}}`.
 
-### A. Technical Bill of Materials (BOM) Table
-Tag a table row with placeholders to loop through technical items:
-- `{{bom.item}}`: Item name or code.
-- `{{bom.quantity}}`: Quantity required.
-- `{{bom.compliance}}`: Yes/No/Partial compliance rating.
-- `{{bom.justification}}`: Pre-sales justification.
+### Cliente e Projeto
+| Variable | What it brings |
+|---|---|
+| `{{cliente}}` | Customer name. |
+| `{{projeto}}` | Project title/name. |
+| `{{codigo_oportunidade}}` | Associated commercial opportunity name/code. |
+| `{{vertical}}` | Market vertical (e.g. Public Security, Retail, Education). |
+| `{{escopo}}` | Project scope/description as registered. |
+| `{{status_projeto}}` | Current project status in the system. |
+| `{{prazo_projeto}}` | Project deadline. |
+| `{{data_validade_projeto}}` | Proposal validity date from the project record (distinct from `{{validade_proposta}}` below, which is the commercial text entered for this specific proposal). |
+| `{{modalidade_contratacao}}` | Procurement modality/subtype, when applicable (e.g. public tender type). |
+| `{{responsavel_projeto}}` | Name of the project owner in the system. |
 
-### B. Project Risks & Mitigations Table
-Tag a table row with placeholders to loop through project risks:
-- `{{risk.description}}`: Identified risk.
-- `{{risk.severity}}`: Risk classification (Low / Medium / High).
-- `{{risk.mitigation}}`: Proposed pre-sales engineering mitigation.
+### Resumo Executivo
+| Variable | What it brings |
+|---|---|
+| `{{resumo_executivo}}` | AI-generated project overview. |
+| `{{contexto_cliente}}` | Customer context identified by the analysis (current situation, motivation). |
+| `{{principais_requisitos}}` | Synthesis of the most important identified requirements. |
+| `{{principais_riscos}}` | Synthesis of the main identified risks. |
+| `{{principais_oportunidades}}` | Synthesis of the main identified commercial opportunities. |
+| `{{estrategia_recomendada}}` | Recommended sales strategy/approach from the analysis. |
+| `{{premissas_tecnicas}}` | Technical assumptions the analysis made interpreting the tender documents. |
+| `{{proximos_passos}}` | Recommended next steps from the analysis. |
 
-### C. Commercial Pricing Table
-Tag a table row with placeholders to loop through manual pricing rows:
-- `{{pricing.item}}`: Product or service description.
-- `{{pricing.qty}}`: Item quantity.
-- `{{pricing.unit}}`: Unit measurement (e.g. "Hour", "Unit").
-- `{{pricing.price}}`: Calculated unit price.
-- `{{pricing.total}}`: Subtotal price.
-- `{{pricing.discount}}`: Percentage discount applied.
+### Comercial
+| Variable | What it brings |
+|---|---|
+| `{{preco_total}}` | Sum of the manual pricing table (2 decimal places). |
+| `{{termos_pagamento}}` | Payment terms for this proposal. |
+| `{{termos_entrega}}` | Delivery terms for this proposal. |
+| `{{validade_proposta}}` | Commercial validity text entered when generating this specific proposal. |
+| `{{premissas_comerciais}}` | Commercial assumptions entered for this proposal. |
+| `{{exclusoes}}` | Contractual exclusions entered for this proposal. |
 
 ---
 
-## 3. Uploading Templates
+## 2. Loop variables (repeating tables)
 
-1. Navigate to the **Templates** tab in the admin or workspace console.
-2. Upload your custom-styled Word `.docx` file.
-3. Mark it as the "Active" or "Default" template.
-4. When generating proposals under any project, the compiler will load this template, inject the parsed variables, compile the PDF, and save it to the project's upload folder.
+Loop variables repeat a block once per item — in Word, wrap a table row (or any block of text)
+between `{{#nome}}` and `{{/nome}}`. When both tags sit in the same table row, `docxtemplater`
+repeats the whole row per item (its own documented behavior).
+
+### `{{#bom}}` — Bill of Materials
+`{{equipamento}}`, `{{fabricante}}` ("N/D" if not found), `{{quantidade}}`, `{{unidade}}`,
+`{{categoria}}`, `{{especificacao}}`.
+
+### `{{#requisitos_criticos}}` — Critical Requirements
+`{{descricao}}`, `{{status}}` (`compliant`/`partially_compliant`/`non_compliant`/
+`not_enough_information`), `{{prioridade}}` (`high`/`medium`/`low`), `{{obrigatorio}}`
+(`mandatory`/`optional`), `{{confianca}}` (AI confidence, 0–1).
+
+### `{{#riscos}}` — Risks
+`{{titulo}}`, `{{descricao}}`, `{{severidade}}` (`low`/`medium`/`high`/`critical`),
+`{{probabilidade}}`, `{{impacto}}`, `{{mitigacao}}` ("N/D" if not found), `{{area_responsavel}}`.
+
+### `{{#oportunidades}}` — Opportunities
+`{{titulo}}`, `{{descricao}}`, `{{valor_negocio}}`, `{{solucao_sugerida}}`,
+`{{estrategia_venda}}`, `{{prioridade}}`.
+
+### `{{#cronograma_preliminar}}` — Preliminary Schedule
+`{{fase}}`, `{{atividades}}` (semicolon-joined), `{{duracao_estimada}}`, `{{dependencias}}`
+(semicolon-joined), `{{area_responsavel}}`, `{{premissas}}`, `{{riscos_fase}}`.
+
+### `{{#matriz_requisitos}}` — Point-to-Point Technical Matrix
+One entry per technical discipline (e.g. CFTV, network, electrical) — the underlying matrix has
+different columns per discipline, so it can't be looped as a fixed DOCX table. Each entry instead
+provides:
+`{{disciplina}}` (discipline name), `{{tabela_texto}}` (a ready-to-drop-in plain-text rendering of
+that discipline's table, one row per line, columns separated by ` | `).
+
+### `{{#perguntas_esclarecimento}}` — Clarification Questions
+`{{pergunta}}`, `{{motivo}}`, `{{prioridade}}`, `{{publico_alvo}}` (e.g. customer vs. internal
+technical team).
+
+### `{{#precificacao}}` — Manual Pricing Table
+`{{item}}`, `{{quantidade}}`, `{{preco_unitario}}` (2 decimals), `{{preco_total_item}}` (2
+decimals), `{{moeda}}`.
+
+---
+
+## 3. The 7 proposal document types
+
+Every type below is generated from the **same** template engine and the **same** full variable
+set above — "type" only categorizes which document a template represents and where it appears in
+the Studio, it does not change which variables are available:
+
+| Type | Typical content |
+|---|---|
+| `technical` | Executive summary, requirements compliance, schedule, point-to-point matrix. |
+| `commercial` | Pricing table, discounts, delivery terms, commercial assumptions/exclusions. |
+| `technical_commercial` | Fuses technical and commercial content into one document. |
+| `executive_summary` | Concise, leadership-facing overview: context, requirements, risks, opportunities, recommended strategy. |
+| `risk_report` | Every identified risk with severity, probability, impact, mitigation, owner area. |
+| `bom_report` | Standalone bill-of-materials report. |
+| `questions_report` | Every clarification question recommended for the customer, with reason and priority. |
+
+---
+
+## 4. Uploading a template
+
+1. Go to **Admin → Templates de Propostas**.
+2. Drag-and-drop (or select) your `.docx` file, name it, pick its type from the 7 above.
+3. Check the **variable glossary panel** right next to the upload form for the exact variable
+   names available — copy-paste them directly into your Word document.
+4. After upload, use **Validate** to confirm every placeholder in your file is recognized. Any
+   unrecognized placeholder is flagged explicitly — it would otherwise silently render blank in
+   every proposal generated from that template.
+5. Mark the template "Active"/"Default" as needed. Generate proposals for a project from
+   **Workspace → Estúdio de Propostas**, picking the template per type.

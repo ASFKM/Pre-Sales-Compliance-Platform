@@ -1,79 +1,122 @@
-# Commercial Assistant AI - Hardened Pre-Sales Enterprise Platform
+# Commercial Assistant AI — Pre-Sales Compliance Platform
 
-Commercial Assistant AI is an advanced, production-hardened full-stack pre-sales automation platform. It is engineered to ingest complex commercial tender specifications, run multi-threaded text extraction pipelines, conduct deep compliance and technical AI analysis using Google Gemini models, compile manual pricing tables, manage multi-role approval queues, and generate compliant DOCX/PDF proposal assets.
+Commercial Assistant AI is a production-hardened, full-stack pre-sales automation platform for
+technical/commercial tender analysis. It ingests tender documents (PDF, DOCX, XLSX, CSV, TXT, and
+images via vision), runs multi-provider AI analysis (requirements, risks, opportunities, BOM,
+schedule, point-to-point compliance matrix), enriches Bill-of-Materials items against a
+human-curated Knowledge Base and/or live web search, and generates DOCX/PDF proposals from
+customizable templates with a fully documented variable glossary.
 
 ---
 
-## Key Refactored Enhancements
+## Stack
 
-This version of the Commercial Assistant AI prototype has been fully hardened to support robust B2B requirements:
+- **Frontend**: React 18 + Vite + Tailwind CSS + Lucide icons.
+- **Backend**: Express (TypeScript), served either via Vite middleware (dev) or a single bundled
+  `dist/server.cjs` (production, built with esbuild).
+- **Database**: PostgreSQL via Prisma ORM (see `prisma/schema.prisma`). Not an in-memory store —
+  every table is a real Postgres table, with migrations tracked in `prisma/migrations/`.
+- **Cache / sessions**: Redis.
+- **File storage**: pluggable adapter — local filesystem, AWS S3, or Google Cloud Storage. A
+  MinIO container in `docker-compose.yml` lets you exercise the real S3 adapter locally without an
+  AWS account.
+- **AI providers**: multi-provider, not locked to a single vendor. Supported today: **Anthropic**
+  (Claude), **OpenAI**, and **Google** (Gemini). Each task type (document analysis, web-grounded
+  BOM enrichment, spec copilot, Knowledge Base ingestion, etc.) has its own configurable
+  provider/model pair in Admin → IA, Prompts e Custos — you are not required to use the same
+  provider for every task.
 
-1. **Production Identity Management**: Fully replaces mock client states with JWT-based session tokens, password hashing, and simulated Multi-Factor Authentication (MFA).
-2. **Strict RBAC Authorization**: Connects frontend roles with backend route-level middlewares, securing setting, template, and project scopes.
-3. **Robust Request Parsing**: Integrates schema validation on all incoming payloads using Zod schemas.
-4. **Physical Storage & Processing**: Multer handles multipart file uploads. Allowed file extensions, MIME types, and file sizes are verified. Safe random file names are generated, preventing path traversal attacks.
-5. **Dynamic Document Extraction & AI Analysis**: Extracts text from PDFs, DOCXs, XLSXs, CSvs, and TXTs, compiling context for structured Google Gemini analysis.
-6. **Compliant Document Generation**: Facilitates real variable substitutions inside uploaded DOCX templates, outputting clean commercial proposals and rendering exportable PDFs.
-7. **B2B Secrets Security**: API tokens are encrypted with AES-256-CBC at rest and masked before exposure to the frontend.
-8. **Observability & Diagnostics**: Added Helmet headers, IP-based rate limiting, correlation tracking, and sanitized diagnostic exports.
+## Key capabilities
+
+1. **Real identity & sessions**: scrypt password hashing, JWT-backed sessions, real TOTP-based MFA
+   (with a demo-only fallback code path that is hard-blocked outside `APP_RUNTIME_MODE=demo` —
+   see [SECURITY.md](./SECURITY.md)).
+2. **Route-level RBAC**: every sensitive endpoint (settings, templates, users, roles, integrations,
+   audit, diagnostics) is protected by permission middleware, not just hidden in the UI.
+3. **Real document ingestion**: Multer-based multipart upload, strict MIME/extension/size
+   validation, randomized storage paths (no path traversal), text extraction for text-bearing
+   formats and vision-based analysis for scanned/image documents.
+4. **Multi-provider AI analysis**: structured (Zod-validated) extraction of executive summary,
+   critical requirements, risks, opportunities, a dynamic point-to-point compliance matrix (columns
+   vary by technical discipline), preliminary schedule, clarification questions, and BOM.
+5. **BOM enrichment against a Knowledge Base**: items missing a manufacturer/part number are first
+   checked against your organization's approved Knowledge Base (human-reviewed facts from past
+   projects) before falling back to a live, provider-native web search. Relevance ranking is
+   IDF-weighted (rare, distinctive terms matter more than generic jargon) and cross-checked against
+   each candidate's full installation context (e.g. a vehicle-mounted camera is never silently
+   substituted for a fixed pole-mount requirement, or vice versa).
+6. **Real DOCX template engine with a documented variable glossary**: upload a `.docx` with
+   `{{placeholders}}`, generate any of 7 proposal document types (technical, commercial,
+   technical-commercial, executive summary, risk report, BOM report, clarification-questions
+   report) from real project/analysis data — 32 variables across 9 categories, all documented in a
+   glossary panel in the Admin Console (not just a code comment). See
+   [TEMPLATE_GUIDE.md](./TEMPLATE_GUIDE.md).
+7. **Encrypted secrets at rest**: connector/API credentials are AES-256-CBC encrypted in the
+   database and masked before ever reaching the browser.
+8. **Observability**: Helmet security headers, per-IP rate limiting, correlation IDs on every
+   request/log line, structured audit logs separate from technical debug logs, and a sanitized
+   diagnostic export bundle for support.
 
 ---
 
 ## Local Development Setup
 
 ### 1. Prerequisites
-- **Node.js**: v20 or v22
-- **npm**: v10+
-- **Gemini API Key**: Set as `GEMINI_API_KEY` in your environment.
+- **Node.js** v20 or v22, **npm** v10+.
+- **Docker** (for PostgreSQL, Redis, and optionally MinIO) — see
+  [DEPLOYMENT.md](./DEPLOYMENT.md) for the full Docker Compose stack, or point `DATABASE_URL`/
+  `REDIS_URL` at your own instances.
+- At least one AI provider API key (Anthropic, OpenAI, or Google) — you don't need all three,
+  each task type's provider is independently configurable once the app is running.
 
 ### 2. Configure Environment Variables
-Copy `.env.example` into a new `.env` file and set the required variables:
 ```bash
 cp .env.example .env
 ```
-Ensure `GEMINI_API_KEY`, `SECRET_ENCRYPTION_KEY`, and `JWT_SESSION_SECRET` are declared.
+At minimum, set `DATABASE_URL`, `REDIS_URL`, `SECRET_ENCRYPTION_KEY`, and `JWT_SESSION_SECRET`.
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for the full variable reference.
 
-### 3. Installation
-Install all dependencies:
+### 3. Install dependencies and set up the database
 ```bash
 npm install
+npm run prisma:migrate:dev
+npm run prisma:seed
 ```
 
-### 4. Run Development Server
-Boot the Express API backend along with the Vite HMR SPA middleware:
+### 4. Run the development server
 ```bash
 npm run dev
 ```
-Open [http://localhost:3000](http://localhost:3000) to view the portal.
+Open [http://localhost:3000](http://localhost:3000).
+
+For a complete, from-zero walkthrough (including the Docker stack and first-admin setup), see the
+**[Installation Cookbook](./docs/INSTALLATION_COOKBOOK.md)**.
 
 ---
 
-## Deployment and Production
+## Production Build & Run
 
-### Build compiled packages
 ```bash
-npm run build
-```
-This script compiles the Vite frontend into `/dist` and bundles the Express server into `/dist/server.cjs` using esbuild.
-
-### Run production server
-```bash
-npm start
+npm run build   # compiles the Vite frontend into /dist and bundles the server into dist/server.cjs
+npm start        # runs dist/server.cjs
 ```
 
----
-
-## Containerized Deployment (Docker Compose)
-To run the full stack (including local database, cache, and S3 mock storage services):
+## Containerized Deployment
 ```bash
 docker-compose up --build
 ```
-This mounts PostgreSQL, Redis, and MinIO storage locally.
+Brings up the app, PostgreSQL, Redis, and a local MinIO instance (S3-compatible storage for
+testing the real S3 adapter). See [DEPLOYMENT.md](./DEPLOYMENT.md) for production sizing,
+TLS/cert configuration, and cloud deployment options.
 
 ---
 
 ## Project Documentation Registry
-- **[Architecture Guide](./ARCHITECTURE.md)**: Deep dive into the full-stack layout and data flow.
-- **[Security Controls Guide](./SECURITY.md)**: Specifications on cryptographic operations and RBAC.
-- **[Deployment Manual](./DEPLOYMENT.md)**: Step-by-step procedures to scale and provision services.
-- **[Template Substitution Guide](./TEMPLATE_GUIDE.md)**: Explains the pre-sales variable injection schemas.
+- **[Installation Cookbook](./docs/INSTALLATION_COOKBOOK.md)**: step-by-step guide for a brand new
+  installation, from zero to a working first login.
+- **[Architecture Guide](./ARCHITECTURE.md)**: full-stack layout, module list, and data flow.
+- **[Security Controls Guide](./SECURITY.md)**: authentication, RBAC, encryption, and upload safety.
+- **[Deployment Manual](./DEPLOYMENT.md)**: environment variables and deployment options.
+- **[Template & Variable Guide](./TEMPLATE_GUIDE.md)**: the full variable glossary and the 7
+  proposal document types.
+- **[Agent Operating Guide](./AGENTS.md)**: rules for AI coding agents working in this repository.
