@@ -99,7 +99,7 @@ UPLOAD_HTTP="$(curl -s -o /tmp/regression_workspace_upload_response.json -w "HTT
   http://127.0.0.1:3000/api/projects/p1/documents)"
 
 echo "$UPLOAD_HTTP"
-echo "$UPLOAD_HTTP" | grep -q "HTTP:211"
+echo "$UPLOAD_HTTP" | grep -q "HTTP:201"
 
 cat /tmp/regression_workspace_upload_response.json
 
