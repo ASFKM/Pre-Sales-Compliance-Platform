@@ -55,6 +55,15 @@ enum PocStatus {
   completed_lost
 }
 
+// Fase 6 (add-on), Fase C: tracked separately from PocStatus - equipment can still be sitting at
+// the customer's site after the POC itself wraps up, which is exactly the risk this exists to
+// surface (see the overdue-return alert built on top of this in the API/UI).
+enum PocEquipmentStatus {
+  shipped
+  at_customer
+  returned
+}
+
 enum StorageProvider {
   local
   s3
@@ -210,6 +219,7 @@ model Tenant {
   aiProviderConfigs      AiProviderConfig[]
   pocs                   Poc[]
   pocSuccessCriteria     PocSuccessCriterion[]
+  pocEquipmentItems      PocEquipmentItem[]
 
   @@map("tenants")
 }
@@ -334,6 +344,7 @@ model Poc {
   updatedAt              DateTime  @updatedAt @map("updated_at")
 
   successCriteria PocSuccessCriterion[]
+  equipmentItems  PocEquipmentItem[]
 
   @@index([tenantId])
   @@map("pocs")
@@ -358,6 +369,36 @@ model PocSuccessCriterion {
   @@index([tenantId])
   @@index([pocId])
   @@map("poc_success_criteria")
+}
+
+// Fase 6 (add-on), Fase C: physical hardware loaned to the customer for the POC. No shared
+// inventory across POCs by design (product decision, 2026-07-13) - each POC only tracks what it
+// itself shipped. The two invoice attachments reuse the storage adapter (server/utils/storage.ts)
+// directly, not the Document table - Document.projectId is required, and a POC can be standalone
+// with no Project at all.
+model PocEquipmentItem {
+  id           String             @id
+  tenantId     String             @map("tenant_id")
+  tenant       Tenant             @relation(fields: [tenantId], references: [id])
+  pocId        String             @map("poc_id")
+  poc          Poc                @relation(fields: [pocId], references: [id], onDelete: Cascade)
+  name         String
+  serialNumber String?            @map("serial_number")
+  status       PocEquipmentStatus @default(shipped)
+
+  shippingInvoiceStorageProvider   StorageProvider? @map("shipping_invoice_storage_provider")
+  shippingInvoiceStoragePath       String?          @map("shipping_invoice_storage_path")
+  shippingInvoiceOriginalFilename  String?          @map("shipping_invoice_original_filename")
+  returnInvoiceStorageProvider     StorageProvider? @map("return_invoice_storage_provider")
+  returnInvoiceStoragePath         String?          @map("return_invoice_storage_path")
+  returnInvoiceOriginalFilename    String?          @map("return_invoice_original_filename")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@index([pocId])
+  @@map("poc_equipment_items")
 }
 
 model Document {

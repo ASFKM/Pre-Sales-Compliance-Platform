@@ -8,6 +8,7 @@ import {
   Project,
   Poc,
   PocSuccessCriterion,
+  PocEquipmentItem,
   Document,
   AIAnalysisJob,
   AnalysisResult,
@@ -123,6 +124,20 @@ function mapPocSuccessCriterion(c: any): PocSuccessCriterion {
     created_at: c.createdAt.toISOString(),
     updated_at: c.updatedAt.toISOString(),
   } as PocSuccessCriterion;
+}
+
+function mapPocEquipmentItem(e: any): PocEquipmentItem {
+  return {
+    id: e.id,
+    poc_id: e.pocId,
+    name: e.name,
+    serial_number: e.serialNumber ?? undefined,
+    status: e.status,
+    shipping_invoice_original_filename: e.shippingInvoiceOriginalFilename ?? undefined,
+    return_invoice_original_filename: e.returnInvoiceOriginalFilename ?? undefined,
+    created_at: e.createdAt.toISOString(),
+    updated_at: e.updatedAt.toISOString(),
+  } as PocEquipmentItem;
 }
 
 function mapDocument(d: any): Document {
@@ -857,6 +872,102 @@ class DBStore {
     } catch {
       return false;
     }
+  }
+
+  // Poc equipment (Fase 6, Fase C) - no shared inventory across POCs (product decision,
+  // 2026-07-13): each POC only tracks what it itself shipped.
+  public async getPocEquipmentItems(pocId: string): Promise<PocEquipmentItem[]> {
+    const rows = await prisma.pocEquipmentItem.findMany({
+      where: { pocId },
+      orderBy: { createdAt: "asc" },
+    });
+    return rows.map(mapPocEquipmentItem);
+  }
+
+  public async createPocEquipmentItem(pocId: string, item: { name: string; serial_number?: string }): Promise<PocEquipmentItem> {
+    const e = await prisma.pocEquipmentItem.create({
+      data: {
+        id: randomId("equip"),
+        tenantId: requireTenantId(),
+        pocId,
+        name: item.name,
+        serialNumber: item.serial_number,
+      },
+    });
+    return mapPocEquipmentItem(e);
+  }
+
+  public async updatePocEquipmentItem(
+    id: string,
+    updates: { name?: string; serial_number?: string; status?: PocEquipmentItem["status"] }
+  ): Promise<PocEquipmentItem | undefined> {
+    const exists = await prisma.pocEquipmentItem.findUnique({ where: { id } });
+    if (!exists) return undefined;
+
+    const e = await prisma.pocEquipmentItem.update({
+      where: { id },
+      data: {
+        name: updates.name,
+        serialNumber: updates.serial_number,
+        status: updates.status,
+      },
+    });
+    return mapPocEquipmentItem(e);
+  }
+
+  public async deletePocEquipmentItem(id: string): Promise<boolean> {
+    try {
+      await prisma.pocEquipmentItem.delete({ where: { id } });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // Attaches invoice metadata after the file has already been written via the storage adapter
+  // (server/utils/storage.ts) - this layer only persists the resulting path/provider/filename,
+  // same division of responsibility as Document uploads in documents.ts.
+  public async attachPocEquipmentInvoice(
+    id: string,
+    which: "shipping" | "return",
+    file: { storage_provider: "local" | "s3" | "gcs"; storage_path: string; original_filename: string }
+  ): Promise<PocEquipmentItem | undefined> {
+    const exists = await prisma.pocEquipmentItem.findUnique({ where: { id } });
+    if (!exists) return undefined;
+
+    const e = await prisma.pocEquipmentItem.update({
+      where: { id },
+      data:
+        which === "shipping"
+          ? {
+              shippingInvoiceStorageProvider: file.storage_provider,
+              shippingInvoiceStoragePath: file.storage_path,
+              shippingInvoiceOriginalFilename: file.original_filename,
+            }
+          : {
+              returnInvoiceStorageProvider: file.storage_provider,
+              returnInvoiceStoragePath: file.storage_path,
+              returnInvoiceOriginalFilename: file.original_filename,
+            },
+    });
+    return mapPocEquipmentItem(e);
+  }
+
+  // Raw (unmapped) lookup for the download route - needs the real storage_path/provider that
+  // mapPocEquipmentItem deliberately excludes from the normal API payload (internal detail).
+  public async getPocEquipmentInvoiceFile(
+    id: string,
+    which: "shipping" | "return"
+  ): Promise<{ storage_provider: "local" | "s3" | "gcs"; storage_path: string; original_filename: string } | undefined> {
+    const e = await prisma.pocEquipmentItem.findUnique({ where: { id } });
+    if (!e) return undefined;
+
+    const provider = which === "shipping" ? e.shippingInvoiceStorageProvider : e.returnInvoiceStorageProvider;
+    const path = which === "shipping" ? e.shippingInvoiceStoragePath : e.returnInvoiceStoragePath;
+    const filename = which === "shipping" ? e.shippingInvoiceOriginalFilename : e.returnInvoiceOriginalFilename;
+    if (!provider || !path || !filename) return undefined;
+
+    return { storage_provider: provider as "local" | "s3" | "gcs", storage_path: path, original_filename: filename };
   }
 
   // Documents

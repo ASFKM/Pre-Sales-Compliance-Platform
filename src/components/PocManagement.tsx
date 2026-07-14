@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Plus, X, ArrowLeft, Pen, Check, Trash2 } from "lucide-react";
-import { Poc, PocStatus, PocSuccessCriterion, Project } from "../types";
+import { Plus, X, ArrowLeft, Pen, Check, Trash2, Paperclip, TriangleAlert, Download } from "lucide-react";
+import { Poc, PocStatus, PocSuccessCriterion, PocEquipmentItem, PocEquipmentStatus, Project } from "../types";
 import ApiClient from "../lib/api";
 
 const STATUS_LABEL: Record<PocStatus, string> = {
@@ -9,6 +9,18 @@ const STATUS_LABEL: Record<PocStatus, string> = {
   blocked: "Bloqueada",
   completed_won: "Concluída · Ganha",
   completed_lost: "Concluída · Perdida",
+};
+
+const EQUIPMENT_STATUS_LABEL: Record<PocEquipmentStatus, string> = {
+  shipped: "Enviado",
+  at_customer: "Na casa do cliente",
+  returned: "Devolvido",
+};
+
+const EQUIPMENT_STATUS_COLOR: Record<PocEquipmentStatus, string> = {
+  shipped: "bg-blue-50 text-blue-700",
+  at_customer: "bg-amber-50 text-amber-700",
+  returned: "bg-emerald-50 text-emerald-700",
 };
 
 const STATUS_BADGE_COLOR: Record<PocStatus, string> = {
@@ -109,6 +121,14 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
   const [newCriterionText, setNewCriterionText] = useState("");
   const [addingCriterion, setAddingCriterion] = useState(false);
 
+  const [detailTab, setDetailTab] = useState<"overview" | "equipment">("overview");
+  const [equipment, setEquipment] = useState<PocEquipmentItem[]>([]);
+  const [loadingEquipment, setLoadingEquipment] = useState(false);
+  const [newEquipmentName, setNewEquipmentName] = useState("");
+  const [newEquipmentSerial, setNewEquipmentSerial] = useState("");
+  const [addingEquipment, setAddingEquipment] = useState(false);
+  const [uploadingInvoice, setUploadingInvoice] = useState<string | null>(null);
+
   const fetchPocs = async () => {
     setLoading(true);
     setError("");
@@ -141,11 +161,25 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
     }
   };
 
+  const fetchEquipment = async (pocId: string) => {
+    setLoadingEquipment(true);
+    try {
+      const data = await ApiClient.get<PocEquipmentItem[]>(`/api/pocs/${pocId}/equipment`);
+      setEquipment(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setEquipment([]);
+    } finally {
+      setLoadingEquipment(false);
+    }
+  };
+
   const openDetail = (poc: Poc) => {
     setSelectedPocId(poc.id);
     setIsEditing(false);
     setSaveError("");
+    setDetailTab("overview");
     fetchCriteria(poc.id);
+    fetchEquipment(poc.id);
   };
 
   const backToList = () => {
@@ -153,7 +187,72 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
     setIsEditing(false);
     setCriteria([]);
     setNewCriterionText("");
+    setEquipment([]);
   };
+
+  const addEquipmentItem = async () => {
+    if (!selectedPoc || !newEquipmentName.trim()) return;
+    setAddingEquipment(true);
+    try {
+      await ApiClient.post(`/api/pocs/${selectedPoc.id}/equipment`, {
+        name: newEquipmentName.trim(),
+        serial_number: newEquipmentSerial.trim() || undefined,
+      });
+      setNewEquipmentName("");
+      setNewEquipmentSerial("");
+      await fetchEquipment(selectedPoc.id);
+    } catch (e: any) {
+      alert(e.message || "Não foi possível adicionar o equipamento.");
+    } finally {
+      setAddingEquipment(false);
+    }
+  };
+
+  const updateEquipmentStatus = async (item: PocEquipmentItem, status: PocEquipmentStatus) => {
+    if (!selectedPoc) return;
+    try {
+      await ApiClient.put(`/api/pocs/${selectedPoc.id}/equipment/${item.id}`, { status });
+      await fetchEquipment(selectedPoc.id);
+    } catch (e: any) {
+      alert(e.message || "Não foi possível atualizar o status.");
+    }
+  };
+
+  const removeEquipmentItem = async (item: PocEquipmentItem) => {
+    if (!selectedPoc) return;
+    try {
+      await ApiClient.delete(`/api/pocs/${selectedPoc.id}/equipment/${item.id}`);
+      await fetchEquipment(selectedPoc.id);
+    } catch (e: any) {
+      alert(e.message || "Não foi possível remover o equipamento.");
+    }
+  };
+
+  const uploadInvoice = async (item: PocEquipmentItem, which: "shipping" | "return", file: File) => {
+    if (!selectedPoc) return;
+    setUploadingInvoice(`${item.id}:${which}`);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const path = which === "shipping" ? "shipping-invoice" : "return-invoice";
+      await ApiClient.post(`/api/pocs/${selectedPoc.id}/equipment/${item.id}/${path}`, formData);
+      await fetchEquipment(selectedPoc.id);
+    } catch (e: any) {
+      alert(e.message || "Não foi possível anexar o arquivo.");
+    } finally {
+      setUploadingInvoice(null);
+    }
+  };
+
+  const downloadInvoice = (item: PocEquipmentItem, which: "shipping" | "return") => {
+    if (!selectedPoc) return;
+    const path = which === "shipping" ? "shipping-invoice" : "return-invoice";
+    const token = localStorage.getItem("ca_session_token") || "";
+    window.open(`/api/pocs/${selectedPoc.id}/equipment/${item.id}/${path}?token=${encodeURIComponent(token)}`, "_blank");
+  };
+
+  const equipmentPendingReturn = equipment.filter((e) => e.status !== "returned").length;
+  const pocIsOverdue = selectedPoc ? new Date(selectedPoc.end_date) < new Date() : false;
 
   const addCriterion = async () => {
     if (!selectedPoc || !newCriterionText.trim()) return;
@@ -285,6 +384,25 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
           </div>
         </div>
 
+        <div className="flex items-center gap-5 border-b border-slate-200 -mt-1">
+          <button
+            onClick={() => setDetailTab("overview")}
+            className={`h-9 px-1 border-b-2 transition-all text-xs font-bold uppercase tracking-wider ${detailTab === "overview" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+          >
+            Visão Geral
+          </button>
+          <button
+            onClick={() => setDetailTab("equipment")}
+            className={`h-9 px-1 border-b-2 transition-all text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${detailTab === "equipment" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+          >
+            Equipamento
+            {equipmentPendingReturn > 0 && pocIsOverdue && (
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+            )}
+          </button>
+        </div>
+
+        {detailTab === "overview" && (
         <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-5">
           <h2 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700 mb-4">Visão Geral</h2>
 
@@ -483,6 +601,135 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
             </div>
           )}
         </div>
+        )}
+
+        {detailTab === "equipment" && (
+        <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-5 space-y-4">
+          <h2 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">Equipamento</h2>
+
+          {equipmentPendingReturn > 0 && pocIsOverdue && (
+            <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-md px-3 py-2">
+              <TriangleAlert size={14} className="shrink-0" />
+              A POC já passou do prazo final e {equipmentPendingReturn} {equipmentPendingReturn === 1 ? "item ainda não tem" : "itens ainda não têm"} devolução registrada.
+            </div>
+          )}
+
+          {loadingEquipment ? (
+            <p className="text-xs text-slate-400">Carregando...</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="border-b border-slate-200 font-mono text-[10px] uppercase text-slate-500">
+                  <tr>
+                    <th className="py-2 pr-3">Equipamento</th>
+                    <th className="py-2 pr-3">Status</th>
+                    <th className="py-2 pr-3">NF de envio</th>
+                    <th className="py-2 pr-3">NF de devolução</th>
+                    {canManage && <th className="py-2 pr-3 text-right">Ações</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {equipment.map((item) => (
+                    <tr key={item.id}>
+                      <td className="py-2.5 pr-3">
+                        <div className="font-semibold text-slate-800">{item.name}</div>
+                        {item.serial_number && <div className="text-[11px] text-slate-400 font-mono">{item.serial_number}</div>}
+                      </td>
+                      <td className="py-2.5 pr-3">
+                        {canManage ? (
+                          <select
+                            className={`text-[11px] font-semibold rounded-full px-2 py-1 border-0 ${EQUIPMENT_STATUS_COLOR[item.status]}`}
+                            value={item.status}
+                            onChange={(e) => updateEquipmentStatus(item, e.target.value as PocEquipmentStatus)}
+                          >
+                            {(["shipped", "at_customer", "returned"] as PocEquipmentStatus[]).map((s) => (
+                              <option key={s} value={s}>{EQUIPMENT_STATUS_LABEL[s]}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className={`text-[11px] font-semibold rounded-full px-2 py-1 ${EQUIPMENT_STATUS_COLOR[item.status]}`}>
+                            {EQUIPMENT_STATUS_LABEL[item.status]}
+                          </span>
+                        )}
+                      </td>
+                      {(["shipping", "return"] as const).map((which) => {
+                        const filename = which === "shipping" ? item.shipping_invoice_original_filename : item.return_invoice_original_filename;
+                        const busy = uploadingInvoice === `${item.id}:${which}`;
+                        return (
+                          <td className="py-2.5 pr-3" key={which}>
+                            {filename ? (
+                              <button
+                                onClick={() => downloadInvoice(item, which)}
+                                className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 rounded-md px-2 py-1 hover:bg-emerald-100"
+                              >
+                                <Download size={11} />
+                                {filename.length > 18 ? filename.slice(0, 16) + "…" : filename}
+                              </button>
+                            ) : canManage ? (
+                              <label className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 border border-dashed border-slate-300 rounded-md px-2 py-1 cursor-pointer hover:bg-slate-50">
+                                <Paperclip size={11} />
+                                {busy ? "Enviando..." : "Anexar"}
+                                <input
+                                  type="file"
+                                  className="hidden"
+                                  disabled={busy}
+                                  onChange={(e) => {
+                                    const f = e.target.files?.[0];
+                                    if (f) uploadInvoice(item, which, f);
+                                    e.target.value = "";
+                                  }}
+                                />
+                              </label>
+                            ) : (
+                              <span className="text-[11px] text-slate-300">pendente</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                      {canManage && (
+                        <td className="py-2.5 pr-3 text-right">
+                          <button onClick={() => removeEquipmentItem(item)} className="text-slate-300 hover:text-red-500">
+                            <Trash2 size={14} />
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                  {equipment.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="py-4 text-center text-slate-400 italic">Nenhum equipamento registrado ainda.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {canManage && (
+            <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+              <input
+                className="flex-1 border border-slate-300 rounded-md px-3 py-1.5 text-sm"
+                placeholder="Nome do equipamento (ex: Firewall NGFW XG-3400)"
+                value={newEquipmentName}
+                onChange={(e) => setNewEquipmentName(e.target.value)}
+              />
+              <input
+                className="w-40 border border-slate-300 rounded-md px-3 py-1.5 text-sm"
+                placeholder="Serial (opcional)"
+                value={newEquipmentSerial}
+                onChange={(e) => setNewEquipmentSerial(e.target.value)}
+              />
+              <button
+                onClick={addEquipmentItem}
+                disabled={addingEquipment || !newEquipmentName.trim()}
+                className="text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-white rounded-md px-3 py-1.5 disabled:opacity-50 whitespace-nowrap"
+              >
+                Adicionar
+              </button>
+            </div>
+          )}
+        </div>
+        )}
       </div>
     );
   }

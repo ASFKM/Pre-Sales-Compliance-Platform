@@ -91,6 +91,20 @@ export interface PocSuccessCriterion {
   updated_at: string;
 }
 
+export type PocEquipmentStatus = "shipped" | "at_customer" | "returned";
+
+export interface PocEquipmentItem {
+  id: string;
+  poc_id: string;
+  name: string;
+  serial_number?: string;
+  status: PocEquipmentStatus;
+  shipping_invoice_original_filename?: string;
+  return_invoice_original_filename?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Document {
   id: string;
   project_id: string;
