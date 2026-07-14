@@ -48,9 +48,12 @@ router.post(
       // handler through multer's upload.single() (confirmed: even capturing it as the very first
       // line here was already undefined) - rebuilt directly from the tenant id requireAuth also
       // stashes on the request headers, which is a plain object property, not dependent on any
-      // async-context propagation.
+      // async-context propagation. canSeeAllProjects is set here deliberately: who's allowed to
+      // upload is already enforced by requirePermission("document:upload") above, so this context
+      // is only used below to confirm the project exists inside the caller's own tenant, not to
+      // re-apply the Phase 3 project-ownership visibility rule on top of that.
       const tenantId = req.headers["x-tenant-id"] as string;
-      const tenantContext = { tenantId };
+      const tenantContext = { tenantId, canSeeAllProjects: true };
 
       // 1. Perform Secure File Validations (MIME, Extension, Size)
       const validation = validateUploadedFile(file.originalname, file.mimetype, file.size);
@@ -64,6 +67,17 @@ router.post(
           projectId
         });
         return res.status(400).json({ success: false, message: validation.error });
+      }
+
+      // 1b. Confirm the project is real and belongs to this tenant BEFORE touching the
+      // filesystem - projectId comes straight from the URL and storageAdapter.uploadFile() below
+      // uses it to build a directory path, so an unvalidated value here is a path-traversal
+      // vector into another tenant's upload directory (or outside uploads/ entirely). Must be
+      // wrapped in runWithTenant explicitly since the AsyncLocalStorage context isn't reliable
+      // in this handler (see comment above).
+      const project = await runWithTenant(tenantContext, () => dbStore.getProject(projectId));
+      if (!project) {
+        return res.status(404).json({ success: false, message: "Project not found." });
       }
 
       // 2. Store via selected Storage Adapter
