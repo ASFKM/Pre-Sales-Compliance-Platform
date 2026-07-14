@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { Activity, CircleCheck, ChevronRight, FileText, ListTodo, Plus, Trash2 } from "lucide-react";
-import { Project } from "../types";
+import { Activity, CircleCheck, ChevronRight, FileText, ListTodo, Plus, Trash2, Beaker } from "lucide-react";
+import { Project, Poc } from "../types";
 
 interface HomeProps {
   locale: "en" | "pt";
@@ -9,6 +9,10 @@ interface HomeProps {
   setSelectedProjectId: (id: string) => void;
   setActiveTab: (tab: "home" | "workspace" | "projectsList" | "proposals" | "approval" | "knowledgeBase" | "admin") => void;
   setShowNewProjectModal: (show: boolean) => void;
+  // Fase N (add-on): Home has no other reason to know about the POC module - this single flag
+  // gates both the fetch below and the KPI card, mirroring how every other POC-gated UI element
+  // in the app is conditioned on hasModule("poc") + the read/manage permission.
+  pocModuleEnabled?: boolean;
 }
 
 interface UserTask {
@@ -19,11 +23,12 @@ interface UserTask {
 }
 
 export default function Home({
-  locale, tx, projects, setSelectedProjectId, setActiveTab, setShowNewProjectModal,
+  locale, tx, projects, setSelectedProjectId, setActiveTab, setShowNewProjectModal, pocModuleEnabled,
 }: HomeProps) {
   const [tasks, setTasks] = useState<UserTask[]>([]);
   const [newTaskText, setNewTaskText] = useState("");
   const [compliancePct, setCompliancePct] = useState<number | null>(null);
+  const [pocs, setPocs] = useState<Poc[]>([]);
 
   const fetchTasks = async () => {
     try {
@@ -43,7 +48,15 @@ export default function Home({
       .then((res) => res.json())
       .then((data) => setCompliancePct(data.has_data ? data.compliance_pct : null))
       .catch(() => setCompliancePct(null));
-  }, []);
+
+    if (pocModuleEnabled) {
+      fetch("/api/pocs")
+        .then((res) => (res.ok ? res.json() : []))
+        .then((data) => setPocs(Array.isArray(data) ? data : []))
+        .catch(() => setPocs([]));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pocModuleEnabled]);
 
   const handleAddTask = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -211,7 +224,7 @@ export default function Home({
               </div>
 
               {/* KPI Cards Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className={`grid grid-cols-1 md:grid-cols-3 ${pocModuleEnabled ? "lg:grid-cols-4" : ""} gap-4`}>
 
                 {/* Card 1: Total Bids */}
                 <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
@@ -259,6 +272,34 @@ export default function Home({
                     </span>
                   </div>
                 </div>
+
+                {/* Card 4: POCs (add-on, only when the module is enabled) */}
+                {pocModuleEnabled && (() => {
+                  const activeStatuses = new Set(["not_started", "planned", "in_progress", "blocked"]);
+                  const activePocs = pocs.filter((p) => activeStatuses.has(p.status)).length;
+                  const won = pocs.filter((p) => p.acceptance_decision === "won").length;
+                  const lost = pocs.filter((p) => p.acceptance_decision === "lost").length;
+                  return (
+                    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-lg bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600 shrink-0">
+                        <Beaker size={22} />
+                      </div>
+                      <div className="leading-tight">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 font-mono tracking-wider block">
+                          {locale === "pt" ? "POCs Ativas" : "Active POCs"}
+                        </span>
+                        <span className="text-2xl font-bold text-slate-800 font-mono block mt-0.5">
+                          {activePocs}
+                        </span>
+                        {(won > 0 || lost > 0) && (
+                          <span className="text-[10px] font-mono text-slate-400 block mt-0.5">
+                            {won} {locale === "pt" ? "ganha(s)" : "won"} · {lost} {locale === "pt" ? "perdida(s)" : "lost"}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
 
               </div>
 

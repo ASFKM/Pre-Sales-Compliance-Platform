@@ -1206,6 +1206,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               setSelectedProjectId={setSelectedProjectId}
               setActiveTab={setActiveTab}
               setShowNewProjectModal={setShowNewProjectModal}
+              pocModuleEnabled={hasModule("poc") && hasAnyPermission(["poc:read", "poc:manage"])}
             />
           )}
 
