@@ -325,7 +325,7 @@ function validateAISettingsUpdates(updates: any, customProviderKeys: string[] = 
   }
 
   if (updates.fleet_manager_url !== undefined && updates.fleet_manager_url !== "" && !/^https?:\/\//.test(String(updates.fleet_manager_url))) {
-    return { valid: false, message: "Fleet Manager URL must start with http:// or https://." };
+    return { valid: false, message: "CMSaaS URL must start with http:// or https://." };
   }
 
   return { valid: true, message: "" };

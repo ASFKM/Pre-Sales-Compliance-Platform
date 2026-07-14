@@ -18,6 +18,12 @@ const FLEET_MANAGER_PUBLIC_KEY = "MCowBQYDK2VwAyEAhHOq3vmwve6en5Zy8CcL5GQwceu5W1
 interface LicenseStatusPayload {
   installation_id: string;
   customer_name: string;
+  // Small, discreet company info shown in "Plano e Contrato" - additive fields, a CMSaaS build
+  // older than these simply won't send them, and everything below already handles that (all the
+  // display code treats them as optional).
+  customer_city?: string;
+  customer_state?: string;
+  customer_logo_base64?: string | null;
   status: "active" | "suspended";
   block_mode: "full_lockout" | "read_only" | null;
   modules: string[];
@@ -339,7 +345,7 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
                 knowledge: outcome.status === "pending" ? `${outcome.conflictNote}${kbItem.knowledge}` : kbItem.knowledge,
                 status: outcome.status,
                 source: "fleet_manager_global",
-                created_by: "Fleet Manager",
+                created_by: "CMSaaS",
                 fleet_global_entry_id: kbItem.entry_id,
               });
             }
@@ -376,6 +382,10 @@ export interface FleetLicenseStatus {
   contract_start_date: string | null;
   contract_end_date: string | null;
   last_verified_at: string | null;
+  customer_name: string | null;
+  customer_city: string | null;
+  customer_state: string | null;
+  customer_logo_base64: string | null;
 }
 
 // What the admin console actually shows in "Assinatura e Licença" - the real cached status from
@@ -392,6 +402,10 @@ export async function getFleetLicenseStatus(tenantId: string): Promise<FleetLice
     contract_start_date: null,
     contract_end_date: null,
     last_verified_at: null,
+    customer_name: null,
+    customer_city: null,
+    customer_state: null,
+    customer_logo_base64: null,
   };
   try {
     const raw = await redis.get(licenseCacheKey(tenantId));
@@ -407,6 +421,10 @@ export async function getFleetLicenseStatus(tenantId: string): Promise<FleetLice
       contract_start_date: cached.payload.contract_start_date,
       contract_end_date: cached.payload.contract_end_date,
       last_verified_at: cached.verifiedAt,
+      customer_name: cached.payload.customer_name || null,
+      customer_city: cached.payload.customer_city || null,
+      customer_state: cached.payload.customer_state || null,
+      customer_logo_base64: cached.payload.customer_logo_base64 || null,
     };
   } catch {
     return disconnected;

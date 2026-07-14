@@ -23,6 +23,10 @@ interface FleetLicenseStatus {
   contract_start_date: string | null;
   contract_end_date: string | null;
   last_verified_at: string | null;
+  customer_name: string | null;
+  customer_city: string | null;
+  customer_state: string | null;
+  customer_logo_base64: string | null;
 }
 
 // AI Orchestrator UI redesign (2026-07): each task needs a different real capability from the
@@ -1925,11 +1929,30 @@ export default function AdminConsole({
                     {!fleetLicenseStatus?.connected ? (
                       <p className="text-xs text-slate-400">
                         {locale === "pt"
-                          ? "Ainda não conectado ao Fleet Manager - configure a URL e a chave de API abaixo para que o plano, status e vigência do contrato apareçam aqui."
-                          : "Not connected to the Fleet Manager yet - configure the URL and API key below so the plan, status and contract term appear here."}
+                          ? "Ainda não conectado ao CMSaaS - configure a URL e a chave de API abaixo para que o plano, status e vigência do contrato apareçam aqui."
+                          : "Not connected to CMSaaS yet - configure the URL and API key below so the plan, status and contract term appear here."}
                       </p>
                     ) : (
                       <>
+                        {fleetLicenseStatus.customer_name && (
+                          <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100">
+                            <div className="w-8 h-8 rounded-md flex items-center justify-center shrink-0 overflow-hidden bg-slate-50 border border-slate-100">
+                              {fleetLicenseStatus.customer_logo_base64 ? (
+                                <img src={fleetLicenseStatus.customer_logo_base64} alt="" className="max-w-full max-h-full object-contain" />
+                              ) : (
+                                <span className="text-[9px] font-bold text-slate-400 uppercase">{fleetLicenseStatus.customer_name.slice(0, 2)}</span>
+                              )}
+                            </div>
+                            <div className="leading-tight">
+                              <span className="text-xs font-semibold text-slate-600 block">{fleetLicenseStatus.customer_name}</span>
+                              {(fleetLicenseStatus.customer_city || fleetLicenseStatus.customer_state) && (
+                                <span className="text-[10px] text-slate-400">
+                                  {[fleetLicenseStatus.customer_city, fleetLicenseStatus.customer_state].filter(Boolean).join(" / ")}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        )}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
                           <div className="p-3 bg-slate-50 border border-slate-100 rounded-lg">
                             <span className="text-[10px] text-slate-400 font-mono block uppercase">{locale === "pt" ? "Plano Contratado" : "Contracted Plan"}</span>
@@ -1972,8 +1995,8 @@ export default function AdminConsole({
                         </p>
                         <p className="text-[10px] text-slate-400">
                           {locale === "pt"
-                            ? "Plano, status e vigência são geridos pela AI Pre-Sales Solutions no Fleet Manager - não são editáveis por aqui."
-                            : "Plan, status and contract term are managed by AI Pre-Sales Solutions in the Fleet Manager - not editable from here."}
+                            ? "Plano, status e vigência são geridos pela AI Pre-Sales Solutions no CMSaaS - não são editáveis por aqui."
+                            : "Plan, status and contract term are managed by AI Pre-Sales Solutions in CMSaaS - not editable from here."}
                         </p>
                       </>
                     )}
@@ -1982,13 +2005,20 @@ export default function AdminConsole({
 
                 {activeAdminSection === "subscription" && canAccessAdminSection("subscription") && (
                   <div className="w-full bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4 mt-4">
-                    <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
-                      {locale === "pt" ? "Conexão com o Fleet Manager" : "Fleet Manager Connection"}
-                    </h3>
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-md flex items-center justify-center shrink-0 bg-slate-900">
+                        <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M17.5 19H9a5 5 0 1 1 .5-9.98A6 6 0 0 1 20 10a4.5 4.5 0 0 1-2.5 9Z" />
+                        </svg>
+                      </div>
+                      <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
+                        {locale === "pt" ? "Conexão com o CMSaaS" : "CMSaaS Connection"}
+                      </h3>
+                    </div>
                     <p className="text-xs text-slate-400">
                       {locale === "pt"
-                        ? "Conexão real com o servidor de gestão de licenças e módulos da AI Pre-Sales Solutions. Sem essa conexão (ou se o servidor estiver fora do ar), a plataforma continua funcionando normalmente."
-                        : "Real connection to the AI Pre-Sales Solutions license/module management server. Without it (or if that server is down), the platform keeps working normally."}
+                        ? "Conexão real com o servidor de gestão de licenças e módulos da AI Pre-Sales Solutions (CMSaaS). Sem essa conexão (ou se o servidor estiver fora do ar), a plataforma continua funcionando normalmente."
+                        : "Real connection to the AI Pre-Sales Solutions license/module management server (CMSaaS). Without it (or if that server is down), the platform keeps working normally."}
                     </p>
                     <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
                       <input
@@ -1997,13 +2027,13 @@ export default function AdminConsole({
                         onChange={(e) => handleSavePlatformSettings("fleet_manager_enabled", e.target.checked)}
                         className="rounded text-emerald-600"
                       />
-                      {locale === "pt" ? "Ativar relatório periódico ao Fleet Manager" : "Enable periodic reporting to Fleet Manager"}
+                      {locale === "pt" ? "Ativar relatório periódico ao CMSaaS" : "Enable periodic reporting to CMSaaS"}
                     </label>
                     <div>
-                      <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block mb-1">Fleet Manager URL</label>
+                      <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block mb-1">{locale === "pt" ? "URL do CMSaaS" : "CMSaaS URL"}</label>
                       <input
                         type="text"
-                        placeholder="https://fleet.aipresales.com"
+                        placeholder="https://cmsaas.aipresales.com"
                         defaultValue={platformSettings?.fleet_manager_url || ""}
                         onBlur={(e) => handleSavePlatformSettings("fleet_manager_url", e.target.value)}
                         className="w-full p-2 rounded bg-slate-50 border border-slate-200 text-xs font-mono"
