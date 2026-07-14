@@ -283,7 +283,7 @@ export default function PocGanttChart({ poc, canManage }: PocGanttChartProps) {
         {canManage && (
           <button
             onClick={() => setShowForm(true)}
-            className="inline-flex items-center gap-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-white rounded-md px-2.5 py-1.5"
+            className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer"
           >
             <Plus size={13} />
             Nova tarefa
@@ -292,31 +292,31 @@ export default function PocGanttChart({ poc, canManage }: PocGanttChartProps) {
       </div>
 
       {showForm && (
-        <div className="border border-slate-200 rounded-lg p-3 bg-slate-50 space-y-2">
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+        <div className="border border-slate-200 rounded-lg p-4 bg-slate-50 space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
             <input
-              className="border border-slate-300 rounded-md px-2 py-1.5 text-sm sm:col-span-2"
+              className="p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs sm:col-span-2"
               placeholder="Nome da tarefa"
               value={formName}
               onChange={(e) => setFormName(e.target.value)}
             />
             <input
               type="date"
-              className="border border-slate-300 rounded-md px-2 py-1.5 text-sm"
+              className="p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs"
               value={formStart}
               onChange={(e) => setFormStart(e.target.value)}
             />
             <input
               type="number"
               min={1}
-              className="border border-slate-300 rounded-md px-2 py-1.5 text-sm"
+              className="p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs"
               placeholder="Duração (dias)"
               value={formDuration}
               onChange={(e) => setFormDuration(Math.max(1, Number(e.target.value) || 1))}
             />
           </div>
           <select
-            className="border border-slate-300 rounded-md px-2 py-1.5 text-sm w-full sm:w-auto"
+            className="p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs w-full sm:w-auto"
             value={formDependsOn}
             onChange={(e) => setFormDependsOn(e.target.value)}
           >
@@ -325,17 +325,17 @@ export default function PocGanttChart({ poc, canManage }: PocGanttChartProps) {
               <option key={t.id} value={t.id}>Depende de: {t.name}</option>
             ))}
           </select>
-          {formError && <p className="text-xs text-red-600">{formError}</p>}
-          <div className="flex items-center gap-2">
+          {formError && <div className="p-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-xs">{formError}</div>}
+          <div className="flex items-center gap-2 pt-1">
+            <button onClick={() => setShowForm(false)} className="px-3 py-1.5 border border-slate-300 rounded hover:bg-slate-100 font-mono text-xs cursor-pointer text-slate-500">
+              Cancelar
+            </button>
             <button
               onClick={submitCreate}
               disabled={saving || !formName.trim()}
-              className="text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-md px-3 py-1.5 disabled:opacity-50"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
             >
               {saving ? "Criando..." : "Criar tarefa"}
-            </button>
-            <button onClick={() => setShowForm(false)} className="text-xs font-semibold text-slate-600 border border-slate-300 rounded-md px-3 py-1.5">
-              Cancelar
             </button>
           </div>
         </div>

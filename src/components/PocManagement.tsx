@@ -430,37 +430,37 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
           {!isEditing || !editValues ? (
             <div className="space-y-4 text-sm">
               <div>
-                <div className="text-[11px] font-semibold uppercase text-slate-400 mb-1">Objetivo</div>
+                <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono mb-1">Objetivo</div>
                 <p className="text-slate-700 leading-relaxed whitespace-pre-wrap">{selectedPoc.objective}</p>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <div>
-                  <div className="text-[11px] font-semibold uppercase text-slate-400 mb-1">Início</div>
+                  <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono mb-1">Início</div>
                   <div className="text-slate-800 font-medium">{selectedPoc.start_date}</div>
                 </div>
                 <div>
-                  <div className="text-[11px] font-semibold uppercase text-slate-400 mb-1">Prazo final</div>
+                  <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono mb-1">Prazo final</div>
                   <div className="text-slate-800 font-medium">{selectedPoc.end_date}</div>
                 </div>
                 <div>
-                  <div className="text-[11px] font-semibold uppercase text-slate-400 mb-1">Contato do cliente</div>
+                  <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono mb-1">Contato do cliente</div>
                   <div className="text-slate-800 font-medium">{selectedPoc.customer_contact_name}</div>
                 </div>
                 <div>
-                  <div className="text-[11px] font-semibold uppercase text-slate-400 mb-1">Cargo</div>
+                  <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono mb-1">Cargo</div>
                   <div className="text-slate-800 font-medium">{selectedPoc.customer_contact_role}</div>
                 </div>
               </div>
               {linkedProject && (
                 <div className="border border-dashed border-slate-300 rounded-lg p-3 bg-slate-50">
-                  <div className="text-[11px] font-semibold uppercase text-slate-400 mb-1">Projeto vinculado</div>
+                  <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono mb-1">Projeto vinculado</div>
                   <div className="text-slate-800 font-medium">{linkedProject.name}</div>
                   <div className="text-xs text-slate-500">{linkedProject.customer_name} · {linkedProject.vertical}</div>
                 </div>
               )}
 
               <div>
-                <div className="text-[11px] font-semibold uppercase text-slate-400 mb-2">Stakeholders</div>
+                <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono mb-2">Stakeholders</div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div className="flex items-center gap-2 border border-slate-200 rounded-md px-3 py-2 bg-emerald-50/40">
                     <span className="w-7 h-7 rounded-full bg-emerald-100 text-emerald-700 text-[11px] font-bold flex items-center justify-center shrink-0">
@@ -484,7 +484,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
               </div>
 
               <div>
-                <div className="text-[11px] font-semibold uppercase text-slate-400 mb-2">Critérios de sucesso</div>
+                <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono mb-2">Critérios de sucesso</div>
                 {loadingCriteria ? (
                   <p className="text-xs text-slate-400">Carregando...</p>
                 ) : (
@@ -517,7 +517,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                 {canManage && (
                   <div className="flex items-center gap-2 mt-2">
                     <input
-                      className="flex-1 border border-slate-300 rounded-md px-3 py-1.5 text-sm"
+                      className="flex-1 p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs"
                       placeholder="Novo critério de sucesso..."
                       value={newCriterionText}
                       onChange={(e) => setNewCriterionText(e.target.value)}
@@ -526,7 +526,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                     <button
                       onClick={addCriterion}
                       disabled={addingCriterion || !newCriterionText.trim()}
-                      className="text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-white rounded-md px-3 py-1.5 disabled:opacity-50"
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
                     >
                       Adicionar
                     </button>
@@ -537,17 +537,17 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
           ) : (
             <div className="space-y-4">
               <div>
-                <label className="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Nome</label>
+                <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Nome</label>
                 <input
-                  className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
+                  className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                   value={editValues.name}
                   onChange={(e) => setEditValues({ ...editValues, name: e.target.value })}
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Objetivo</label>
+                <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Objetivo</label>
                 <textarea
-                  className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
+                  className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                   rows={3}
                   value={editValues.objective}
                   onChange={(e) => setEditValues({ ...editValues, objective: e.target.value })}
@@ -555,9 +555,9 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div>
-                  <label className="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Status</label>
+                  <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Status</label>
                   <select
-                    className="w-full border border-slate-300 rounded-md px-2 py-2 text-sm"
+                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                     value={editValues.status}
                     onChange={(e) => setEditValues({ ...editValues, status: e.target.value as PocStatus })}
                   >
@@ -567,56 +567,56 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Início</label>
+                  <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Início</label>
                   <input
                     type="date"
-                    className="w-full border border-slate-300 rounded-md px-2 py-2 text-sm"
+                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                     value={editValues.start_date}
                     onChange={(e) => setEditValues({ ...editValues, start_date: e.target.value })}
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Prazo final</label>
+                  <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Prazo final</label>
                   <input
                     type="date"
-                    className="w-full border border-slate-300 rounded-md px-2 py-2 text-sm"
+                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                     value={editValues.end_date}
                     onChange={(e) => setEditValues({ ...editValues, end_date: e.target.value })}
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Contato do cliente</label>
+                  <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Contato do cliente</label>
                   <input
-                    className="w-full border border-slate-300 rounded-md px-2 py-2 text-sm"
+                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                     value={editValues.customer_contact_name}
                     onChange={(e) => setEditValues({ ...editValues, customer_contact_name: e.target.value })}
                   />
                 </div>
               </div>
               <div>
-                <label className="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Cargo do contato</label>
+                <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Cargo do contato</label>
                 <input
-                  className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
+                  className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                   value={editValues.customer_contact_role}
                   onChange={(e) => setEditValues({ ...editValues, customer_contact_role: e.target.value })}
                 />
               </div>
 
-              {saveError && <p className="text-xs text-red-600">{saveError}</p>}
+              {saveError && <div className="p-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-xs">{saveError}</div>}
 
-              <div className="flex items-center gap-2 pt-1">
+              <div className="flex items-center gap-2 pt-4 mt-2 border-t border-slate-200">
+                <button
+                  onClick={() => setIsEditing(false)}
+                  className="px-3 py-1.5 border border-slate-300 rounded hover:bg-slate-100 font-mono text-xs cursor-pointer text-slate-500"
+                >
+                  Cancelar
+                </button>
                 <button
                   onClick={saveEdit}
                   disabled={saving}
-                  className="text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-md px-3 py-2 disabled:opacity-50"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
                 >
                   {saving ? "Salvando..." : "Salvar alterações"}
-                </button>
-                <button
-                  onClick={() => setIsEditing(false)}
-                  className="text-xs font-semibold text-slate-600 border border-slate-300 rounded-md px-3 py-2 hover:bg-slate-50"
-                >
-                  Cancelar
                 </button>
               </div>
             </div>
@@ -729,13 +729,13 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
           {canManage && (
             <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
               <input
-                className="flex-1 border border-slate-300 rounded-md px-3 py-1.5 text-sm"
+                className="flex-1 p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs"
                 placeholder="Nome do equipamento (ex: Firewall NGFW XG-3400)"
                 value={newEquipmentName}
                 onChange={(e) => setNewEquipmentName(e.target.value)}
               />
               <input
-                className="w-40 border border-slate-300 rounded-md px-3 py-1.5 text-sm"
+                className="w-40 p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs"
                 placeholder="Serial (opcional)"
                 value={newEquipmentSerial}
                 onChange={(e) => setNewEquipmentSerial(e.target.value)}
@@ -743,7 +743,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
               <button
                 onClick={addEquipmentItem}
                 disabled={addingEquipment || !newEquipmentName.trim()}
-                className="text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-white rounded-md px-3 py-1.5 disabled:opacity-50 whitespace-nowrap"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60 whitespace-nowrap"
               >
                 Adicionar
               </button>
@@ -787,7 +787,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
         {canManage && (
           <button
             onClick={() => { setShowCreateModal(true); setCreateError(""); }}
-            className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-md px-3 py-2"
+            className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer"
           >
             <Plus size={14} />
             Nova POC
@@ -840,25 +840,25 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
       )}
 
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between p-4 border-b border-slate-200">
-              <h3 className="font-bold text-slate-900">Nova POC</h3>
-              <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-slate-700">
-                <X size={18} />
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl border border-slate-200 w-[600px] overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="bg-slate-950 text-white p-4 flex justify-between items-center shrink-0">
+              <h3 className="text-sm font-bold uppercase font-mono tracking-wider">Nova POC</h3>
+              <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-white cursor-pointer">
+                <X size={16} />
               </button>
             </div>
-            <div className="p-4 space-y-4">
+            <div className="p-6 space-y-4 text-xs text-slate-700 overflow-y-auto flex-1">
               <div className="flex gap-2">
                 <button
                   onClick={() => setCreateForm({ ...createForm, mode: "project" })}
-                  className={`flex-1 text-xs font-semibold rounded-md px-3 py-2 border ${createForm.mode === "project" ? "bg-emerald-600 text-white border-emerald-600" : "border-slate-300 text-slate-600"}`}
+                  className={`flex-1 font-mono text-xs font-bold py-1.5 px-3 rounded border transition-all ${createForm.mode === "project" ? "bg-emerald-600 border-emerald-600 text-white" : "border-slate-300 text-slate-500 hover:bg-slate-50"}`}
                 >
                   Vincular a projeto
                 </button>
                 <button
                   onClick={() => setCreateForm({ ...createForm, mode: "standalone" })}
-                  className={`flex-1 text-xs font-semibold rounded-md px-3 py-2 border ${createForm.mode === "standalone" ? "bg-emerald-600 text-white border-emerald-600" : "border-slate-300 text-slate-600"}`}
+                  className={`flex-1 font-mono text-xs font-bold py-1.5 px-3 rounded border transition-all ${createForm.mode === "standalone" ? "bg-emerald-600 border-emerald-600 text-white" : "border-slate-300 text-slate-500 hover:bg-slate-50"}`}
                 >
                   POC avulsa
                 </button>
@@ -866,9 +866,9 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
 
               {createForm.mode === "project" ? (
                 <div>
-                  <label className="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Projeto</label>
+                  <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Projeto</label>
                   <select
-                    className="w-full border border-slate-300 rounded-md px-2 py-2 text-sm"
+                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                     value={createForm.project_id}
                     onChange={(e) => setCreateForm({ ...createForm, project_id: e.target.value })}
                   >
@@ -879,35 +879,35 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                   </select>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="col-span-2">
-                    <label className="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Nome do cliente</label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="md:col-span-2">
+                    <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Nome do cliente</label>
                     <input
-                      className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                       value={createForm.standalone_customer_name}
                       onChange={(e) => setCreateForm({ ...createForm, standalone_customer_name: e.target.value })}
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Nome do contato</label>
+                    <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Nome do contato</label>
                     <input
-                      className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                       value={createForm.standalone_contact_name}
                       onChange={(e) => setCreateForm({ ...createForm, standalone_contact_name: e.target.value })}
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-semibold uppercase text-slate-400 mb-1">E-mail</label>
+                    <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">E-mail</label>
                     <input
-                      className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                       value={createForm.standalone_contact_email}
                       onChange={(e) => setCreateForm({ ...createForm, standalone_contact_email: e.target.value })}
                     />
                   </div>
-                  <div className="col-span-2">
-                    <label className="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Telefone</label>
+                  <div className="md:col-span-2">
+                    <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Telefone</label>
                     <input
-                      className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                       value={createForm.standalone_contact_phone}
                       onChange={(e) => setCreateForm({ ...createForm, standalone_contact_phone: e.target.value })}
                     />
@@ -916,77 +916,77 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
               )}
 
               <div>
-                <label className="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Nome da POC</label>
+                <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Nome da POC</label>
                 <input
-                  className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
+                  className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                   value={createForm.name}
                   onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Objetivo</label>
+                <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Objetivo</label>
                 <textarea
-                  className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
-                  rows={3}
+                  className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none h-20"
                   value={createForm.objective}
                   onChange={(e) => setCreateForm({ ...createForm, objective: e.target.value })}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Início</label>
+                  <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Início</label>
                   <input
                     type="date"
-                    className="w-full border border-slate-300 rounded-md px-2 py-2 text-sm"
+                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                     value={createForm.start_date}
                     onChange={(e) => setCreateForm({ ...createForm, start_date: e.target.value })}
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Prazo final</label>
+                  <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Prazo final</label>
                   <input
                     type="date"
-                    className="w-full border border-slate-300 rounded-md px-2 py-2 text-sm"
+                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                     value={createForm.end_date}
                     onChange={(e) => setCreateForm({ ...createForm, end_date: e.target.value })}
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Contato do cliente</label>
+                  <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Contato do cliente</label>
                   <input
-                    className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
+                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                     value={createForm.customer_contact_name}
                     onChange={(e) => setCreateForm({ ...createForm, customer_contact_name: e.target.value })}
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Cargo</label>
+                  <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Cargo</label>
                   <input
-                    className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
+                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                     value={createForm.customer_contact_role}
                     onChange={(e) => setCreateForm({ ...createForm, customer_contact_role: e.target.value })}
                   />
                 </div>
               </div>
 
-              {createError && <p className="text-xs text-red-600">{createError}</p>}
-            </div>
-            <div className="flex items-center justify-end gap-2 p-4 border-t border-slate-200">
-              <button
-                onClick={() => setShowCreateModal(false)}
-                className="text-xs font-semibold text-slate-600 border border-slate-300 rounded-md px-3 py-2 hover:bg-slate-50"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={submitCreate}
-                disabled={creating}
-                className="text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-md px-3 py-2 disabled:opacity-50"
-              >
-                {creating ? "Criando..." : "Criar POC"}
-              </button>
+              {createError && <div className="p-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-xs">{createError}</div>}
+
+              <div className="flex justify-end gap-2 pt-4 mt-4 border-t border-slate-200">
+                <button
+                  onClick={() => setShowCreateModal(false)}
+                  className="px-3 py-1.5 border border-slate-300 rounded hover:bg-slate-100 font-mono text-xs cursor-pointer text-slate-500"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={submitCreate}
+                  disabled={creating}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
+                >
+                  {creating ? "Criando..." : "Criar POC"}
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -142,7 +142,7 @@ export default function PocTestCases({ pocId, canManage }: PocTestCasesProps) {
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowForm(true)}
-              className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 border border-slate-300 rounded-md px-2.5 py-1.5 hover:bg-white"
+              className="inline-flex items-center gap-1 px-3 py-1.5 border border-slate-300 rounded hover:bg-slate-100 font-mono text-xs cursor-pointer text-slate-500"
             >
               <Plus size={13} />
               Adicionar manual
@@ -150,7 +150,7 @@ export default function PocTestCases({ pocId, canManage }: PocTestCasesProps) {
             <button
               onClick={generate}
               disabled={generating}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-white rounded-md px-3 py-1.5 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
             >
               <Sparkles size={13} />
               {generating ? "Gerando..." : "Regenerar com IA"}
@@ -158,47 +158,47 @@ export default function PocTestCases({ pocId, canManage }: PocTestCasesProps) {
           </div>
         )}
       </div>
-      {generateError && <p className="text-xs text-red-600">{generateError}</p>}
+      {generateError && <div className="p-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-xs">{generateError}</div>}
 
       {showForm && (
-        <div className="border border-slate-200 rounded-lg p-3 bg-slate-50 space-y-2">
+        <div className="border border-slate-200 rounded-lg p-4 bg-slate-50 space-y-3">
           <input
-            className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-sm"
+            className="w-full p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
             placeholder="Título do caso de teste"
             value={form.title}
             onChange={(e) => setForm({ ...form, title: e.target.value })}
           />
           <textarea
-            className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-sm"
+            className="w-full p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
             placeholder="Objetivo do teste"
             rows={2}
             value={form.objective}
             onChange={(e) => setForm({ ...form, objective: e.target.value })}
           />
           <textarea
-            className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-sm"
+            className="w-full p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
             placeholder="Passos (um por linha)"
             rows={3}
             value={form.steps}
             onChange={(e) => setForm({ ...form, steps: e.target.value })}
           />
           <textarea
-            className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-sm"
+            className="w-full p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
             placeholder="Resultado esperado"
             rows={2}
             value={form.expected_result}
             onChange={(e) => setForm({ ...form, expected_result: e.target.value })}
           />
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 pt-1">
+            <button onClick={() => setShowForm(false)} className="px-3 py-1.5 border border-slate-300 rounded hover:bg-slate-100 font-mono text-xs cursor-pointer text-slate-500">
+              Cancelar
+            </button>
             <button
               onClick={submitManual}
               disabled={saving}
-              className="text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-md px-3 py-1.5 disabled:opacity-50"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
             >
               Salvar
-            </button>
-            <button onClick={() => setShowForm(false)} className="text-xs font-semibold text-slate-600 border border-slate-300 rounded-md px-3 py-1.5">
-              Cancelar
             </button>
           </div>
         </div>
@@ -213,40 +213,40 @@ export default function PocTestCases({ pocId, canManage }: PocTestCasesProps) {
               {editingId === tc.id ? (
                 <div className="space-y-2">
                   <input
-                    className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-sm font-semibold"
+                    className="w-full p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none font-semibold"
                     value={editBuffer.title}
                     onChange={(e) => setEditBuffer({ ...editBuffer, title: e.target.value })}
                   />
                   <textarea
-                    className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-xs"
+                    className="w-full p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                     rows={2}
                     value={editBuffer.objective}
                     onChange={(e) => setEditBuffer({ ...editBuffer, objective: e.target.value })}
                   />
                   <textarea
-                    className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-xs"
+                    className="w-full p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                     rows={3}
                     value={editBuffer.steps}
                     onChange={(e) => setEditBuffer({ ...editBuffer, steps: e.target.value })}
                   />
                   <textarea
-                    className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-xs"
+                    className="w-full p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
                     rows={2}
                     value={editBuffer.expected_result}
                     onChange={(e) => setEditBuffer({ ...editBuffer, expected_result: e.target.value })}
                   />
                   <div className="flex items-center gap-2">
+                    <button onClick={() => setEditingId(null)} className="inline-flex items-center gap-1 px-3 py-1.5 border border-slate-300 rounded hover:bg-slate-100 font-mono text-xs cursor-pointer text-slate-500">
+                      <X size={12} />
+                      Cancelar
+                    </button>
                     <button
                       onClick={() => saveEdit(tc)}
                       disabled={saving}
-                      className="inline-flex items-center gap-1 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-md px-3 py-1.5 disabled:opacity-50"
+                      className="inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
                     >
                       <Check size={12} />
                       Salvar
-                    </button>
-                    <button onClick={() => setEditingId(null)} className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 border border-slate-300 rounded-md px-3 py-1.5">
-                      <X size={12} />
-                      Cancelar
                     </button>
                   </div>
                 </div>

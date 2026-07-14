@@ -94,7 +94,7 @@ export default function PocAcceptancePanel({ pocId, canManage }: PocAcceptancePa
   return (
     <div className="max-w-xl space-y-5">
       <div>
-        <div className="text-[11px] font-semibold uppercase text-slate-400 mb-2">Decisão final</div>
+        <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono mb-2">Decisão final</div>
         <div className="flex gap-2">
           <button
             onClick={() => canManage && setDecision("won")}
@@ -116,7 +116,7 @@ export default function PocAcceptancePanel({ pocId, canManage }: PocAcceptancePa
       </div>
 
       <div>
-        <div className="text-[11px] font-semibold uppercase text-slate-400 mb-2">Documento de aceite assinado</div>
+        <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono mb-2">Documento de aceite assinado</div>
         {acceptance.signed_document_original_filename ? (
           <button
             onClick={downloadDocument}
@@ -131,7 +131,7 @@ export default function PocAcceptancePanel({ pocId, canManage }: PocAcceptancePa
           </p>
         )}
         {canManage && (
-          <label className="mt-2 flex items-center justify-center gap-2 text-xs font-semibold text-slate-600 border border-slate-300 rounded-md py-2 cursor-pointer hover:bg-slate-50">
+          <label className="mt-2 flex items-center justify-center gap-2 px-3 py-1.5 border border-slate-300 rounded hover:bg-slate-100 font-mono text-xs cursor-pointer text-slate-500">
             <Upload size={13} />
             {uploading ? "Enviando..." : acceptance.signed_document_original_filename ? "Substituir documento" : "Anexar documento assinado"}
             <input
@@ -150,9 +150,9 @@ export default function PocAcceptancePanel({ pocId, canManage }: PocAcceptancePa
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Assinado por</label>
+          <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Assinado por</label>
           <input
-            className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm disabled:bg-slate-50 disabled:text-slate-400"
+            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400"
             value={signedBy}
             disabled={!canManage}
             onChange={(e) => setSignedBy(e.target.value)}
@@ -160,10 +160,10 @@ export default function PocAcceptancePanel({ pocId, canManage }: PocAcceptancePa
           />
         </div>
         <div>
-          <label className="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Data do aceite</label>
+          <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Data do aceite</label>
           <input
             type="date"
-            className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm disabled:bg-slate-50 disabled:text-slate-400"
+            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400"
             value={signedAt}
             disabled={!canManage}
             onChange={(e) => setSignedAt(e.target.value)}
@@ -171,9 +171,9 @@ export default function PocAcceptancePanel({ pocId, canManage }: PocAcceptancePa
         </div>
       </div>
       <div>
-        <label className="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Observações</label>
+        <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Observações</label>
         <textarea
-          className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm disabled:bg-slate-50 disabled:text-slate-400"
+          className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400"
           rows={3}
           value={notes}
           disabled={!canManage}
@@ -184,7 +184,7 @@ export default function PocAcceptancePanel({ pocId, canManage }: PocAcceptancePa
         <button
           onClick={saveDetails}
           disabled={saving}
-          className="text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-md px-4 py-2 disabled:opacity-50"
+          className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
         >
           {saving ? "Salvando..." : "Salvar"}
         </button>
