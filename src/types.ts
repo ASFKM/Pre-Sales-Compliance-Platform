@@ -449,6 +449,14 @@ export interface IaKbBillingSnapshot {
   last_synced_at: string;
 }
 
+// Per-task provider/model synced from the Fleet Manager once ia_kb is enabled - see
+// server/utils/fleetLicense.ts and src/aiOrchestrator.ts's resolveProvider().
+export interface IaKbTaskConfig {
+  task_type: string;
+  provider: string;
+  model: string;
+}
+
 export interface PlatformSettings {
   id: string;
   ai_provider: string;

@@ -25,7 +25,7 @@ export const TENANT_SCOPED_MODELS = new Set([
   "aIAnalysisJob", "aiProviderConfig", "aiUsageLog", "analysisResult", "approvalDecision",
   "approvalWorkflow", "approvalStage", "auditLog", "backgroundTask", "brandingSettings",
   "conversationMessage", "debugLog", "document", "documentContent", "iaKbBillingSnapshot",
-  "integrationConnector",
+  "iaKbTaskConfig", "integrationConnector",
   "knowledgeBaseDocument", "knowledgeBaseEntry", "platformSettings", "poc", "pocAcceptance",
   "pocEquipmentItem", "pocFinalReportQuestion", "pocSuccessCriterion", "pocTask", "pocTestCase",
   "project", "promptTemplate", "proposal", "proposalTemplate", "role", "systemMessage", "task",

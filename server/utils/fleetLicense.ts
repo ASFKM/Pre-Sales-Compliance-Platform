@@ -236,6 +236,22 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
       // knowledgeBaseReconciliation.ts and heartbeat.ts for what happens to these on each end).
       const kbEntriesToSync = hadIaKbBefore ? await dbStore.getKnowledgeBaseEntriesToSync(50) : [];
 
+      // ia_kb add-on: this tenant's own current task->provider->model choices, sent on every
+      // heartbeat regardless of add-on status - the Fleet Manager only actually mirrors these
+      // while ia_kb is disabled for this installation (see heartbeat.ts), so sending them
+      // unconditionally is harmless and simpler than tracking the transition on this end too.
+      // Same 7 task types as src/aiOrchestrator.ts's AiTaskType and AdminConsole.tsx's own
+      // orchestrator map.
+      const AI_TASK_TYPES = [
+        "document_analysis", "web_grounding", "spec_copilot", "document_classification",
+        "poc_test_generation", "poc_schedule_generation", "poc_final_report_generation",
+      ] as const;
+      const aiTaskConfig = AI_TASK_TYPES.map((taskType) => ({
+        task_type: taskType,
+        provider: (settings as any)[`${taskType}_provider`] || "gemini",
+        model: (settings as any)[`${taskType}_model`] || settings.default_model,
+      }));
+
       const body = JSON.stringify({
         logs,
         vulnerabilities: vulnerabilities || undefined,
@@ -249,6 +265,7 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
           source_project_name: e.source_project_name,
           source_document_name: e.source_document_name,
         })),
+        ai_task_config: aiTaskConfig,
       });
       // Fase 1.6 of the Zero Trust rollout: HMAC over the exact bytes being sent, keyed with the
       // same per-installation API key the Bearer header already carries - see the Fleet
@@ -330,6 +347,13 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
           cycle_call_count: data.ia_kb_billing.cycle_call_count,
           next_due_date: data.ia_kb_billing.next_due_date,
         }).catch((err) => logger.warn({ err, tenantId }, "Failed to persist ia_kb billing snapshot"));
+      }
+
+      // The CMSaaS admin's own per-task provider/model choices - only present once ia_kb is
+      // enabled (see heartbeat.ts). resolveProvider() (src/aiOrchestrator.ts) reads this to
+      // override this tenant's own platform_settings for the built-in provider/model choice.
+      if (hasIaKbNow && Array.isArray(data.ia_kb_task_config)) {
+        await dbStore.replaceIaKbTaskConfig(data.ia_kb_task_config).catch((err) => logger.warn({ err, tenantId }, "Failed to persist ia_kb task config"));
       }
 
       for (const command of data.commands || []) {

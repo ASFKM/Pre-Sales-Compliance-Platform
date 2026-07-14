@@ -296,6 +296,22 @@ export default function AdminConsole({
       .then(setIaKbBilling)
       .catch(() => setIaKbBilling(null));
   }, [iaKbModuleEnabled]);
+
+  // ia_kb add-on: once active, provider/model per task is chosen by the CMSaaS admin (synced on
+  // every heartbeat, see server/utils/fleetLicense.ts) - platformSettings' own per-task fields
+  // stop being what's actually used, so the read-only display below must read from here instead,
+  // not from the (now potentially stale) platformSettings[field]/[modelField].
+  const [iaKbTaskConfig, setIaKbTaskConfig] = useState<Record<string, { provider: string; model: string }>>({});
+  useEffect(() => {
+    if (!iaKbModuleEnabled) return;
+    ApiClient.get<{ task_type: string; provider: string; model: string }[]>("/api/settings/iakb-task-config")
+      .then((rows) => {
+        const map: Record<string, { provider: string; model: string }> = {};
+        for (const r of rows) map[r.task_type] = { provider: r.provider, model: r.model };
+        setIaKbTaskConfig(map);
+      })
+      .catch(() => setIaKbTaskConfig({}));
+  }, [iaKbModuleEnabled]);
   const [aiKeyDrafts, setAiKeyDrafts] = useState<Record<string, string>>({ gemini: "", openai: "", anthropic: "" });
   const [showAddProviderForm, setShowAddProviderForm] = useState(false);
   const [newProviderKey, setNewProviderKey] = useState("");
@@ -1296,14 +1312,20 @@ export default function AdminConsole({
                               <div key={field}>
                                 <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{label}</label>
                                 {iaKbModuleEnabled ? (
-                                  // Read-only with the add-on active - the provider/model choice still
-                                  // decides which built-in provider the Fleet Manager's proxy uses, but
-                                  // it's no longer something to edit here (see the info panel above this
-                                  // section) - shown as plain text for conference only.
+                                  // Read-only with the add-on active - reads the CMSaaS admin's
+                                  // synced choice (iaKbTaskConfig), NOT platformSettings' own
+                                  // field, which stops being what's actually used the moment this
+                                  // add-on takes over (see resolveProvider in src/aiOrchestrator.ts).
                                   <div className="p-2 rounded bg-slate-50 border border-slate-200 text-xs">
-                                    <span className="font-semibold text-slate-700">{PROVIDER_DISPLAY_NAME[currentProvider] || currentProvider}</span>
-                                    <span className="text-slate-400"> · </span>
-                                    <span className="font-mono text-slate-600">{currentModel || "-"}</span>
+                                    {iaKbTaskConfig[taskKey] ? (
+                                      <>
+                                        <span className="font-semibold text-slate-700">{PROVIDER_DISPLAY_NAME[iaKbTaskConfig[taskKey].provider] || iaKbTaskConfig[taskKey].provider}</span>
+                                        <span className="text-slate-400"> · </span>
+                                        <span className="font-mono text-slate-600">{iaKbTaskConfig[taskKey].model}</span>
+                                      </>
+                                    ) : (
+                                      <span className="text-slate-400 italic">{locale === "pt" ? "Ainda não configurado pelo suporte" : "Not yet configured by support"}</span>
+                                    )}
                                   </div>
                                 ) : (
                                 <div className="flex gap-2">

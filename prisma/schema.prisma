@@ -251,6 +251,7 @@ model Tenant {
   pocAcceptances          PocAcceptance[]
   pocFinalReportQuestions PocFinalReportQuestion[]
   iaKbBillingSnapshot     IaKbBillingSnapshot?
+  iaKbTaskConfigs         IaKbTaskConfig[]
 
   @@map("tenants")
 }
@@ -818,6 +819,26 @@ model IaKbBillingSnapshot {
   lastSyncedAt       DateTime  @map("last_synced_at")
 
   @@map("iakb_billing_snapshots")
+}
+
+// Per-task provider/model choice synced from the Fleet Manager once the ia_kb add-on is enabled -
+// resolveProvider() (src/aiOrchestrator.ts) overrides platform_settings' own per-task fields with
+// these when present, since the CMSaaS admin - not the tenant - now controls that choice. Refreshed
+// on every heartbeat (server/utils/fleetLicense.ts) via a full replace (delete-then-recreate for
+// this tenant), not a per-row upsert - the Fleet Manager always sends its complete current set, so
+// a row that existed before but is no longer sent (e.g. a task the admin never configured) should
+// disappear here too, not linger as a stale override.
+model IaKbTaskConfig {
+  id        String   @id
+  tenantId  String   @map("tenant_id")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  taskType  String   @map("task_type")
+  provider  String
+  model     String
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, taskType])
+  @@map("iakb_task_configs")
 }
 
 model PlatformSettings {

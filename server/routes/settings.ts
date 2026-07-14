@@ -166,6 +166,19 @@ router.get("/settings/iakb-billing", requirePermission("ai:settings"), async (re
   }
 });
 
+// ia_kb add-on: the CMSaaS admin's own per-task provider/model choices, synced down on every
+// heartbeat once the add-on is enabled - the Admin Console reads this (instead of its own
+// platform_settings fields, which stop being editable once the add-on is active) to show what's
+// actually in effect.
+router.get("/settings/iakb-task-config", requirePermission("ai:settings"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const configs = await dbStore.getAllIaKbTaskConfig();
+    res.json(configs);
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get("/settings/fleet-license-status", requirePermission("admin:settings"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const tenantId = getCurrentTenantId();

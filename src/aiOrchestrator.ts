@@ -1,6 +1,7 @@
 import { prisma } from "./prisma";
 import { dbStore } from "./dbStore";
 import { randomId } from "./idGenerator";
+import { isIaKbActive } from "../server/utils/aiProviders";
 
 // critical_extraction and proposal_generation were removed (2026-07 AI Orchestrator redesign) -
 // both had provider/model settings in the UI but resolveProvider() was never actually called for
@@ -45,6 +46,14 @@ interface TaskProviderSettings {
 // always get from dbStore.getSettings()), not a hardcoded list, so this reflects real state
 // instead of a fixed-at-code-time assumption.
 async function isProviderConnected(provider: string, settings: TaskProviderSettings): Promise<boolean> {
+  // ia_kb add-on: the tenant's own keys were cleared on activation (server/utils/fleetLicense.ts)
+  // and every call for the 3 built-ins now routes through the Fleet Manager's proxy instead
+  // (server/utils/aiProviders.ts) - they're "connected" via the add-on, not a locally-held key,
+  // so this must not fall through to the settings.*_api_key_encrypted checks below, which are
+  // empty on purpose and would otherwise force every task to the Gemini fallback.
+  if ((provider === "gemini" || provider === "openai" || provider === "anthropic") && (await isIaKbActive())) {
+    return true;
+  }
   if (provider === "gemini") return true;
   if (provider === "openai") return Boolean(process.env.OPENAI_API_KEY || settings.openai_api_key_encrypted);
   if (provider === "anthropic") return Boolean(process.env.ANTHROPIC_API_KEY || settings.anthropic_api_key_encrypted);
@@ -57,8 +66,20 @@ async function isProviderConnected(provider: string, settings: TaskProviderSetti
 // to Gemini (logged as such) when the intended provider isn't actually connected. Always
 // returns a usable provider - callers never need their own "what if it's not connected" branch.
 export async function resolveProvider(taskType: AiTaskType, settings: TaskProviderSettings): Promise<ProviderResolution> {
-  const intendedProvider = (settings as any)[`${taskType}_provider`] as string;
-  const intendedModel = (settings as any)[`${taskType}_model`] as string;
+  let intendedProvider = (settings as any)[`${taskType}_provider`] as string;
+  let intendedModel = (settings as any)[`${taskType}_model`] as string;
+
+  // ia_kb add-on: once active, the CMSaaS admin - not the tenant - chooses provider/model per
+  // task (synced down on every heartbeat, see server/utils/fleetLicense.ts). Overrides the
+  // tenant's own (now read-only, possibly stale) platform_settings fields above.
+  if (await isIaKbActive()) {
+    const taskConfig = await dbStore.getAllIaKbTaskConfig();
+    const override = taskConfig.find((c) => c.task_type === taskType);
+    if (override) {
+      intendedProvider = override.provider;
+      intendedModel = override.model;
+    }
+  }
 
   if (await isProviderConnected(intendedProvider, settings)) {
     return { provider: intendedProvider, model: intendedModel, intendedProvider, isFallback: false };

@@ -33,6 +33,7 @@ import {
   KnowledgeBaseEntry,
   KnowledgeBaseDocument,
   IaKbBillingSnapshot,
+  IaKbTaskConfig,
 } from "./types";
 
 // The Prisma extension (src/prisma.ts) auto-injects tenant_id from context at runtime for
@@ -1958,6 +1959,27 @@ class DBStore {
       });
     }
     return mapIaKbBillingSnapshot(s);
+  }
+
+  // ia_kb task config - the Fleet Manager's per-task provider/model choice, synced on every
+  // heartbeat once the add-on is enabled. Full replace (delete-then-recreate), not per-row
+  // upsert: the Fleet Manager always sends its complete current set, so a task the CMSaaS admin
+  // no longer configures should stop overriding here too, not linger as a stale row.
+  public async getAllIaKbTaskConfig(): Promise<IaKbTaskConfig[]> {
+    const rows = await prisma.iaKbTaskConfig.findMany();
+    return rows.map((r) => ({ task_type: r.taskType, provider: r.provider, model: r.model }));
+  }
+
+  public async replaceIaKbTaskConfig(configs: IaKbTaskConfig[]): Promise<void> {
+    const tenantId = requireTenantId();
+    await prisma.$transaction([
+      prisma.iaKbTaskConfig.deleteMany({}),
+      ...configs.map((c) =>
+        prisma.iaKbTaskConfig.create({
+          data: { id: randomId("iakbtc"), tenantId, taskType: c.task_type, provider: c.provider, model: c.model },
+        })
+      ),
+    ]);
   }
 
   // Branding settings (singleton row)

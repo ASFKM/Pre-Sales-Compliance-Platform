@@ -24,7 +24,7 @@ export type ConnectedProvider = string;
 // database on every single proxied call regardless of what this tenant's local cache claims - a
 // tampered/stale local cache can at worst cause a proxy call to be correctly rejected by the
 // Fleet Manager, never an unauthorized one to succeed.
-async function isIaKbActive(): Promise<boolean> {
+export async function isIaKbActive(): Promise<boolean> {
   const tenantId = getCurrentTenantId();
   if (!tenantId) return false;
   try {
