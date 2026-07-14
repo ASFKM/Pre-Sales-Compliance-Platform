@@ -2007,9 +2007,7 @@ export default function AdminConsole({
                   <div className="w-full bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4 mt-4">
                     <div className="flex items-center gap-2">
                       <div className="w-6 h-6 rounded-md flex items-center justify-center shrink-0 bg-slate-900">
-                        <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M17.5 19H9a5 5 0 1 1 .5-9.98A6 6 0 0 1 20 10a4.5 4.5 0 0 1-2.5 9Z" />
-                        </svg>
+                        <img src="/cmsaas-icon.png" alt="CMSaaS" className="w-4 h-4 object-contain" />
                       </div>
                       <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
                         {locale === "pt" ? "Conexão com o CMSaaS" : "CMSaaS Connection"}
