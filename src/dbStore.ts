@@ -10,6 +10,7 @@ import {
   PocSuccessCriterion,
   PocEquipmentItem,
   PocTask,
+  PocTestCase,
   Document,
   AIAnalysisJob,
   AnalysisResult,
@@ -153,6 +154,23 @@ function mapPocTask(t: any): PocTask {
     created_at: t.createdAt.toISOString(),
     updated_at: t.updatedAt.toISOString(),
   } as PocTask;
+}
+
+function mapPocTestCase(c: any): PocTestCase {
+  return {
+    id: c.id,
+    poc_id: c.pocId,
+    code: c.code,
+    title: c.title,
+    objective: c.objective,
+    steps: c.steps,
+    expected_result: c.expectedResult,
+    status: c.status,
+    generated_by_ai: c.generatedByAi,
+    edited_manually: c.editedManually,
+    created_at: c.createdAt.toISOString(),
+    updated_at: c.updatedAt.toISOString(),
+  } as PocTestCase;
 }
 
 function mapDocument(d: any): Document {
@@ -332,6 +350,8 @@ function mapSettings(s: any): PlatformSettings {
     spec_copilot_provider: s.specCopilotProvider,
     document_classification_model: s.documentClassificationModel,
     document_classification_provider: s.documentClassificationProvider,
+    poc_test_generation_model: s.pocTestGenerationModel,
+    poc_test_generation_provider: s.pocTestGenerationProvider,
     monthly_cost_cap_usd: s.monthlyCostCapUsd ?? null,
     fleet_manager_url: s.fleetManagerUrl ?? null,
     fleet_manager_api_key_encrypted: s.fleetManagerApiKeyEncrypted ?? undefined,
@@ -1045,6 +1065,74 @@ class DBStore {
     }
   }
 
+  // Poc test cases (Fase 6, Fase E) - "IA rascunha, humano valida", same pattern already used in
+  // the Proposal Studio: regenerable and editable, not a one-shot frozen record.
+  public async getPocTestCases(pocId: string): Promise<PocTestCase[]> {
+    const rows = await prisma.pocTestCase.findMany({
+      where: { pocId },
+      orderBy: { code: "asc" },
+    });
+    return rows.map(mapPocTestCase);
+  }
+
+  public async createPocTestCase(
+    pocId: string,
+    testCase: { code: string; title: string; objective: string; steps: string; expected_result: string; generated_by_ai?: boolean }
+  ): Promise<PocTestCase> {
+    const c = await prisma.pocTestCase.create({
+      data: {
+        id: randomId("tc"),
+        tenantId: requireTenantId(),
+        pocId,
+        code: testCase.code,
+        title: testCase.title,
+        objective: testCase.objective,
+        steps: testCase.steps,
+        expectedResult: testCase.expected_result,
+        generatedByAi: testCase.generated_by_ai ?? false,
+      },
+    });
+    return mapPocTestCase(c);
+  }
+
+  public async updatePocTestCase(
+    id: string,
+    updates: { title?: string; objective?: string; steps?: string; expected_result?: string; status?: PocTestCase["status"]; edited_manually?: boolean }
+  ): Promise<PocTestCase | undefined> {
+    const exists = await prisma.pocTestCase.findUnique({ where: { id } });
+    if (!exists) return undefined;
+
+    const c = await prisma.pocTestCase.update({
+      where: { id },
+      data: {
+        title: updates.title,
+        objective: updates.objective,
+        steps: updates.steps,
+        expectedResult: updates.expected_result,
+        status: updates.status,
+        editedManually: updates.edited_manually,
+      },
+    });
+    return mapPocTestCase(c);
+  }
+
+  public async deletePocTestCase(id: string): Promise<boolean> {
+    try {
+      await prisma.pocTestCase.delete({ where: { id } });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // Regenerating with AI only replaces drafts nobody has touched yet (generated_by_ai=true AND
+  // edited_manually=false) - anything a human wrote from scratch or edited survives regeneration.
+  public async deleteUneditedAiPocTestCases(pocId: string): Promise<void> {
+    await prisma.pocTestCase.deleteMany({
+      where: { pocId, generatedByAi: true, editedManually: false },
+    });
+  }
+
   // Documents
   public async getDocuments(projectId?: string): Promise<Document[]> {
     const docs = await prisma.document.findMany({
@@ -1482,6 +1570,8 @@ class DBStore {
         specCopilotProvider: updates.spec_copilot_provider,
         documentClassificationModel: updates.document_classification_model,
         documentClassificationProvider: updates.document_classification_provider,
+        pocTestGenerationModel: updates.poc_test_generation_model,
+        pocTestGenerationProvider: updates.poc_test_generation_provider,
         monthlyCostCapUsd: updates.monthly_cost_cap_usd,
         fleetManagerUrl: updates.fleet_manager_url,
         fleetManagerApiKeyEncrypted: updates.fleet_manager_api_key_encrypted,

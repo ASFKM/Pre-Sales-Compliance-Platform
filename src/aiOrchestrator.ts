@@ -9,7 +9,7 @@ import { randomId } from "./idGenerator";
 // document_analysis call, not separate steps. document_classification was hardcoded to Gemini in
 // server/utils/documentClassification.ts before this - now routed through here like the other
 // real task types.
-export type AiTaskType = "document_analysis" | "web_grounding" | "spec_copilot" | "document_classification";
+export type AiTaskType = "document_analysis" | "web_grounding" | "spec_copilot" | "document_classification" | "poc_test_generation";
 
 export interface ProviderResolution {
   provider: string;
@@ -28,6 +28,8 @@ interface TaskProviderSettings {
   spec_copilot_provider: string;
   document_classification_model: string;
   document_classification_provider: string;
+  poc_test_generation_model: string;
+  poc_test_generation_provider: string;
   openai_api_key_encrypted?: string;
   anthropic_api_key_encrypted?: string;
 }
@@ -92,6 +94,7 @@ export const AI_SPENDING_TASK_TYPES = [
   "kb_suggest",
   "document_classification",
   "kb_reconciliation",
+  "poc_test_generation",
 ] as const;
 export type AiSpendingTaskType = (typeof AI_SPENDING_TASK_TYPES)[number];
 

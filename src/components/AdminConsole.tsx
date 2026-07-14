@@ -38,6 +38,7 @@ const TASK_CAPABILITY: Record<string, TaskCapability> = {
   spec_copilot: "vision",
   web_grounding: "web_search",
   document_classification: "text",
+  poc_test_generation: "text",
 };
 
 // Curated, not exhaustive - especially for OpenAI, whose model lineup changes fast across several
@@ -114,6 +115,7 @@ const AI_TASK_TYPE_LABEL: Record<string, { pt: string; en: string }> = {
   bom_web_search: { pt: "Busca Web de Equipamentos (BOM)", en: "Equipment Web Search (BOM)" },
   kb_suggest: { pt: "Sugestão da Base de Conhecimento", en: "Knowledge Base Suggestion" },
   document_classification: { pt: "Classificação de Documentos", en: "Document Classification" },
+  poc_test_generation: { pt: "Geração de Cadernos de Teste (POC)", en: "Test Script Generation (POC)" },
 };
 
 // Column order for the per-provider cost breakdown table - the 3 providers this platform has
@@ -1190,6 +1192,7 @@ export default function AdminConsole({
                             { field: "web_grounding_provider", modelField: "web_grounding_model", taskKey: "web_grounding", label: locale === "pt" ? "Pesquisa com Grounding Web" : "Web-Grounded Research" },
                             { field: "spec_copilot_provider", modelField: "spec_copilot_model", taskKey: "spec_copilot", label: locale === "pt" ? "Copiloto de Especificações (Chat)" : "Spec Copilot (Chat)" },
                             { field: "document_classification_provider", modelField: "document_classification_model", taskKey: "document_classification", label: locale === "pt" ? "Classificação de Documentos" : "Document Classification" },
+                            { field: "poc_test_generation_provider", modelField: "poc_test_generation_model", taskKey: "poc_test_generation", label: locale === "pt" ? "Geração de Cadernos de Teste (POC)" : "Test Script Generation (POC)" },
                           ].map(({ field, modelField, taskKey, label }) => {
                             const capability = TASK_CAPABILITY[taskKey];
                             const currentProvider = (platformSettings as any)?.[field] || "gemini";

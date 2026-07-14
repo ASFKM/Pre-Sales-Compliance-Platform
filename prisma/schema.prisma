@@ -70,6 +70,13 @@ enum PocTaskStatus {
   done
 }
 
+enum PocTestCaseStatus {
+  pending
+  in_progress
+  approved
+  failed
+}
+
 enum StorageProvider {
   local
   s3
@@ -227,6 +234,7 @@ model Tenant {
   pocSuccessCriteria     PocSuccessCriterion[]
   pocEquipmentItems      PocEquipmentItem[]
   pocTasks               PocTask[]
+  pocTestCases           PocTestCase[]
 
   @@map("tenants")
 }
@@ -353,6 +361,7 @@ model Poc {
   successCriteria PocSuccessCriterion[]
   equipmentItems  PocEquipmentItem[]
   tasks           PocTask[]
+  testCases       PocTestCase[]
 
   @@index([tenantId])
   @@map("pocs")
@@ -432,6 +441,31 @@ model PocTask {
   @@index([tenantId])
   @@index([pocId])
   @@map("poc_tasks")
+}
+
+// Fase 6 (add-on), Fase E: test cases generated from the POC's objective/success criteria via the
+// AI orchestrator (poc_test_generation task type), same "IA rascunha, humano valida" pattern
+// already used in the Proposal Studio - regenerable and editable, not a one-shot frozen record.
+model PocTestCase {
+  id              String            @id
+  tenantId        String            @map("tenant_id")
+  tenant          Tenant            @relation(fields: [tenantId], references: [id])
+  pocId           String            @map("poc_id")
+  poc             Poc               @relation(fields: [pocId], references: [id], onDelete: Cascade)
+  code            String
+  title           String
+  objective       String            @db.Text
+  steps           String            @db.Text
+  expectedResult  String            @map("expected_result") @db.Text
+  status          PocTestCaseStatus @default(pending)
+  generatedByAi   Boolean           @default(false) @map("generated_by_ai")
+  editedManually  Boolean           @default(false) @map("edited_manually")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@index([pocId])
+  @@map("poc_test_cases")
 }
 
 model Document {
@@ -662,6 +696,10 @@ model PlatformSettings {
   // routed through resolveProvider() like the other real task types.
   documentClassificationModel   String          @default("gemini-3.5-flash") @map("document_classification_model")
   documentClassificationProvider String        @default("gemini") @map("document_classification_provider")
+  // Fase 6 (add-on), Fase E: test scripts generated from a POC's objective/success criteria -
+  // pure text-in/text-out, same orchestrator pattern as the 4 task types above.
+  pocTestGenerationModel        String          @default("gemini-3.5-flash") @map("poc_test_generation_model")
+  pocTestGenerationProvider     String          @default("gemini") @map("poc_test_generation_provider")
   // Per-tenant monthly AI spend cap - null means uncapped. Enforced (hard block once reached,
   // not just tracked), with an 80%-of-cap warning logged before that point.
   monthlyCostCapUsd             Float?          @map("monthly_cost_cap_usd")

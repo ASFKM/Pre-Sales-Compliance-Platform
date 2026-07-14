@@ -11,6 +11,9 @@ import { requirePermission, requireModule } from "./auth";
 import { requireUserId } from "../middleware/security";
 import { createStorageAdapter, validateUploadedFile } from "../utils/storage";
 import { runWithTenant } from "../../src/tenantContext";
+import { resolveProvider, checkCostCap, recordProviderFallback, recordAiUsage } from "../../src/aiOrchestrator";
+import { generateJsonWithProvider } from "../utils/aiProviders";
+import { estimateCostUsd } from "../utils/aiPricing";
 
 const router = express.Router();
 
@@ -512,6 +515,201 @@ router.delete("/:id/tasks/:taskId", requirePermission("poc:manage"), requireModu
 
     await dbStore.deletePocTask(req.params.taskId);
     res.json({ success: true, message: "Task deleted successfully" });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Cadernos de Teste (Fase E) - test cases generated from the POC's objective/success criteria via
+// the AI orchestrator, "IA rascunha, humano valida" (same pattern as Proposal Studio): regenerable
+// and editable, editing a field marks edited_manually=true so a future regenerate never clobbers it.
+function nextTestCaseCodes(existingCodes: string[], count: number): string[] {
+  let max = 0;
+  for (const code of existingCodes) {
+    const match = /^TC-(\d+)$/.exec(code);
+    if (match) max = Math.max(max, parseInt(match[1], 10));
+  }
+  return Array.from({ length: count }, (_, i) => `TC-${String(max + i + 1).padStart(2, "0")}`);
+}
+
+router.get("/:id/test-cases", requirePermission("poc:read"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const poc = await dbStore.getPoc(req.params.id);
+    if (!poc) {
+      return res.status(404).json({ success: false, message: "POC not found" });
+    }
+    const cases = await dbStore.getPocTestCases(req.params.id);
+    res.json(cases);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/:id/test-cases", requirePermission("poc:manage"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const validated = z
+      .object({
+        title: z.string().min(2, "Title is required"),
+        objective: z.string().min(2, "Objective is required"),
+        steps: z.string().min(2, "Steps are required"),
+        expected_result: z.string().min(2, "Expected result is required"),
+      })
+      .parse(req.body);
+
+    const poc = await dbStore.getPoc(req.params.id);
+    if (!poc) {
+      return res.status(404).json({ success: false, message: "POC not found" });
+    }
+
+    const existing = await dbStore.getPocTestCases(req.params.id);
+    const [code] = nextTestCaseCodes(existing.map((c) => c.code), 1);
+
+    const testCase = await dbStore.createPocTestCase(req.params.id, { ...validated, code, generated_by_ai: false });
+    res.status(201).json(testCase);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ success: false, message: err.issues[0].message });
+    }
+    next(err);
+  }
+});
+
+router.put("/:id/test-cases/:caseId", requirePermission("poc:manage"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const validated = z
+      .object({
+        title: z.string().min(2).optional(),
+        objective: z.string().min(2).optional(),
+        steps: z.string().min(2).optional(),
+        expected_result: z.string().min(2).optional(),
+        status: z.enum(["pending", "in_progress", "approved", "failed"]).optional(),
+      })
+      .parse(req.body);
+
+    const existing = await dbStore.getPocTestCases(req.params.id);
+    if (!existing.some((c) => c.id === req.params.caseId)) {
+      return res.status(404).json({ success: false, message: "Test case not found for this POC." });
+    }
+
+    // Editing content (not just a status/test-run update) means a human has taken ownership of
+    // this case - it should never be silently overwritten by a future "Regenerar com IA".
+    const contentChanged = validated.title !== undefined || validated.objective !== undefined || validated.steps !== undefined || validated.expected_result !== undefined;
+
+    const updated = await dbStore.updatePocTestCase(req.params.caseId, {
+      ...validated,
+      edited_manually: contentChanged ? true : undefined,
+    });
+    res.json(updated);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ success: false, message: err.issues[0].message });
+    }
+    next(err);
+  }
+});
+
+router.delete("/:id/test-cases/:caseId", requirePermission("poc:manage"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const existing = await dbStore.getPocTestCases(req.params.id);
+    if (!existing.some((c) => c.id === req.params.caseId)) {
+      return res.status(404).json({ success: false, message: "Test case not found for this POC." });
+    }
+
+    await dbStore.deletePocTestCase(req.params.caseId);
+    res.json({ success: true, message: "Test case deleted successfully" });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/:id/test-cases/generate", requirePermission("poc:manage"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.headers["x-tenant-id"] as string;
+
+    const poc = await dbStore.getPoc(req.params.id);
+    if (!poc) {
+      return res.status(404).json({ success: false, message: "POC not found" });
+    }
+
+    const settings = await dbStore.getSettings();
+
+    const costCap = await checkCostCap(tenantId, settings.monthly_cost_cap_usd ?? null);
+    if (costCap.blocked) {
+      return res.status(402).json({
+        success: false,
+        message: `Monthly AI cost cap reached ($${costCap.currentSpendUsd.toFixed(2)} of $${costCap.capUsd?.toFixed(2)}). Generation blocked until next month or the cap is raised in Admin > IA, Prompts e Custos.`
+      });
+    }
+
+    const successCriteria = await dbStore.getPocSuccessCriteria(req.params.id);
+    const criteriaList = successCriteria.length
+      ? successCriteria.map((c) => `- ${c.description}`).join("\n")
+      : "(nenhum critério de sucesso definido ainda)";
+
+    const prompt = `Você é um engenheiro de pré-vendas técnico. Gere de 3 a 6 casos de teste para validar a prova de conceito (POC) abaixo, cobrindo o objetivo e os critérios de sucesso.
+
+OBJETIVO DA POC:
+${poc.objective}
+
+CRITÉRIOS DE SUCESSO:
+${criteriaList}
+
+Responda em português do Brasil. Responda APENAS com um objeto JSON (não um array na raiz - alguns
+provedores exigem um objeto no nível superior), sem markdown, sem texto extra, no formato:
+{
+  "test_cases": [
+    { "title": "título curto do caso de teste", "objective": "o que este teste valida", "steps": "passo a passo, uma linha por passo", "expected_result": "resultado esperado, mensurável quando possível" }
+  ]
+}`;
+
+    const resolution = await resolveProvider("poc_test_generation", settings as any);
+    if (resolution.isFallback) {
+      await recordProviderFallback({ tenantId, taskType: "poc_test_generation", intendedProvider: resolution.intendedProvider, userId: requireUserId(req) });
+    }
+
+    const { text, inputTokens, outputTokens } = await generateJsonWithProvider(resolution.provider, resolution.model, prompt);
+
+    await recordAiUsage({
+      tenantId,
+      taskType: "poc_test_generation",
+      provider: resolution.provider,
+      model: resolution.model,
+      estimatedCostUsd: estimateCostUsd(resolution.model, inputTokens, outputTokens),
+    });
+
+    let parsed: any[];
+    try {
+      const parsedObj = JSON.parse(text.trim());
+      parsed = Array.isArray(parsedObj) ? parsedObj : parsedObj?.test_cases;
+      if (!Array.isArray(parsed)) throw new Error("not an array");
+    } catch {
+      return res.status(502).json({ success: false, message: "A IA retornou uma resposta em formato inesperado. Tente novamente." });
+    }
+
+    // Regenerating only replaces drafts nobody has touched yet - anything a human wrote from
+    // scratch or edited survives.
+    await dbStore.deleteUneditedAiPocTestCases(req.params.id);
+
+    const remaining = await dbStore.getPocTestCases(req.params.id);
+    const codes = nextTestCaseCodes(remaining.map((c) => c.code), parsed.length);
+
+    const created = [];
+    for (let i = 0; i < parsed.length; i++) {
+      const item = parsed[i];
+      if (!item?.title || !item?.objective || !item?.steps || !item?.expected_result) continue;
+      created.push(
+        await dbStore.createPocTestCase(req.params.id, {
+          code: codes[i],
+          title: String(item.title),
+          objective: String(item.objective),
+          steps: String(item.steps),
+          expected_result: String(item.expected_result),
+          generated_by_ai: true,
+        })
+      );
+    }
+
+    res.json(await dbStore.getPocTestCases(req.params.id));
   } catch (err) {
     next(err);
   }

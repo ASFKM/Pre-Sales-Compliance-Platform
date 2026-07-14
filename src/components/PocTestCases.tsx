@@ -1,0 +1,303 @@
+import { useEffect, useState } from "react";
+import { Sparkles, Plus, Trash2, Pen, X, Check } from "lucide-react";
+import { PocTestCase, PocTestCaseStatus } from "../types";
+import ApiClient from "../lib/api";
+
+const STATUS_LABEL: Record<PocTestCaseStatus, string> = {
+  pending: "Pendente",
+  in_progress: "Em execução",
+  approved: "Aprovado",
+  failed: "Reprovado",
+};
+
+const STATUS_COLOR: Record<PocTestCaseStatus, string> = {
+  pending: "bg-slate-100 text-slate-600",
+  in_progress: "bg-blue-50 text-blue-700",
+  approved: "bg-emerald-50 text-emerald-700",
+  failed: "bg-red-50 text-red-700",
+};
+
+interface ManualFormState {
+  title: string;
+  objective: string;
+  steps: string;
+  expected_result: string;
+}
+
+const EMPTY_FORM: ManualFormState = { title: "", objective: "", steps: "", expected_result: "" };
+
+interface PocTestCasesProps {
+  pocId: string;
+  canManage: boolean;
+}
+
+export default function PocTestCases({ pocId, canManage }: PocTestCasesProps) {
+  const [cases, setCases] = useState<PocTestCase[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState("");
+
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState<ManualFormState>(EMPTY_FORM);
+  const [saving, setSaving] = useState(false);
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editBuffer, setEditBuffer] = useState<ManualFormState>(EMPTY_FORM);
+
+  const fetchCases = async () => {
+    setLoading(true);
+    try {
+      const data = await ApiClient.get<PocTestCase[]>(`/api/pocs/${pocId}/test-cases`);
+      setCases(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setCases([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchCases();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pocId]);
+
+  const generate = async () => {
+    setGenerating(true);
+    setGenerateError("");
+    try {
+      const data = await ApiClient.post<PocTestCase[]>(`/api/pocs/${pocId}/test-cases/generate`, {});
+      setCases(Array.isArray(data) ? data : []);
+    } catch (e: any) {
+      setGenerateError(e.message || "Não foi possível gerar os casos de teste.");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const submitManual = async () => {
+    if (!form.title.trim() || !form.objective.trim() || !form.steps.trim() || !form.expected_result.trim()) return;
+    setSaving(true);
+    try {
+      await ApiClient.post(`/api/pocs/${pocId}/test-cases`, form);
+      setForm(EMPTY_FORM);
+      setShowForm(false);
+      await fetchCases();
+    } catch (e: any) {
+      alert(e.message || "Não foi possível criar o caso de teste.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const startEdit = (tc: PocTestCase) => {
+    setEditingId(tc.id);
+    setEditBuffer({ title: tc.title, objective: tc.objective, steps: tc.steps, expected_result: tc.expected_result });
+  };
+
+  const saveEdit = async (tc: PocTestCase) => {
+    setSaving(true);
+    try {
+      await ApiClient.put(`/api/pocs/${pocId}/test-cases/${tc.id}`, editBuffer);
+      setEditingId(null);
+      await fetchCases();
+    } catch (e: any) {
+      alert(e.message || "Não foi possível salvar as alterações.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateStatus = async (tc: PocTestCase, status: PocTestCaseStatus) => {
+    try {
+      await ApiClient.put(`/api/pocs/${pocId}/test-cases/${tc.id}`, { status });
+      await fetchCases();
+    } catch (e: any) {
+      alert(e.message || "Não foi possível atualizar o status.");
+    }
+  };
+
+  const removeCase = async (tc: PocTestCase) => {
+    try {
+      await ApiClient.delete(`/api/pocs/${pocId}/test-cases/${tc.id}`);
+      await fetchCases();
+    } catch (e: any) {
+      alert(e.message || "Não foi possível remover o caso de teste.");
+    }
+  };
+
+  if (loading) {
+    return <p className="text-xs text-slate-400">Carregando...</p>;
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3 bg-emerald-50/60 border border-emerald-100 rounded-lg px-3 py-2.5 flex-wrap">
+        <div className="flex items-center gap-2 text-xs text-slate-600">
+          <span className="text-[10px] font-bold text-emerald-700 bg-white border border-emerald-200 rounded-full px-2 py-0.5">
+            Gerado por IA
+          </span>
+          Casos de teste derivados do objetivo e dos critérios de sucesso desta POC.
+        </div>
+        {canManage && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowForm(true)}
+              className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 border border-slate-300 rounded-md px-2.5 py-1.5 hover:bg-white"
+            >
+              <Plus size={13} />
+              Adicionar manual
+            </button>
+            <button
+              onClick={generate}
+              disabled={generating}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-white rounded-md px-3 py-1.5 disabled:opacity-50"
+            >
+              <Sparkles size={13} />
+              {generating ? "Gerando..." : "Regenerar com IA"}
+            </button>
+          </div>
+        )}
+      </div>
+      {generateError && <p className="text-xs text-red-600">{generateError}</p>}
+
+      {showForm && (
+        <div className="border border-slate-200 rounded-lg p-3 bg-slate-50 space-y-2">
+          <input
+            className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-sm"
+            placeholder="Título do caso de teste"
+            value={form.title}
+            onChange={(e) => setForm({ ...form, title: e.target.value })}
+          />
+          <textarea
+            className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-sm"
+            placeholder="Objetivo do teste"
+            rows={2}
+            value={form.objective}
+            onChange={(e) => setForm({ ...form, objective: e.target.value })}
+          />
+          <textarea
+            className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-sm"
+            placeholder="Passos (um por linha)"
+            rows={3}
+            value={form.steps}
+            onChange={(e) => setForm({ ...form, steps: e.target.value })}
+          />
+          <textarea
+            className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-sm"
+            placeholder="Resultado esperado"
+            rows={2}
+            value={form.expected_result}
+            onChange={(e) => setForm({ ...form, expected_result: e.target.value })}
+          />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={submitManual}
+              disabled={saving}
+              className="text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-md px-3 py-1.5 disabled:opacity-50"
+            >
+              Salvar
+            </button>
+            <button onClick={() => setShowForm(false)} className="text-xs font-semibold text-slate-600 border border-slate-300 rounded-md px-3 py-1.5">
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {cases.length === 0 ? (
+        <p className="text-xs text-slate-400 italic py-4">Nenhum caso de teste ainda. Gere com IA ou adicione manualmente.</p>
+      ) : (
+        <div className="space-y-2">
+          {cases.map((tc) => (
+            <div key={tc.id} className="border border-slate-200 rounded-lg p-3.5 bg-white">
+              {editingId === tc.id ? (
+                <div className="space-y-2">
+                  <input
+                    className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-sm font-semibold"
+                    value={editBuffer.title}
+                    onChange={(e) => setEditBuffer({ ...editBuffer, title: e.target.value })}
+                  />
+                  <textarea
+                    className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-xs"
+                    rows={2}
+                    value={editBuffer.objective}
+                    onChange={(e) => setEditBuffer({ ...editBuffer, objective: e.target.value })}
+                  />
+                  <textarea
+                    className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-xs"
+                    rows={3}
+                    value={editBuffer.steps}
+                    onChange={(e) => setEditBuffer({ ...editBuffer, steps: e.target.value })}
+                  />
+                  <textarea
+                    className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-xs"
+                    rows={2}
+                    value={editBuffer.expected_result}
+                    onChange={(e) => setEditBuffer({ ...editBuffer, expected_result: e.target.value })}
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => saveEdit(tc)}
+                      disabled={saving}
+                      className="inline-flex items-center gap-1 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-md px-3 py-1.5 disabled:opacity-50"
+                    >
+                      <Check size={12} />
+                      Salvar
+                    </button>
+                    <button onClick={() => setEditingId(null)} className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 border border-slate-300 rounded-md px-3 py-1.5">
+                      <X size={12} />
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between gap-2 flex-wrap mb-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-mono text-slate-400">{tc.code}</span>
+                      <span className="text-sm font-semibold text-slate-900">{tc.title}</span>
+                      {tc.edited_manually && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-700 bg-blue-50 rounded px-1.5 py-0.5">
+                          <Pen size={9} />
+                          editado
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {canManage ? (
+                        <select
+                          className={`text-[11px] font-semibold rounded-full px-2 py-1 border-0 ${STATUS_COLOR[tc.status]}`}
+                          value={tc.status}
+                          onChange={(e) => updateStatus(tc, e.target.value as PocTestCaseStatus)}
+                        >
+                          {(["pending", "in_progress", "approved", "failed"] as PocTestCaseStatus[]).map((s) => (
+                            <option key={s} value={s}>{STATUS_LABEL[s]}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className={`text-[11px] font-semibold rounded-full px-2 py-1 ${STATUS_COLOR[tc.status]}`}>{STATUS_LABEL[tc.status]}</span>
+                      )}
+                      {canManage && (
+                        <>
+                          <button onClick={() => startEdit(tc)} className="text-slate-400 hover:text-slate-700">
+                            <Pen size={13} />
+                          </button>
+                          <button onClick={() => removeCase(tc)} className="text-slate-300 hover:text-red-500">
+                            <Trash2 size={13} />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-500 whitespace-pre-wrap">{tc.objective}</p>
+                  <div className="text-xs text-slate-600 mt-1.5 whitespace-pre-wrap">{tc.steps}</div>
+                  <div className="text-xs text-slate-500 mt-1.5"><span className="font-semibold text-slate-600">Resultado esperado:</span> {tc.expected_result}</div>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

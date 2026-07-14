@@ -119,6 +119,23 @@ export interface PocTask {
   updated_at: string;
 }
 
+export type PocTestCaseStatus = "pending" | "in_progress" | "approved" | "failed";
+
+export interface PocTestCase {
+  id: string;
+  poc_id: string;
+  code: string;
+  title: string;
+  objective: string;
+  steps: string;
+  expected_result: string;
+  status: PocTestCaseStatus;
+  generated_by_ai: boolean;
+  edited_manually: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Document {
   id: string;
   project_id: string;
@@ -385,6 +402,8 @@ export interface PlatformSettings {
   spec_copilot_provider: string;
   document_classification_model: string;
   document_classification_provider: string;
+  poc_test_generation_model: string;
+  poc_test_generation_provider: string;
   monthly_cost_cap_usd?: number | null;
   // Phase 7 (fleet/license management): this tenant's registration with the vendor's fleet
   // manager (a separate server). See src/fleetLicense.ts.

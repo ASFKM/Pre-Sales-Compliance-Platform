@@ -278,7 +278,8 @@ function validateAISettingsUpdates(updates: any, customProviderKeys: string[] = 
     "critical_extraction_model",
     "web_grounding_model",
     "spec_copilot_model",
-    "document_classification_model"
+    "document_classification_model",
+    "poc_test_generation_model"
   ];
   const providerFields = [
     "document_analysis_provider",
@@ -286,7 +287,8 @@ function validateAISettingsUpdates(updates: any, customProviderKeys: string[] = 
     "web_grounding_provider",
     "proposal_generation_provider",
     "spec_copilot_provider",
-    "document_classification_provider"
+    "document_classification_provider",
+    "poc_test_generation_provider"
   ];
   const allowedLanguages = ["Portuguese", "English", "Spanish"];
   const allowedLogLevels = ["DEBUG", "INFO", "WARN", "ERROR"];
@@ -366,6 +368,8 @@ router.put("/settings/ai", requirePermission("ai:settings"), async (req: Request
       "spec_copilot_provider",
       "document_classification_model",
       "document_classification_provider",
+      "poc_test_generation_model",
+      "poc_test_generation_provider",
       "monthly_cost_cap_usd",
       "default_language",
       "default_log_level"
