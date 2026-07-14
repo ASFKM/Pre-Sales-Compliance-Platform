@@ -18,6 +18,7 @@ import { prisma } from "../../src/prisma";
 import { FACTORY_DEFAULT_POC_TEST_GENERATION_PROMPT, FACTORY_DEFAULT_POC_SCHEDULE_GENERATION_PROMPT } from "../utils/promptDefaults";
 import { extractKnowledgeBaseKeywords } from "./analysis";
 import { triggerKnowledgeBaseAnalysis } from "./knowledgeBase";
+import { getSiteRastreioApiKey, queryTrackingStatus } from "../utils/siteRastreio";
 
 const router = express.Router();
 
@@ -410,6 +411,8 @@ router.put("/:id/equipment/:itemId", requirePermission("poc:manage"), requireMod
         name: z.string().min(2).optional(),
         serial_number: z.string().optional(),
         status: z.enum(["shipped", "at_customer", "returned"]).optional(),
+        // Fase I: clearing the field (empty string) drops back to manual status - handled below.
+        tracking_code: z.string().optional(),
       })
       .parse(req.body);
 
@@ -418,7 +421,16 @@ router.put("/:id/equipment/:itemId", requirePermission("poc:manage"), requireMod
       return res.status(404).json({ success: false, message: "Equipment item not found for this POC." });
     }
 
-    const updated = await dbStore.updatePocEquipmentItem(req.params.itemId, validated);
+    // Changing (or clearing) the tracking code invalidates any cached carrier status from the
+    // previous code - stale text from a different shipment must never linger in the UI.
+    const updates: any = { ...validated };
+    if (validated.tracking_code !== undefined) {
+      updates.tracking_code = validated.tracking_code.trim() || null;
+      updates.tracking_carrier_status = null;
+      updates.tracking_last_checked_at = null;
+    }
+
+    const updated = await dbStore.updatePocEquipmentItem(req.params.itemId, updates);
     res.json(updated);
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -624,6 +636,54 @@ router.post(
     }
   }
 );
+
+const TRACKING_REFRESH_MIN_INTERVAL_MS = 10 * 60 * 1000;
+
+// Fase I: real carrier tracking status (Site Rastreio), only when a tracking code is set - no
+// tracking code configured falls back to today's behavior (NF as the reference), never breaking
+// tenants who don't use the integration. Rate-limited per item (not just relying on the frontend
+// not spamming the button) since the free tier is a hard monthly quota shared across the tenant.
+router.post("/:id/equipment/:itemId/refresh-tracking", requirePermission("poc:manage"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const items = await dbStore.getPocEquipmentItems(req.params.id);
+    const item = items.find((i) => i.id === req.params.itemId);
+    if (!item) {
+      return res.status(404).json({ success: false, message: "Equipment item not found for this POC." });
+    }
+    if (!item.tracking_code) {
+      return res.status(400).json({ success: false, message: "Este item não tem código de rastreio configurado." });
+    }
+
+    if (item.tracking_last_checked_at) {
+      const elapsed = Date.now() - new Date(item.tracking_last_checked_at).getTime();
+      if (elapsed < TRACKING_REFRESH_MIN_INTERVAL_MS) {
+        const waitMin = Math.ceil((TRACKING_REFRESH_MIN_INTERVAL_MS - elapsed) / 60000);
+        return res.status(429).json({ success: false, message: `Aguarde cerca de ${waitMin} minuto(s) antes de consultar novamente o rastreio deste item.` });
+      }
+    }
+
+    const apiKey = await getSiteRastreioApiKey();
+    if (!apiKey) {
+      return res.status(400).json({ success: false, message: "Nenhuma chave de API do Site Rastreio configurada em Configurações > Integrações e API." });
+    }
+
+    let result;
+    try {
+      result = await queryTrackingStatus(apiKey, item.tracking_code);
+    } catch (trackingErr: any) {
+      return res.status(502).json({ success: false, message: trackingErr.message || "Não foi possível consultar o Site Rastreio." });
+    }
+
+    const updated = await dbStore.updatePocEquipmentItem(req.params.itemId, {
+      tracking_carrier_status: result.found ? result.carrierStatusText : "Código não encontrado na transportadora",
+      tracking_last_checked_at: new Date().toISOString(),
+    });
+
+    res.json(updated);
+  } catch (err: any) {
+    next(err);
+  }
+});
 
 // Cronograma (Fase D) - tasks with a single-predecessor finish-to-start dependency chain. Dates
 // stay simple ISO day strings (like everywhere else in this file); the Gantt itself does all the

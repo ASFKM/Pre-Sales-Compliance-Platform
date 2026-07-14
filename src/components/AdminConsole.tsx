@@ -2208,6 +2208,7 @@ export default function AdminConsole({
                               else if (type === "SuiteCRM") setNewConnectorUrl("https://crm.suitecloud-opensource.org/v1");
                               else if (type === "Odoo") setNewConnectorUrl("https://odoo-erp.open-source-community.org/v1");
                               else if (type === "vTiger") setNewConnectorUrl("https://vtiger-instance.org/v1");
+                              else if (type === "site_rastreio") setNewConnectorUrl("https://seurastreio.com.br/api/public/rastreio");
                               else setNewConnectorUrl("https://api.custom-crm.com/v1");
                             }}
                             className="w-full p-2 bg-white border border-slate-200 rounded"
@@ -2218,10 +2219,20 @@ export default function AdminConsole({
                             <option value="SuiteCRM">SuiteCRM</option>
                             <option value="Odoo">Odoo CRM/ERP</option>
                             <option value="vTiger">vTiger CRM</option>
+                            {pocModuleEnabled && (
+                              <option value="site_rastreio">{tx("Site Rastreio (Shipment Tracking)", "Site Rastreio (Rastreio de Envios)")}</option>
+                            )}
                             <option value="Custom">{tx("Custom / Other", "Customizado / Outros")}</option>
                           </select>
                           <input type="text" placeholder="https://api.system.com/v1" value={newConnectorUrl} onChange={(e) => setNewConnectorUrl(e.target.value)} className="col-span-2 w-full p-2 bg-white border border-slate-200 rounded font-mono" />
-                          <input type="password" placeholder="bearer token ou api key" value={newConnectorToken} onChange={(e) => setNewConnectorToken(e.target.value)} className="col-span-2 w-full p-2 bg-white border border-slate-200 rounded font-mono" />
+                          <input type="password" placeholder={newConnectorType === "site_rastreio" ? (locale === "pt" ? "chave de API (ex: sr_live_...)" : "API key (e.g. sr_live_...)") : "bearer token ou api key"} value={newConnectorToken} onChange={(e) => setNewConnectorToken(e.target.value)} className="col-span-2 w-full p-2 bg-white border border-slate-200 rounded font-mono" />
+                          {newConnectorType === "site_rastreio" && (
+                            <p className="col-span-2 text-[10px] text-slate-400">
+                              {locale === "pt"
+                                ? "Crie uma conta gratuita em seurastreio.com.br e gere uma chave em Dashboard > Chaves de API (1000 consultas/mês grátis)."
+                                : "Create a free account at seurastreio.com.br and generate a key under Dashboard > API Keys (1000 free lookups/month)."}
+                            </p>
+                          )}
                         </div>
                         <div className="flex justify-end">
                           <button type="button" onClick={handleCreateConnector} className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-3 rounded shadow">

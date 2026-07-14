@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, X, ArrowLeft, Pen, Check, Trash2, Paperclip, TriangleAlert, Download, PackageSearch, BookMarked, FileUp } from "lucide-react";
+import { Plus, X, ArrowLeft, Pen, Check, Trash2, Paperclip, TriangleAlert, Download, PackageSearch, BookMarked, FileUp, Truck, RefreshCw } from "lucide-react";
 import { Poc, PocStatus, PocSuccessCriterion, PocEquipmentItem, PocEquipmentStatus, PocBomCandidate, Project } from "../types";
 import ApiClient from "../lib/api";
 import PocGanttChart from "./PocGanttChart";
@@ -137,6 +137,10 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
   const [loadingBomCandidates, setLoadingBomCandidates] = useState(false);
   const [importingBomItemId, setImportingBomItemId] = useState<string | null>(null);
   const [uploadingDatasheet, setUploadingDatasheet] = useState<string | null>(null);
+  const [editingTrackingId, setEditingTrackingId] = useState<string | null>(null);
+  const [trackingCodeInput, setTrackingCodeInput] = useState("");
+  const [refreshingTrackingId, setRefreshingTrackingId] = useState<string | null>(null);
+  const [trackingError, setTrackingError] = useState("");
 
   const fetchPocs = async () => {
     setLoading(true);
@@ -272,6 +276,37 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
       await fetchEquipment(selectedPoc.id);
     } catch (e: any) {
       alert(e.message || "Não foi possível atualizar o status.");
+    }
+  };
+
+  const startEditTracking = (item: PocEquipmentItem) => {
+    setEditingTrackingId(item.id);
+    setTrackingCodeInput(item.tracking_code || "");
+    setTrackingError("");
+  };
+
+  const saveTrackingCode = async (item: PocEquipmentItem) => {
+    if (!selectedPoc) return;
+    try {
+      await ApiClient.put(`/api/pocs/${selectedPoc.id}/equipment/${item.id}`, { tracking_code: trackingCodeInput.trim() });
+      setEditingTrackingId(null);
+      await fetchEquipment(selectedPoc.id);
+    } catch (e: any) {
+      alert(e.message || "Não foi possível salvar o código de rastreio.");
+    }
+  };
+
+  const refreshTracking = async (item: PocEquipmentItem) => {
+    if (!selectedPoc) return;
+    setRefreshingTrackingId(item.id);
+    setTrackingError("");
+    try {
+      await ApiClient.post(`/api/pocs/${selectedPoc.id}/equipment/${item.id}/refresh-tracking`, {});
+      await fetchEquipment(selectedPoc.id);
+    } catch (e: any) {
+      setTrackingError(e.message || "Não foi possível consultar o rastreio.");
+    } finally {
+      setRefreshingTrackingId(null);
     }
   };
 
@@ -689,6 +724,13 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
             </div>
           )}
 
+          {trackingError && (
+            <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-md px-3 py-2">
+              <TriangleAlert size={14} className="shrink-0" />
+              {trackingError}
+            </div>
+          )}
+
           {loadingEquipment ? (
             <p className="text-xs text-slate-400">Carregando...</p>
           ) : (
@@ -713,16 +755,57 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                         {item.serial_number && <div className="text-[11px] text-slate-400 font-mono">{item.serial_number}</div>}
                       </td>
                       <td className="py-2.5 pr-3">
-                        {canManage ? (
-                          <select
-                            className={`text-[11px] font-semibold rounded-full px-2 py-1 border-0 ${EQUIPMENT_STATUS_COLOR[item.status]}`}
-                            value={item.status}
-                            onChange={(e) => updateEquipmentStatus(item, e.target.value as PocEquipmentStatus)}
-                          >
-                            {(["shipped", "at_customer", "returned"] as PocEquipmentStatus[]).map((s) => (
-                              <option key={s} value={s}>{EQUIPMENT_STATUS_LABEL[s]}</option>
-                            ))}
-                          </select>
+                        {editingTrackingId === item.id ? (
+                          <div className="flex items-center gap-1">
+                            <input
+                              autoFocus
+                              className="w-28 p-1 text-[11px] rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                              placeholder="Código de rastreio"
+                              value={trackingCodeInput}
+                              onChange={(e) => setTrackingCodeInput(e.target.value)}
+                            />
+                            <button onClick={() => saveTrackingCode(item)} className="text-emerald-600 hover:text-emerald-800"><Check size={13} /></button>
+                            <button onClick={() => setEditingTrackingId(null)} className="text-slate-300 hover:text-slate-500"><X size={13} /></button>
+                          </div>
+                        ) : item.tracking_code ? (
+                          <div className="space-y-0.5">
+                            <div className="flex items-center gap-1">
+                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 bg-blue-50 rounded-full px-2 py-1" title={item.tracking_last_checked_at ? `Última consulta: ${new Date(item.tracking_last_checked_at).toLocaleString("pt-BR")}` : "Ainda não consultado"}>
+                                <Truck size={11} />
+                                {item.tracking_carrier_status || "Aguardando 1ª consulta"}
+                              </span>
+                              {canManage && (
+                                <button
+                                  onClick={() => refreshTracking(item)}
+                                  disabled={refreshingTrackingId === item.id}
+                                  className="text-slate-400 hover:text-slate-700 disabled:opacity-50"
+                                  title="Atualizar rastreio"
+                                >
+                                  <RefreshCw size={12} className={refreshingTrackingId === item.id ? "animate-spin" : ""} />
+                                </button>
+                              )}
+                            </div>
+                            {canManage && (
+                              <button onClick={() => startEditTracking(item)} className="text-[10px] text-slate-400 hover:text-slate-600 font-mono">
+                                {item.tracking_code}
+                              </button>
+                            )}
+                          </div>
+                        ) : canManage ? (
+                          <div className="flex items-center gap-1.5">
+                            <select
+                              className={`text-[11px] font-semibold rounded-full px-2 py-1 border-0 ${EQUIPMENT_STATUS_COLOR[item.status]}`}
+                              value={item.status}
+                              onChange={(e) => updateEquipmentStatus(item, e.target.value as PocEquipmentStatus)}
+                            >
+                              {(["shipped", "at_customer", "returned"] as PocEquipmentStatus[]).map((s) => (
+                                <option key={s} value={s}>{EQUIPMENT_STATUS_LABEL[s]}</option>
+                              ))}
+                            </select>
+                            <button onClick={() => startEditTracking(item)} className="text-[10px] text-slate-400 hover:text-slate-600 underline decoration-dotted" title="Configurar rastreio real da transportadora">
+                              + rastreio
+                            </button>
+                          </div>
                         ) : (
                           <span className={`text-[11px] font-semibold rounded-full px-2 py-1 ${EQUIPMENT_STATUS_COLOR[item.status]}`}>
                             {EQUIPMENT_STATUS_LABEL[item.status]}

@@ -441,6 +441,15 @@ model PocEquipmentItem {
   returnInvoiceStoragePath         String?          @map("return_invoice_storage_path")
   returnInvoiceOriginalFilename    String?          @map("return_invoice_original_filename")
 
+  // Fase I: when a tracking code is set, real carrier tracking (Site Rastreio) drives `status`
+  // instead of the NF upload - the NF becomes just the fiscal proof/document (product decision,
+  // 2026-07-13). trackingCarrierStatus caches the literal carrier text (e.g. "Objeto entregue ao
+  // destinatário") shown as-is in the UI, never translated into our own Enviado/Na casa do
+  // cliente/Devolvido vocabulary.
+  trackingCode            String?   @map("tracking_code")
+  trackingCarrierStatus   String?   @map("tracking_carrier_status")
+  trackingLastCheckedAt   DateTime? @map("tracking_last_checked_at")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 

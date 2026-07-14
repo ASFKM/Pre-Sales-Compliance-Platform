@@ -106,6 +106,9 @@ export interface PocEquipmentItem {
   datasheet_knowledge_base_document_id?: string;
   shipping_invoice_original_filename?: string;
   return_invoice_original_filename?: string;
+  tracking_code?: string;
+  tracking_carrier_status?: string;
+  tracking_last_checked_at?: string;
   created_at: string;
   updated_at: string;
 }

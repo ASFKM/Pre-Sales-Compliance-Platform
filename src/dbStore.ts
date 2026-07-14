@@ -144,6 +144,9 @@ function mapPocEquipmentItem(e: any): PocEquipmentItem {
     datasheet_knowledge_base_document_id: e.datasheetKnowledgeBaseDocumentId ?? undefined,
     shipping_invoice_original_filename: e.shippingInvoiceOriginalFilename ?? undefined,
     return_invoice_original_filename: e.returnInvoiceOriginalFilename ?? undefined,
+    tracking_code: e.trackingCode ?? undefined,
+    tracking_carrier_status: e.trackingCarrierStatus ?? undefined,
+    tracking_last_checked_at: e.trackingLastCheckedAt ? e.trackingLastCheckedAt.toISOString() : undefined,
     created_at: e.createdAt.toISOString(),
     updated_at: e.updatedAt.toISOString(),
   } as PocEquipmentItem;
@@ -1005,6 +1008,9 @@ class DBStore {
       status?: PocEquipmentItem["status"];
       kb_match_count?: number;
       datasheet_knowledge_base_document_id?: string;
+      tracking_code?: string | null;
+      tracking_carrier_status?: string | null;
+      tracking_last_checked_at?: string | null;
     }
   ): Promise<PocEquipmentItem | undefined> {
     const exists = await prisma.pocEquipmentItem.findUnique({ where: { id } });
@@ -1018,6 +1024,9 @@ class DBStore {
         status: updates.status,
         kbMatchCount: updates.kb_match_count,
         datasheetKnowledgeBaseDocumentId: updates.datasheet_knowledge_base_document_id,
+        trackingCode: updates.tracking_code === undefined ? undefined : updates.tracking_code,
+        trackingCarrierStatus: updates.tracking_carrier_status === undefined ? undefined : updates.tracking_carrier_status,
+        trackingLastCheckedAt: updates.tracking_last_checked_at === undefined ? undefined : (updates.tracking_last_checked_at ? new Date(updates.tracking_last_checked_at) : null),
       },
     });
     return mapPocEquipmentItem(e);
