@@ -152,7 +152,11 @@ const CriticalRequirementSchema = z.object({
   compliance_status: normalizedEnum(["not_enough_information", "compliant", "partially_compliant", "non_compliant"]),
   evidence_type: normalizedEnum(["directly_supported", "inferred_from_documents", "user_provided_instruction", "assumption", "missing_information", "requires_customer_confirmation"]),
   confidence: z.number().min(0).max(1),
-  notes: z.string()
+  // Real run on a large tender (22+ critical requirements) had the model omit "notes" entirely on
+  // several items instead of returning an empty string - a required z.string() then failed the
+  // WHOLE analysis on a Zod error, even though every other field parsed fine and notes is genuinely
+  // optional commentary. Tolerate a missing/null value as "no additional notes" instead.
+  notes: z.string().optional().nullable().default("")
 });
 
 const ProjectRiskSchema = z.object({
