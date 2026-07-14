@@ -327,6 +327,10 @@ router.post("/projects/:projectId/analysis-result", requirePermission("analysis:
 // API errors, or the response isn't parsable JSON, the original BOM is returned unchanged and the
 // failure is only logged - this is an enrichment step, losing it should never fail (or even flag
 // as failed) an otherwise-successful analysis.
+function truncate(text: string, maxLength: number): string {
+  return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
+}
+
 async function enrichBomWithWebSearch(bom: any[], platformSettings: any, proposalLanguage: string, tenantId: string): Promise<any[]> {
   // Only a missing part_number is treated as "needs lookup" here. A part_number already present
   // (e.g. filled from an approved Knowledge Base entry) but missing manufacturer used to also
@@ -425,12 +429,21 @@ async function enrichBomWithWebSearch(bom: any[], platformSettings: any, proposa
         fullContextByDocument.set(entry.source_document_id, `${existing} ${entry.trigger} ${entry.knowledge}`);
       }
 
+      // Capped to the top 12 entries (already ranked by relevance from searchApprovedKnowledgeBase)
+      // and each entry's own text truncated - a real run on an 18-item BOM with ~500 approved KB
+      // entries built a SINGLE 57k-token request (every item's uncapped known_knowledge, several
+      // KB entries deep each) against a provider whose org-level rate limit was 6000 TPM, so the
+      // whole batch 429'd and the outer catch below silently discarded the entire enrichment -
+      // every item was left with an empty part_number and nothing ever told the user why. Capping
+      // here (in addition to the batching below) attacks the actual size driver instead of just
+      // the symptom.
       const relevantKnowledge = [...groups.entries()]
         .filter(([key, group]) => {
           const contextText = fullContextByDocument.get(key) ?? group.map((k) => `${k.trigger} ${k.knowledge}`).join(" ");
           return !isContextMismatch(itemText, contextText);
         })
-        .flatMap(([, group]) => group);
+        .flatMap(([, group]) => group)
+        .slice(0, 12);
 
       return {
         item_id: item.item_id,
@@ -439,39 +452,81 @@ async function enrichBomWithWebSearch(bom: any[], platformSettings: any, proposa
         specification: item.specification,
         known_part_number: item.part_number?.trim() || null,
         known_knowledge: relevantKnowledge.length > 0
-          ? relevantKnowledge.map((k) => `Se: ${k.trigger} → Então: ${k.knowledge}`)
+          ? relevantKnowledge.map((k) => `Se: ${truncate(k.trigger, 200)} → Então: ${truncate(k.knowledge, 300)}`)
           : null,
       };
     }));
 
-    const prompt = `For each item below, first check "known_knowledge" - human-approved internal knowledge from past projects, already vetted by a person. If it clearly states a concrete real manufacturer and/or part number/SKU for this exact item, use that value instead of searching the web, and set "source" to "knowledge_base". known_knowledge entries were retrieved by keyword overlap and can include a product that is technically similar but actually the wrong product line for this item's stated use - e.g. a vehicle-mounted/portable/mobile-enforcement camera is NOT a match for an item that specifies a fixed pole/wall-mounted installation, and vice-versa, even when general specs (PTZ, zoom, IP rating, resolution) look alike. Before accepting a known_knowledge match, check that its stated application/mounting/context actually matches this item's own description; if it doesn't, treat known_knowledge as not applicable for that item and fall back to web search or not_found instead. IMPORTANT: numeric specs in a BOM item (zoom, IR range, resolution, IP/IK rating, etc.) are virtually always MINIMUM requirements from a technical reference document, not exact targets - a candidate that MEETS OR EXCEEDS a stated number (e.g. 48x zoom for an item asking for 30x, IP67 for an item asking for IP66) is a VALID match on that spec, not a mismatch - only reject on a spec if the candidate is BELOW what the item asks for, or if the installation context itself is wrong (see above). known_knowledge can list several different products - evaluate every distinct product mentioned by name before concluding none match; do not stop at the first plausible-looking one, and do not default to a web search just because more than one candidate is present. Only actually search the web for items where known_knowledge is null or doesn't give a confident, context-matching manufacturer/part number, and set "source" to "web_search" for those found that way. If "known_part_number" is set for an item, that part number is already correct/authoritative - only search for (or find in known_knowledge) which real manufacturer makes that exact part number, do not substitute a different product. If neither known_knowledge nor a web search yields a confident real match, leave sku/part_number/manufacturer as empty strings and set "source" to "not_found" rather than guessing.
+    const promptFor = (chunk: typeof lookupList) => `For each item below, first check "known_knowledge" - human-approved internal knowledge from past projects, already vetted by a person. If it clearly states a concrete real manufacturer and/or part number/SKU for this exact item, use that value instead of searching the web, and set "source" to "knowledge_base". known_knowledge entries were retrieved by keyword overlap and can include a product that is technically similar but actually the wrong product line for this item's stated use - e.g. a vehicle-mounted/portable/mobile-enforcement camera is NOT a match for an item that specifies a fixed pole/wall-mounted installation, and vice-versa, even when general specs (PTZ, zoom, IP rating, resolution) look alike. Before accepting a known_knowledge match, check that its stated application/mounting/context actually matches this item's own description; if it doesn't, treat known_knowledge as not applicable for that item and fall back to web search or not_found instead. IMPORTANT: numeric specs in a BOM item (zoom, IR range, resolution, IP/IK rating, etc.) are virtually always MINIMUM requirements from a technical reference document, not exact targets - a candidate that MEETS OR EXCEEDS a stated number (e.g. 48x zoom for an item asking for 30x, IP67 for an item asking for IP66) is a VALID match on that spec, not a mismatch - only reject on a spec if the candidate is BELOW what the item asks for, or if the installation context itself is wrong (see above). known_knowledge can list several different products - evaluate every distinct product mentioned by name before concluding none match; do not stop at the first plausible-looking one, and do not default to a web search just because more than one candidate is present. Only actually search the web for items where known_knowledge is null or doesn't give a confident, context-matching manufacturer/part number, and set "source" to "web_search" for those found that way. If "known_part_number" is set for an item, that part number is already correct/authoritative - only search for (or find in known_knowledge) which real manufacturer makes that exact part number, do not substitute a different product. If neither known_knowledge nor a web search yields a confident real match, leave sku/part_number/manufacturer as empty strings and set "source" to "not_found" rather than guessing.
 
 ITEMS TO LOOK UP:
-${JSON.stringify(lookupList, null, 2)}
+${JSON.stringify(chunk, null, 2)}
 
 Respond with ONLY a JSON array (no markdown, no extra text), one object per item_id above, in this exact shape:
 [{ "item_id": "...", "sku": "real SKU or empty string", "part_number": "real part number or empty string", "manufacturer": "real manufacturer name or empty string", "source": "knowledge_base" | "web_search" | "not_found", "note": "one short sentence in ${proposalLanguage} - what you found and its source, or why nothing confident was found" }]`;
 
-    const { text, inputTokens, outputTokens } = await searchWebWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);
-    await recordAiUsage({
-      tenantId,
-      taskType: "bom_web_search",
-      provider: providerResolution.provider,
-      model: providerResolution.model,
-      estimatedCostUsd: estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
-    });
-    // The model prefaces the JSON with explanatory prose that can itself contain stray "[...]"
-    // (e.g. citing "[16:9]" resolution) - a single greedy [\s\S]*] regex grabbed from that first
-    // stray bracket through to the real array's closing bracket, garbling the JSON. Prefer the
-    // ```json fenced block if present (the array is always what's fenced); only fall back to the
-    // last "[" in the text (the real array is always the final thing in the response) if no fence
-    // is found.
-    const fenceMatch = text.match(/```json\s*([\s\S]*?)```/);
-    const rawJsonText = fenceMatch ? fenceMatch[1] : text.slice(text.lastIndexOf("["));
-    if (!rawJsonText.includes("[")) throw new Error("Web search response did not contain a JSON array");
-    const results: Array<{ item_id: string; sku: string; part_number: string; manufacturer: string; source?: string; note: string }> = JSON.parse(rawJsonText.trim());
+    // Sent as one request per chunk (not the whole BOM at once) - see the 57k-token/6000-TPM
+    // incident above. Chunk boundaries are picked by a rough token estimate (chars/4) against a
+    // conservative budget, so even a tenant on a low-tier rate limit gets SOME items enriched
+    // instead of an all-or-nothing failure, and processed sequentially (not Promise.all) since a
+    // TPM limit is shared across concurrent requests too.
+    const CHUNK_TOKEN_BUDGET = 3000;
+    const estimateTokens = (value: unknown) => Math.ceil(JSON.stringify(value).length / 4);
+    const chunks: (typeof lookupList)[] = [];
+    let current: typeof lookupList = [];
+    let currentTokens = 0;
+    for (const entry of lookupList) {
+      const entryTokens = estimateTokens(entry);
+      if (current.length > 0 && currentTokens + entryTokens > CHUNK_TOKEN_BUDGET) {
+        chunks.push(current);
+        current = [];
+        currentTokens = 0;
+      }
+      current.push(entry);
+      currentTokens += entryTokens;
+    }
+    if (current.length > 0) chunks.push(current);
 
-    const resultsByItemId = new Map(results.map((r) => [r.item_id, r]));
+    const resultsByItemId = new Map<string, { item_id: string; sku: string; part_number: string; manufacturer: string; source?: string; note: string }>();
+    for (const chunk of chunks) {
+      // One retry on an actual rate-limit error, after a delay long enough to clear a per-minute
+      // window - anything else (a real parsing/auth/network failure) fails this chunk immediately,
+      // same fail-soft behavior as before, just scoped to one chunk instead of the whole BOM.
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const { text, inputTokens, outputTokens } = await searchWebWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, promptFor(chunk));
+          await recordAiUsage({
+            tenantId,
+            taskType: "bom_web_search",
+            provider: providerResolution.provider,
+            model: providerResolution.model,
+            estimatedCostUsd: estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
+          });
+          // The model prefaces the JSON with explanatory prose that can itself contain stray
+          // "[...]" (e.g. citing "[16:9]" resolution) - a single greedy [\s\S]*] regex grabbed
+          // from that first stray bracket through to the real array's closing bracket, garbling
+          // the JSON. Prefer the ```json fenced block if present (the array is always what's
+          // fenced); only fall back to the last "[" in the text (the real array is always the
+          // final thing in the response) if no fence is found.
+          const fenceMatch = text.match(/```json\s*([\s\S]*?)```/);
+          const rawJsonText = fenceMatch ? fenceMatch[1] : text.slice(text.lastIndexOf("["));
+          if (!rawJsonText.includes("[")) throw new Error("Web search response did not contain a JSON array");
+          const chunkResults: Array<{ item_id: string; sku: string; part_number: string; manufacturer: string; source?: string; note: string }> = JSON.parse(rawJsonText.trim());
+          for (const r of chunkResults) resultsByItemId.set(r.item_id, r);
+          break;
+        } catch (chunkErr: any) {
+          const isRateLimit = chunkErr?.status === 429 || /rate.?limit|429/i.test(String(chunkErr?.message || ""));
+          if (isRateLimit && attempt === 0) {
+            logger.warn({ err: chunkErr, tenantId, chunkSize: chunk.length }, "BOM web search chunk rate-limited, retrying after backoff");
+            await new Promise((resolve) => setTimeout(resolve, 20000));
+            continue;
+          }
+          logger.warn({ err: chunkErr, tenantId, chunkSize: chunk.length }, "BOM web search chunk failed, leaving its items unenriched");
+          break;
+        }
+      }
+    }
+
     return bom.map((item) => {
       const found = resultsByItemId.get(item.item_id);
       if (!found || (!found.part_number?.trim() && !found.manufacturer?.trim())) return item;
