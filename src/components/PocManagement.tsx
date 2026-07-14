@@ -4,6 +4,7 @@ import { Poc, PocStatus, PocSuccessCriterion, PocEquipmentItem, PocEquipmentStat
 import ApiClient from "../lib/api";
 import PocGanttChart from "./PocGanttChart";
 import PocTestCases from "./PocTestCases";
+import PocAcceptancePanel from "./PocAcceptancePanel";
 
 const STATUS_LABEL: Record<PocStatus, string> = {
   planned: "Planejada",
@@ -123,7 +124,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
   const [newCriterionText, setNewCriterionText] = useState("");
   const [addingCriterion, setAddingCriterion] = useState(false);
 
-  const [detailTab, setDetailTab] = useState<"overview" | "equipment" | "gantt" | "tests">("overview");
+  const [detailTab, setDetailTab] = useState<"overview" | "equipment" | "gantt" | "tests" | "acceptance">("overview");
   const [equipment, setEquipment] = useState<PocEquipmentItem[]>([]);
   const [loadingEquipment, setLoadingEquipment] = useState(false);
   const [newEquipmentName, setNewEquipmentName] = useState("");
@@ -413,6 +414,12 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
             className={`h-9 px-1 border-b-2 transition-all text-xs font-bold uppercase tracking-wider ${detailTab === "tests" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
           >
             Cadernos de Teste
+          </button>
+          <button
+            onClick={() => setDetailTab("acceptance")}
+            className={`h-9 px-1 border-b-2 transition-all text-xs font-bold uppercase tracking-wider ${detailTab === "acceptance" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+          >
+            Aceite do Cliente
           </button>
         </div>
 
@@ -756,6 +763,13 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
         <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-5">
           <h2 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700 mb-4">Cadernos de Teste</h2>
           <PocTestCases pocId={selectedPoc.id} canManage={canManage} />
+        </div>
+        )}
+
+        {detailTab === "acceptance" && (
+        <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-5">
+          <h2 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700 mb-4">Aceite do Cliente</h2>
+          <PocAcceptancePanel pocId={selectedPoc.id} canManage={canManage} />
         </div>
         )}
       </div>

@@ -11,6 +11,7 @@ import {
   PocEquipmentItem,
   PocTask,
   PocTestCase,
+  PocAcceptance,
   Document,
   AIAnalysisJob,
   AnalysisResult,
@@ -171,6 +172,20 @@ function mapPocTestCase(c: any): PocTestCase {
     created_at: c.createdAt.toISOString(),
     updated_at: c.updatedAt.toISOString(),
   } as PocTestCase;
+}
+
+function mapPocAcceptance(a: any): PocAcceptance {
+  return {
+    id: a.id,
+    poc_id: a.pocId,
+    decision: a.decision,
+    signed_document_original_filename: a.signedDocumentOriginalFilename ?? undefined,
+    signed_by: a.signedBy ?? undefined,
+    signed_at: a.signedAt ? a.signedAt.toISOString().substring(0, 10) : undefined,
+    notes: a.notes ?? undefined,
+    created_at: a.createdAt.toISOString(),
+    updated_at: a.updatedAt.toISOString(),
+  } as PocAcceptance;
 }
 
 function mapDocument(d: any): Document {
@@ -1131,6 +1146,74 @@ class DBStore {
     await prisma.pocTestCase.deleteMany({
       where: { pocId, generatedByAi: true, editedManually: false },
     });
+  }
+
+  // Poc acceptance (Fase 6, Fase F) - one row per POC (1:1), lazily created on first write since
+  // most POCs live their whole life without a decision yet; getPocAcceptance returns undefined
+  // rather than a row until something is actually recorded.
+  public async getPocAcceptance(pocId: string): Promise<PocAcceptance | undefined> {
+    const a = await prisma.pocAcceptance.findUnique({ where: { pocId } });
+    return a ? mapPocAcceptance(a) : undefined;
+  }
+
+  public async upsertPocAcceptance(
+    pocId: string,
+    updates: { decision?: PocAcceptance["decision"]; signed_by?: string; signed_at?: string; notes?: string }
+  ): Promise<PocAcceptance> {
+    const a = await prisma.pocAcceptance.upsert({
+      where: { pocId },
+      create: {
+        id: randomId("acc"),
+        tenantId: requireTenantId(),
+        pocId,
+        decision: updates.decision || "pending",
+        signedBy: updates.signed_by,
+        signedAt: updates.signed_at ? new Date(updates.signed_at) : undefined,
+        notes: updates.notes,
+      },
+      update: {
+        decision: updates.decision,
+        signedBy: updates.signed_by,
+        signedAt: updates.signed_at ? new Date(updates.signed_at) : undefined,
+        notes: updates.notes,
+      },
+    });
+    return mapPocAcceptance(a);
+  }
+
+  public async attachPocAcceptanceDocument(
+    pocId: string,
+    file: { storage_provider: "local" | "s3" | "gcs"; storage_path: string; original_filename: string }
+  ): Promise<PocAcceptance> {
+    const a = await prisma.pocAcceptance.upsert({
+      where: { pocId },
+      create: {
+        id: randomId("acc"),
+        tenantId: requireTenantId(),
+        pocId,
+        signedDocumentStorageProvider: file.storage_provider,
+        signedDocumentStoragePath: file.storage_path,
+        signedDocumentOriginalFilename: file.original_filename,
+      },
+      update: {
+        signedDocumentStorageProvider: file.storage_provider,
+        signedDocumentStoragePath: file.storage_path,
+        signedDocumentOriginalFilename: file.original_filename,
+      },
+    });
+    return mapPocAcceptance(a);
+  }
+
+  public async getPocAcceptanceDocumentFile(
+    pocId: string
+  ): Promise<{ storage_provider: "local" | "s3" | "gcs"; storage_path: string; original_filename: string } | undefined> {
+    const a = await prisma.pocAcceptance.findUnique({ where: { pocId } });
+    if (!a || !a.signedDocumentStorageProvider || !a.signedDocumentStoragePath || !a.signedDocumentOriginalFilename) return undefined;
+    return {
+      storage_provider: a.signedDocumentStorageProvider as "local" | "s3" | "gcs",
+      storage_path: a.signedDocumentStoragePath,
+      original_filename: a.signedDocumentOriginalFilename,
+    };
   }
 
   // Documents

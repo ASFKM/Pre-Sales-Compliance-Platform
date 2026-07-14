@@ -77,6 +77,12 @@ enum PocTestCaseStatus {
   failed
 }
 
+enum PocAcceptanceDecision {
+  pending
+  won
+  lost
+}
+
 enum StorageProvider {
   local
   s3
@@ -235,6 +241,7 @@ model Tenant {
   pocEquipmentItems      PocEquipmentItem[]
   pocTasks               PocTask[]
   pocTestCases           PocTestCase[]
+  pocAcceptances         PocAcceptance[]
 
   @@map("tenants")
 }
@@ -362,6 +369,7 @@ model Poc {
   equipmentItems  PocEquipmentItem[]
   tasks           PocTask[]
   testCases       PocTestCase[]
+  acceptance      PocAcceptance?
 
   @@index([tenantId])
   @@map("pocs")
@@ -466,6 +474,29 @@ model PocTestCase {
   @@index([tenantId])
   @@index([pocId])
   @@map("poc_test_cases")
+}
+
+// Fase 6 (add-on), Fase F: final decision record (ganha/perdida) plus a manual placeholder for the
+// signed acceptance document - deliberately not a real e-signature integration yet (product
+// decision, 2026-07-13, left open for a future session), just upload of an already-signed file.
+model PocAcceptance {
+  id                            String                  @id
+  tenantId                      String                  @map("tenant_id")
+  tenant                        Tenant                  @relation(fields: [tenantId], references: [id])
+  pocId                         String                  @unique @map("poc_id")
+  poc                           Poc                     @relation(fields: [pocId], references: [id], onDelete: Cascade)
+  decision                      PocAcceptanceDecision   @default(pending)
+  signedDocumentStorageProvider StorageProvider?        @map("signed_document_storage_provider")
+  signedDocumentStoragePath     String?                 @map("signed_document_storage_path")
+  signedDocumentOriginalFilename String?                @map("signed_document_original_filename")
+  signedBy                      String?                 @map("signed_by")
+  signedAt                      DateTime?               @map("signed_at")
+  notes                         String?                 @db.Text
+  createdAt                     DateTime                @default(now()) @map("created_at")
+  updatedAt                     DateTime                @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@map("poc_acceptances")
 }
 
 model Document {

@@ -136,6 +136,20 @@ export interface PocTestCase {
   updated_at: string;
 }
 
+export type PocAcceptanceDecision = "pending" | "won" | "lost";
+
+export interface PocAcceptance {
+  id: string;
+  poc_id: string;
+  decision: PocAcceptanceDecision;
+  signed_document_original_filename?: string;
+  signed_by?: string;
+  signed_at?: string;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Document {
   id: string;
   project_id: string;

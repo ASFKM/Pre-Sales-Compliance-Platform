@@ -715,4 +715,124 @@ provedores exigem um objeto no nível superior), sem markdown, sem texto extra, 
   }
 });
 
+// Aceite do Cliente (Fase F) - final decision record. The signed document is a manual upload
+// placeholder deliberately, not a real e-signature integration (product decision, 2026-07-13,
+// left open for a future session) - reuses the same storage adapter as equipment invoices.
+router.get("/:id/acceptance", requirePermission("poc:read"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const poc = await dbStore.getPoc(req.params.id);
+    if (!poc) {
+      return res.status(404).json({ success: false, message: "POC not found" });
+    }
+    const acceptance = await dbStore.getPocAcceptance(req.params.id);
+    res.json(acceptance || { poc_id: req.params.id, decision: "pending" });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/:id/acceptance", requirePermission("poc:manage"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const validated = z
+      .object({
+        decision: z.enum(["pending", "won", "lost"]).optional(),
+        signed_by: z.string().optional(),
+        signed_at: z.string().optional(),
+        notes: z.string().optional(),
+      })
+      .parse(req.body);
+
+    const poc = await dbStore.getPoc(req.params.id);
+    if (!poc) {
+      return res.status(404).json({ success: false, message: "POC not found" });
+    }
+
+    const acceptance = await dbStore.upsertPocAcceptance(req.params.id, validated);
+    res.json(acceptance);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ success: false, message: err.issues[0].message });
+    }
+    next(err);
+  }
+});
+
+router.post(
+  "/:id/acceptance/signed-document",
+  requirePermission("poc:manage"),
+  requireModule("poc"),
+  upload.single("file"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const file = req.file;
+      if (!file) {
+        return res.status(400).json({ success: false, message: "No file was uploaded." });
+      }
+
+      const validation = validateUploadedFile(file.originalname, file.mimetype, file.size);
+      if (!validation.valid) {
+        return res.status(400).json({ success: false, message: validation.error });
+      }
+
+      const tenantId = req.headers["x-tenant-id"] as string;
+
+      const result = await runWithTenant({ tenantId }, async () => {
+        const poc = await dbStore.getPoc(req.params.id);
+        if (!poc) return null;
+
+        const settings = await dbStore.getSettings();
+
+        // Replacing an already-uploaded signed document must not orphan the previous file.
+        const previous = await dbStore.getPocAcceptanceDocumentFile(req.params.id);
+        if (previous) {
+          const previousAdapter = createStorageAdapter({ ...settings, storage_mode: previous.storage_provider });
+          await previousAdapter.deleteFile(previous.storage_path);
+        }
+
+        const storageAdapter = createStorageAdapter(settings);
+        const storagePath = await storageAdapter.uploadFile(req.params.id, file.buffer, file.originalname, file.mimetype);
+
+        return dbStore.attachPocAcceptanceDocument(req.params.id, {
+          storage_provider: settings.storage_mode,
+          storage_path: storagePath,
+          original_filename: file.originalname,
+        });
+      });
+
+      if (!result) {
+        return res.status(404).json({ success: false, message: "POC not found" });
+      }
+
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get("/:id/acceptance/signed-document", requirePermission("poc:read"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const file = await dbStore.getPocAcceptanceDocumentFile(req.params.id);
+    if (!file) {
+      return res.status(404).json({ success: false, message: "No signed document attached yet." });
+    }
+
+    const settings = await dbStore.getSettings();
+    const adapter = createStorageAdapter({ ...settings, storage_mode: file.storage_provider });
+
+    let buffer: Buffer;
+    try {
+      buffer = await adapter.readFile(file.storage_path);
+    } catch {
+      return res.status(404).json({ success: false, message: "Physical document file not found." });
+    }
+
+    res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader("Content-Disposition", `attachment; filename="${file.original_filename}"`);
+    res.send(buffer);
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;
