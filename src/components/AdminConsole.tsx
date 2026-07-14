@@ -1,5 +1,5 @@
 import { Dispatch, SetStateAction, useEffect, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { Trash2, Star, Check } from "lucide-react";
 import {
   AuditLog,
   BrandingSettings,
@@ -71,6 +71,37 @@ const MODEL_OPTIONS_BY_PROVIDER: Record<string, Record<TaskCapability, string[]>
     web_search: ["gpt-5-search-api"],
     text: ["gpt-4o-mini", "gpt-4o", "gpt-4.1", "gpt-5.4-mini", "gpt-5.4", "gpt-5.5", "gpt-5.6-sol"],
   },
+};
+
+// Fase O: best cost-benefit pick per task, not a restriction - just a visual nudge in the UI
+// below. Reasoning (2026-07):
+// - document_analysis needs the strongest structured extraction/instruction-following for
+//   compliance-grade documents (tenders, specs) - Claude Sonnet 5 has consistently been the more
+//   reliable of the three at following a rigid extraction schema without drifting, and it's
+//   already what this tenant runs in production for this exact task.
+// - web_grounding is the one task Gemini is uniquely well-suited for: native, first-class search
+//   grounding built into the API, vs. OpenAI needing an entirely separate dedicated model
+//   (gpt-5-search-api, see MODEL_OPTIONS_BY_PROVIDER comment above) and Anthropic's grounding
+//   being comparatively less mature - Gemini 3.5 Flash is also the cheapest of the three.
+// - spec_copilot is a high-frequency interactive chat surface (every keystroke/turn is a call) -
+//   cost and latency dominate over raw capability once a model is "good enough", so the cheapest
+//   fast tier (Gemini 3.5 Flash) wins on cost-benefit.
+// - document_classification is a trivial single-label task - same reasoning, cheapest capable
+//   model (Gemini 3.5 Flash).
+// - poc_test_generation/poc_schedule_generation/poc_final_report_generation are the tasks this
+//   session's own hallucination fix (Fase H) was built around: they need to follow a strict
+//   "ground in real data or explicitly say you can't" instruction under pressure to produce a
+//   confident-sounding answer anyway - verified live in this session that Claude Sonnet 5 held
+//   that discipline consistently (the DAI test-case/final-report generations came back correctly
+//   grounded and correctly flagged missing coverage, not invented).
+const RECOMMENDED_MODEL: Record<string, { provider: string; model: string }> = {
+  document_analysis: { provider: "anthropic", model: "claude-sonnet-5" },
+  web_grounding: { provider: "gemini", model: "gemini-3.5-flash" },
+  spec_copilot: { provider: "gemini", model: "gemini-3.5-flash" },
+  document_classification: { provider: "gemini", model: "gemini-3.5-flash" },
+  poc_test_generation: { provider: "anthropic", model: "claude-sonnet-5" },
+  poc_schedule_generation: { provider: "anthropic", model: "claude-sonnet-5" },
+  poc_final_report_generation: { provider: "anthropic", model: "claude-sonnet-5" },
 };
 
 type CustomProviderCapabilities = { provider_key: string; display_name: string; default_model: string; supports_vision: boolean; supports_web_search: boolean };
@@ -210,6 +241,12 @@ export default function AdminConsole({
   // has no way to "activate" itself, plan/status/contract term are only ever set on the Fleet
   // Manager side.
   const [fleetLicenseStatus, setFleetLicenseStatus] = useState<FleetLicenseStatus | null>(null);
+
+  // Fase O: each orchestrator field already saves itself on change/blur (handleSavePlatformSettings)
+  // - this doesn't change that mechanism, it only gives explicit visual confirmation, since the
+  // reported problem was that switching tabs right after a change gave no feedback that anything
+  // had actually persisted.
+  const [orchestratorSaved, setOrchestratorSaved] = useState(false);
 
   useEffect(() => {
     ApiClient.get<FleetLicenseStatus>("/api/settings/fleet-license-status")
@@ -1255,6 +1292,21 @@ export default function AdminConsole({
                                     ))}
                                   </select>
                                 </div>
+                                {RECOMMENDED_MODEL[taskKey] && (() => {
+                                  const rec = RECOMMENDED_MODEL[taskKey];
+                                  const isRecommended = currentProvider === rec.provider && currentModel === rec.model;
+                                  return isRecommended ? (
+                                    <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
+                                      <Check size={10} />
+                                      {locale === "pt" ? "Configuração recomendada" : "Recommended configuration"}
+                                    </div>
+                                  ) : (
+                                    <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
+                                      <Star size={10} className="fill-amber-500 text-amber-500" />
+                                      {locale === "pt" ? "Recomendado" : "Recommended"}: {PROVIDER_DISPLAY_NAME[rec.provider]} · {rec.model}
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             );
                           })}
@@ -1278,6 +1330,29 @@ export default function AdminConsole({
                               ? "Bloqueia novas análises de IA ao atingir o teto (aviso automático em 80%). Deixe em branco para não limitar."
                               : "Blocks new AI analyses once reached (automatic warning at 80%). Leave blank for no limit."}
                           </p>
+                        </div>
+
+                        <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                          <button
+                            onClick={() => {
+                              setOrchestratorSaved(true);
+                              setTimeout(() => setOrchestratorSaved(false), 2500);
+                            }}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer"
+                          >
+                            {locale === "pt" ? "Salvar" : "Save"}
+                          </button>
+                          {orchestratorSaved && (
+                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
+                              <Check size={13} />
+                              {locale === "pt" ? "Salvo" : "Saved"}
+                            </span>
+                          )}
+                          <span className="text-[10px] text-slate-400">
+                            {locale === "pt"
+                              ? "Cada campo já é salvo assim que alterado - este botão só confirma."
+                              : "Each field already saves as soon as it's changed - this button just confirms."}
+                          </span>
                         </div>
                       </div>
                     </div>
