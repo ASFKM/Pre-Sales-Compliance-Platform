@@ -83,11 +83,14 @@ const MODEL_OPTIONS_BY_PROVIDER: Record<string, Record<TaskCapability, string[]>
 //   grounding built into the API, vs. OpenAI needing an entirely separate dedicated model
 //   (gpt-5-search-api, see MODEL_OPTIONS_BY_PROVIDER comment above) and Anthropic's grounding
 //   being comparatively less mature - Gemini 3.5 Flash is also the cheapest of the three.
-// - spec_copilot is a high-frequency interactive chat surface (every keystroke/turn is a call) -
-//   cost and latency dominate over raw capability once a model is "good enough", so the cheapest
-//   fast tier (Gemini 3.5 Flash) wins on cost-benefit.
-// - document_classification is a trivial single-label task - same reasoning, cheapest capable
-//   model (Gemini 3.5 Flash).
+// - spec_copilot is the one place a real quality differential is worth paying for over the
+//   cheapest tier (confirmed as a product priority, 2026-07-14): it's a technical spec assistant a
+//   presales engineer leans on interactively, and GPT models have a strong track record
+//   specifically at this kind of technical/engineering back-and-forth - gpt-4.1 over the flagship
+//   5.x tier as the balance point (materially stronger than the Flash-class models on this exact
+//   use case without going all the way to the most expensive option).
+// - document_classification is a trivial single-label task with no real quality differential
+//   between providers at this capability level - cheapest capable model wins (Gemini 3.5 Flash).
 // - poc_test_generation/poc_schedule_generation/poc_final_report_generation are the tasks this
 //   session's own hallucination fix (Fase H) was built around: they need to follow a strict
 //   "ground in real data or explicitly say you can't" instruction under pressure to produce a
@@ -97,7 +100,7 @@ const MODEL_OPTIONS_BY_PROVIDER: Record<string, Record<TaskCapability, string[]>
 const RECOMMENDED_MODEL: Record<string, { provider: string; model: string }> = {
   document_analysis: { provider: "anthropic", model: "claude-sonnet-5" },
   web_grounding: { provider: "gemini", model: "gemini-3.5-flash" },
-  spec_copilot: { provider: "gemini", model: "gemini-3.5-flash" },
+  spec_copilot: { provider: "openai", model: "gpt-4.1" },
   document_classification: { provider: "gemini", model: "gemini-3.5-flash" },
   poc_test_generation: { provider: "anthropic", model: "claude-sonnet-5" },
   poc_schedule_generation: { provider: "anthropic", model: "claude-sonnet-5" },

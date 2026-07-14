@@ -51,26 +51,68 @@ router.use("/:id", async (req: Request, res: Response, next: NextFunction) => {
   }
 });
 
-// Fase G: same keyword-extraction + IDF-weighted search already proven for BOM enrichment
-// (server/routes/analysis.ts) - minLength 3 on purpose, equipment specs in this domain are full
-// of short, highly-distinguishing acronyms (PTZ, DAI, DVR) a longer floor would drop. Only
-// counts approved entries (dbStore.searchApprovedKnowledgeBase's own WHERE clause) - a pending,
-// not-yet-reviewed datasheet extraction doesn't count as "we have knowledge" yet.
-async function countKnowledgeBaseMatches(name: string, manufacturer?: string): Promise<number> {
-  const keywords = extractKnowledgeBaseKeywords([name, manufacturer].filter(Boolean).join(" "), 25, 3);
-  if (keywords.length === 0) return 0;
-  const matches = await dbStore.searchApprovedKnowledgeBase(keywords, 10);
-  return matches.length;
+// Bug fix (2026-07-14, reported directly): the Portuguese acronym "DAI" (Detecção Automática de
+// Incidente) and its English original "AID" (Automatic Incident Detection) refer to the exact same
+// feature, but a literal substring search treats them as unrelated - a real, approved KB entry
+// describing the selected camera's AID/incident-detection event list ("detecção de veículo,
+// estacionamento ilegal, objetos caídos...") was never retrieved because it only ever spells it
+// "AID", while the POC's own objective (and the user's own language) says "DAI". Small, explicit,
+// extensible - not a general synonym engine, just the specific domain clash that broke a real POC.
+const DOMAIN_ACRONYM_SYNONYMS: Record<string, string[]> = {
+  dai: ["aid"],
+  aid: ["dai"],
+};
+
+function expandWithDomainSynonyms(keywords: string[]): string[] {
+  const expanded = new Set(keywords);
+  for (const kw of keywords) {
+    for (const syn of DOMAIN_ACRONYM_SYNONYMS[kw.toLowerCase()] || []) {
+      expanded.add(syn);
+    }
+  }
+  return Array.from(expanded);
 }
 
-// Fase H: real grounding for both AI generation routes below (test cases, schedule) - the actual
-// fix for the reported hallucination bug (asked to generate a test for "DAI", the model invented
-// plausible-sounding but fake metrics instead of drawing on the tenant's own Knowledge Base, which
-// DOES have real DAI entries once the equipment is linked - see countKnowledgeBaseMatches above).
-// Walks every equipment item on the POC (not just ones already flagged with kb_match_count > 0 -
-// approved entries can be added to the KB after the equipment item itself was created) and
-// collects the union of matching approved entries, deduplicated by id since the same entry can
-// legitimately match more than one piece of equipment (e.g. a shared VMS license).
+// Bug fix (2026-07-14, reported directly): searchApprovedKnowledgeBase's IDF weighting discounts
+// terms that are common ACROSS the whole matched set, but two different camera models from the
+// same manufacturer (here: the POC's actual DS-2DF8C448I5XG-ELW vs. an unrelated portable
+// iDS-MCD202-B, 19 vs. 24 approved KB rows respectively) both repeat "câmera"/"PTZ"/"Hikvision"
+// heavily - IDF alone can't tell those two products apart, only generic-vs-rare terms overall. The
+// wrong model (with MORE rows) ended up outranking the right one and got cited by name in
+// generated test cases. This filters candidates down to only entries that literally mention the
+// equipment's own identity (part number, or name if no part number is recorded) - a much stronger
+// guarantee than keyword overlap that a retrieved fact is actually ABOUT this exact piece of
+// equipment, not a same-brand relative of it.
+function filterByEquipmentIdentity<T extends { trigger: string; knowledge: string }>(matches: T[], item: { name: string; part_number?: string }): T[] {
+  const identityTerm = (item.part_number || item.name).trim().toLowerCase();
+  if (!identityTerm) return matches;
+  return matches.filter((m) => `${m.trigger} ${m.knowledge}`.toLowerCase().includes(identityTerm));
+}
+
+// Fase G: same keyword-extraction already proven for BOM enrichment (server/routes/analysis.ts) -
+// minLength 3 on purpose, equipment specs in this domain are full of short, highly-distinguishing
+// acronyms (PTZ, DAI, DVR) a longer floor would drop. Only counts approved entries
+// (dbStore.searchApprovedKnowledgeBase's own WHERE clause) - a pending, not-yet-reviewed datasheet
+// extraction doesn't count as "we have knowledge" yet. Identity-filtered (see
+// filterByEquipmentIdentity above) so the badge doesn't overcount matches that are actually about a
+// different, same-brand product.
+async function countKnowledgeBaseMatches(name: string, manufacturer?: string, partNumber?: string): Promise<number> {
+  const keywords = extractKnowledgeBaseKeywords([name, manufacturer].filter(Boolean).join(" "), 25, 3);
+  if (keywords.length === 0) return 0;
+  const matches = await dbStore.searchApprovedKnowledgeBase(keywords, 30);
+  return filterByEquipmentIdentity(matches, { name, part_number: partNumber }).length;
+}
+
+// Fase H: real grounding for both AI generation routes below (test cases, schedule, final report)
+// - the actual fix for the reported hallucination bug (asked to generate a test for "DAI", the
+// model invented plausible-sounding but fake metrics instead of drawing on the tenant's own
+// Knowledge Base, which DOES have real DAI/AID entries once the equipment is linked). Walks every
+// equipment item on the POC (not just ones already flagged with kb_match_count > 0 - approved
+// entries can be added to the KB after the equipment item itself was created), identity-filters
+// each item's own matches (see filterByEquipmentIdentity above - this is what stops a different
+// same-brand product's specs from being cited under the actually-selected model's name), and
+// collects the union, deduplicated by id since the same entry can legitimately match more than one
+// piece of equipment (e.g. a shared VMS license).
 async function getPocKnowledgeBaseContext(pocId: string): Promise<{ hasContext: boolean; contextText: string }> {
   const poc = await dbStore.getPoc(pocId);
   const items = await dbStore.getPocEquipmentItems(pocId);
@@ -85,14 +127,18 @@ async function getPocKnowledgeBaseContext(pocId: string): Promise<{ hasContext: 
   // (not a separate one) lets the existing IDF weighting in searchApprovedKnowledgeBase do its job:
   // "DAI" is rare across this equipment's many KB rows, so it outweighs generic terms shared by
   // most of them, pulling in the DAI/analytics-specific entries first instead of arbitrary ones.
-  const objectiveKeywords = poc ? extractKnowledgeBaseKeywords(poc.objective, 15, 3) : [];
+  const objectiveKeywords = expandWithDomainSynonyms(poc ? extractKnowledgeBaseKeywords(poc.objective, 15, 3) : []);
 
   for (const item of items) {
     const keywords = extractKnowledgeBaseKeywords([item.name, item.manufacturer].filter(Boolean).join(" "), 25, 3);
-    const combinedKeywords = Array.from(new Set([...objectiveKeywords, ...keywords]));
+    const combinedKeywords = expandWithDomainSynonyms(Array.from(new Set([...objectiveKeywords, ...keywords])));
     if (combinedKeywords.length === 0) continue;
-    const matches = await dbStore.searchApprovedKnowledgeBase(combinedKeywords, 6);
-    for (const m of matches) {
+    // Cast a wider net before filtering by identity below - many of these raw matches will get
+    // dropped for being about a different, same-brand product, so the pre-filter limit needs
+    // headroom (empirically: ~24 rows exist for a single unrelated product alone).
+    const rawMatches = await dbStore.searchApprovedKnowledgeBase(combinedKeywords, 30);
+    const matches = filterByEquipmentIdentity(rawMatches, item);
+    for (const m of matches.slice(0, 8)) {
       if (seenEntryIds.has(m.id)) continue;
       seenEntryIds.add(m.id);
       entries.push({ trigger: m.trigger, knowledge: m.knowledge });
@@ -427,7 +473,7 @@ router.post("/:id/equipment", requirePermission("poc:manage"), requireModule("po
       return res.status(404).json({ success: false, message: "POC not found" });
     }
 
-    const kbMatchCount = await countKnowledgeBaseMatches(validated.name, validated.manufacturer);
+    const kbMatchCount = await countKnowledgeBaseMatches(validated.name, validated.manufacturer, validated.part_number);
     const item = await dbStore.createPocEquipmentItem(req.params.id, { ...validated, kb_match_count: kbMatchCount });
     res.status(201).json(item);
   } catch (err) {
@@ -467,7 +513,7 @@ router.post("/:id/equipment/from-bom", requirePermission("poc:manage"), requireM
       return res.status(400).json({ success: false, message: "This BOM item was not found or has already been imported." });
     }
 
-    const kbMatchCount = await countKnowledgeBaseMatches(candidate.equipment_name, candidate.manufacturer);
+    const kbMatchCount = await countKnowledgeBaseMatches(candidate.equipment_name, candidate.manufacturer, candidate.part_number);
     const item = await dbStore.createPocEquipmentItem(req.params.id, {
       name: candidate.equipment_name,
       manufacturer: candidate.manufacturer || undefined,

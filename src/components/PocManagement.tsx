@@ -1131,6 +1131,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                       <Plus size={11} />
                       {c.equipment_name}
                       {c.manufacturer && <span className="text-slate-400 font-normal">· {c.manufacturer}</span>}
+                      {c.part_number && <span className="text-slate-400 font-normal font-mono">· PN {c.part_number}</span>}
                     </button>
                   ))}
                 </div>
