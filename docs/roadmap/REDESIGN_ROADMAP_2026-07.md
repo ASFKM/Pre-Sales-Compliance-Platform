@@ -333,7 +333,17 @@ visualmente nesta sessão — sem ferramenta de browser disponível, só a lógi
 drag aciona no `mouseup` foi testada de verdade. Recomendo uma passada manual no navegador antes de
 liberar esta fase para uso real.
 
-Faltam Fases E–F (Cadernos de Teste por IA, Aceite do Cliente).
+**Fase E concluída** (commit `868721b`, 2026-07-13): novo tipo de tarefa no orquestrador de IA
+(`poc_test_generation`), configurável no Admin Console ao lado dos 4 já existentes, respeitando o
+teto de custo mensal. "IA rascunha, humano valida": regenerar só substitui casos ainda não tocados
+por um humano. **Verificado com chamada de IA real** (não mockada) — a chave Gemini desta instalação
+está com crédito esgotado (limitação externa de billing), então o teste foi feito reconfigurando
+temporariamente para OpenAI gpt-4o-mini, confirmando o pipeline completo de ponta a ponta antes de
+reverter a configuração para o padrão. Bug real encontrado e corrigido: o prompt pedia array JSON na
+raiz, mas `generateJsonWithProvider` força `response_format: json_object` para OpenAI (exige objeto
+no nível superior) — toda chamada real via OpenAI quebrava com 502 até a correção.
+
+Faltam Fase F (Aceite do Cliente).
 **CRM** continua apenas nomeado, sem detalhe (fica para sessão futura dedicada).
 
 Dois módulos novos, ambos vendidos por assinatura separadamente (ligado à Fase 7 — um cliente pode
