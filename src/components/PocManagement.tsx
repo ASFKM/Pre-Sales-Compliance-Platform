@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Plus, X, ArrowLeft, Pen, Check, Trash2, Paperclip, TriangleAlert, Download } from "lucide-react";
-import { Poc, PocStatus, PocSuccessCriterion, PocEquipmentItem, PocEquipmentStatus, Project } from "../types";
+import { Plus, X, ArrowLeft, Pen, Check, Trash2, Paperclip, TriangleAlert, Download, PackageSearch, BookMarked, FileUp } from "lucide-react";
+import { Poc, PocStatus, PocSuccessCriterion, PocEquipmentItem, PocEquipmentStatus, PocBomCandidate, Project } from "../types";
 import ApiClient from "../lib/api";
 import PocGanttChart from "./PocGanttChart";
 import PocTestCases from "./PocTestCases";
@@ -129,8 +129,14 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
   const [loadingEquipment, setLoadingEquipment] = useState(false);
   const [newEquipmentName, setNewEquipmentName] = useState("");
   const [newEquipmentSerial, setNewEquipmentSerial] = useState("");
+  const [newEquipmentManufacturer, setNewEquipmentManufacturer] = useState("");
+  const [newEquipmentPartNumber, setNewEquipmentPartNumber] = useState("");
   const [addingEquipment, setAddingEquipment] = useState(false);
   const [uploadingInvoice, setUploadingInvoice] = useState<string | null>(null);
+  const [bomCandidates, setBomCandidates] = useState<PocBomCandidate[]>([]);
+  const [loadingBomCandidates, setLoadingBomCandidates] = useState(false);
+  const [importingBomItemId, setImportingBomItemId] = useState<string | null>(null);
+  const [uploadingDatasheet, setUploadingDatasheet] = useState<string | null>(null);
 
   const fetchPocs = async () => {
     setLoading(true);
@@ -176,6 +182,18 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
     }
   };
 
+  const fetchBomCandidates = async (pocId: string) => {
+    setLoadingBomCandidates(true);
+    try {
+      const data = await ApiClient.get<PocBomCandidate[]>(`/api/pocs/${pocId}/equipment/bom-candidates`);
+      setBomCandidates(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setBomCandidates([]);
+    } finally {
+      setLoadingBomCandidates(false);
+    }
+  };
+
   const openDetail = (poc: Poc) => {
     setSelectedPocId(poc.id);
     setIsEditing(false);
@@ -183,6 +201,9 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
     setDetailTab("overview");
     fetchCriteria(poc.id);
     fetchEquipment(poc.id);
+    if (poc.project_id) {
+      fetchBomCandidates(poc.id);
+    }
   };
 
   const backToList = () => {
@@ -191,6 +212,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
     setCriteria([]);
     setNewCriterionText("");
     setEquipment([]);
+    setBomCandidates([]);
   };
 
   const addEquipmentItem = async () => {
@@ -200,14 +222,46 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
       await ApiClient.post(`/api/pocs/${selectedPoc.id}/equipment`, {
         name: newEquipmentName.trim(),
         serial_number: newEquipmentSerial.trim() || undefined,
+        manufacturer: newEquipmentManufacturer.trim() || undefined,
+        part_number: newEquipmentPartNumber.trim() || undefined,
       });
       setNewEquipmentName("");
       setNewEquipmentSerial("");
+      setNewEquipmentManufacturer("");
+      setNewEquipmentPartNumber("");
       await fetchEquipment(selectedPoc.id);
     } catch (e: any) {
       alert(e.message || "Não foi possível adicionar o equipamento.");
     } finally {
       setAddingEquipment(false);
+    }
+  };
+
+  const importEquipmentFromBom = async (candidate: PocBomCandidate) => {
+    if (!selectedPoc) return;
+    setImportingBomItemId(candidate.bom_item_id);
+    try {
+      await ApiClient.post(`/api/pocs/${selectedPoc.id}/equipment/from-bom`, { bom_item_id: candidate.bom_item_id });
+      await Promise.all([fetchEquipment(selectedPoc.id), fetchBomCandidates(selectedPoc.id)]);
+    } catch (e: any) {
+      alert(e.message || "Não foi possível importar o item do BOM.");
+    } finally {
+      setImportingBomItemId(null);
+    }
+  };
+
+  const uploadDatasheet = async (item: PocEquipmentItem, file: File) => {
+    if (!selectedPoc) return;
+    setUploadingDatasheet(item.id);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      await ApiClient.post(`/api/pocs/${selectedPoc.id}/equipment/${item.id}/datasheet`, formData);
+      await fetchEquipment(selectedPoc.id);
+    } catch (e: any) {
+      alert(e.message || "Não foi possível enviar o datasheet.");
+    } finally {
+      setUploadingDatasheet(null);
     }
   };
 
@@ -644,6 +698,8 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                   <tr>
                     <th className="py-2 pr-3">Equipamento</th>
                     <th className="py-2 pr-3">Status</th>
+                    <th className="py-2 pr-3">Base de Conhecimento</th>
+                    <th className="py-2 pr-3">Datasheet</th>
                     <th className="py-2 pr-3">NF de envio</th>
                     <th className="py-2 pr-3">NF de devolução</th>
                     {canManage && <th className="py-2 pr-3 text-right">Ações</th>}
@@ -671,6 +727,41 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                           <span className={`text-[11px] font-semibold rounded-full px-2 py-1 ${EQUIPMENT_STATUS_COLOR[item.status]}`}>
                             {EQUIPMENT_STATUS_LABEL[item.status]}
                           </span>
+                        )}
+                      </td>
+                      <td className="py-2.5 pr-3">
+                        {item.kb_match_count > 0 ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 rounded-full px-2 py-1" title="Casos de teste e cronograma são gerados com base neste conhecimento">
+                            <BookMarked size={11} />
+                            {item.kb_match_count} {item.kb_match_count === 1 ? "referência" : "referências"}
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-slate-300">sem correspondência</span>
+                        )}
+                      </td>
+                      <td className="py-2.5 pr-3">
+                        {item.datasheet_knowledge_base_document_id ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 rounded-md px-2 py-1">
+                            <Check size={11} />
+                            Enviado
+                          </span>
+                        ) : canManage ? (
+                          <label className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 border border-dashed border-slate-300 rounded-md px-2 py-1 cursor-pointer hover:bg-slate-50">
+                            <FileUp size={11} />
+                            {uploadingDatasheet === item.id ? "Enviando..." : "Anexar"}
+                            <input
+                              type="file"
+                              className="hidden"
+                              disabled={uploadingDatasheet === item.id}
+                              onChange={(e) => {
+                                const f = e.target.files?.[0];
+                                if (f) uploadDatasheet(item, f);
+                                e.target.value = "";
+                              }}
+                            />
+                          </label>
+                        ) : (
+                          <span className="text-[11px] text-slate-300">pendente</span>
                         )}
                       </td>
                       {(["shipping", "return"] as const).map((which) => {
@@ -718,7 +809,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                   ))}
                   {equipment.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="py-4 text-center text-slate-400 italic">Nenhum equipamento registrado ainda.</td>
+                      <td colSpan={7} className="py-4 text-center text-slate-400 italic">Nenhum equipamento registrado ainda.</td>
                     </tr>
                   )}
                 </tbody>
@@ -726,16 +817,55 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
             </div>
           )}
 
+          {canManage && selectedPoc.project_id && (bomCandidates.length > 0 || loadingBomCandidates) && (
+            <div className="pt-2 border-t border-slate-100 space-y-2">
+              <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider font-mono text-slate-700">
+                <PackageSearch size={13} />
+                Adicionar do BOM do projeto
+              </div>
+              {loadingBomCandidates ? (
+                <p className="text-xs text-slate-400">Carregando itens do BOM...</p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {bomCandidates.map((c) => (
+                    <button
+                      key={c.bom_item_id}
+                      onClick={() => importEquipmentFromBom(c)}
+                      disabled={importingBomItemId === c.bom_item_id}
+                      className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-700 bg-slate-50 border border-slate-200 rounded-md px-2.5 py-1.5 hover:bg-slate-100 disabled:opacity-60"
+                    >
+                      <Plus size={11} />
+                      {c.equipment_name}
+                      {c.manufacturer && <span className="text-slate-400 font-normal">· {c.manufacturer}</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {canManage && (
-            <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
               <input
-                className="flex-1 p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs"
+                className="flex-1 min-w-[180px] p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs"
                 placeholder="Nome do equipamento (ex: Firewall NGFW XG-3400)"
                 value={newEquipmentName}
                 onChange={(e) => setNewEquipmentName(e.target.value)}
               />
               <input
-                className="w-40 p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs"
+                className="w-32 p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs"
+                placeholder="Fabricante (opcional)"
+                value={newEquipmentManufacturer}
+                onChange={(e) => setNewEquipmentManufacturer(e.target.value)}
+              />
+              <input
+                className="w-32 p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs"
+                placeholder="Part number (opcional)"
+                value={newEquipmentPartNumber}
+                onChange={(e) => setNewEquipmentPartNumber(e.target.value)}
+              />
+              <input
+                className="w-32 p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs"
                 placeholder="Serial (opcional)"
                 value={newEquipmentSerial}
                 onChange={(e) => setNewEquipmentSerial(e.target.value)}

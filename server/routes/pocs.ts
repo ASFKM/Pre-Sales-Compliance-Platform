@@ -16,6 +16,8 @@ import { generateJsonWithProvider } from "../utils/aiProviders";
 import { estimateCostUsd } from "../utils/aiPricing";
 import { prisma } from "../../src/prisma";
 import { FACTORY_DEFAULT_POC_TEST_GENERATION_PROMPT } from "../utils/promptDefaults";
+import { extractKnowledgeBaseKeywords } from "./analysis";
+import { triggerKnowledgeBaseAnalysis } from "./knowledgeBase";
 
 const router = express.Router();
 
@@ -24,6 +26,18 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
 });
+
+// Fase G: same keyword-extraction + IDF-weighted search already proven for BOM enrichment
+// (server/routes/analysis.ts) - minLength 3 on purpose, equipment specs in this domain are full
+// of short, highly-distinguishing acronyms (PTZ, DAI, DVR) a longer floor would drop. Only
+// counts approved entries (dbStore.searchApprovedKnowledgeBase's own WHERE clause) - a pending,
+// not-yet-reviewed datasheet extraction doesn't count as "we have knowledge" yet.
+async function countKnowledgeBaseMatches(name: string, manufacturer?: string): Promise<number> {
+  const keywords = extractKnowledgeBaseKeywords([name, manufacturer].filter(Boolean).join(" "), 25, 3);
+  if (keywords.length === 0) return 0;
+  const matches = await dbStore.searchApprovedKnowledgeBase(keywords, 10);
+  return matches.length;
+}
 
 const PocStatusEnum = z.enum(["planned", "in_progress", "blocked", "completed_won", "completed_lost"]);
 
@@ -255,14 +269,68 @@ router.get("/:id/equipment", requirePermission("poc:read"), requireModule("poc")
 
 router.post("/:id/equipment", requirePermission("poc:manage"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const validated = z.object({ name: z.string().min(2, "Name is required"), serial_number: z.string().optional() }).parse(req.body);
+    const validated = z
+      .object({
+        name: z.string().min(2, "Name is required"),
+        serial_number: z.string().optional(),
+        manufacturer: z.string().optional(),
+        part_number: z.string().optional(),
+      })
+      .parse(req.body);
 
     const poc = await dbStore.getPoc(req.params.id);
     if (!poc) {
       return res.status(404).json({ success: false, message: "POC not found" });
     }
 
-    const item = await dbStore.createPocEquipmentItem(req.params.id, validated);
+    const kbMatchCount = await countKnowledgeBaseMatches(validated.name, validated.manufacturer);
+    const item = await dbStore.createPocEquipmentItem(req.params.id, { ...validated, kb_match_count: kbMatchCount });
+    res.status(201).json(item);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ success: false, message: err.issues[0].message });
+    }
+    next(err);
+  }
+});
+
+// Fase G: BOM items from the linked Project not yet imported as equipment for this POC.
+router.get("/:id/equipment/bom-candidates", requirePermission("poc:read"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const poc = await dbStore.getPoc(req.params.id);
+    if (!poc) {
+      return res.status(404).json({ success: false, message: "POC not found" });
+    }
+    const candidates = await dbStore.getPocBomCandidates(req.params.id);
+    res.json(candidates);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/:id/equipment/from-bom", requirePermission("poc:manage"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { bom_item_id } = z.object({ bom_item_id: z.string().min(1) }).parse(req.body);
+
+    const poc = await dbStore.getPoc(req.params.id);
+    if (!poc) {
+      return res.status(404).json({ success: false, message: "POC not found" });
+    }
+
+    const candidates = await dbStore.getPocBomCandidates(req.params.id);
+    const candidate = candidates.find((c) => c.bom_item_id === bom_item_id);
+    if (!candidate) {
+      return res.status(400).json({ success: false, message: "This BOM item was not found or has already been imported." });
+    }
+
+    const kbMatchCount = await countKnowledgeBaseMatches(candidate.equipment_name, candidate.manufacturer);
+    const item = await dbStore.createPocEquipmentItem(req.params.id, {
+      name: candidate.equipment_name,
+      manufacturer: candidate.manufacturer || undefined,
+      part_number: candidate.part_number || undefined,
+      source_bom_item_id: candidate.bom_item_id,
+      kb_match_count: kbMatchCount,
+    });
     res.status(201).json(item);
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -422,6 +490,77 @@ function downloadInvoiceHandler(which: "shipping" | "return") {
 
 router.get("/:id/equipment/:itemId/shipping-invoice", requirePermission("poc:read"), requireModule("poc"), downloadInvoiceHandler("shipping"));
 router.get("/:id/equipment/:itemId/return-invoice", requirePermission("poc:read"), requireModule("poc"), downloadInvoiceHandler("return"));
+
+// Fase G: datasheet upload. Unlike the NF (a private per-item fiscal document), a datasheet is
+// reusable knowledge - it's stored via the exact same pipeline as a normal Knowledge Base upload
+// (createStorageAdapter + dbStore.createKnowledgeBaseDocument), only additionally linked back onto
+// the equipment item so the UI can show "datasheet enviado", and immediately queued into the same
+// AI analysis background task the Base de Conhecimento screen uses - the extracted entries land as
+// "pending" like any other upload, subject to the same admin approval gate, not auto-approved just
+// because they came in through the POC screen.
+router.post(
+  "/:id/equipment/:itemId/datasheet",
+  requirePermission("poc:manage"),
+  requireModule("poc"),
+  upload.single("file"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const file = req.file;
+      if (!file) {
+        return res.status(400).json({ success: false, message: "No file was uploaded." });
+      }
+
+      const validation = validateUploadedFile(file.originalname, file.mimetype, file.size);
+      if (!validation.valid) {
+        return res.status(400).json({ success: false, message: validation.error });
+      }
+
+      const tenantId = req.headers["x-tenant-id"] as string;
+      const userId = requireUserId(req);
+
+      const updated = await runWithTenant({ tenantId }, async () => {
+        const items = await dbStore.getPocEquipmentItems(req.params.id);
+        if (!items.some((i) => i.id === req.params.itemId)) {
+          return null;
+        }
+
+        const settings = await dbStore.getSettings();
+        const storageAdapter = createStorageAdapter(settings);
+        const storagePath = await storageAdapter.uploadFile("knowledge-base", file.buffer, file.originalname, file.mimetype);
+
+        const doc = await dbStore.createKnowledgeBaseDocument({
+          filename: file.originalname,
+          original_filename: file.originalname,
+          mime_type: file.mimetype,
+          file_size: file.size,
+          storage_provider: settings.storage_mode,
+          storage_path: storagePath,
+          uploaded_by: userId,
+        });
+
+        return dbStore.updatePocEquipmentItem(req.params.itemId, { datasheet_knowledge_base_document_id: doc.id });
+      });
+
+      if (!updated) {
+        return res.status(404).json({ success: false, message: "Equipment item not found for this POC." });
+      }
+
+      // Best-effort: a datasheet that fails to queue for analysis (e.g. cost cap reached) still
+      // got uploaded and linked above - the admin can always retry from the Base de Conhecimento
+      // screen's own "Analisar documentos" action, so this isn't surfaced as a failure of the
+      // upload itself.
+      try {
+        await triggerKnowledgeBaseAnalysis(tenantId, userId, req.log);
+      } catch (analysisErr) {
+        req.log?.warn({ err: analysisErr }, "Failed to auto-queue datasheet for Knowledge Base analysis");
+      }
+
+      res.json(updated);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 // Cronograma (Fase D) - tasks with a single-predecessor finish-to-start dependency chain. Dates
 // stay simple ISO day strings (like everywhere else in this file); the Gantt itself does all the

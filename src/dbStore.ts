@@ -9,6 +9,7 @@ import {
   Poc,
   PocSuccessCriterion,
   PocEquipmentItem,
+  PocBomCandidate,
   PocTask,
   PocTestCase,
   PocAcceptance,
@@ -136,6 +137,11 @@ function mapPocEquipmentItem(e: any): PocEquipmentItem {
     name: e.name,
     serial_number: e.serialNumber ?? undefined,
     status: e.status,
+    manufacturer: e.manufacturer ?? undefined,
+    part_number: e.partNumber ?? undefined,
+    source_bom_item_id: e.sourceBomItemId ?? undefined,
+    kb_match_count: e.kbMatchCount,
+    datasheet_knowledge_base_document_id: e.datasheetKnowledgeBaseDocumentId ?? undefined,
     shipping_invoice_original_filename: e.shippingInvoiceOriginalFilename ?? undefined,
     return_invoice_original_filename: e.returnInvoiceOriginalFilename ?? undefined,
     created_at: e.createdAt.toISOString(),
@@ -934,7 +940,43 @@ class DBStore {
     return rows.map(mapPocEquipmentItem);
   }
 
-  public async createPocEquipmentItem(pocId: string, item: { name: string; serial_number?: string }): Promise<PocEquipmentItem> {
+  // BOM items from the POC's linked Project (if any) not yet imported as equipment - the BOM
+  // itself lives as a JSON blob on AnalysisResult (one per project, see getAnalysisResult), not a
+  // table, so "already imported" is tracked via PocEquipmentItem.sourceBomItemId rather than a
+  // real foreign key.
+  public async getPocBomCandidates(pocId: string): Promise<PocBomCandidate[]> {
+    const poc = await this.getPoc(pocId);
+    if (!poc?.project_id) return [];
+
+    const analysis = await this.getAnalysisResult(poc.project_id);
+    if (!analysis?.bom?.length) return [];
+
+    const existing = await this.getPocEquipmentItems(pocId);
+    const importedBomItemIds = new Set(existing.map((e) => e.source_bom_item_id).filter(Boolean));
+
+    return analysis.bom
+      .filter((item) => !importedBomItemIds.has(item.item_id))
+      .map((item) => ({
+        bom_item_id: item.item_id,
+        equipment_name: item.equipment_name,
+        manufacturer: item.manufacturer,
+        part_number: item.part_number,
+        quantity: item.quantity,
+        specification: item.specification,
+      }));
+  }
+
+  public async createPocEquipmentItem(
+    pocId: string,
+    item: {
+      name: string;
+      serial_number?: string;
+      manufacturer?: string;
+      part_number?: string;
+      source_bom_item_id?: string;
+      kb_match_count?: number;
+    }
+  ): Promise<PocEquipmentItem> {
     const e = await prisma.pocEquipmentItem.create({
       data: {
         id: randomId("equip"),
@@ -942,6 +984,10 @@ class DBStore {
         pocId,
         name: item.name,
         serialNumber: item.serial_number,
+        manufacturer: item.manufacturer,
+        partNumber: item.part_number,
+        sourceBomItemId: item.source_bom_item_id,
+        kbMatchCount: item.kb_match_count ?? 0,
       },
     });
     return mapPocEquipmentItem(e);
@@ -949,7 +995,13 @@ class DBStore {
 
   public async updatePocEquipmentItem(
     id: string,
-    updates: { name?: string; serial_number?: string; status?: PocEquipmentItem["status"] }
+    updates: {
+      name?: string;
+      serial_number?: string;
+      status?: PocEquipmentItem["status"];
+      kb_match_count?: number;
+      datasheet_knowledge_base_document_id?: string;
+    }
   ): Promise<PocEquipmentItem | undefined> {
     const exists = await prisma.pocEquipmentItem.findUnique({ where: { id } });
     if (!exists) return undefined;
@@ -960,6 +1012,8 @@ class DBStore {
         name: updates.name,
         serialNumber: updates.serial_number,
         status: updates.status,
+        kbMatchCount: updates.kb_match_count,
+        datasheetKnowledgeBaseDocumentId: updates.datasheet_knowledge_base_document_id,
       },
     });
     return mapPocEquipmentItem(e);

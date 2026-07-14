@@ -411,6 +411,29 @@ model PocEquipmentItem {
   serialNumber String?            @map("serial_number")
   status       PocEquipmentStatus @default(shipped)
 
+  // Fase G: populated when the item was imported from the linked Project's BOM instead of typed
+  // manually - manufacturer/partNumber travel with it since the BOM already has them, and
+  // sourceBomItemId (the BOMItem.item_id, not a DB foreign key - the BOM itself is a JSON blob on
+  // AnalysisResult, not a table) is how "already imported" candidates get filtered out of the
+  // picker on a second visit.
+  manufacturer    String? @map("manufacturer")
+  partNumber      String? @map("part_number")
+  sourceBomItemId String? @map("source_bom_item_id")
+
+  // Fase G: cached count from the last dbStore.searchApprovedKnowledgeBase() run against this
+  // item's name/manufacturer (same IDF-weighted search BOM enrichment already uses) - just enough
+  // for the UI badge ("3 entradas encontradas"). Fase H re-runs the real search fresh at
+  // generation time rather than trusting this cached number, so it never goes stale in a way that
+  // matters - this field existing at all is a UI nicety, not the source of truth.
+  kbMatchCount Int @default(0) @map("kb_match_count")
+
+  // Fase G: the datasheet becomes a real, reusable KnowledgeBaseDocument (same upload/analyze
+  // pipeline as the general Base de Conhecimento screen) rather than a private attachment on this
+  // one POC - onDelete: SetNull because deleting the equipment item should never delete
+  // knowledge other POCs/analyses may already depend on.
+  datasheetKnowledgeBaseDocumentId String?                @map("datasheet_knowledge_base_document_id")
+  datasheetDocument                KnowledgeBaseDocument? @relation(fields: [datasheetKnowledgeBaseDocumentId], references: [id], onDelete: SetNull)
+
   shippingInvoiceStorageProvider   StorageProvider? @map("shipping_invoice_storage_provider")
   shippingInvoiceStoragePath       String?          @map("shipping_invoice_storage_path")
   shippingInvoiceOriginalFilename  String?          @map("shipping_invoice_original_filename")
@@ -423,6 +446,7 @@ model PocEquipmentItem {
 
   @@index([tenantId])
   @@index([pocId])
+  @@index([datasheetKnowledgeBaseDocumentId])
   @@map("poc_equipment_items")
 }
 
@@ -1061,6 +1085,8 @@ model KnowledgeBaseDocument {
   uploadedBy       String          @map("uploaded_by")
   analyzedAt       DateTime?       @map("analyzed_at")
   createdAt        DateTime        @default(now()) @map("created_at")
+
+  pocEquipmentItems PocEquipmentItem[]
 
   @@index([tenantId])
   @@map("knowledge_base_documents")

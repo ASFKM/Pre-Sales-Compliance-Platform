@@ -267,56 +267,53 @@ router.delete("/knowledge-base/documents/:id", requirePermission("knowledge_base
 // main analysis route - some real datasheets have no extractable text layer) and asks the AI to
 // propose multiple knowledge base entries per document. Runs as a background task since a batch
 // of real datasheets can take a while, same pattern as document_analysis.
-router.post("/knowledge-base/documents/analyze", requirePermission("knowledge_base:write"), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const tenantId = req.headers["x-tenant-id"] as string;
-    const tenantContext = { tenantId };
-    const userId = requireUserId(req);
+//
+// Pulled out of the route handler (Fase G) so server/routes/pocs.ts can kick off the exact same
+// pipeline right after an equipment datasheet upload, instead of duplicating this whole AI loop -
+// the route below is now just this function plus the HTTP plumbing (status codes, res.json).
+export async function triggerKnowledgeBaseAnalysis(tenantId: string, userId: string, log?: { warn: Function; error: Function }): Promise<{ taskId: string } | { noPendingDocs: true } | { capBlocked: string }> {
+  const tenantContext = { tenantId };
 
-    const allDocs = await dbStore.getKnowledgeBaseDocuments();
-    const pendingDocs = allDocs.filter((d) => !d.analyzed_at);
-    if (pendingDocs.length === 0) {
-      return res.status(400).json({ success: false, message: "Nenhum documento novo para analisar." });
-    }
+  const allDocs = await dbStore.getKnowledgeBaseDocuments();
+  const pendingDocs = allDocs.filter((d) => !d.analyzed_at);
+  if (pendingDocs.length === 0) {
+    return { noPendingDocs: true };
+  }
 
-    const platformSettingsForCap = await dbStore.getSettings();
-    const costCap = await checkCostCap(tenantId, platformSettingsForCap.monthly_cost_cap_usd ?? null);
-    if (costCap.blocked) {
-      return res.status(402).json({
-        success: false,
-        message: `Monthly AI cost cap reached ($${costCap.currentSpendUsd.toFixed(2)} of $${costCap.capUsd?.toFixed(2)}). Try again next month or raise the cap in Admin > AI, Prompts e Custos.`
-      });
-    }
+  const platformSettingsForCap = await dbStore.getSettings();
+  const costCap = await checkCostCap(tenantId, platformSettingsForCap.monthly_cost_cap_usd ?? null);
+  if (costCap.blocked) {
+    return { capBlocked: `Monthly AI cost cap reached ($${costCap.currentSpendUsd.toFixed(2)} of $${costCap.capUsd?.toFixed(2)}). Try again next month or raise the cap in Admin > AI, Prompts e Custos.` };
+  }
 
-    const task = await createTask({ userId, type: "knowledge_base_analysis", currentStep: "Iniciando análise da Base de Conhecimento..." });
-    res.status(202).json({ success: true, task_id: task.id });
+  const task = await createTask({ userId, type: "knowledge_base_analysis", currentStep: "Iniciando análise da Base de Conhecimento..." });
 
-    void runWithTenant(tenantContext, async () => {
-      try {
-        const platformSettings = await dbStore.getSettings();
-        const providerResolution = await resolveProvider("document_analysis", platformSettings);
-        const storageAdapter = createStorageAdapter(platformSettings);
-        let createdCount = 0;
+  void runWithTenant(tenantContext, async () => {
+    try {
+      const platformSettings = await dbStore.getSettings();
+      const providerResolution = await resolveProvider("document_analysis", platformSettings);
+      const storageAdapter = createStorageAdapter(platformSettings);
+      let createdCount = 0;
 
-        for (let i = 0; i < pendingDocs.length; i++) {
-          const doc = pendingDocs[i];
-          await updateTaskProgress(task.id, {
-            status: "running",
-            currentStep: `Analisando ${doc.original_filename} (${i + 1}/${pendingDocs.length})`,
-            progressPct: Math.round(((i + 0.5) / pendingDocs.length) * 90),
-          });
+      for (let i = 0; i < pendingDocs.length; i++) {
+        const doc = pendingDocs[i];
+        await updateTaskProgress(task.id, {
+          status: "running",
+          currentStep: `Analisando ${doc.original_filename} (${i + 1}/${pendingDocs.length})`,
+          progressPct: Math.round(((i + 0.5) / pendingDocs.length) * 90),
+        });
 
-          const files: ProviderFileInput[] = [];
-          let combinedText = "";
-          if (VISION_MIME_TYPES.has(doc.mime_type)) {
-            const buffer = await storageAdapter.readFile(doc.storage_path);
-            files.push({ mimeType: doc.mime_type, base64Data: buffer.toString("base64") });
-          } else {
-            const buffer = await storageAdapter.readFile(doc.storage_path);
-            combinedText = buffer.toString("utf-8").slice(0, 40000);
-          }
+        const files: ProviderFileInput[] = [];
+        let combinedText = "";
+        if (VISION_MIME_TYPES.has(doc.mime_type)) {
+          const buffer = await storageAdapter.readFile(doc.storage_path);
+          files.push({ mimeType: doc.mime_type, base64Data: buffer.toString("base64") });
+        } else {
+          const buffer = await storageAdapter.readFile(doc.storage_path);
+          combinedText = buffer.toString("utf-8").slice(0, 40000);
+        }
 
-          const prompt = `You are extracting reusable technical knowledge from a reference document (manufacturer
+        const prompt = `You are extracting reusable technical knowledge from a reference document (manufacturer
 datasheet, technical catalog, compliance standard, price list, etc.) to seed a knowledge base
 that future tender analyses can draw on.
 
@@ -331,51 +328,68 @@ useful). "knowledge" is the fact/recommendation itself.
 Respond with ONLY a JSON array (no markdown, no extra text):
 [{ "category": "bom_part_number" | "engineering_note", "trigger": "...", "knowledge": "..." }]`;
 
-          try {
-            const { text, inputTokens, outputTokens } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt, files);
-            await recordAiUsage({
-              tenantId,
-              taskType: "knowledge_base_analysis",
-              provider: providerResolution.provider,
-              model: providerResolution.model,
-              estimatedCostUsd: estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
-              backgroundTaskId: task.id,
+        try {
+          const { text, inputTokens, outputTokens } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt, files);
+          await recordAiUsage({
+            tenantId,
+            taskType: "knowledge_base_analysis",
+            provider: providerResolution.provider,
+            model: providerResolution.model,
+            estimatedCostUsd: estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
+            backgroundTaskId: task.id,
+          });
+          const fenceMatch = text.match(/```json\s*([\s\S]*?)```/);
+          const rawJson = fenceMatch ? fenceMatch[1] : text.slice(text.indexOf("["));
+          const proposals: Array<{ category: string; trigger: string; knowledge: string }> = JSON.parse(rawJson.trim());
+
+          for (const p of proposals) {
+            // Was collapsing anything that wasn't literally "bom_part_number" (including the
+            // prompt's OTHER valid option, "engineering_note") into "datasheet" - the ternary
+            // only ever recognized one of the two categories the prompt itself asks for.
+            const category = p.category === "bom_part_number" || p.category === "engineering_note" ? p.category : "datasheet";
+            await dbStore.createKnowledgeBaseEntry({
+              category: category as any,
+              trigger: p.trigger,
+              knowledge: p.knowledge,
+              status: "pending",
+              source: "uploaded_document",
+              source_document_id: doc.id,
+              source_document_name: doc.original_filename,
+              created_by: userId,
             });
-            const fenceMatch = text.match(/```json\s*([\s\S]*?)```/);
-            const rawJson = fenceMatch ? fenceMatch[1] : text.slice(text.indexOf("["));
-            const proposals: Array<{ category: string; trigger: string; knowledge: string }> = JSON.parse(rawJson.trim());
-
-            for (const p of proposals) {
-              // Was collapsing anything that wasn't literally "bom_part_number" (including the
-              // prompt's OTHER valid option, "engineering_note") into "datasheet" - the ternary
-              // only ever recognized one of the two categories the prompt itself asks for.
-              const category = p.category === "bom_part_number" || p.category === "engineering_note" ? p.category : "datasheet";
-              await dbStore.createKnowledgeBaseEntry({
-                category: category as any,
-                trigger: p.trigger,
-                knowledge: p.knowledge,
-                status: "pending",
-                source: "uploaded_document",
-                source_document_id: doc.id,
-                source_document_name: doc.original_filename,
-                created_by: userId,
-              });
-              createdCount++;
-            }
-          } catch (docErr: any) {
-            // One unreadable/unparsable document shouldn't abort the whole batch.
-            req.log?.warn({ err: docErr, documentId: doc.id }, "Knowledge base analysis failed for document");
+            createdCount++;
           }
-
-          await dbStore.markKnowledgeBaseDocumentAnalyzed(doc.id);
+        } catch (docErr: any) {
+          // One unreadable/unparsable document shouldn't abort the whole batch.
+          log?.warn({ err: docErr, documentId: doc.id }, "Knowledge base analysis failed for document");
         }
 
-        await completeTask(task.id, { resultType: "knowledge_base", resultId: `created_${createdCount}` });
-      } catch (err: any) {
-        req.log?.error({ err, taskId: task.id }, "Knowledge base document analysis failed");
-        await failTask(task.id, err.message || "Erro desconhecido ao analisar documentos.");
+        await dbStore.markKnowledgeBaseDocumentAnalyzed(doc.id);
       }
-    });
+
+      await completeTask(task.id, { resultType: "knowledge_base", resultId: `created_${createdCount}` });
+    } catch (err: any) {
+      log?.error({ err, taskId: task.id }, "Knowledge base document analysis failed");
+      await failTask(task.id, err.message || "Erro desconhecido ao analisar documentos.");
+    }
+  });
+
+  return { taskId: task.id };
+}
+
+router.post("/knowledge-base/documents/analyze", requirePermission("knowledge_base:write"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.headers["x-tenant-id"] as string;
+    const userId = requireUserId(req);
+
+    const result = await triggerKnowledgeBaseAnalysis(tenantId, userId, req.log);
+    if ("noPendingDocs" in result) {
+      return res.status(400).json({ success: false, message: "Nenhum documento novo para analisar." });
+    }
+    if ("capBlocked" in result) {
+      return res.status(402).json({ success: false, message: result.capBlocked });
+    }
+    res.status(202).json({ success: true, task_id: result.taskId });
   } catch (err) {
     next(err);
   }
