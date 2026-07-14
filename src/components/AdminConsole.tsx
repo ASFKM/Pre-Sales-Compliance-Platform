@@ -262,6 +262,12 @@ export default function AdminConsole({
   // signature-verified source as "Assinatura e Licença" above, not a local guess.
   const pocModuleEnabled = fleetLicenseStatus?.modules?.includes("poc") ?? false;
 
+  // ia_kb add-on: when active, this tenant's AI calls route through the Fleet Manager's own
+  // managed-key proxy (server/utils/aiProviders.ts) - the key-configuration UI below has nothing
+  // to configure anymore (the tenant's own keys were cleared on activation), and provider/model
+  // per task becomes read-only display instead of an editable combobox.
+  const iaKbModuleEnabled = fleetLicenseStatus?.modules?.includes("ia_kb") ?? false;
+
   const [costUSD, setCostUSD] = useState(0);
   const [costByTaskTypeAndProvider, setCostByTaskTypeAndProvider] = useState<Record<string, Record<string, number>>>({});
   const exchangeRate = 5.15; // 1 USD = 5.15 BRL (approximate, not live-fetched)
@@ -274,6 +280,22 @@ export default function AdminConsole({
       })
       .catch(() => { setCostUSD(0); setCostByTaskTypeAndProvider({}); });
   }, []);
+
+  interface IaKbBillingSnapshot {
+    markup_percent: number;
+    cycle_start: string | null;
+    cycle_billed_cost_usd: number;
+    cycle_call_count: number;
+    next_due_date: string | null;
+    last_synced_at: string;
+  }
+  const [iaKbBilling, setIaKbBilling] = useState<IaKbBillingSnapshot | null>(null);
+  useEffect(() => {
+    if (!iaKbModuleEnabled) return;
+    ApiClient.get<IaKbBillingSnapshot | null>("/api/settings/iakb-billing")
+      .then(setIaKbBilling)
+      .catch(() => setIaKbBilling(null));
+  }, [iaKbModuleEnabled]);
   const [aiKeyDrafts, setAiKeyDrafts] = useState<Record<string, string>>({ gemini: "", openai: "", anthropic: "" });
   const [showAddProviderForm, setShowAddProviderForm] = useState(false);
   const [newProviderKey, setNewProviderKey] = useState("");
@@ -1033,6 +1055,20 @@ export default function AdminConsole({
                         {locale === "pt" ? "Modelos e Provedores de IA" : "AI Models and Providers"}
                       </h3>
 
+                      {iaKbModuleEnabled && (
+                        <div className="p-3 rounded-lg border bg-blue-50 border-blue-200 text-blue-800">
+                          <p className="text-[10px] uppercase font-bold tracking-wider font-mono">
+                            {locale === "pt" ? "Add-on IA/KB ativo" : "IA/KB add-on active"}
+                          </p>
+                          <p className="text-[11px] mt-1">
+                            {locale === "pt"
+                              ? "As chaves de API são gerenciadas pela AI Pre-Sales Solutions enquanto este add-on estiver ativo - não há nada para configurar aqui. O consumo é medido e aparece na tabela de cobrança abaixo."
+                              : "API keys are managed by AI Pre-Sales Solutions while this add-on is active - there's nothing to configure here. Usage is metered and shown in the billing table below."}
+                          </p>
+                        </div>
+                      )}
+
+                      {!iaKbModuleEnabled && (<>
                       <div className="space-y-3">
                         {PROVIDER_STATUS.map((prov) => (
                           <div key={prov.id} className={`p-3 rounded-lg border ${prov.configured ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-amber-50 border-amber-200 text-amber-800"}`}>
@@ -1227,6 +1263,7 @@ export default function AdminConsole({
                           </div>
                         )}
                       </div>
+                      </>)}
 
                       <div className="pt-3 border-t border-slate-100 space-y-3">
                         <div>
@@ -1258,6 +1295,17 @@ export default function AdminConsole({
                             return (
                               <div key={field}>
                                 <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{label}</label>
+                                {iaKbModuleEnabled ? (
+                                  // Read-only with the add-on active - the provider/model choice still
+                                  // decides which built-in provider the Fleet Manager's proxy uses, but
+                                  // it's no longer something to edit here (see the info panel above this
+                                  // section) - shown as plain text for conference only.
+                                  <div className="p-2 rounded bg-slate-50 border border-slate-200 text-xs">
+                                    <span className="font-semibold text-slate-700">{PROVIDER_DISPLAY_NAME[currentProvider] || currentProvider}</span>
+                                    <span className="text-slate-400"> · </span>
+                                    <span className="font-mono text-slate-600">{currentModel || "-"}</span>
+                                  </div>
+                                ) : (
                                 <div className="flex gap-2">
                                   <select
                                     value={currentProvider}
@@ -1295,6 +1343,7 @@ export default function AdminConsole({
                                     ))}
                                   </select>
                                 </div>
+                                )}
                                 {RECOMMENDED_MODEL[taskKey] && (() => {
                                   const rec = RECOMMENDED_MODEL[taskKey];
                                   const isRecommended = currentProvider === rec.provider && currentModel === rec.model;
@@ -1359,6 +1408,51 @@ export default function AdminConsole({
                         </div>
                       </div>
                     </div>
+
+                    {iaKbModuleEnabled && (
+                      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
+                        <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
+                          {locale === "pt" ? "Consumo e Cobrança (Add-on IA/KB)" : "Usage and Billing (IA/KB Add-on)"}
+                        </h3>
+                        {iaKbBilling ? (
+                          <>
+                            <div className="grid grid-cols-2 gap-4 font-mono text-xs">
+                              <div className="p-3 bg-slate-50 border border-slate-100 rounded-lg">
+                                <span className="text-[9px] text-slate-400 block uppercase">{locale === "pt" ? "Chamadas no Ciclo" : "Calls This Cycle"}</span>
+                                <span className="text-lg font-bold text-slate-800 mt-1 block">{iaKbBilling.cycle_call_count}</span>
+                              </div>
+                              <div className="p-3 bg-slate-50 border border-slate-100 rounded-lg">
+                                <span className="text-[9px] text-slate-400 block uppercase">{locale === "pt" ? "Valor do Ciclo (USD)" : "Cycle Amount (USD)"}</span>
+                                <span className="text-lg font-bold text-slate-800 mt-1 block">${iaKbBilling.cycle_billed_cost_usd.toFixed(2)}</span>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4 font-mono text-xs">
+                              <div className="p-3 bg-slate-50 border border-slate-100 rounded-lg">
+                                <span className="text-[9px] text-slate-400 block uppercase">{locale === "pt" ? "Início do Ciclo" : "Cycle Start"}</span>
+                                <span className="text-sm font-bold text-slate-700 mt-1 block">
+                                  {iaKbBilling.cycle_start ? new Date(iaKbBilling.cycle_start).toLocaleDateString(locale === "pt" ? "pt-BR" : "en-US") : "-"}
+                                </span>
+                              </div>
+                              <div className="p-3 bg-slate-50 border border-slate-100 rounded-lg">
+                                <span className="text-[9px] text-slate-400 block uppercase">{locale === "pt" ? "Próximo Vencimento" : "Next Due Date"}</span>
+                                <span className="text-sm font-bold text-slate-700 mt-1 block">
+                                  {iaKbBilling.next_due_date ? new Date(iaKbBilling.next_due_date).toLocaleDateString(locale === "pt" ? "pt-BR" : "en-US") : "-"}
+                                </span>
+                              </div>
+                            </div>
+                            <p className="text-[10px] text-slate-400">
+                              {locale === "pt"
+                                ? `Sincronizado pela última vez em ${new Date(iaKbBilling.last_synced_at).toLocaleString("pt-BR")} - atualizado a cada verificação com o Fleet Manager.`
+                                : `Last synced ${new Date(iaKbBilling.last_synced_at).toLocaleString("en-US")} - refreshed on every Fleet Manager check-in.`}
+                            </p>
+                          </>
+                        ) : (
+                          <p className="text-xs text-slate-400 italic py-4 text-center">
+                            {locale === "pt" ? "Aguardando a primeira sincronização com o Fleet Manager." : "Waiting for the first Fleet Manager sync."}
+                          </p>
+                        )}
+                      </div>
+                    )}
 
                     <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
                       <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">

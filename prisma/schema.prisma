@@ -215,41 +215,42 @@ model Tenant {
   createdAt      DateTime       @default(now()) @map("created_at")
   updatedAt      DateTime       @updatedAt @map("updated_at")
 
-  users                  User[]
-  roles                  Role[]
-  projects               Project[]
-  documents              Document[]
-  documentContents       DocumentContent[]
-  backgroundTasks        BackgroundTask[]
-  analysisJobs           AIAnalysisJob[]
-  analysisResults        AnalysisResult[]
-  conversationMessages   ConversationMessage[]
-  auditLogs              AuditLog[]
-  debugLogs              DebugLog[]
-  platformSettings       PlatformSettings?
-  promptTemplates        PromptTemplate[]
-  proposalTemplates      ProposalTemplate[]
-  verticals              Vertical[]
-  systemMessages         SystemMessage[]
-  proposals              Proposal[]
-  approvalWorkflows      ApprovalWorkflow[]
-  approvalStages         ApprovalStage[]
-  approvalDecisions      ApprovalDecision[]
-  tasks                  Task[]
-  brandingSettings       BrandingSettings?
-  teamMemberships        TeamMembership[]
-  integrationConnectors  IntegrationConnector[]
-  knowledgeBaseDocuments KnowledgeBaseDocument[]
-  knowledgeBaseEntries   KnowledgeBaseEntry[]
-  aiUsageLogs            AiUsageLog[]
-  aiProviderConfigs      AiProviderConfig[]
-  pocs                   Poc[]
-  pocSuccessCriteria     PocSuccessCriterion[]
-  pocEquipmentItems      PocEquipmentItem[]
-  pocTasks               PocTask[]
-  pocTestCases           PocTestCase[]
-  pocAcceptances         PocAcceptance[]
+  users                   User[]
+  roles                   Role[]
+  projects                Project[]
+  documents               Document[]
+  documentContents        DocumentContent[]
+  backgroundTasks         BackgroundTask[]
+  analysisJobs            AIAnalysisJob[]
+  analysisResults         AnalysisResult[]
+  conversationMessages    ConversationMessage[]
+  auditLogs               AuditLog[]
+  debugLogs               DebugLog[]
+  platformSettings        PlatformSettings?
+  promptTemplates         PromptTemplate[]
+  proposalTemplates       ProposalTemplate[]
+  verticals               Vertical[]
+  systemMessages          SystemMessage[]
+  proposals               Proposal[]
+  approvalWorkflows       ApprovalWorkflow[]
+  approvalStages          ApprovalStage[]
+  approvalDecisions       ApprovalDecision[]
+  tasks                   Task[]
+  brandingSettings        BrandingSettings?
+  teamMemberships         TeamMembership[]
+  integrationConnectors   IntegrationConnector[]
+  knowledgeBaseDocuments  KnowledgeBaseDocument[]
+  knowledgeBaseEntries    KnowledgeBaseEntry[]
+  aiUsageLogs             AiUsageLog[]
+  aiProviderConfigs       AiProviderConfig[]
+  pocs                    Poc[]
+  pocSuccessCriteria      PocSuccessCriterion[]
+  pocEquipmentItems       PocEquipmentItem[]
+  pocTasks                PocTask[]
+  pocTestCases            PocTestCase[]
+  pocAcceptances          PocAcceptance[]
   pocFinalReportQuestions PocFinalReportQuestion[]
+  iaKbBillingSnapshot     IaKbBillingSnapshot?
 
   @@map("tenants")
 }
@@ -384,14 +385,14 @@ model Poc {
   addressCity         String? @map("address_city")
   addressState        String? @map("address_state")
 
-  createdAt              DateTime  @default(now()) @map("created_at")
-  updatedAt              DateTime  @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  successCriteria PocSuccessCriterion[]
-  equipmentItems  PocEquipmentItem[]
-  tasks           PocTask[]
-  testCases       PocTestCase[]
-  acceptance      PocAcceptance?
+  successCriteria      PocSuccessCriterion[]
+  equipmentItems       PocEquipmentItem[]
+  tasks                PocTask[]
+  testCases            PocTestCase[]
+  acceptance           PocAcceptance?
   finalReportQuestions PocFinalReportQuestion[]
 
   @@index([tenantId])
@@ -457,21 +458,21 @@ model PocEquipmentItem {
   datasheetKnowledgeBaseDocumentId String?                @map("datasheet_knowledge_base_document_id")
   datasheetDocument                KnowledgeBaseDocument? @relation(fields: [datasheetKnowledgeBaseDocumentId], references: [id], onDelete: SetNull)
 
-  shippingInvoiceStorageProvider   StorageProvider? @map("shipping_invoice_storage_provider")
-  shippingInvoiceStoragePath       String?          @map("shipping_invoice_storage_path")
-  shippingInvoiceOriginalFilename  String?          @map("shipping_invoice_original_filename")
-  returnInvoiceStorageProvider     StorageProvider? @map("return_invoice_storage_provider")
-  returnInvoiceStoragePath         String?          @map("return_invoice_storage_path")
-  returnInvoiceOriginalFilename    String?          @map("return_invoice_original_filename")
+  shippingInvoiceStorageProvider  StorageProvider? @map("shipping_invoice_storage_provider")
+  shippingInvoiceStoragePath      String?          @map("shipping_invoice_storage_path")
+  shippingInvoiceOriginalFilename String?          @map("shipping_invoice_original_filename")
+  returnInvoiceStorageProvider    StorageProvider? @map("return_invoice_storage_provider")
+  returnInvoiceStoragePath        String?          @map("return_invoice_storage_path")
+  returnInvoiceOriginalFilename   String?          @map("return_invoice_original_filename")
 
   // Fase I: when a tracking code is set, real carrier tracking (Site Rastreio) drives `status`
   // instead of the NF upload - the NF becomes just the fiscal proof/document (product decision,
   // 2026-07-13). trackingCarrierStatus caches the literal carrier text (e.g. "Objeto entregue ao
   // destinatário") shown as-is in the UI, never translated into our own Enviado/Na casa do
   // cliente/Devolvido vocabulary.
-  trackingCode            String?   @map("tracking_code")
-  trackingCarrierStatus   String?   @map("tracking_carrier_status")
-  trackingLastCheckedAt   DateTime? @map("tracking_last_checked_at")
+  trackingCode          String?   @map("tracking_code")
+  trackingCarrierStatus String?   @map("tracking_carrier_status")
+  trackingLastCheckedAt DateTime? @map("tracking_last_checked_at")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -487,25 +488,25 @@ model PocEquipmentItem {
 // against without the extra modeling weight of a join table. Critical path is computed on the
 // frontend (small graph, no need to persist it) by walking these dependsOnTaskId chains.
 model PocTask {
-  id            String        @id
-  tenantId      String        @map("tenant_id")
-  tenant        Tenant        @relation(fields: [tenantId], references: [id])
-  pocId         String        @map("poc_id")
-  poc           Poc           @relation(fields: [pocId], references: [id], onDelete: Cascade)
-  name          String
-  startDate     DateTime      @map("start_date")
-  durationDays  Int           @default(1) @map("duration_days")
-  status        PocTaskStatus @default(planned)
-  dependsOnTaskId String?     @map("depends_on_task_id")
-  dependsOnTask   PocTask?    @relation("PocTaskDependency", fields: [dependsOnTaskId], references: [id], onDelete: SetNull)
-  dependents      PocTask[]   @relation("PocTaskDependency")
+  id              String        @id
+  tenantId        String        @map("tenant_id")
+  tenant          Tenant        @relation(fields: [tenantId], references: [id])
+  pocId           String        @map("poc_id")
+  poc             Poc           @relation(fields: [pocId], references: [id], onDelete: Cascade)
+  name            String
+  startDate       DateTime      @map("start_date")
+  durationDays    Int           @default(1) @map("duration_days")
+  status          PocTaskStatus @default(planned)
+  dependsOnTaskId String?       @map("depends_on_task_id")
+  dependsOnTask   PocTask?      @relation("PocTaskDependency", fields: [dependsOnTaskId], references: [id], onDelete: SetNull)
+  dependents      PocTask[]     @relation("PocTaskDependency")
   // Fase H: same "IA rascunha, humano valida" regeneration safety as PocTestCase - a
   // "Sugerir cronograma com IA" can freely replace tasks nobody has touched, never ones a human
   // created from scratch or edited.
   generatedByAi   Boolean       @default(false) @map("generated_by_ai")
   editedManually  Boolean       @default(false) @map("edited_manually")
-  createdAt     DateTime      @default(now()) @map("created_at")
-  updatedAt     DateTime      @updatedAt @map("updated_at")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
 
   @@index([tenantId])
   @@index([pocId])
@@ -516,21 +517,21 @@ model PocTask {
 // AI orchestrator (poc_test_generation task type), same "IA rascunha, humano valida" pattern
 // already used in the Proposal Studio - regenerable and editable, not a one-shot frozen record.
 model PocTestCase {
-  id              String            @id
-  tenantId        String            @map("tenant_id")
-  tenant          Tenant            @relation(fields: [tenantId], references: [id])
-  pocId           String            @map("poc_id")
-  poc             Poc               @relation(fields: [pocId], references: [id], onDelete: Cascade)
-  code            String
-  title           String
-  objective       String            @db.Text
-  steps           String            @db.Text
-  expectedResult  String            @map("expected_result") @db.Text
-  status          PocTestCaseStatus @default(pending)
-  generatedByAi   Boolean           @default(false) @map("generated_by_ai")
-  editedManually  Boolean           @default(false) @map("edited_manually")
-  createdAt       DateTime          @default(now()) @map("created_at")
-  updatedAt       DateTime          @updatedAt @map("updated_at")
+  id             String            @id
+  tenantId       String            @map("tenant_id")
+  tenant         Tenant            @relation(fields: [tenantId], references: [id])
+  pocId          String            @map("poc_id")
+  poc            Poc               @relation(fields: [pocId], references: [id], onDelete: Cascade)
+  code           String
+  title          String
+  objective      String            @db.Text
+  steps          String            @db.Text
+  expectedResult String            @map("expected_result") @db.Text
+  status         PocTestCaseStatus @default(pending)
+  generatedByAi  Boolean           @default(false) @map("generated_by_ai")
+  editedManually Boolean           @default(false) @map("edited_manually")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
 
   @@index([tenantId])
   @@index([pocId])
@@ -541,18 +542,18 @@ model PocTestCase {
 // signed acceptance document - deliberately not a real e-signature integration yet (product
 // decision, 2026-07-13, left open for a future session), just upload of an already-signed file.
 model PocAcceptance {
-  id                            String                  @id
-  tenantId                      String                  @map("tenant_id")
-  tenant                        Tenant                  @relation(fields: [tenantId], references: [id])
-  pocId                         String                  @unique @map("poc_id")
-  poc                           Poc                     @relation(fields: [pocId], references: [id], onDelete: Cascade)
-  decision                      PocAcceptanceDecision   @default(pending)
-  signedDocumentStorageProvider StorageProvider?        @map("signed_document_storage_provider")
-  signedDocumentStoragePath     String?                 @map("signed_document_storage_path")
-  signedDocumentOriginalFilename String?                @map("signed_document_original_filename")
-  signedBy                      String?                 @map("signed_by")
-  signedAt                      DateTime?               @map("signed_at")
-  notes                         String?                 @db.Text
+  id                             String                @id
+  tenantId                       String                @map("tenant_id")
+  tenant                         Tenant                @relation(fields: [tenantId], references: [id])
+  pocId                          String                @unique @map("poc_id")
+  poc                            Poc                   @relation(fields: [pocId], references: [id], onDelete: Cascade)
+  decision                       PocAcceptanceDecision @default(pending)
+  signedDocumentStorageProvider  StorageProvider?      @map("signed_document_storage_provider")
+  signedDocumentStoragePath      String?               @map("signed_document_storage_path")
+  signedDocumentOriginalFilename String?               @map("signed_document_original_filename")
+  signedBy                       String?               @map("signed_by")
+  signedAt                       DateTime?             @map("signed_at")
+  notes                          String?               @db.Text
 
   // Fase L: "Finalizar" (requires the mandatory final report complete + a won/lost decision
   // selected) puts the POC into this gate rather than jumping straight to Poc.status = "completed"
@@ -562,8 +563,8 @@ model PocAcceptance {
   approvedByUserId String?   @map("approved_by_user_id")
   approvedAt       DateTime? @map("approved_at")
 
-  createdAt                     DateTime                @default(now()) @map("created_at")
-  updatedAt                     DateTime                @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@index([tenantId])
   @@map("poc_acceptances")
@@ -798,68 +799,89 @@ model DebugLog {
   @@map("debug_logs")
 }
 
+// Cached mirror of this tenant's ia_kb add-on billing state, refreshed on every Fleet Manager
+// heartbeat (server/utils/fleetLicense.ts) - the only channel to the Fleet Manager an on-prem
+// installation has (it can sit behind a firewall/NAT, so the Admin Console can't call the Fleet
+// Manager live on page load). Deliberately carries no real provider cost, only the value already
+// marked up (product decision, 2026-07-14) - the Fleet Manager's own heartbeat response never
+// sends real cost either, so there's nothing sensitive to leak even if this table were read
+// directly.
+model IaKbBillingSnapshot {
+  id                 String    @id
+  tenantId           String    @unique @map("tenant_id")
+  tenant             Tenant    @relation(fields: [tenantId], references: [id])
+  markupPercent      Float     @map("markup_percent")
+  cycleStart         DateTime? @map("cycle_start")
+  cycleBilledCostUsd Float     @map("cycle_billed_cost_usd")
+  cycleCallCount     Int       @map("cycle_call_count")
+  nextDueDate        DateTime? @map("next_due_date")
+  lastSyncedAt       DateTime  @map("last_synced_at")
+
+  @@map("iakb_billing_snapshots")
+}
+
 model PlatformSettings {
-  id                            String          @id
-  tenantId                      String          @map("tenant_id")
-  tenant                        Tenant          @relation(fields: [tenantId], references: [id])
-  aiProvider                    String          @map("ai_provider")
-  defaultModel                  String          @map("default_model")
-  documentAnalysisModel         String          @map("document_analysis_model")
-  proposalGenerationModel       String          @map("proposal_generation_model")
-  aiApiKeyEncrypted             String?         @map("ai_api_key_encrypted") @db.Text
-  openaiApiKeyEncrypted         String?         @map("openai_api_key_encrypted") @db.Text
-  anthropicApiKeyEncrypted      String?         @map("anthropic_api_key_encrypted") @db.Text
+  id                               String          @id
+  tenantId                         String          @map("tenant_id")
+  tenant                           Tenant          @relation(fields: [tenantId], references: [id])
+  aiProvider                       String          @map("ai_provider")
+  defaultModel                     String          @map("default_model")
+  documentAnalysisModel            String          @map("document_analysis_model")
+  proposalGenerationModel          String          @map("proposal_generation_model")
+  aiApiKeyEncrypted                String?         @map("ai_api_key_encrypted") @db.Text
+  openaiApiKeyEncrypted            String?         @map("openai_api_key_encrypted") @db.Text
+  anthropicApiKeyEncrypted         String?         @map("anthropic_api_key_encrypted") @db.Text
   // Phase 5 (AI orchestrator): which provider is the intended target for each task type,
   // researched per-task (docs/roadmap/REDESIGN_ROADMAP_2026-07.md). gemini/openai/anthropic are
   // all really connected (see resolveProvider in src/aiOrchestrator.ts) - a task still falls back
   // to gemini, logged as such, only if its intended provider's key isn't actually configured.
-  documentAnalysisProvider      String          @default("gemini") @map("document_analysis_provider")
-  criticalExtractionModel       String          @default("gemini-3.5-flash") @map("critical_extraction_model")
-  criticalExtractionProvider    String          @default("anthropic") @map("critical_extraction_provider")
-  webGroundingModel             String          @default("gemini-3.5-flash") @map("web_grounding_model")
-  webGroundingProvider          String          @default("gemini") @map("web_grounding_provider")
-  proposalGenerationProvider    String          @default("anthropic") @map("proposal_generation_provider")
-  specCopilotModel              String          @default("gemini-3.5-flash") @map("spec_copilot_model")
-  specCopilotProvider           String          @default("gemini") @map("spec_copilot_provider")
+  documentAnalysisProvider         String          @default("gemini") @map("document_analysis_provider")
+  criticalExtractionModel          String          @default("gemini-3.5-flash") @map("critical_extraction_model")
+  criticalExtractionProvider       String          @default("anthropic") @map("critical_extraction_provider")
+  webGroundingModel                String          @default("gemini-3.5-flash") @map("web_grounding_model")
+  webGroundingProvider             String          @default("gemini") @map("web_grounding_provider")
+  proposalGenerationProvider       String          @default("anthropic") @map("proposal_generation_provider")
+  specCopilotModel                 String          @default("gemini-3.5-flash") @map("spec_copilot_model")
+  specCopilotProvider              String          @default("gemini") @map("spec_copilot_provider")
   // AI Orchestrator UI redesign (2026-07): document_classification was previously hardcoded to
   // Gemini in server/utils/documentClassification.ts, bypassing the orchestrator entirely - now
   // routed through resolveProvider() like the other real task types.
-  documentClassificationModel   String          @default("gemini-3.5-flash") @map("document_classification_model")
-  documentClassificationProvider String        @default("gemini") @map("document_classification_provider")
+  documentClassificationModel      String          @default("gemini-3.5-flash") @map("document_classification_model")
+  documentClassificationProvider   String          @default("gemini") @map("document_classification_provider")
   // Fase 6 (add-on), Fase E: test scripts generated from a POC's objective/success criteria -
   // pure text-in/text-out, same orchestrator pattern as the 4 task types above.
-  pocTestGenerationModel        String          @default("gemini-3.5-flash") @map("poc_test_generation_model")
-  pocTestGenerationProvider     String          @default("gemini") @map("poc_test_generation_provider")
+  pocTestGenerationModel           String          @default("gemini-3.5-flash") @map("poc_test_generation_model")
+  pocTestGenerationProvider        String          @default("gemini") @map("poc_test_generation_provider")
   // Fase H (add-on): schedule suggestion from a POC's objective + linked equipment's Knowledge
   // Base grounding - same orchestrator pattern as poc_test_generation above.
-  pocScheduleGenerationModel    String          @default("gemini-3.5-flash") @map("poc_schedule_generation_model")
-  pocScheduleGenerationProvider String          @default("gemini") @map("poc_schedule_generation_provider")
+  pocScheduleGenerationModel       String          @default("gemini-3.5-flash") @map("poc_schedule_generation_model")
+  pocScheduleGenerationProvider    String          @default("gemini") @map("poc_schedule_generation_provider")
   // Fase M (add-on): mandatory final-report questionnaire generation - same orchestrator pattern.
-  pocFinalReportGenerationModel    String       @default("gemini-3.5-flash") @map("poc_final_report_generation_model")
-  pocFinalReportGenerationProvider String       @default("gemini") @map("poc_final_report_generation_provider")
+  pocFinalReportGenerationModel    String          @default("gemini-3.5-flash") @map("poc_final_report_generation_model")
+  pocFinalReportGenerationProvider String          @default("gemini") @map("poc_final_report_generation_provider")
   // Per-tenant monthly AI spend cap - null means uncapped. Enforced (hard block once reached,
   // not just tracked), with an 80%-of-cap warning logged before that point.
-  monthlyCostCapUsd             Float?          @map("monthly_cost_cap_usd")
+  monthlyCostCapUsd                Float?          @map("monthly_cost_cap_usd")
   // Phase 7 (fleet/license management): this installation's connection to the vendor's fleet
   // manager (a separate server - see docs/roadmap). Empty/disabled means no heartbeat runs and
   // the installation is always treated as active (fail-open) - matches the on-prem reality of
   // not every install necessarily being registered yet.
-  fleetManagerUrl               String?         @map("fleet_manager_url")
-  fleetManagerApiKeyEncrypted   String?         @map("fleet_manager_api_key_encrypted") @db.Text
-  fleetManagerEnabled           Boolean         @default(false) @map("fleet_manager_enabled")
-  storageMode                   StorageProvider @default(local) @map("storage_mode")
-  localStoragePath              String          @map("local_storage_path")
-  s3Bucket                      String          @map("s3_bucket")
-  s3Region                      String?         @map("s3_region")
-  s3AccessKeyId                 String?         @map("s3_access_key_id")
-  s3SecretAccessKeyEncrypted    String?         @map("s3_secret_access_key_encrypted") @db.Text
-  gcsBucket                     String          @map("gcs_bucket")
-  gcsProjectId                  String?         @map("gcs_project_id")
-  gcsServiceAccountKeyEncrypted String?         @map("gcs_service_account_key_encrypted") @db.Text
-  defaultLanguage               Language        @map("default_language")
-  defaultLogLevel               LogLevel        @map("default_log_level")
-  createdAt                     DateTime        @default(now()) @map("created_at")
-  updatedAt                     DateTime        @updatedAt @map("updated_at")
+  fleetManagerUrl                  String?         @map("fleet_manager_url")
+  fleetManagerApiKeyEncrypted      String?         @map("fleet_manager_api_key_encrypted") @db.Text
+  fleetManagerEnabled              Boolean         @default(false) @map("fleet_manager_enabled")
+  storageMode                      StorageProvider @default(local) @map("storage_mode")
+  localStoragePath                 String          @map("local_storage_path")
+  s3Bucket                         String          @map("s3_bucket")
+  s3Region                         String?         @map("s3_region")
+  s3AccessKeyId                    String?         @map("s3_access_key_id")
+  s3SecretAccessKeyEncrypted       String?         @map("s3_secret_access_key_encrypted") @db.Text
+  gcsBucket                        String          @map("gcs_bucket")
+  gcsProjectId                     String?         @map("gcs_project_id")
+  gcsServiceAccountKeyEncrypted    String?         @map("gcs_service_account_key_encrypted") @db.Text
+  defaultLanguage                  Language        @map("default_language")
+  defaultLogLevel                  LogLevel        @map("default_log_level")
+  createdAt                        DateTime        @default(now()) @map("created_at")
+  updatedAt                        DateTime        @updatedAt @map("updated_at")
 
   @@unique([tenantId])
   @@map("platform_settings")
@@ -1056,9 +1078,9 @@ model ApprovalDecision {
 }
 
 model Task {
-  id       String  @id
-  tenantId String  @map("tenant_id")
-  tenant   Tenant  @relation(fields: [tenantId], references: [id])
+  id                  String     @id
+  tenantId            String     @map("tenant_id")
+  tenant              Tenant     @relation(fields: [tenantId], references: [id])
   // Optional - this is a personal to-do list (the Home dashboard widget), not a per-project
   // action item tracker; SetNull rather than Cascade so a task outlives the project it happened
   // to be about if that project is later deleted.
@@ -1245,22 +1267,22 @@ model AiUsageLog {
 // research behind this feature (all mirror the OpenAI request/response shape, including JSON
 // mode). providerKey is what gets stored in the *_provider task-routing fields (e.g. "grok").
 model AiProviderConfig {
-  id              String   @id
-  tenantId        String   @map("tenant_id")
-  tenant          Tenant   @relation(fields: [tenantId], references: [id])
-  providerKey     String   @map("provider_key")
-  displayName     String   @map("display_name")
-  baseUrl         String   @map("base_url")
-  apiKeyEncrypted String   @map("api_key_encrypted")
-  defaultModel    String   @map("default_model")
+  id                String   @id
+  tenantId          String   @map("tenant_id")
+  tenant            Tenant   @relation(fields: [tenantId], references: [id])
+  providerKey       String   @map("provider_key")
+  displayName       String   @map("display_name")
+  baseUrl           String   @map("base_url")
+  apiKeyEncrypted   String   @map("api_key_encrypted")
+  defaultModel      String   @map("default_model")
   // AI Orchestrator UI redesign (2026-07): self-declared capability flags, admin-set when adding
   // the provider - lets a custom provider that genuinely supports vision/PDF input or has native
   // web search (e.g. Perplexity Sonar, which always grounds its answers in a real web search, no
   // opt-in tool parameter needed) show up as a valid choice for those orchestrator tasks, instead
   // of every custom provider being treated as text-only by default.
-  supportsVision    Boolean @default(false) @map("supports_vision")
-  supportsWebSearch Boolean @default(false) @map("supports_web_search")
-  createdAt       DateTime @default(now()) @map("created_at")
+  supportsVision    Boolean  @default(false) @map("supports_vision")
+  supportsWebSearch Boolean  @default(false) @map("supports_web_search")
+  createdAt         DateTime @default(now()) @map("created_at")
 
   @@unique([tenantId, providerKey])
   @@map("ai_provider_configs")

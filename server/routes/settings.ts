@@ -152,6 +152,20 @@ router.get("/settings", requirePermission("admin:settings"), async (req: Request
   }
 });
 
+// ia_kb add-on: the tenant's own cached billing snapshot (refreshed on every Fleet Manager
+// heartbeat - see server/utils/fleetLicense.ts) - never carries real provider cost, only the
+// value already marked up, so there's nothing sensitive to leak even to a tenant reading this
+// directly. Returns null (not 404) when the add-on isn't active or hasn't synced yet, since
+// "no billing data" is the normal/expected state for most tenants, not an error.
+router.get("/settings/iakb-billing", requirePermission("ai:settings"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const snapshot = await dbStore.getIaKbBillingSnapshot();
+    res.json(snapshot);
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get("/settings/fleet-license-status", requirePermission("admin:settings"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const tenantId = getCurrentTenantId();

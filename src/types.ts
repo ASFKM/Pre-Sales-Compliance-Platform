@@ -438,6 +438,17 @@ export interface DebugLog {
   safe_metadata: string; // JSON string
 }
 
+// Cached mirror of the ia_kb add-on's billing state, refreshed on every Fleet Manager heartbeat -
+// never carries real provider cost, only the value already marked up (see fleetLicense.ts).
+export interface IaKbBillingSnapshot {
+  markup_percent: number;
+  cycle_start: string | null;
+  cycle_billed_cost_usd: number;
+  cycle_call_count: number;
+  next_due_date: string | null;
+  last_synced_at: string;
+}
+
 export interface PlatformSettings {
   id: string;
   ai_provider: string;

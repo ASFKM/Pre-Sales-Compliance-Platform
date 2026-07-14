@@ -32,6 +32,7 @@ import {
   TeamMembership,
   KnowledgeBaseEntry,
   KnowledgeBaseDocument,
+  IaKbBillingSnapshot,
 } from "./types";
 
 // The Prisma extension (src/prisma.ts) auto-injects tenant_id from context at runtime for
@@ -381,6 +382,17 @@ function mapDebugLog(g: any): DebugLog {
     error_message: g.errorMessage ?? undefined,
     safe_metadata: g.safeMetadata,
   } as DebugLog;
+}
+
+function mapIaKbBillingSnapshot(s: any): IaKbBillingSnapshot {
+  return {
+    markup_percent: s.markupPercent,
+    cycle_start: s.cycleStart ? s.cycleStart.toISOString() : null,
+    cycle_billed_cost_usd: s.cycleBilledCostUsd,
+    cycle_call_count: s.cycleCallCount,
+    next_due_date: s.nextDueDate ? s.nextDueDate.toISOString() : null,
+    last_synced_at: s.lastSyncedAt.toISOString(),
+  };
 }
 
 function mapSettings(s: any): PlatformSettings {
@@ -1896,6 +1908,56 @@ class DBStore {
       },
     });
     return mapSettings(s);
+  }
+
+  // ia_kb add-on billing snapshot - cached mirror refreshed on every Fleet Manager heartbeat
+  // (server/utils/fleetLicense.ts). Not prisma.iaKbBillingSnapshot.upsert(): tenantId is this
+  // model's own unique field, but the tenant-scoping extension (src/prisma.ts) still disallows
+  // upsert() outright on every tenant-scoped model regardless - same findUnique()+create()/
+  // update() pattern already used for PocAcceptance/AnalysisResult above.
+  public async getIaKbBillingSnapshot(): Promise<IaKbBillingSnapshot | null> {
+    const s = await prisma.iaKbBillingSnapshot.findFirst();
+    return s ? mapIaKbBillingSnapshot(s) : null;
+  }
+
+  public async upsertIaKbBillingSnapshot(data: {
+    markup_percent: number;
+    cycle_start: string | null;
+    cycle_billed_cost_usd: number;
+    cycle_call_count: number;
+    next_due_date: string | null;
+  }): Promise<IaKbBillingSnapshot> {
+    const tenantId = requireTenantId();
+    const existing = await prisma.iaKbBillingSnapshot.findUnique({ where: { tenantId } });
+    const now = new Date();
+    let s;
+    if (existing) {
+      s = await prisma.iaKbBillingSnapshot.update({
+        where: { tenantId },
+        data: {
+          markupPercent: data.markup_percent,
+          cycleStart: data.cycle_start ? new Date(data.cycle_start) : null,
+          cycleBilledCostUsd: data.cycle_billed_cost_usd,
+          cycleCallCount: data.cycle_call_count,
+          nextDueDate: data.next_due_date ? new Date(data.next_due_date) : null,
+          lastSyncedAt: now,
+        },
+      });
+    } else {
+      s = await prisma.iaKbBillingSnapshot.create({
+        data: {
+          id: randomId("iakbs"),
+          tenantId,
+          markupPercent: data.markup_percent,
+          cycleStart: data.cycle_start ? new Date(data.cycle_start) : null,
+          cycleBilledCostUsd: data.cycle_billed_cost_usd,
+          cycleCallCount: data.cycle_call_count,
+          nextDueDate: data.next_due_date ? new Date(data.next_due_date) : null,
+          lastSyncedAt: now,
+        },
+      });
+    }
+    return mapIaKbBillingSnapshot(s);
   }
 
   // Branding settings (singleton row)

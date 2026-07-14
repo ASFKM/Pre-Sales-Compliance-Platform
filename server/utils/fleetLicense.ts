@@ -219,11 +219,22 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
       const apiKey = decryptSecret(settings.fleet_manager_api_key_encrypted);
       const logs = await collectRecentLogs(tenantId);
       const vulnerabilities = await runVulnerabilityScan();
+
+      // The ia_kb add-on gates the global KB sync in BOTH directions - the Fleet Manager's own
+      // heartbeat handler already rejects an upload from an installation without the entitlement,
+      // but checking here too avoids doing the (cheap, but non-zero) work of gathering entries
+      // that would just be thrown away on the other end. Uses the PREVIOUS heartbeat's verified
+      // status (this one's own response hasn't arrived yet) - if the add-on was JUST activated,
+      // this one heartbeat undersends by one cycle, which is a one-heartbeat-late sync, not a
+      // security gap (the Fleet Manager's own check is the real enforcement boundary).
+      const previousStatus = await getFleetLicenseStatus(tenantId);
+      const hadIaKbBefore = previousStatus.modules.includes("ia_kb");
+
       // Locally-approved entries not yet uploaded - see dbStore.getKnowledgeBaseEntriesToSync.
       // Received synchronously by the Fleet Manager within this same request (unlike
       // commands/messages below, this direction needs no queue/ack - see
       // knowledgeBaseReconciliation.ts and heartbeat.ts for what happens to these on each end).
-      const kbEntriesToSync = await dbStore.getKnowledgeBaseEntriesToSync(50);
+      const kbEntriesToSync = hadIaKbBefore ? await dbStore.getKnowledgeBaseEntriesToSync(50) : [];
 
       const body = JSON.stringify({
         logs,
@@ -286,6 +297,40 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
       const ttlMs = new Date(data.license.valid_until).getTime() - Date.now();
       await redis.set(licenseCacheKey(tenantId), JSON.stringify(cached), "PX", Math.max(ttlMs, 60000));
       await redis.set(lastLogSyncKey(tenantId), new Date().toISOString());
+
+      // ia_kb add-on: on the exact heartbeat where the entitlement transitions from absent/off to
+      // enabled, this tenant's own AI provider keys are cleared - from this point on every AI call
+      // routes through the Fleet Manager's proxy instead (see server/utils/aiProviders.ts), and a
+      // stale self-managed key sitting in platform_settings would be actively misleading (it looks
+      // configured but is never used again while the add-on is active). Reuses the exact same
+      // clearing path PUT /settings/ai already exposes to an admin manually removing a key -
+      // audited as a system action (ip_address "system"), not attributed to whichever admin
+      // happened to trigger this heartbeat cycle.
+      const hasIaKbNow = (data.license.modules || []).includes("ia_kb");
+      if (!hadIaKbBefore && hasIaKbNow) {
+        await dbStore.updateSettings({ ai_api_key_encrypted: "", openai_api_key_encrypted: "", anthropic_api_key_encrypted: "" });
+        await dbStore.addAuditLog({
+          user_id: "system",
+          action: "IA/KB Add-on Activated - AI Keys Cleared",
+          entity_type: "PlatformSettings",
+          entity_id: "",
+          ip_address: "system",
+          user_agent: "fleet-license-heartbeat",
+          metadata: JSON.stringify({ reason: "ia_kb module entitlement newly enabled - tenant now uses Fleet Manager-managed keys" }),
+        });
+      }
+
+      // Billing snapshot for the Admin Console's usage table (Presales side never sees real
+      // provider cost, only the value already marked up - see IaKbBillingSnapshot's own comment).
+      if (hasIaKbNow && data.ia_kb_billing) {
+        await dbStore.upsertIaKbBillingSnapshot({
+          markup_percent: data.ia_kb_billing.markup_percent,
+          cycle_start: data.ia_kb_billing.cycle_start,
+          cycle_billed_cost_usd: data.ia_kb_billing.cycle_billed_cost_usd,
+          cycle_call_count: data.ia_kb_billing.cycle_call_count,
+          next_due_date: data.ia_kb_billing.next_due_date,
+        }).catch((err) => logger.warn({ err, tenantId }, "Failed to persist ia_kb billing snapshot"));
+      }
 
       for (const command of data.commands || []) {
         // force_log_collection/force_vulnerability_scan already happened above (this heartbeat

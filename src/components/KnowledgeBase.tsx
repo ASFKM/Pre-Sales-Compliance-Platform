@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BookOpen, FileText, Trash2, Sparkles, Check, X, Pen, Upload, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { BookOpen, FileText, Trash2, Sparkles, Check, X, Pen, Upload, Search, ChevronLeft, ChevronRight, Globe } from "lucide-react";
 import ApiClient from "../lib/api";
 import { KnowledgeBaseEntry, KnowledgeBaseDocument, KnowledgeBaseEntryCategory } from "../types";
 import { BackgroundTask } from "../hooks/useBackgroundTasks";
@@ -24,6 +24,10 @@ const CATEGORY_LABEL: Record<KnowledgeBaseEntryCategory, string> = {
 const SOURCE_LABEL: Record<string, string> = {
   reactive_edit: "Edição em Projeto",
   uploaded_document: "Documento Enviado",
+  // ia_kb add-on: entries synced in from the Fleet Manager's curated global Base de Conhecimento
+  // (see server/utils/knowledgeBaseReconciliation.ts) - previously fell through to the raw enum
+  // string here since this key didn't exist yet.
+  fleet_manager_global: "Base Global",
 };
 
 function formatBytes(bytes: number): string {
@@ -253,11 +257,21 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
         <span className="px-2 py-0.5 rounded font-bold text-[9px] uppercase bg-slate-100 text-slate-600">
           {CATEGORY_LABEL[entry.category]}
         </span>
-        <span className="text-[10px] text-slate-400 font-mono">
-          {SOURCE_LABEL[entry.source] || entry.source}
-          {entry.source_project_name ? ` · ${entry.source_project_name}` : ""}
-          {entry.source_document_name ? ` · ${entry.source_document_name}` : ""}
-        </span>
+        {entry.source === "fleet_manager_global" ? (
+          // Discreet but visually distinct from the plain-text sources below - this content came
+          // from outside the tenant's own org (the Fleet Manager's curated global Base de
+          // Conhecimento), which is worth a glance-level distinction, not just a label.
+          <span className="inline-flex items-center gap-1 text-[10px] text-blue-600 font-mono bg-blue-50 border border-blue-100 rounded-full px-2 py-0.5">
+            <Globe size={10} />
+            {SOURCE_LABEL.fleet_manager_global}
+          </span>
+        ) : (
+          <span className="text-[10px] text-slate-400 font-mono">
+            {SOURCE_LABEL[entry.source] || entry.source}
+            {entry.source_project_name ? ` · ${entry.source_project_name}` : ""}
+            {entry.source_document_name ? ` · ${entry.source_document_name}` : ""}
+          </span>
+        )}
         <span className="text-[10px] text-slate-400 font-mono ml-auto">
           {new Date(entry.created_at).toLocaleString()}
         </span>

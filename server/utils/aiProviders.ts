@@ -2,6 +2,8 @@ import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { dbStore } from "../../src/dbStore";
 import { prisma } from "../../src/prisma";
+import { redis } from "../../src/redis";
+import { getCurrentTenantId } from "../../src/tenantContext";
 import { decryptSecret } from "./security";
 import { getGeminiClient } from "./gemini";
 import { logger } from "./logger";
@@ -11,6 +13,74 @@ import { logger } from "./logger";
 // (see AiProviderConfig) - a string, not a fixed union, since the whole point is that new ones can
 // be added without a code change.
 export type ConnectedProvider = string;
+
+// ia_kb add-on: whether the current tenant's AI calls should route through the Fleet Manager's
+// proxy (server/routes/aiProxy.ts on that side) instead of a locally-held key. Reads the same
+// Redis cache server/utils/fleetLicense.ts populates on every heartbeat, but deliberately WITHOUT
+// verifying the Ed25519 signature that module does - importing fleetLicense.ts here would create
+// a circular import (fleetLicense.ts -> knowledgeBaseReconciliation.ts -> aiProviders.ts already
+// exists). This is safe despite skipping verification: the real enforcement boundary is the Fleet
+// Manager's own requireIaKbEntitlement middleware, which re-checks ModuleEntitlement in its own
+// database on every single proxied call regardless of what this tenant's local cache claims - a
+// tampered/stale local cache can at worst cause a proxy call to be correctly rejected by the
+// Fleet Manager, never an unauthorized one to succeed.
+async function isIaKbActive(): Promise<boolean> {
+  const tenantId = getCurrentTenantId();
+  if (!tenantId) return false;
+  try {
+    const raw = await redis.get(`fleet:license:${tenantId}`);
+    if (!raw) return false;
+    const cached = JSON.parse(raw);
+    return Array.isArray(cached?.payload?.modules) && cached.payload.modules.includes("ia_kb");
+  } catch {
+    return false;
+  }
+}
+
+async function getFleetManagerProxyConfig(): Promise<{ baseUrl: string; apiKey: string }> {
+  const settings = await dbStore.getSettings();
+  if (!settings.fleet_manager_url || !settings.fleet_manager_api_key_encrypted) {
+    throw new Error("O add-on IA/KB está ativo, mas a conexão com o Fleet Manager não está configurada corretamente. Contate o suporte.");
+  }
+  return { baseUrl: settings.fleet_manager_url, apiKey: decryptSecret(settings.fleet_manager_api_key_encrypted) };
+}
+
+// Single call point for all 3 ai-proxy endpoints on the Fleet Manager side - taskType is a
+// best-effort category (one of the 3 dispatch functions below, not the caller's real task_key,
+// since generateJsonWithProvider/generateTextWithProvider/searchWebWithProvider deliberately keep
+// their existing signatures unchanged - see the plan this add-on was built from) so the Fleet
+// Manager's own AiProxyUsageLog still has SOME breakdown to show an admin, even without full
+// per-task granularity.
+async function callFleetManagerAiProxy(
+  endpoint: "generate-json" | "generate-text" | "search-web",
+  taskType: string,
+  provider: string,
+  model: string,
+  prompt: string,
+  files?: ProviderFileInput[]
+): Promise<ProviderJsonResult> {
+  const { baseUrl, apiKey } = await getFleetManagerProxyConfig();
+  const res = await fetch(`${baseUrl}/api/ai-proxy/${endpoint}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      task_type: taskType,
+      provider,
+      model,
+      prompt,
+      files: (files || []).map((f) => ({ mime_type: f.mimeType, base64_data: f.base64Data })),
+    }),
+    // Mirrors the real provider calls below (Anthropic alone documents needing minutes on a large
+    // document) - the proxy adds one network hop but not meaningfully more latency than calling
+    // the provider directly would.
+    signal: AbortSignal.timeout(150_000),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) {
+    throw new Error(data?.message || `Falha ao chamar o proxy de IA do Fleet Manager (HTTP ${res.status}).`);
+  }
+  return { text: data.text || "", inputTokens: data.input_tokens || 0, outputTokens: data.output_tokens || 0 };
+}
 
 async function getCustomProviderConfig(providerKey: string): Promise<{ baseUrl: string; apiKey: string; supportsVision: boolean; supportsWebSearch: boolean }> {
   const config = await prisma.aiProviderConfig.findFirst({ where: { providerKey } });
@@ -68,6 +138,14 @@ async function getConfiguredAnthropicApiKey(): Promise<string> {
 // call should fall back to Gemini instead.
 export async function isProviderConnected(provider: string): Promise<boolean> {
   try {
+    // With the ia_kb add-on active, the tenant's own keys were cleared on activation (see
+    // fleetLicense.ts) and every call for the 3 built-ins routes through the Fleet Manager's
+    // proxy instead - they're "connected" via the add-on, not a locally-held key, so
+    // resolveProvider()'s fallback-to-Gemini logic must not treat Anthropic/OpenAI as
+    // unconfigured just because those fields are now empty on purpose.
+    if ((provider === "gemini" || provider === "openai" || provider === "anthropic") && (await isIaKbActive())) {
+      return true;
+    }
     if (provider === "gemini") return true; // Gemini's key is required platform-wide already.
     if (provider === "openai") return Boolean(await getConfiguredOpenAiApiKey().catch(() => null));
     if (provider === "anthropic") return Boolean(await getConfiguredAnthropicApiKey().catch(() => null));
@@ -98,6 +176,10 @@ export interface ProviderFileInput {
 // 2026, via the "file" content block - it was correctly unsupported when this comment last said
 // otherwise, it no longer is).
 export async function generateJsonWithProvider(provider: ConnectedProvider, model: string, prompt: string, files?: ProviderFileInput[]): Promise<ProviderJsonResult> {
+  if ((provider === "gemini" || provider === "openai" || provider === "anthropic") && (await isIaKbActive())) {
+    return callFleetManagerAiProxy("generate-json", "document_json", provider, model, prompt, files);
+  }
+
   if (provider === "openai") {
     const apiKey = await getConfiguredOpenAiApiKey();
     const client = new OpenAI({ apiKey });
@@ -203,6 +285,10 @@ export async function generateJsonWithProvider(provider: ConnectedProvider, mode
 // about vision-only documents (scanned PDFs with no extractable text) the same way the main
 // analysis pipeline does, instead of only ever seeing pre-extracted text.
 export async function generateTextWithProvider(provider: ConnectedProvider, model: string, prompt: string, files?: ProviderFileInput[]): Promise<ProviderJsonResult> {
+  if ((provider === "gemini" || provider === "openai" || provider === "anthropic") && (await isIaKbActive())) {
+    return callFleetManagerAiProxy("generate-text", "chat_text", provider, model, prompt, files);
+  }
+
   if (provider === "openai") {
     const apiKey = await getConfiguredOpenAiApiKey();
     const client = new OpenAI({ apiKey });
@@ -288,6 +374,10 @@ export async function generateTextWithProvider(provider: ConnectedProvider, mode
 // when added (e.g. Perplexity Sonar, which - like OpenAI's search model - always grounds its
 // answer in a real search, no opt-in parameter needed on this end).
 export async function searchWebWithProvider(provider: ConnectedProvider, model: string, prompt: string): Promise<ProviderJsonResult> {
+  if ((provider === "gemini" || provider === "openai" || provider === "anthropic") && (await isIaKbActive())) {
+    return callFleetManagerAiProxy("search-web", "web_search", provider, model, prompt);
+  }
+
   if (provider === "openai") {
     const apiKey = await getConfiguredOpenAiApiKey();
     const client = new OpenAI({ apiKey });
