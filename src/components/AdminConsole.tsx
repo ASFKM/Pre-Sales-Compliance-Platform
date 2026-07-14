@@ -149,7 +149,7 @@ type AdminSection =
 interface AdminConsoleProps {
   locale: "en" | "pt";
   tx: (en: string, pt: string) => string;
-  currentSessionUser: { id: string; name: string; email: string; role_id: string; role: string; permissions: string[] };
+  currentSessionUser: { id: string; name: string; email: string; role_id: string; role: string; permissions: string[]; enabled_modules?: string[] };
   hasPermission: (perm: string) => boolean;
   canAccessAdminSection: (section: string) => boolean;
   activeAdminSection: AdminSection;
@@ -208,6 +208,11 @@ export default function AdminConsole({
       .then(setFleetLicenseStatus)
       .catch(() => setFleetLicenseStatus(null));
   }, []);
+
+  // Fase 6 (add-on): the "Geração de Cadernos de Teste (POC)" row in the orchestrator map only
+  // makes sense once the tenant's Fleet Manager entitlement actually includes "poc" - same
+  // signature-verified source as "Assinatura e Licença" above, not a local guess.
+  const pocModuleEnabled = fleetLicenseStatus?.modules?.includes("poc") ?? false;
 
   const [costUSD, setCostUSD] = useState(0);
   const [costByTaskTypeAndProvider, setCostByTaskTypeAndProvider] = useState<Record<string, Record<string, number>>>({});
@@ -1192,7 +1197,8 @@ export default function AdminConsole({
                             { field: "web_grounding_provider", modelField: "web_grounding_model", taskKey: "web_grounding", label: locale === "pt" ? "Pesquisa com Grounding Web" : "Web-Grounded Research" },
                             { field: "spec_copilot_provider", modelField: "spec_copilot_model", taskKey: "spec_copilot", label: locale === "pt" ? "Copiloto de Especificações (Chat)" : "Spec Copilot (Chat)" },
                             { field: "document_classification_provider", modelField: "document_classification_model", taskKey: "document_classification", label: locale === "pt" ? "Classificação de Documentos" : "Document Classification" },
-                            { field: "poc_test_generation_provider", modelField: "poc_test_generation_model", taskKey: "poc_test_generation", label: locale === "pt" ? "Geração de Cadernos de Teste (POC)" : "Test Script Generation (POC)" },
+                            // Add-on (Fase 6): only shown once the tenant's Fleet Manager entitlement includes "poc".
+                            ...(pocModuleEnabled ? [{ field: "poc_test_generation_provider", modelField: "poc_test_generation_model", taskKey: "poc_test_generation", label: locale === "pt" ? "Geração de Cadernos de Teste (POC)" : "Test Script Generation (POC)" }] : []),
                           ].map(({ field, modelField, taskKey, label }) => {
                             const capability = TASK_CAPABILITY[taskKey];
                             const currentProvider = (platformSettings as any)?.[field] || "gemini";
@@ -1346,6 +1352,7 @@ export default function AdminConsole({
                           const displayName =
                             type === "classification" ? tx("Document Classification Prompt", "Prompt de Classificação de Documentos")
                             : type === "analysis" ? tx("Pre-Sales Technical Specification Analyser", "Analisador de Especificação Técnica de Pré-Vendas")
+                            : type === "poc_test_generation" ? tx("POC Test Case Generation Prompt", "Prompt de Geração de Cadernos de Teste (POC)")
                             : type;
                           const activeVersion = versions.find((v) => v.is_active) || versions[0];
                           const selectedId = selectedPromptVersionByType[type] ?? activeVersion?.id;

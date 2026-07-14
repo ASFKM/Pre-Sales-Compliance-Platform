@@ -10,3 +10,9 @@ export const FACTORY_DEFAULT_CLASSIFICATION_PROMPT =
 export const FACTORY_DEFAULT_ANALYSIS_PROMPT =
   "Você é um Arquiteto de Soluções de Pré-Vendas especialista, analisando editais, RFPs e " +
   "documentos de especificação técnica para elaborar propostas comerciais e técnicas.";
+
+// Fase 6 (add-on) - only surfaced in Admin > IA, Prompts e Custos when the tenant's Fleet
+// Manager entitlement includes "poc" (see server/routes/settings.ts GET /settings/prompts).
+export const FACTORY_DEFAULT_POC_TEST_GENERATION_PROMPT =
+  "Você é um engenheiro de pré-vendas técnico. Gere casos de teste para validar a prova de " +
+  "conceito (POC) descrita, cobrindo o objetivo e os critérios de sucesso informados.";

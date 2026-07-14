@@ -9,7 +9,7 @@ import { requireUserId } from "../middleware/security";
 import { createStorageAdapter } from "../utils/storage";
 import { getFleetLicenseStatus } from "../utils/fleetLicense";
 import { getCurrentTenantId } from "../../src/tenantContext";
-import { FACTORY_DEFAULT_CLASSIFICATION_PROMPT, FACTORY_DEFAULT_ANALYSIS_PROMPT } from "../utils/promptDefaults";
+import { FACTORY_DEFAULT_CLASSIFICATION_PROMPT, FACTORY_DEFAULT_ANALYSIS_PROMPT, FACTORY_DEFAULT_POC_TEST_GENERATION_PROMPT } from "../utils/promptDefaults";
 import { getCurrentMonthSpendUsd, getCurrentMonthSpendByTaskTypeAndProvider } from "../../src/aiOrchestrator";
 
 const router = express.Router();
@@ -589,11 +589,38 @@ router.put("/settings/storage", requirePermission("storage:manage"), updateStora
 
 router.get("/settings/prompts", requirePermission("ai:settings"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const prompts = await dbStore.getPrompts();
+    // Fase 6 (add-on): the poc_test_generation prompt only exists/shows once the tenant's Fleet
+    // Manager entitlement includes "poc" - bootstrapped lazily here (not via seed.ts, which only
+    // ever runs once at initial install) the first time an admin with the module enabled opens
+    // this screen, and filtered back out if the module was ever disabled again.
+    const tenantId = getCurrentTenantId();
+    const license = tenantId ? await getFleetLicenseStatus(tenantId) : { modules: [] as string[] };
+    const pocEnabled = license.modules.includes("poc");
+
+    if (pocEnabled) {
+      await dbStore.ensurePromptSeeded({
+        type: "poc_test_generation",
+        name: "POC Test Case Generation Prompt",
+        content: FACTORY_DEFAULT_POC_TEST_GENERATION_PROMPT,
+        language: "Portuguese",
+        version: "v1.0",
+        created_by: requireUserId(req),
+      });
+    }
+
+    let prompts = await dbStore.getPrompts();
+    if (!pocEnabled) {
+      prompts = prompts.filter((p) => p.type !== "poc_test_generation");
+    }
+
     res.json(
       prompts.map((p) => ({
         ...p,
-        factory_default: p.type === "classification" ? FACTORY_DEFAULT_CLASSIFICATION_PROMPT : p.type === "analysis" ? FACTORY_DEFAULT_ANALYSIS_PROMPT : "",
+        factory_default:
+          p.type === "classification" ? FACTORY_DEFAULT_CLASSIFICATION_PROMPT
+          : p.type === "analysis" ? FACTORY_DEFAULT_ANALYSIS_PROMPT
+          : p.type === "poc_test_generation" ? FACTORY_DEFAULT_POC_TEST_GENERATION_PROMPT
+          : "",
       }))
     );
   } catch (err) {

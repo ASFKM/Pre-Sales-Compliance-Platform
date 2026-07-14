@@ -14,6 +14,8 @@ import { runWithTenant } from "../../src/tenantContext";
 import { resolveProvider, checkCostCap, recordProviderFallback, recordAiUsage } from "../../src/aiOrchestrator";
 import { generateJsonWithProvider } from "../utils/aiProviders";
 import { estimateCostUsd } from "../utils/aiPricing";
+import { prisma } from "../../src/prisma";
+import { FACTORY_DEFAULT_POC_TEST_GENERATION_PROMPT } from "../utils/promptDefaults";
 
 const router = express.Router();
 
@@ -646,7 +648,13 @@ router.post("/:id/test-cases/generate", requirePermission("poc:manage"), require
       ? successCriteria.map((c) => `- ${c.description}`).join("\n")
       : "(nenhum critério de sucesso definido ainda)";
 
-    const prompt = `Você é um engenheiro de pré-vendas técnico. Gere de 3 a 6 casos de teste para validar a prova de conceito (POC) abaixo, cobrindo o objetivo e os critérios de sucesso.
+    // Only the persona/instruction framing is admin-editable (Admin > IA, Prompts e Custos) -
+    // same rule as classification/analysis: the JSON response schema below stays fixed in code
+    // so an admin can tune tone/emphasis without being able to break parsing.
+    const promptRow = await prisma.promptTemplate.findFirst({ where: { type: "poc_test_generation", isActive: true } });
+    const instructions = promptRow?.content?.trim() || FACTORY_DEFAULT_POC_TEST_GENERATION_PROMPT;
+
+    const prompt = `${instructions} Gere de 3 a 6 casos de teste.
 
 OBJETIVO DA POC:
 ${poc.objective}

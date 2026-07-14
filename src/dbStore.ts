@@ -1712,6 +1712,37 @@ class DBStore {
     return mapBranding(b);
   }
 
+  // Lazily bootstraps an active prompt row for a task type the very first time it's needed
+  // (e.g. poc_test_generation, the moment a tenant's "poc" module entitlement is confirmed) -
+  // seed.ts only ever runs once at initial install, so an add-on module enabled on an
+  // already-running installation needs its own way to get its first active prompt row without a
+  // manual migration step. No-op if a row for this type already exists (from either path).
+  public async ensurePromptSeeded(params: {
+    type: string;
+    name: string;
+    content: string;
+    language: PromptTemplate["language"];
+    version: string;
+    created_by: string;
+  }): Promise<void> {
+    const existing = await prisma.promptTemplate.findFirst({ where: { type: params.type } });
+    if (existing) return;
+
+    await prisma.promptTemplate.create({
+      data: {
+        id: randomId("prm"),
+        tenantId: requireTenantId(),
+        name: params.name,
+        type: params.type,
+        content: params.content,
+        language: params.language,
+        version: params.version,
+        isActive: true,
+        createdBy: params.created_by,
+      },
+    });
+  }
+
   // Prompt templates
   public async getPrompts(): Promise<PromptTemplate[]> {
     return (await prisma.promptTemplate.findMany({ orderBy: { createdAt: "desc" } })).map(mapPrompt);
