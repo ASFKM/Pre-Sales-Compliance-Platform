@@ -324,25 +324,40 @@ expect 400 "storage bucket url is blocked" \
   -d "{\"storage_mode\":\"s3\",\"s3_bucket\":\"https://example.com/bucket\"}"
 
 echo "Templates/Workflows/Integrations"
+# POST /api/templates/proposals takes a real multipart file upload (upload.single("file")) - file_type
+# and file_path are derived server-side from the uploaded file itself, never accepted as client
+# fields. TEMPLATE_FIXTURE is a real minimal OOXML .docx (a valid ZIP with word/document.xml
+# containing a literal {{project.name}} placeholder) so the /validate step below, which actually
+# opens the file with docxtemplater to extract real placeholders, has real content to parse instead
+# of failing on a fake binary.
+TEMPLATE_FIXTURE="$BASE_DIR/scripts/fixtures/regression-template.docx"
+
 expect_save 201 "admin creates template" /tmp/admin_reg_template.json \
   -X POST http://127.0.0.1:3000/api/templates/proposals \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "{\"name\":\"Regression Template $SUFFIX\",\"template_type\":\"technical\",\"language\":\"Portuguese\",\"file_type\":\"docx\",\"file_path\":\"/templates/regression.docx\",\"variables_schema\":\"[\\\"{{project.name}}\\\"]\"}"
+  -F "name=Regression Template $SUFFIX" \
+  -F "template_type=technical" \
+  -F "language=Portuguese" \
+  -F "variables_schema=[\"{{project.name}}\"]" \
+  -F "file=@$TEMPLATE_FIXTURE;type=application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 TPL_ID="$(node -e 'const fs=require("fs"); const j=JSON.parse(fs.readFileSync("/tmp/admin_reg_template.json","utf8")); console.log(j.id)')"
 
 expect 409 "duplicate template name is blocked" \
   -X POST http://127.0.0.1:3000/api/templates/proposals \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "{\"name\":\"Regression Template $SUFFIX\",\"template_type\":\"technical\",\"language\":\"Portuguese\",\"file_type\":\"docx\",\"file_path\":\"/templates/duplicate.docx\",\"variables_schema\":\"[]\"}"
+  -F "name=Regression Template $SUFFIX" \
+  -F "template_type=technical" \
+  -F "language=Portuguese" \
+  -F "file=@$TEMPLATE_FIXTURE;type=application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
-expect 400 "template file type mismatch is blocked" \
+expect 400 "unsupported template file type is blocked" \
   -X POST http://127.0.0.1:3000/api/templates/proposals \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "{\"name\":\"Mismatch Template $SUFFIX\",\"template_type\":\"technical\",\"language\":\"Portuguese\",\"file_type\":\"docx\",\"file_path\":\"/templates/mismatch.pdf\",\"variables_schema\":\"[]\"}"
+  -F "name=Mismatch Template $SUFFIX" \
+  -F "template_type=technical" \
+  -F "language=Portuguese" \
+  -F "file=@$TEMPLATE_FIXTURE;filename=mismatch.txt;type=text/plain"
 
 expect 200 "admin validates template" \
   -X POST "http://127.0.0.1:3000/api/templates/proposals/$TPL_ID/validate" \
