@@ -80,15 +80,26 @@ export default function PocAcceptancePanel({ pocId, canManage, pocStatus, onPocU
     setLocalDecision((prev) => (prev === decision ? null : decision));
   };
 
+  // Bug fix (reported directly, 2026-07-14): "Salvar" only sent signed_by/signed_at/notes, never
+  // the won/lost toggle above it - deselecting Ganha and clicking Salvar looked like it worked (no
+  // error, per the earlier upsert fix) but the persisted decision never actually changed, so the
+  // Kanban card's badge (denormalized from PocAcceptance.decision) still showed "GANHA" after
+  // going back. "Finalizar" is still the only way to reach pending_approval/completed (it also
+  // requires the full final report), but "Salvar" now persists the current toggle state as a plain
+  // draft decision too - the toggle is otherwise dead weight with no way to actually commit it
+  // outside of the full finalize flow, which used to require getting the whole final report right
+  // first just to undo an old test decision.
   const saveDetails = async () => {
     setSaving(true);
     try {
       const data = await ApiClient.put<PocAcceptance>(`/api/pocs/${pocId}/acceptance`, {
+        decision: localDecision || "pending",
         signed_by: signedBy || undefined,
         signed_at: signedAt || undefined,
         notes: notes || undefined,
       });
       setAcceptance(data);
+      onPocUpdated?.();
     } catch (e: any) {
       alert(e.message || "Não foi possível salvar.");
     } finally {
