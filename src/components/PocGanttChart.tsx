@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Trash2, X, Sparkles, Pen } from "lucide-react";
 import { Poc, PocTask, PocTaskStatus } from "../types";
 import ApiClient from "../lib/api";
+import { BackgroundTask } from "../hooks/useBackgroundTasks";
 
 const DAY_W = 34;
 const ROW_H = 40;
@@ -47,9 +48,11 @@ interface LiveOverride {
 interface PocGanttChartProps {
   poc: Poc;
   canManage: boolean;
+  activeTasks: BackgroundTask[];
+  waitForTask: (taskId: string) => Promise<BackgroundTask>;
 }
 
-export default function PocGanttChart({ poc, canManage }: PocGanttChartProps) {
+export default function PocGanttChart({ poc, canManage, activeTasks, waitForTask }: PocGanttChartProps) {
   const [tasks, setTasks] = useState<PocTask[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -63,6 +66,10 @@ export default function PocGanttChart({ poc, canManage }: PocGanttChartProps) {
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState("");
   const [knowledgeBaseWarning, setKnowledgeBaseWarning] = useState("");
+
+  // Same disambiguation as PocTestCases - resultId is the POC id (see server/routes/pocs.ts),
+  // so a schedule generation running for a different POC never shows up here.
+  const generationTask = activeTasks.find((t) => t.type === "poc_schedule_generation" && t.result_id === poc.id);
 
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
@@ -98,10 +105,15 @@ export default function PocGanttChart({ poc, canManage }: PocGanttChartProps) {
     setGenerateError("");
     setKnowledgeBaseWarning("");
     try {
-      const data = await ApiClient.post<{ tasks: PocTask[]; knowledge_base_warning: string | null }>(`/api/pocs/${poc.id}/tasks/generate`, {});
-      setTasks(Array.isArray(data?.tasks) ? data.tasks : []);
-      if (data?.knowledge_base_warning) {
-        setKnowledgeBaseWarning(data.knowledge_base_warning);
+      const data = await ApiClient.post<{ success: boolean; task_id: string }>(`/api/pocs/${poc.id}/tasks/generate`, {});
+      const finished = await waitForTask(data.task_id);
+      if (finished.status === "failed") {
+        setGenerateError(finished.error_message || "Não foi possível gerar o cronograma sugerido.");
+        return;
+      }
+      await fetchTasks();
+      if (finished.warning_message) {
+        setKnowledgeBaseWarning(finished.warning_message);
       }
     } catch (e: any) {
       setGenerateError(e.message || "Não foi possível gerar o cronograma sugerido.");
@@ -344,11 +356,11 @@ export default function PocGanttChart({ poc, canManage }: PocGanttChartProps) {
           <div className="flex items-center gap-2">
             <button
               onClick={generateSchedule}
-              disabled={generating}
+              disabled={generating || !!generationTask}
               className="inline-flex items-center gap-1.5 border border-emerald-600 text-emerald-700 hover:bg-emerald-50 font-mono text-xs font-bold py-1.5 px-4 rounded transition-all cursor-pointer disabled:opacity-60"
             >
-              <Sparkles size={13} />
-              {generating ? "Gerando..." : "Sugerir cronograma com IA"}
+              <Sparkles size={13} className={generating || generationTask ? "animate-pulse" : ""} />
+              {generationTask ? generationTask.current_step || "Gerando..." : generating ? "Gerando..." : "Sugerir cronograma com IA"}
             </button>
             <button
               onClick={() => setShowForm(true)}
@@ -360,6 +372,18 @@ export default function PocGanttChart({ poc, canManage }: PocGanttChartProps) {
           </div>
         )}
       </div>
+      {generationTask && (
+        <div className="flex items-center gap-2 text-[11px] text-slate-500 px-1">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
+          <span className="truncate">{generationTask.current_step}</span>
+          <span className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+            <span
+              className="block h-full bg-emerald-500 transition-all duration-500"
+              style={{ width: `${typeof generationTask.progress_pct === "number" ? generationTask.progress_pct : 5}%` }}
+            />
+          </span>
+        </div>
+      )}
 
       {generateError && <div className="p-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-xs">{generateError}</div>}
       {knowledgeBaseWarning && (

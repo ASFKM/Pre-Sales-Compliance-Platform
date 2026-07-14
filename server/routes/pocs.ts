@@ -19,6 +19,8 @@ import { FACTORY_DEFAULT_POC_TEST_GENERATION_PROMPT, FACTORY_DEFAULT_POC_SCHEDUL
 import { extractKnowledgeBaseKeywords } from "./analysis";
 import { triggerKnowledgeBaseAnalysis } from "./knowledgeBase";
 import { getSiteRastreioApiKey, queryTrackingStatus } from "../utils/siteRastreio";
+import { logger } from "../utils/logger";
+import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
 
 const router = express.Router();
 
@@ -151,6 +153,17 @@ async function getPocKnowledgeBaseContext(pocId: string): Promise<{ hasContext: 
 
   const contextText = entries.map((e, i) => `${i + 1}. Situação: ${e.trigger}\n   Conhecimento: ${e.knowledge}`).join("\n");
   return { hasContext: true, contextText };
+}
+
+// Anthropic (unlike OpenAI/Gemini here) has no forced JSON response mode - a prompt instruction
+// asking for "only JSON, no markdown" is a strong hint, not a guarantee, and Claude does sometimes
+// wrap the object in a ```json fence anyway. JSON.parse on the raw text then fails outright even
+// though the model's actual answer was well-formed. Same fence-stripping approach already proven
+// in analysis.ts's web-search parsing - strip the fence when present, otherwise pass the text
+// through untouched so providers that already return bare JSON keep working exactly as before.
+function stripJsonCodeFence(text: string): string {
+  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  return (fenceMatch ? fenceMatch[1] : text).trim();
 }
 
 // Shared instructions for how the two generation prompts below must use (or refuse to use) the
@@ -971,6 +984,7 @@ function addDaysToIsoDay(isoDay: string, days: number): string {
 router.post("/:id/tasks/generate", requirePermission("poc:manage"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const tenantId = req.headers["x-tenant-id"] as string;
+    const userId = req.headers["x-user-id"] as string;
 
     const poc = await dbStore.getPoc(req.params.id);
     if (!poc) {
@@ -987,23 +1001,35 @@ router.post("/:id/tasks/generate", requirePermission("poc:manage"), requireModul
       });
     }
 
-    // Fase 6 follow-up (reported directly, 2026-07-14): the schedule used to be suggested purely
-    // from the objective, with no idea what the test notebook actually calls for - the Cronograma
-    // tab was reordered to come AFTER Cadernos de Teste in the UI specifically because the
-    // schedule is meant to depend on it. A POC whose test cases call for distinct scenarios
-    // (illumination conditions, vehicle types, failure-mode tests, etc.) should get schedule steps
-    // that map to actually executing those tests, not a generic install→test→report skeleton.
-    const testCases = await dbStore.getPocTestCases(req.params.id);
-    const testCasesList = testCases.length
-      ? testCases.map((tc) => `- [${tc.code}] ${tc.title}: ${tc.objective}`).join("\n")
-      : "(nenhum caso de teste cadastrado ainda no Caderno de Testes)";
+    // Fase 6 follow-up (reported directly, 2026-07-14): runs as a background task, same
+    // async-response pattern as document analysis and project intake - a real generation call
+    // (KB search + AI round-trip) routinely takes 15-30s, long enough that the footer progress
+    // indicator (not just a disabled button) is the honest way to represent it.
+    const task = await createTask({ userId, type: "poc_schedule_generation", currentStep: "Iniciando geração do cronograma...", resultId: req.params.id });
+    res.status(202).json({ success: true, task_id: task.id });
 
-    const kbContext = await getPocKnowledgeBaseContext(req.params.id);
+    void runWithTenant({ tenantId }, async () => {
+      let resolvedProvider = "gemini";
+      try {
+        await updateTaskProgress(task.id, { status: "running", currentStep: "Lendo caderno de testes e base de conhecimento", progressPct: 20 });
 
-    const promptRow = await prisma.promptTemplate.findFirst({ where: { type: "poc_schedule_generation", isActive: true } });
-    const instructions = promptRow?.content?.trim() || FACTORY_DEFAULT_POC_SCHEDULE_GENERATION_PROMPT;
+        // The schedule used to be suggested purely from the objective, with no idea what the test
+        // notebook actually calls for - the Cronograma tab was reordered to come AFTER Cadernos de
+        // Teste in the UI specifically because the schedule is meant to depend on it. A POC whose
+        // test cases call for distinct scenarios (illumination conditions, vehicle types,
+        // failure-mode tests, etc.) should get schedule steps that map to actually executing those
+        // tests, not a generic install→test→report skeleton.
+        const testCases = await dbStore.getPocTestCases(req.params.id);
+        const testCasesList = testCases.length
+          ? testCases.map((tc) => `- [${tc.code}] ${tc.title}: ${tc.objective}`).join("\n")
+          : "(nenhum caso de teste cadastrado ainda no Caderno de Testes)";
 
-    const prompt = `${instructions} Sugira de 3 a 8 etapas para o cronograma desta POC.
+        const kbContext = await getPocKnowledgeBaseContext(req.params.id);
+
+        const promptRow = await prisma.promptTemplate.findFirst({ where: { type: "poc_schedule_generation", isActive: true } });
+        const instructions = promptRow?.content?.trim() || FACTORY_DEFAULT_POC_SCHEDULE_GENERATION_PROMPT;
+
+        const prompt = `${instructions} Sugira de 3 a 8 etapas para o cronograma desta POC.
 
 OBJETIVO DA POC:
 ${poc.objective}
@@ -1035,100 +1061,112 @@ extra, no formato:
 "depends_on_index" é o índice (a partir de 0) de outra etapa nesta MESMA lista, ou null se a etapa
 não depende de nenhuma outra.`;
 
-    const resolution = await resolveProvider("poc_schedule_generation", settings as any);
-    if (resolution.isFallback) {
-      await recordProviderFallback({ tenantId, taskType: "poc_schedule_generation", intendedProvider: resolution.intendedProvider, userId: requireUserId(req) });
-    }
+        const resolution = await resolveProvider("poc_schedule_generation", settings as any);
+        resolvedProvider = resolution.provider;
+        if (resolution.isFallback) {
+          await recordProviderFallback({ tenantId, taskType: "poc_schedule_generation", intendedProvider: resolution.intendedProvider, userId });
+        }
 
-    let text: string, inputTokens: number, outputTokens: number;
-    try {
-      ({ text, inputTokens, outputTokens } = await generateJsonWithProvider(resolution.provider, resolution.model, prompt));
-    } catch (aiErr: any) {
-      return res.status(502).json({ success: false, message: friendlyAiErrorMessage(aiErr, resolution.provider) });
-    }
+        await updateTaskProgress(task.id, { currentStep: "Gerando cronograma com IA", progressPct: 50 });
 
-    await recordAiUsage({
-      tenantId,
-      taskType: "poc_schedule_generation",
-      provider: resolution.provider,
-      model: resolution.model,
-      estimatedCostUsd: estimateCostUsd(resolution.model, inputTokens, outputTokens),
-    });
+        const { text, inputTokens, outputTokens } = await generateJsonWithProvider(resolution.provider, resolution.model, prompt);
+        const realEstimatedCostUsd = estimateCostUsd(resolution.model, inputTokens, outputTokens);
 
-    let parsed: any[];
-    let knowledgeBaseWarning: string | null = null;
-    try {
-      const parsedObj = JSON.parse(text.trim());
-      parsed = parsedObj?.tasks;
-      if (!Array.isArray(parsed)) throw new Error("not an array");
-      if (typeof parsedObj?.knowledge_base_warning === "string") {
-        knowledgeBaseWarning = parsedObj.knowledge_base_warning;
+        await recordAiUsage({
+          tenantId,
+          taskType: "poc_schedule_generation",
+          provider: resolution.provider,
+          model: resolution.model,
+          estimatedCostUsd: realEstimatedCostUsd,
+          backgroundTaskId: task.id,
+        });
+
+        let parsed: any[];
+        let knowledgeBaseWarning: string | null = null;
+        try {
+          const parsedObj = JSON.parse(stripJsonCodeFence(text));
+          parsed = parsedObj?.tasks;
+          if (!Array.isArray(parsed)) throw new Error("not an array");
+          if (typeof parsedObj?.knowledge_base_warning === "string") {
+            knowledgeBaseWarning = parsedObj.knowledge_base_warning;
+          }
+        } catch (parseErr: any) {
+          logger.warn({ provider: resolution.provider, model: resolution.model, text, err: parseErr?.message }, "poc_schedule_generation: AI response failed JSON parsing");
+          await failTask(task.id, "A IA retornou uma resposta em formato inesperado. Tente novamente.");
+          return;
+        }
+
+        await updateTaskProgress(task.id, { currentStep: "Salvando etapas do cronograma", progressPct: 90 });
+
+        // Same regeneration safety as test cases: only drafts nobody has touched yet get replaced.
+        await dbStore.deleteUneditedAiPocTasks(req.params.id);
+
+        // Validate each item's own fields first and keep original array indices, since
+        // depends_on_index refers to positions in the AI's own list, not the filtered/created list.
+        const validItems = parsed
+          .map((item, index) => ({ item, index }))
+          .filter(({ item }) => item?.name && Number.isFinite(Number(item.duration_days)) && Number(item.duration_days) >= 1);
+        const validIndices = new Set(validItems.map(({ index }) => index));
+
+        // Start dates come from walking the dependency graph (topological order via memoized
+        // computeStart), not a blind sequential chain - a task with no dependency (or one pointing
+        // at an invalid/filtered-out index) starts at the POC's own start date, same as any other
+        // independent/parallel task.
+        const startDateByIndex = new Map<number, string>();
+        const computeStart = (index: number, seen: Set<number>): string => {
+          if (startDateByIndex.has(index)) return startDateByIndex.get(index)!;
+          if (seen.has(index)) return poc.start_date; // cycle guard
+          seen.add(index);
+
+          const entry = validItems.find(({ index: i }) => i === index);
+          const depIndex = entry ? Number(entry.item.depends_on_index) : NaN;
+          let start = poc.start_date;
+          if (Number.isFinite(depIndex) && validIndices.has(depIndex) && depIndex !== index) {
+            const depEntry = validItems.find(({ index: i }) => i === depIndex)!;
+            const depStart = computeStart(depIndex, seen);
+            start = addDaysToIsoDay(depStart, Number(depEntry.item.duration_days));
+          }
+          startDateByIndex.set(index, start);
+          return start;
+        };
+
+        // Two passes because depends_on_index can point at a LATER item in the AI's own list
+        // (nothing requires the AI to list a dependency before its dependent) - creating in listed
+        // order first and wiring dependsOnTaskId in a second pass, once every task's real id is
+        // known, avoids silently dropping a forward-referenced dependency.
+        const taskIdByIndex = new Map<number, string>();
+        for (const { item, index } of validItems) {
+          const createdTask = await dbStore.createPocTask(req.params.id, {
+            name: String(item.name),
+            start_date: computeStart(index, new Set()),
+            duration_days: Number(item.duration_days),
+            generated_by_ai: true,
+          });
+          taskIdByIndex.set(index, createdTask.id);
+        }
+
+        for (const { item, index } of validItems) {
+          const depIndex = Number(item.depends_on_index);
+          if (!Number.isFinite(depIndex) || !validIndices.has(depIndex) || depIndex === index) continue;
+          const dependsOnTaskId = taskIdByIndex.get(depIndex);
+          if (dependsOnTaskId) {
+            await dbStore.updatePocTask(taskIdByIndex.get(index)!, { depends_on_task_id: dependsOnTaskId });
+          }
+        }
+
+        await completeTask(task.id, {
+          resultType: "poc_tasks",
+          resultId: req.params.id,
+          estimatedCostUsd: realEstimatedCostUsd,
+          aiProvider: resolution.provider,
+          intendedProvider: resolution.intendedProvider,
+          isProviderFallback: resolution.isFallback,
+          warningMessage: knowledgeBaseWarning,
+        });
+      } catch (err: any) {
+        logger.error({ err, taskId: task.id }, "poc_schedule_generation background task failed");
+        await failTask(task.id, friendlyAiErrorMessage(err, resolvedProvider));
       }
-    } catch {
-      return res.status(502).json({ success: false, message: "A IA retornou uma resposta em formato inesperado. Tente novamente." });
-    }
-
-    // Same regeneration safety as test cases: only drafts nobody has touched yet get replaced.
-    await dbStore.deleteUneditedAiPocTasks(req.params.id);
-
-    // Validate each item's own fields first and keep original array indices, since
-    // depends_on_index refers to positions in the AI's own list, not the filtered/created list.
-    const validItems = parsed
-      .map((item, index) => ({ item, index }))
-      .filter(({ item }) => item?.name && Number.isFinite(Number(item.duration_days)) && Number(item.duration_days) >= 1);
-    const validIndices = new Set(validItems.map(({ index }) => index));
-
-    // Start dates come from walking the dependency graph (topological order via memoized
-    // computeStart), not a blind sequential chain - a task with no dependency (or one pointing at
-    // an invalid/filtered-out index) starts at the POC's own start date, same as any other
-    // independent/parallel task.
-    const startDateByIndex = new Map<number, string>();
-    const computeStart = (index: number, seen: Set<number>): string => {
-      if (startDateByIndex.has(index)) return startDateByIndex.get(index)!;
-      if (seen.has(index)) return poc.start_date; // cycle guard
-      seen.add(index);
-
-      const entry = validItems.find(({ index: i }) => i === index);
-      const depIndex = entry ? Number(entry.item.depends_on_index) : NaN;
-      let start = poc.start_date;
-      if (Number.isFinite(depIndex) && validIndices.has(depIndex) && depIndex !== index) {
-        const depEntry = validItems.find(({ index: i }) => i === depIndex)!;
-        const depStart = computeStart(depIndex, seen);
-        start = addDaysToIsoDay(depStart, Number(depEntry.item.duration_days));
-      }
-      startDateByIndex.set(index, start);
-      return start;
-    };
-
-    // Two passes because depends_on_index can point at a LATER item in the AI's own list (nothing
-    // requires the AI to list a dependency before its dependent) - creating in listed order first
-    // and wiring dependsOnTaskId in a second pass, once every task's real id is known, avoids
-    // silently dropping a forward-referenced dependency.
-    const taskIdByIndex = new Map<number, string>();
-    const created = [];
-    for (const { item, index } of validItems) {
-      const task = await dbStore.createPocTask(req.params.id, {
-        name: String(item.name),
-        start_date: computeStart(index, new Set()),
-        duration_days: Number(item.duration_days),
-        generated_by_ai: true,
-      });
-      created.push(task);
-      taskIdByIndex.set(index, task.id);
-    }
-
-    for (const { item, index } of validItems) {
-      const depIndex = Number(item.depends_on_index);
-      if (!Number.isFinite(depIndex) || !validIndices.has(depIndex) || depIndex === index) continue;
-      const dependsOnTaskId = taskIdByIndex.get(depIndex);
-      if (dependsOnTaskId) {
-        await dbStore.updatePocTask(taskIdByIndex.get(index)!, { depends_on_task_id: dependsOnTaskId });
-      }
-    }
-
-    res.json({
-      tasks: await dbStore.getPocTasks(req.params.id),
-      knowledge_base_warning: knowledgeBaseWarning,
     });
   } catch (err) {
     next(err);
@@ -1240,6 +1278,7 @@ router.delete("/:id/test-cases/:caseId", requirePermission("poc:manage"), requir
 router.post("/:id/test-cases/generate", requirePermission("poc:manage"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const tenantId = req.headers["x-tenant-id"] as string;
+    const userId = req.headers["x-user-id"] as string;
 
     const poc = await dbStore.getPoc(req.params.id);
     if (!poc) {
@@ -1256,21 +1295,33 @@ router.post("/:id/test-cases/generate", requirePermission("poc:manage"), require
       });
     }
 
-    const successCriteria = await dbStore.getPocSuccessCriteria(req.params.id);
-    const criteriaList = successCriteria.length
-      ? successCriteria.map((c) => `- ${c.description}`).join("\n")
-      : "(nenhum critério de sucesso definido ainda)";
+    // Runs as a background task, same async-response pattern as document analysis and project
+    // intake - a real generation call (KB search + AI round-trip) routinely takes 15-30s, long
+    // enough that the footer progress indicator (not just a disabled button) is the honest way to
+    // represent it.
+    const task = await createTask({ userId, type: "poc_test_generation", currentStep: "Iniciando geração dos casos de teste...", resultId: req.params.id });
+    res.status(202).json({ success: true, task_id: task.id });
 
-    // Fase H: grounding fix for the reported hallucination bug - see getPocKnowledgeBaseContext.
-    const kbContext = await getPocKnowledgeBaseContext(req.params.id);
+    void runWithTenant({ tenantId }, async () => {
+      let resolvedProvider = "gemini";
+      try {
+        await updateTaskProgress(task.id, { status: "running", currentStep: "Lendo objetivo, critérios e base de conhecimento", progressPct: 20 });
 
-    // Only the persona/instruction framing is admin-editable (Admin > IA, Prompts e Custos) -
-    // same rule as classification/analysis: the JSON response schema below stays fixed in code
-    // so an admin can tune tone/emphasis without being able to break parsing.
-    const promptRow = await prisma.promptTemplate.findFirst({ where: { type: "poc_test_generation", isActive: true } });
-    const instructions = promptRow?.content?.trim() || FACTORY_DEFAULT_POC_TEST_GENERATION_PROMPT;
+        const successCriteria = await dbStore.getPocSuccessCriteria(req.params.id);
+        const criteriaList = successCriteria.length
+          ? successCriteria.map((c) => `- ${c.description}`).join("\n")
+          : "(nenhum critério de sucesso definido ainda)";
 
-    const prompt = `${instructions} Gere de 3 a 6 casos de teste.
+        // Fase H: grounding fix for the reported hallucination bug - see getPocKnowledgeBaseContext.
+        const kbContext = await getPocKnowledgeBaseContext(req.params.id);
+
+        // Only the persona/instruction framing is admin-editable (Admin > IA, Prompts e Custos) -
+        // same rule as classification/analysis: the JSON response schema below stays fixed in code
+        // so an admin can tune tone/emphasis without being able to break parsing.
+        const promptRow = await prisma.promptTemplate.findFirst({ where: { type: "poc_test_generation", isActive: true } });
+        const instructions = promptRow?.content?.trim() || FACTORY_DEFAULT_POC_TEST_GENERATION_PROMPT;
+
+        const prompt = `${instructions} Gere de 3 a 6 casos de teste.
 
 OBJETIVO DA POC:
 ${poc.objective}
@@ -1289,65 +1340,76 @@ provedores exigem um objeto no nível superior), sem markdown, sem texto extra, 
   ]
 }`;
 
-    const resolution = await resolveProvider("poc_test_generation", settings as any);
-    if (resolution.isFallback) {
-      await recordProviderFallback({ tenantId, taskType: "poc_test_generation", intendedProvider: resolution.intendedProvider, userId: requireUserId(req) });
-    }
+        const resolution = await resolveProvider("poc_test_generation", settings as any);
+        resolvedProvider = resolution.provider;
+        if (resolution.isFallback) {
+          await recordProviderFallback({ tenantId, taskType: "poc_test_generation", intendedProvider: resolution.intendedProvider, userId });
+        }
 
-    let text: string, inputTokens: number, outputTokens: number;
-    try {
-      ({ text, inputTokens, outputTokens } = await generateJsonWithProvider(resolution.provider, resolution.model, prompt));
-    } catch (aiErr: any) {
-      return res.status(502).json({ success: false, message: friendlyAiErrorMessage(aiErr, resolution.provider) });
-    }
+        await updateTaskProgress(task.id, { currentStep: "Gerando casos de teste com IA", progressPct: 50 });
 
-    await recordAiUsage({
-      tenantId,
-      taskType: "poc_test_generation",
-      provider: resolution.provider,
-      model: resolution.model,
-      estimatedCostUsd: estimateCostUsd(resolution.model, inputTokens, outputTokens),
-    });
+        const { text, inputTokens, outputTokens } = await generateJsonWithProvider(resolution.provider, resolution.model, prompt);
+        const realEstimatedCostUsd = estimateCostUsd(resolution.model, inputTokens, outputTokens);
 
-    let parsed: any[];
-    let knowledgeBaseWarning: string | null = null;
-    try {
-      const parsedObj = JSON.parse(text.trim());
-      parsed = Array.isArray(parsedObj) ? parsedObj : parsedObj?.test_cases;
-      if (!Array.isArray(parsed)) throw new Error("not an array");
-      if (!Array.isArray(parsedObj) && typeof parsedObj?.knowledge_base_warning === "string") {
-        knowledgeBaseWarning = parsedObj.knowledge_base_warning;
+        await recordAiUsage({
+          tenantId,
+          taskType: "poc_test_generation",
+          provider: resolution.provider,
+          model: resolution.model,
+          estimatedCostUsd: realEstimatedCostUsd,
+          backgroundTaskId: task.id,
+        });
+
+        let parsed: any[];
+        let knowledgeBaseWarning: string | null = null;
+        try {
+          const parsedObj = JSON.parse(stripJsonCodeFence(text));
+          parsed = Array.isArray(parsedObj) ? parsedObj : parsedObj?.test_cases;
+          if (!Array.isArray(parsed)) throw new Error("not an array");
+          if (!Array.isArray(parsedObj) && typeof parsedObj?.knowledge_base_warning === "string") {
+            knowledgeBaseWarning = parsedObj.knowledge_base_warning;
+          }
+        } catch (parseErr: any) {
+          logger.warn({ provider: resolution.provider, model: resolution.model, text, err: parseErr?.message }, "poc_test_generation: AI response failed JSON parsing");
+          await failTask(task.id, "A IA retornou uma resposta em formato inesperado. Tente novamente.");
+          return;
+        }
+
+        await updateTaskProgress(task.id, { currentStep: "Salvando casos de teste", progressPct: 90 });
+
+        // Regenerating only replaces drafts nobody has touched yet - anything a human wrote from
+        // scratch or edited survives.
+        await dbStore.deleteUneditedAiPocTestCases(req.params.id);
+
+        const remaining = await dbStore.getPocTestCases(req.params.id);
+        const codes = nextTestCaseCodes(remaining.map((c) => c.code), parsed.length);
+
+        for (let i = 0; i < parsed.length; i++) {
+          const item = parsed[i];
+          if (!item?.title || !item?.objective || !item?.steps || !item?.expected_result) continue;
+          await dbStore.createPocTestCase(req.params.id, {
+            code: codes[i],
+            title: String(item.title),
+            objective: String(item.objective),
+            steps: String(item.steps),
+            expected_result: String(item.expected_result),
+            generated_by_ai: true,
+          });
+        }
+
+        await completeTask(task.id, {
+          resultType: "poc_test_cases",
+          resultId: req.params.id,
+          estimatedCostUsd: realEstimatedCostUsd,
+          aiProvider: resolution.provider,
+          intendedProvider: resolution.intendedProvider,
+          isProviderFallback: resolution.isFallback,
+          warningMessage: knowledgeBaseWarning,
+        });
+      } catch (err: any) {
+        logger.error({ err, taskId: task.id }, "poc_test_generation background task failed");
+        await failTask(task.id, friendlyAiErrorMessage(err, resolvedProvider));
       }
-    } catch {
-      return res.status(502).json({ success: false, message: "A IA retornou uma resposta em formato inesperado. Tente novamente." });
-    }
-
-    // Regenerating only replaces drafts nobody has touched yet - anything a human wrote from
-    // scratch or edited survives.
-    await dbStore.deleteUneditedAiPocTestCases(req.params.id);
-
-    const remaining = await dbStore.getPocTestCases(req.params.id);
-    const codes = nextTestCaseCodes(remaining.map((c) => c.code), parsed.length);
-
-    const created = [];
-    for (let i = 0; i < parsed.length; i++) {
-      const item = parsed[i];
-      if (!item?.title || !item?.objective || !item?.steps || !item?.expected_result) continue;
-      created.push(
-        await dbStore.createPocTestCase(req.params.id, {
-          code: codes[i],
-          title: String(item.title),
-          objective: String(item.objective),
-          steps: String(item.steps),
-          expected_result: String(item.expected_result),
-          generated_by_ai: true,
-        })
-      );
-    }
-
-    res.json({
-      test_cases: await dbStore.getPocTestCases(req.params.id),
-      knowledge_base_warning: knowledgeBaseWarning,
     });
   } catch (err) {
     next(err);
@@ -1476,13 +1538,14 @@ extra, no formato:
     let parsed: any[];
     let knowledgeBaseWarning: string | null = null;
     try {
-      const parsedObj = JSON.parse(text.trim());
+      const parsedObj = JSON.parse(stripJsonCodeFence(text));
       parsed = parsedObj?.questions;
       if (!Array.isArray(parsed)) throw new Error("not an array");
       if (typeof parsedObj?.knowledge_base_warning === "string") {
         knowledgeBaseWarning = parsedObj.knowledge_base_warning;
       }
-    } catch {
+    } catch (parseErr: any) {
+      logger.warn({ provider: resolution.provider, model: resolution.model, text, err: parseErr?.message }, "poc_final_report_generation: AI response failed JSON parsing");
       return res.status(502).json({ success: false, message: "A IA retornou uma resposta em formato inesperado. Tente novamente." });
     }
 

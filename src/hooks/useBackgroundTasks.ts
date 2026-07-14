@@ -4,11 +4,12 @@ export interface BackgroundTask {
   id: string;
   tenant_id: string;
   user_id: string;
-  type: "document_analysis" | "proposal_generation" | "project_intake_analysis" | "knowledge_base_analysis";
+  type: "document_analysis" | "proposal_generation" | "project_intake_analysis" | "knowledge_base_analysis" | "poc_test_generation" | "poc_schedule_generation";
   status: "queued" | "running" | "completed" | "failed";
   current_step: string;
   progress_pct: number | null;
   error_message: string | null;
+  warning_message: string | null;
   result_type: string | null;
   result_id: string | null;
   created_at: string;

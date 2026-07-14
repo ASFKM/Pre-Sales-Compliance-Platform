@@ -106,6 +106,8 @@ enum BackgroundTaskType {
   proposal_generation
   project_intake_analysis
   knowledge_base_analysis
+  poc_test_generation
+  poc_schedule_generation
 }
 
 enum BackgroundTaskStatus {
@@ -639,6 +641,11 @@ model BackgroundTask {
   currentStep        String               @map("current_step")
   progressPct        Int?                 @map("progress_pct")
   errorMessage       String?              @map("error_message") @db.Text
+  // Non-fatal advisory shown alongside a *completed* task's result (e.g. "Base de Conhecimento
+  // insuficiente para este equipamento") - deliberately separate from errorMessage, which is only
+  // ever set on a failed task; a reader shouldn't have to wonder why a "completed" task carries an
+  // "error".
+  warningMessage     String?              @map("warning_message") @db.Text
   // Generic pointer to whatever the task produced (e.g. "analysis_result"/<project id>,
   // "proposal"/<proposal id>) - lets the frontend know what to fetch once status is completed,
   // without this table needing a column per possible result type.

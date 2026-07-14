@@ -4,7 +4,7 @@ import { getCurrentTenantId } from "./tenantContext";
 import { randomId } from "./idGenerator";
 import { logger } from "../server/utils/logger";
 
-export type BackgroundTaskType = "document_analysis" | "proposal_generation" | "project_intake_analysis" | "knowledge_base_analysis";
+export type BackgroundTaskType = "document_analysis" | "proposal_generation" | "project_intake_analysis" | "knowledge_base_analysis" | "poc_test_generation" | "poc_schedule_generation";
 export type BackgroundTaskStatus = "queued" | "running" | "completed" | "failed";
 
 export interface BackgroundTask {
@@ -16,6 +16,7 @@ export interface BackgroundTask {
   current_step: string;
   progress_pct: number | null;
   error_message: string | null;
+  warning_message: string | null;
   result_type: string | null;
   result_id: string | null;
   estimated_cost_usd: number | null;
@@ -36,6 +37,7 @@ function mapTask(t: any): BackgroundTask {
     current_step: t.currentStep,
     progress_pct: t.progressPct ?? null,
     error_message: t.errorMessage ?? null,
+    warning_message: t.warningMessage ?? null,
     result_type: t.resultType ?? null,
     result_id: t.resultId ?? null,
     estimated_cost_usd: t.estimatedCostUsd ?? null,
@@ -114,6 +116,7 @@ export async function completeTask(id: string, result: {
   aiProvider?: string;
   intendedProvider?: string;
   isProviderFallback?: boolean;
+  warningMessage?: string | null;
 }): Promise<BackgroundTask> {
   const t = await prisma.backgroundTask.update({
     where: { id },
@@ -127,6 +130,7 @@ export async function completeTask(id: string, result: {
       aiProvider: result.aiProvider,
       intendedProvider: result.intendedProvider,
       isProviderFallback: result.isProviderFallback,
+      warningMessage: result.warningMessage ?? null,
     },
   });
   const task = mapTask(t);

@@ -5,6 +5,7 @@ import ApiClient from "../lib/api";
 import PocGanttChart from "./PocGanttChart";
 import PocTestCases from "./PocTestCases";
 import PocAcceptancePanel from "./PocAcceptancePanel";
+import { BackgroundTask } from "../hooks/useBackgroundTasks";
 
 const STATUS_LABEL: Record<PocStatus, string> = {
   not_started: "Não iniciada",
@@ -116,9 +117,11 @@ const EMPTY_CREATE_FORM: CreateFormState = {
 interface PocManagementProps {
   hasPermission: (permission: string) => boolean;
   projects: Project[];
+  activeTasks: BackgroundTask[];
+  waitForTask: (taskId: string) => Promise<BackgroundTask>;
 }
 
-export default function PocManagement({ hasPermission, projects }: PocManagementProps) {
+export default function PocManagement({ hasPermission, projects, activeTasks, waitForTask }: PocManagementProps) {
   const canManage = hasPermission("poc:manage");
 
   const [pocs, setPocs] = useState<Poc[]>([]);
@@ -1207,14 +1210,14 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
         {detailTab === "tests" && (
         <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-5">
           <h2 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700 mb-4">Cadernos de Teste</h2>
-          <PocTestCases pocId={selectedPoc.id} canManage={canManage} />
+          <PocTestCases pocId={selectedPoc.id} canManage={canManage} activeTasks={activeTasks} waitForTask={waitForTask} />
         </div>
         )}
 
         {detailTab === "gantt" && (
         <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-5">
           <h2 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700 mb-4">Cronograma</h2>
-          <PocGanttChart poc={selectedPoc} canManage={canManage} />
+          <PocGanttChart poc={selectedPoc} canManage={canManage} activeTasks={activeTasks} waitForTask={waitForTask} />
         </div>
         )}
 

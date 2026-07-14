@@ -1310,6 +1310,8 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
             <PocManagement
               hasPermission={hasPermission}
               projects={projects}
+              activeTasks={activeTasks}
+              waitForTask={waitForTask}
             />
           )}
 
@@ -1391,6 +1393,30 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                   <span
                     className="block h-full bg-amber-400 transition-all duration-500"
                     style={{ width: `${typeof analysisTask.progress_pct === "number" ? analysisTask.progress_pct : 5}%` }}
+                  />
+                </span>
+              </span>
+            );
+          })()}
+          {(() => {
+            // Fase 6 follow-up (reported directly, 2026-07-14): same diagnostic-footer progress
+            // indicator as document analysis above, for the two POC AI generation flows (caderno
+            // de testes/cronograma) - both moved to the same async background-task pattern so a
+            // real ~15-30s AI round-trip shows real progress instead of just a disabled button.
+            const pocTask = activeTasks.find((t) => t.type === "poc_test_generation" || t.type === "poc_schedule_generation");
+            if (!pocTask) return null;
+            const label = pocTask.type === "poc_test_generation" ? "Caderno de Testes" : "Cronograma";
+            return (
+              <span className="flex items-center gap-2 border-l border-slate-700 pl-6">
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0"></span>
+                <span className="truncate max-w-[220px]">
+                  {label}: {pocTask.current_step}
+                  {typeof pocTask.progress_pct === "number" && ` (${pocTask.progress_pct}%)`}
+                </span>
+                <span className="w-16 h-1.5 bg-slate-700 rounded-full overflow-hidden shrink-0">
+                  <span
+                    className="block h-full bg-amber-400 transition-all duration-500"
+                    style={{ width: `${typeof pocTask.progress_pct === "number" ? pocTask.progress_pct : 5}%` }}
                   />
                 </span>
               </span>
