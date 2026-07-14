@@ -362,6 +362,19 @@ model Poc {
   owner                  User      @relation("PocOwner", fields: [ownerUserId], references: [id])
   customerContactName    String    @map("customer_contact_name")
   customerContactRole    String    @map("customer_contact_role")
+
+  // Fase J: where the POC actually happens - same field set already used by Customer in the
+  // CMSaaS (fleet-manager), so this doesn't invent a new address shape. All optional: a POC's
+  // location may not be known yet at creation time, and a standalone POC has no Project address to
+  // fall back on.
+  addressZip          String? @map("address_zip")
+  addressStreet       String? @map("address_street")
+  addressNumber       String? @map("address_number")
+  addressComplement   String? @map("address_complement")
+  addressNeighborhood String? @map("address_neighborhood")
+  addressCity         String? @map("address_city")
+  addressState        String? @map("address_state")
+
   createdAt              DateTime  @default(now()) @map("created_at")
   updatedAt              DateTime  @updatedAt @map("updated_at")
 

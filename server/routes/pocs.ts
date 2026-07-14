@@ -126,6 +126,15 @@ const PocBaseSchema = z.object({
   end_date: z.string().min(5, "End date is required"),
   customer_contact_name: z.string().min(2, "Customer contact name is required"),
   customer_contact_role: z.string().min(2, "Customer contact role is required"),
+  // Fase J: where the POC actually happens - all optional, same reasoning as the fields above
+  // (address may not be known yet at creation time).
+  address_zip: z.string().optional(),
+  address_street: z.string().optional(),
+  address_number: z.string().optional(),
+  address_complement: z.string().optional(),
+  address_neighborhood: z.string().optional(),
+  address_city: z.string().optional(),
+  address_state: z.string().optional(),
 });
 
 // A POC either hangs off an existing Project (inheriting its customer/vertical) or stands alone
@@ -1232,6 +1241,37 @@ router.get("/:id/acceptance/signed-document", requirePermission("poc:read"), req
     res.setHeader("Content-Type", "application/octet-stream");
     res.setHeader("Content-Disposition", `attachment; filename="${file.original_filename}"`);
     res.send(buffer);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Fase J: ViaCEP (https://viacep.com.br) is a free, keyless, official Brazilian postal-code
+// lookup - proxied server-side rather than called directly from the browser because the app's CSP
+// pins connect-src to 'self' (server/middleware/security.ts), and loosening that for a single
+// convenience lookup isn't worth it when a thin proxy route does the job just as well.
+router.get("/cep/:cep", requirePermission("poc:read"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const cep = req.params.cep.replace(/\D/g, "");
+    if (cep.length !== 8) {
+      return res.status(400).json({ success: false, message: "CEP inválido." });
+    }
+
+    const viaCepRes = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+    if (!viaCepRes.ok) {
+      return res.status(502).json({ success: false, message: "Não foi possível consultar o CEP." });
+    }
+    const data: any = await viaCepRes.json();
+    if (data.erro) {
+      return res.status(404).json({ success: false, message: "CEP não encontrado." });
+    }
+
+    res.json({
+      street: data.logradouro || "",
+      neighborhood: data.bairro || "",
+      city: data.localidade || "",
+      state: data.uf || "",
+    });
   } catch (err) {
     next(err);
   }

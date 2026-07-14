@@ -77,6 +77,13 @@ export interface Poc {
   owner_name?: string;
   customer_contact_name: string;
   customer_contact_role: string;
+  address_zip?: string;
+  address_street?: string;
+  address_number?: string;
+  address_complement?: string;
+  address_neighborhood?: string;
+  address_city?: string;
+  address_state?: string;
   created_at: string;
   updated_at: string;
 }

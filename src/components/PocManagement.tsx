@@ -51,6 +51,13 @@ interface EditableFields {
   end_date: string;
   customer_contact_name: string;
   customer_contact_role: string;
+  address_zip: string;
+  address_street: string;
+  address_number: string;
+  address_complement: string;
+  address_neighborhood: string;
+  address_city: string;
+  address_state: string;
 }
 
 function toEditable(p: Poc): EditableFields {
@@ -62,6 +69,13 @@ function toEditable(p: Poc): EditableFields {
     end_date: p.end_date,
     customer_contact_name: p.customer_contact_name,
     customer_contact_role: p.customer_contact_role,
+    address_zip: p.address_zip || "",
+    address_street: p.address_street || "",
+    address_number: p.address_number || "",
+    address_complement: p.address_complement || "",
+    address_neighborhood: p.address_neighborhood || "",
+    address_city: p.address_city || "",
+    address_state: p.address_state || "",
   };
 }
 
@@ -118,6 +132,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
   const [editValues, setEditValues] = useState<EditableFields | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [cepLoading, setCepLoading] = useState(false);
 
   const [criteria, setCriteria] = useState<PocSuccessCriterion[]>([]);
   const [loadingCriteria, setLoadingCriteria] = useState(false);
@@ -387,6 +402,33 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
     setSaveError("");
   };
 
+  // Fase J: ViaCEP lookup proxied through the backend (GET /api/pocs/cep/:cep) - the app's CSP
+  // pins connect-src to 'self', so a direct browser fetch to viacep.com.br would be blocked.
+  const lookupCep = async (rawCep: string) => {
+    const cep = rawCep.replace(/\D/g, "");
+    if (cep.length !== 8 || !editValues) return;
+    setCepLoading(true);
+    try {
+      const data = await ApiClient.get<{ street: string; neighborhood: string; city: string; state: string }>(`/api/pocs/cep/${cep}`);
+      setEditValues((prev) =>
+        prev
+          ? {
+              ...prev,
+              address_street: data.street || prev.address_street,
+              address_neighborhood: data.neighborhood || prev.address_neighborhood,
+              address_city: data.city || prev.address_city,
+              address_state: data.state || prev.address_state,
+            }
+          : prev
+      );
+    } catch {
+      // Silent - CEP autofill is a convenience, not a required step; the user can still fill
+      // street/city/state manually if the CEP isn't found or ViaCEP is unreachable.
+    } finally {
+      setCepLoading(false);
+    }
+  };
+
   const saveEdit = async () => {
     if (!selectedPoc || !editValues) return;
     setSaving(true);
@@ -549,6 +591,23 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
               )}
 
               <div>
+                <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono mb-1">Local da POC</div>
+                {selectedPoc.address_street || selectedPoc.address_city ? (
+                  <div className="text-slate-700">
+                    {[
+                      [selectedPoc.address_street, selectedPoc.address_number].filter(Boolean).join(", "),
+                      selectedPoc.address_complement,
+                      selectedPoc.address_neighborhood,
+                      [selectedPoc.address_city, selectedPoc.address_state].filter(Boolean).join(" - "),
+                      selectedPoc.address_zip,
+                    ].filter(Boolean).join(" · ")}
+                  </div>
+                ) : (
+                  <div className="text-slate-400 italic text-xs">Endereço não informado.</div>
+                )}
+              </div>
+
+              <div>
                 <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono mb-2">Stakeholders</div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div className="flex items-center gap-2 border border-slate-200 rounded-md px-3 py-2 bg-emerald-50/40">
@@ -689,6 +748,72 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                   value={editValues.customer_contact_role}
                   onChange={(e) => setEditValues({ ...editValues, customer_contact_role: e.target.value })}
                 />
+              </div>
+
+              <div className="pt-3 mt-1 border-t border-slate-100">
+                <h3 className="text-xs font-bold uppercase tracking-wider font-mono text-slate-700 mb-3">Local da POC</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div>
+                    <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">CEP</label>
+                    <input
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                      placeholder="00000-000"
+                      value={editValues.address_zip}
+                      onChange={(e) => setEditValues({ ...editValues, address_zip: e.target.value })}
+                      onBlur={(e) => lookupCep(e.target.value)}
+                    />
+                    {cepLoading && <p className="text-[10px] text-slate-400 mt-1">Buscando...</p>}
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Rua</label>
+                    <input
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                      value={editValues.address_street}
+                      onChange={(e) => setEditValues({ ...editValues, address_street: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Número</label>
+                    <input
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                      value={editValues.address_number}
+                      onChange={(e) => setEditValues({ ...editValues, address_number: e.target.value })}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Complemento</label>
+                    <input
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                      value={editValues.address_complement}
+                      onChange={(e) => setEditValues({ ...editValues, address_complement: e.target.value })}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Bairro</label>
+                    <input
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                      value={editValues.address_neighborhood}
+                      onChange={(e) => setEditValues({ ...editValues, address_neighborhood: e.target.value })}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Cidade</label>
+                    <input
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                      value={editValues.address_city}
+                      onChange={(e) => setEditValues({ ...editValues, address_city: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">UF</label>
+                    <input
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                      maxLength={2}
+                      value={editValues.address_state}
+                      onChange={(e) => setEditValues({ ...editValues, address_state: e.target.value.toUpperCase() })}
+                    />
+                  </div>
+                </div>
               </div>
 
               {saveError && <div className="p-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-xs">{saveError}</div>}
