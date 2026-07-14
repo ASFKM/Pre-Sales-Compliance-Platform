@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, X, ArrowLeft, Pen, Check, Trash2, Paperclip, TriangleAlert, Download, PackageSearch, BookMarked, FileUp, Truck, RefreshCw } from "lucide-react";
+import { Plus, X, ArrowLeft, Pen, Check, Trash2, Paperclip, TriangleAlert, Download, PackageSearch, BookMarked, FileUp, Truck, RefreshCw, Archive } from "lucide-react";
 import { Poc, PocStatus, PocSuccessCriterion, PocEquipmentItem, PocEquipmentStatus, PocBomCandidate, Project } from "../types";
 import ApiClient from "../lib/api";
 import PocGanttChart from "./PocGanttChart";
@@ -7,11 +7,11 @@ import PocTestCases from "./PocTestCases";
 import PocAcceptancePanel from "./PocAcceptancePanel";
 
 const STATUS_LABEL: Record<PocStatus, string> = {
+  not_started: "Não iniciada",
   planned: "Planejada",
   in_progress: "Em andamento",
   blocked: "Bloqueada",
-  completed_won: "Concluída · Ganha",
-  completed_lost: "Concluída · Perdida",
+  completed: "Concluída",
 };
 
 const EQUIPMENT_STATUS_LABEL: Record<PocEquipmentStatus, string> = {
@@ -27,21 +27,25 @@ const EQUIPMENT_STATUS_COLOR: Record<PocEquipmentStatus, string> = {
 };
 
 const STATUS_BADGE_COLOR: Record<PocStatus, string> = {
+  not_started: "bg-slate-100 text-slate-600",
   planned: "bg-blue-50 text-blue-700",
   in_progress: "bg-emerald-50 text-emerald-700",
   blocked: "bg-amber-50 text-amber-700",
-  completed_won: "bg-emerald-50 text-emerald-700",
-  completed_lost: "bg-red-50 text-red-700",
+  completed: "bg-slate-100 text-slate-700",
 };
 
-const COLUMNS: { key: string; label: string; statuses: PocStatus[]; dot: string }[] = [
-  { key: "planned", label: "Planejada", statuses: ["planned"], dot: "bg-blue-500" },
-  { key: "in_progress", label: "Em andamento", statuses: ["in_progress"], dot: "bg-emerald-500" },
-  { key: "blocked", label: "Bloqueada", statuses: ["blocked"], dot: "bg-amber-500" },
-  { key: "completed", label: "Concluída", statuses: ["completed_won", "completed_lost"], dot: "bg-slate-400" },
+// Fase K: 5 real pipeline stages, 1:1 with PocStatus - won/lost no longer live here (that's
+// PocAcceptance.decision, denormalized onto Poc.acceptance_decision), just a visual border on the
+// card once it lands in "Concluída".
+const COLUMNS: { key: PocStatus; label: string; dot: string }[] = [
+  { key: "not_started", label: "Não iniciada", dot: "bg-slate-400" },
+  { key: "planned", label: "Planejada", dot: "bg-blue-500" },
+  { key: "in_progress", label: "Em andamento", dot: "bg-emerald-500" },
+  { key: "blocked", label: "Bloqueada", dot: "bg-amber-500" },
+  { key: "completed", label: "Concluída", dot: "bg-slate-600" },
 ];
 
-const ALL_STATUSES: PocStatus[] = ["planned", "in_progress", "blocked", "completed_won", "completed_lost"];
+const ALL_STATUSES: PocStatus[] = ["not_started", "planned", "in_progress", "blocked", "completed"];
 
 interface EditableFields {
   name: string;
@@ -122,6 +126,12 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
   const [error, setError] = useState("");
 
   const [selectedPocId, setSelectedPocId] = useState<string | null>(null);
+  const [viewingArchivedPoc, setViewingArchivedPoc] = useState<Poc | null>(null);
+  const [showArchivedModal, setShowArchivedModal] = useState(false);
+  const [archivedPocs, setArchivedPocs] = useState<Poc[]>([]);
+  const [loadingArchived, setLoadingArchived] = useState(false);
+  const [dragPocId, setDragPocId] = useState<string | null>(null);
+  const [archiving, setArchiving] = useState(false);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createForm, setCreateForm] = useState<CreateFormState>(EMPTY_CREATE_FORM);
@@ -174,8 +184,65 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
     fetchPocs();
   }, []);
 
-  const selectedPoc = pocs.find((p) => p.id === selectedPocId) || null;
+  // A POC opened from the "Arquivadas" popup isn't in `pocs` (the board excludes archived by
+  // design, see fetchPocs), so it's tracked separately rather than merged into the board's list.
+  const selectedPoc = viewingArchivedPoc || pocs.find((p) => p.id === selectedPocId) || null;
   const linkedProject = selectedPoc?.project_id ? projects.find((pr) => pr.id === selectedPoc.project_id) || null : null;
+
+  const fetchArchivedPocs = async () => {
+    setLoadingArchived(true);
+    try {
+      const data = await ApiClient.get<Poc[]>("/api/pocs?archived=true");
+      setArchivedPocs(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setArchivedPocs([]);
+    } finally {
+      setLoadingArchived(false);
+    }
+  };
+
+  const openArchivedModal = () => {
+    setShowArchivedModal(true);
+    fetchArchivedPocs();
+  };
+
+  const openArchivedDetail = (poc: Poc) => {
+    setShowArchivedModal(false);
+    setViewingArchivedPoc(poc);
+    setIsEditing(false);
+    setSaveError("");
+    setDetailTab("overview");
+    fetchCriteria(poc.id);
+    fetchEquipment(poc.id);
+    if (poc.project_id) {
+      fetchBomCandidates(poc.id);
+    }
+  };
+
+  const archivePoc = async () => {
+    if (!selectedPoc) return;
+    setArchiving(true);
+    try {
+      await ApiClient.put(`/api/pocs/${selectedPoc.id}/archive`, { archived: true });
+      setViewingArchivedPoc(null);
+      setSelectedPocId(null);
+      await fetchPocs();
+    } catch (e: any) {
+      alert(e.message || "Não foi possível arquivar a POC.");
+    } finally {
+      setArchiving(false);
+    }
+  };
+
+  const handlePocDrop = async (poc: Poc, newStatus: PocStatus) => {
+    if (poc.status === newStatus) return;
+    try {
+      await ApiClient.put(`/api/pocs/${poc.id}`, { status: newStatus });
+      await fetchPocs();
+    } catch (e: any) {
+      alert(e.message || "Não foi possível mover a POC.");
+    }
+  };
 
   const fetchCriteria = async (pocId: string) => {
     setLoadingCriteria(true);
@@ -226,12 +293,17 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
   };
 
   const backToList = () => {
+    const wasViewingArchived = Boolean(viewingArchivedPoc);
     setSelectedPocId(null);
+    setViewingArchivedPoc(null);
     setIsEditing(false);
     setCriteria([]);
     setNewCriterionText("");
     setEquipment([]);
     setBomCandidates([]);
+    if (wasViewingArchived) {
+      openArchivedModal();
+    }
   };
 
   const addEquipmentItem = async () => {
@@ -486,13 +558,13 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
   // ================= DETAIL VIEW =================
   if (selectedPoc) {
     return (
-      <div className="space-y-4">
+      <div className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-5 space-y-4">
         <button
           onClick={backToList}
           className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-900"
         >
           <ArrowLeft size={14} />
-          Voltar para Gestão de POC
+          {viewingArchivedPoc ? "Voltar para Arquivadas" : "Voltar para Gestão de POC"}
         </button>
 
         <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-5">
@@ -502,10 +574,24 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
               <h1 className="text-lg font-bold text-slate-900">{selectedPoc.name}</h1>
             </div>
             <div className="flex items-center gap-2">
+              {selectedPoc.acceptance_decision && selectedPoc.acceptance_decision !== "pending" && (
+                <span className={`text-[10px] font-bold px-2 py-1 rounded ${selectedPoc.acceptance_decision === "won" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
+                  {selectedPoc.acceptance_decision === "won" ? "GANHA" : "PERDIDA"}
+                </span>
+              )}
               <span className={`text-xs font-semibold px-3 py-1 rounded-full ${STATUS_BADGE_COLOR[selectedPoc.status]}`}>
                 {STATUS_LABEL[selectedPoc.status]}
               </span>
-              {canManage && !isEditing && (
+              {canManage && selectedPoc.status === "completed" && !selectedPoc.archived && (
+                <button
+                  onClick={archivePoc}
+                  disabled={archiving}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 border border-slate-300 rounded-md px-2.5 py-1 hover:bg-slate-50 disabled:opacity-60"
+                >
+                  {archiving ? "Arquivando..." : "Arquivar"}
+                </button>
+              )}
+              {canManage && !isEditing && selectedPoc.status !== "completed" && (
                 <button
                   onClick={startEdit}
                   className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 border border-slate-300 rounded-md px-2.5 py-1 hover:bg-slate-50"
@@ -1116,12 +1202,8 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
 
   // ================= LIST (KANBAN) VIEW =================
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-lg font-bold text-slate-900">Gestão de POC</h1>
-          <p className="text-xs text-slate-500 mt-0.5">Provas de conceito em andamento, cruzando cliente, cronograma e resultado final.</p>
-        </div>
+    <div className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-5 space-y-4">
+      <div className="flex items-center gap-3 flex-wrap">
         {canManage && (
           <button
             onClick={() => { setShowCreateModal(true); setCreateError(""); }}
@@ -1131,17 +1213,35 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
             Nova POC
           </button>
         )}
+        <button
+          onClick={openArchivedModal}
+          className="inline-flex items-center gap-1.5 border border-slate-300 text-slate-600 hover:bg-slate-50 font-mono text-xs font-bold py-1.5 px-4 rounded transition-all cursor-pointer"
+        >
+          <Archive size={13} />
+          Arquivadas
+        </button>
       </div>
 
       {error && <p className="text-xs text-red-600">{error}</p>}
       {loading ? (
         <p className="text-xs text-slate-500">Carregando...</p>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-start">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-start">
           {COLUMNS.map((col) => {
-            const colPocs = pocs.filter((p) => col.statuses.includes(p.status));
+            const colPocs = pocs.filter((p) => p.status === col.key);
             return (
-              <div key={col.key} className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+              <div
+                key={col.key}
+                className="bg-slate-50 border border-slate-200 rounded-lg p-3"
+                onDragOver={(e) => { if (canManage && dragPocId) e.preventDefault(); }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (!canManage || !dragPocId) return;
+                  const dragged = pocs.find((p) => p.id === dragPocId);
+                  setDragPocId(null);
+                  if (dragged) handlePocDrop(dragged, col.key);
+                }}
+              >
                 <div className="flex items-center justify-between mb-3 px-1">
                   <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500 flex items-center gap-1.5">
                     <span className={`w-2 h-2 rounded-full ${col.dot}`} />
@@ -1152,21 +1252,30 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                   </span>
                 </div>
                 <div className="space-y-2">
-                  {colPocs.map((poc) => (
+                  {colPocs.map((poc) => {
+                    const borderColor =
+                      poc.acceptance_decision === "won" ? "border-emerald-400" :
+                      poc.acceptance_decision === "lost" ? "border-red-300" :
+                      "border-slate-200";
+                    return (
                     <button
                       key={poc.id}
+                      draggable={canManage}
+                      onDragStart={(e) => { setDragPocId(poc.id); e.dataTransfer.effectAllowed = "move"; }}
+                      onDragEnd={() => setDragPocId(null)}
                       onClick={() => openDetail(poc)}
-                      className="w-full text-left bg-white border border-slate-200 rounded-md p-3 hover:border-emerald-400 hover:shadow-sm transition-all"
+                      className={`w-full text-left bg-white border-2 ${borderColor} rounded-md p-3 hover:border-emerald-400 hover:shadow-sm transition-all ${canManage ? "cursor-grab active:cursor-grabbing" : ""}`}
                     >
                       <div className="text-[11px] text-slate-500 mb-0.5">{clientLabel(poc)}</div>
                       <div className="text-sm font-semibold text-slate-900 leading-snug mb-2">{poc.name}</div>
-                      {(poc.status === "completed_won" || poc.status === "completed_lost") && (
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${poc.status === "completed_won" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
-                          {poc.status === "completed_won" ? "GANHA" : "PERDIDA"}
+                      {poc.acceptance_decision && poc.acceptance_decision !== "pending" && (
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${poc.acceptance_decision === "won" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
+                          {poc.acceptance_decision === "won" ? "GANHA" : "PERDIDA"}
                         </span>
                       )}
                     </button>
-                  ))}
+                    );
+                  })}
                   {colPocs.length === 0 && (
                     <div className="text-[11px] text-slate-400 italic px-1 py-2">Nenhuma POC aqui</div>
                   )}
@@ -1325,6 +1434,45 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                   {creating ? "Criando..." : "Criar POC"}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showArchivedModal && (
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl border border-slate-200 w-[520px] overflow-hidden shadow-2xl flex flex-col max-h-[80vh]">
+            <div className="bg-slate-950 text-white p-4 flex justify-between items-center shrink-0">
+              <h3 className="text-sm font-bold uppercase font-mono tracking-wider flex items-center gap-2">
+                <Archive size={14} />
+                POCs Arquivadas
+              </h3>
+              <button onClick={() => setShowArchivedModal(false)} className="text-slate-400 hover:text-white cursor-pointer">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="p-4 space-y-2 overflow-y-auto flex-1">
+              {loadingArchived ? (
+                <p className="text-xs text-slate-400">Carregando...</p>
+              ) : archivedPocs.length === 0 ? (
+                <p className="text-xs text-slate-400 italic py-6 text-center">Nenhuma POC arquivada ainda.</p>
+              ) : (
+                archivedPocs.map((poc) => (
+                  <button
+                    key={poc.id}
+                    onClick={() => openArchivedDetail(poc)}
+                    className="w-full text-left bg-slate-50 border border-slate-200 rounded-md p-3 hover:border-emerald-400 hover:bg-white transition-all"
+                  >
+                    <div className="text-[11px] text-slate-500 mb-0.5">{clientLabel(poc)}</div>
+                    <div className="text-sm font-semibold text-slate-900 leading-snug">{poc.name}</div>
+                    {poc.acceptance_decision && poc.acceptance_decision !== "pending" && (
+                      <span className={`inline-block mt-1.5 text-[10px] font-bold px-2 py-0.5 rounded ${poc.acceptance_decision === "won" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
+                        {poc.acceptance_decision === "won" ? "GANHA" : "PERDIDA"}
+                      </span>
+                    )}
+                  </button>
+                ))
+              )}
             </div>
           </div>
         </div>

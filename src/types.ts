@@ -59,7 +59,7 @@ export interface Project {
 }
 
 // Add-on module (Fase 6) - only relevant for tenants with the "poc" module entitlement.
-export type PocStatus = "planned" | "in_progress" | "blocked" | "completed_won" | "completed_lost";
+export type PocStatus = "not_started" | "planned" | "in_progress" | "blocked" | "completed";
 
 export interface Poc {
   id: string;
@@ -71,6 +71,10 @@ export interface Poc {
   name: string;
   objective: string;
   status: PocStatus;
+  archived: boolean;
+  // Denormalized from PocAcceptance.decision by the list endpoint (GET /api/pocs) so the Kanban
+  // board can color a completed card won/lost without an N+1 fetch per card.
+  acceptance_decision?: "pending" | "won" | "lost";
   start_date: string;
   end_date: string;
   owner_user_id: string;

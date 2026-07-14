@@ -1015,8 +1015,11 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
         </div>
       </nav>
 
-      {/* 2. CONTEXT SUB-HEADER - not on Knowledge Base either, it's tenant-wide, not per-project */}
-      {activeTab !== "home" && activeTab !== "admin" && activeTab !== "projectsList" && activeTab !== "knowledgeBase" && (
+      {/* 2. CONTEXT SUB-HEADER - not on Knowledge Base either, it's tenant-wide, not per-project.
+          Not on Gestão de POC either (Fase 6 add-on) - a POC's own project (if any) is shown in
+          its own detail view, and this sub-header showing an unrelated *other* project's
+          status/deadline/owner while managing a POC was confusing (reported directly). */}
+      {activeTab !== "home" && activeTab !== "admin" && activeTab !== "projectsList" && activeTab !== "knowledgeBase" && activeTab !== "pocManagement" && (
         <div className="h-11 bg-white border-b border-slate-200 flex items-center px-6 gap-2 text-xs font-medium shrink-0 shadow-sm">
           <span className="text-slate-400 font-mono">{locale === "pt" ? "Projetos" : "Projects"}</span>
           <span className="text-slate-400">/</span>

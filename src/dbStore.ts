@@ -107,6 +107,8 @@ function mapPoc(p: any): Poc {
     name: p.name,
     objective: p.objective,
     status: p.status,
+    archived: p.archived,
+    acceptance_decision: p.acceptance?.decision ?? undefined,
     start_date: p.startDate.toISOString().substring(0, 10),
     end_date: p.endDate.toISOString().substring(0, 10),
     owner_user_id: p.ownerUserId,
@@ -827,11 +829,17 @@ class DBStore {
 
   // Pocs (Fase 6, add-on) - gated at the route layer by requireModule("poc"), not here; this
   // layer just persists whatever the caller already confirmed is entitled.
-  public async getPocs(): Promise<Poc[]> {
+  public async getPocs(filters: { archived?: boolean } = {}): Promise<Poc[]> {
     // Owner name is denormalized onto the payload (not left for the frontend to resolve via
     // /api/users) because that endpoint is admin-gated - a regular poc:manage user without
-    // admin:users still needs to see who owns each POC.
-    return (await prisma.poc.findMany({ orderBy: { createdAt: "desc" }, include: { owner: true } })).map(mapPoc);
+    // admin:users still needs to see who owns each POC. acceptance.decision is denormalized too
+    // (Fase K) so the Kanban board can color a completed card won/lost without an N+1 fetch.
+    const rows = await prisma.poc.findMany({
+      where: filters.archived !== undefined ? { archived: filters.archived } : undefined,
+      orderBy: { createdAt: "desc" },
+      include: { owner: true, acceptance: true },
+    });
+    return rows.map(mapPoc);
   }
 
   public async getPoc(id: string): Promise<Poc | undefined> {
@@ -839,7 +847,7 @@ class DBStore {
     return p ? mapPoc(p) : undefined;
   }
 
-  public async createPoc(poc: Omit<Poc, "id" | "created_at" | "updated_at">): Promise<Poc> {
+  public async createPoc(poc: Omit<Poc, "id" | "created_at" | "updated_at" | "archived" | "acceptance_decision">): Promise<Poc> {
     const p = await prisma.poc.create({
       data: {
         id: randomId("poc"),
@@ -886,6 +894,7 @@ class DBStore {
         name: updates.name,
         objective: updates.objective,
         status: updates.status,
+        archived: updates.archived,
         startDate: updates.start_date ? new Date(updates.start_date) : undefined,
         endDate: updates.end_date ? new Date(updates.end_date) : undefined,
         ownerUserId: updates.owner_user_id,

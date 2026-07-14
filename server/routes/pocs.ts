@@ -49,14 +49,26 @@ async function countKnowledgeBaseMatches(name: string, manufacturer?: string): P
 // collects the union of matching approved entries, deduplicated by id since the same entry can
 // legitimately match more than one piece of equipment (e.g. a shared VMS license).
 async function getPocKnowledgeBaseContext(pocId: string): Promise<{ hasContext: boolean; contextText: string }> {
+  const poc = await dbStore.getPoc(pocId);
   const items = await dbStore.getPocEquipmentItems(pocId);
   const seenEntryIds = new Set<string>();
   const entries: { trigger: string; knowledge: string }[] = [];
 
+  // Bug fix (2026-07-14, reported directly): searching by equipment name/manufacturer alone
+  // pulled in EVERY KB fact about a rich, multi-page datasheet (mount hardware, HTTPS certs,
+  // password policy, PPPoE) with equal weight, regardless of what the POC's objective actually
+  // asks to validate - a "Testar a acuracidade do DAI" objective ended up generating test cases
+  // about wall mounts and PPPoE. Folding the objective's own keywords into the SAME search query
+  // (not a separate one) lets the existing IDF weighting in searchApprovedKnowledgeBase do its job:
+  // "DAI" is rare across this equipment's many KB rows, so it outweighs generic terms shared by
+  // most of them, pulling in the DAI/analytics-specific entries first instead of arbitrary ones.
+  const objectiveKeywords = poc ? extractKnowledgeBaseKeywords(poc.objective, 15, 3) : [];
+
   for (const item of items) {
     const keywords = extractKnowledgeBaseKeywords([item.name, item.manufacturer].filter(Boolean).join(" "), 25, 3);
-    if (keywords.length === 0) continue;
-    const matches = await dbStore.searchApprovedKnowledgeBase(keywords, 5);
+    const combinedKeywords = Array.from(new Set([...objectiveKeywords, ...keywords]));
+    if (combinedKeywords.length === 0) continue;
+    const matches = await dbStore.searchApprovedKnowledgeBase(combinedKeywords, 6);
     for (const m of matches) {
       if (seenEntryIds.has(m.id)) continue;
       seenEntryIds.add(m.id);
@@ -89,7 +101,15 @@ que não esteja em nenhuma dessas duas fontes - isso vale especialmente para tax
 assertividade/precisão (%): se a Base de Conhecimento ou o objetivo/critérios não informam um
 percentual-alvo explícito para a funcionalidade sendo testada, o resultado esperado deve pedir para
 medir e registrar o percentual observado (ex: "registrar a taxa de detecção observada"), nunca
-afirmar um número-alvo que você mesmo inventou.`;
+afirmar um número-alvo que você mesmo inventou.
+
+Regra crítica adicional (relevância): a lista acima é uma busca automática por palavra-chave e pode
+trazer fatos genéricos e reais do equipamento que NÃO têm relação com o que o objetivo desta POC
+pede para validar (ex: mount físico, senha, PPPoE, certificado HTTPS, em uma POC que pede para
+testar acuracidade de detecção). Use apenas as entradas da Base de Conhecimento que sejam
+diretamente relevantes ao objetivo/critérios de sucesso informados - ignore silenciosamente as
+demais, mesmo que estejam listadas acima. Nunca gere um item cujo tema principal não tenha relação
+direta com o que o objetivo pede para testar.`;
   }
   return `BASE DE CONHECIMENTO: não há nenhuma entrada aprovada na Base de Conhecimento para o(s)
 equipamento(s) cadastrado(s) nesta POC ainda.
@@ -103,7 +123,7 @@ sucesso informados pelo usuário, em nível funcional/genérico. Preencha o camp
 este equipamento ainda e que o conteúdo gerado é genérico por esse motivo.`;
 }
 
-const PocStatusEnum = z.enum(["planned", "in_progress", "blocked", "completed_won", "completed_lost"]);
+const PocStatusEnum = z.enum(["not_started", "planned", "in_progress", "blocked", "completed"]);
 
 // Kept as a plain ZodObject (no .refine() here) specifically so .partial() stays available for
 // the PUT handler below - Zod can't call .partial() on a schema once .refine() wraps it in a
@@ -147,9 +167,12 @@ export const PocCreateSchema = PocBaseSchema.refine(
   }
 );
 
+// Fase K: the board excludes archived POCs by default (?archived unset or "false") so completed
+// deals don't pile up forever; the "Arquivadas" popup passes ?archived=true to see exactly those.
 router.get("/", requirePermission("poc:read"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const pocs = await dbStore.getPocs();
+    const archived = req.query.archived === "true";
+    const pocs = await dbStore.getPocs({ archived });
     res.json(pocs);
   } catch (err) {
     next(err);
@@ -182,7 +205,7 @@ router.post("/", requirePermission("poc:manage"), requireModule("poc"), async (r
 
     const poc = await dbStore.createPoc({
       ...validated,
-      status: validated.status || "planned",
+      status: validated.status || "not_started",
       standalone_contact_email: validated.standalone_contact_email || undefined,
       owner_user_id: userId,
     });
@@ -254,6 +277,31 @@ router.delete("/:id", requirePermission("poc:manage"), requireModule("poc"), asy
 
     res.json({ success: true, message: "POC deleted successfully" });
   } catch (err) {
+    next(err);
+  }
+});
+
+// Fase K: archiving only makes sense for a POC that's actually done - lets the board declutter
+// without deleting history. Un-archiving (archived: false) is the same route so the "Arquivadas"
+// popup can offer a way back if someone archives the wrong one.
+router.put("/:id/archive", requirePermission("poc:manage"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { archived } = z.object({ archived: z.boolean() }).parse(req.body);
+
+    const poc = await dbStore.getPoc(req.params.id);
+    if (!poc) {
+      return res.status(404).json({ success: false, message: "POC not found" });
+    }
+    if (archived && poc.status !== "completed") {
+      return res.status(400).json({ success: false, message: "Only a completed POC can be archived." });
+    }
+
+    const updated = await dbStore.updatePoc(req.params.id, { archived });
+    res.json(updated);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ success: false, message: err.issues[0].message });
+    }
     next(err);
   }
 });
@@ -801,6 +849,18 @@ router.delete("/:id/tasks/:taskId", requirePermission("poc:manage"), requireModu
   }
 });
 
+// Fase 6 follow-up (bug report, 2026-07-14): generateJsonWithProvider failures (wrong/expired key,
+// cost cap on the provider's own side, service outage) were bubbling up as a bare 500 "unexpected
+// system error" with no indication of what actually broke or what to do about it - confirmed
+// directly (Gemini's prepayment credits ran out mid-testing). Every AI-generation route below
+// wraps its call in this helper so the admin gets an actionable message pointing at the specific
+// provider and where to fix it, instead of a dead end.
+function friendlyAiErrorMessage(err: any, provider: string): string {
+  const raw = String(err?.message || err || "");
+  const hint = raw.length < 300 ? ` (${raw})` : "";
+  return `Não foi possível gerar o conteúdo com o provedor de IA configurado (${provider})${hint}. Verifique a chave/créditos do provedor ou troque-o em Configurações > IA, Prompts e Custos.`;
+}
+
 function addDaysToIsoDay(isoDay: string, days: number): string {
   const d = new Date(isoDay);
   d.setDate(d.getDate() + days);
@@ -834,8 +894,7 @@ router.post("/:id/tasks/generate", requirePermission("poc:manage"), requireModul
     const promptRow = await prisma.promptTemplate.findFirst({ where: { type: "poc_schedule_generation", isActive: true } });
     const instructions = promptRow?.content?.trim() || FACTORY_DEFAULT_POC_SCHEDULE_GENERATION_PROMPT;
 
-    const prompt = `${instructions} Sugira de 3 a 8 etapas, em ordem de execução (a primeira etapa
-listada é a primeira a ser executada, cada etapa seguinte depende da conclusão da anterior).
+    const prompt = `${instructions} Sugira de 3 a 8 etapas para o cronograma desta POC.
 
 OBJETIVO DA POC:
 ${poc.objective}
@@ -844,21 +903,35 @@ PERÍODO PLANEJADO DA POC: ${poc.start_date} a ${poc.end_date}
 
 ${knowledgeBaseGroundingBlock(kbContext)}
 
+Cada etapa pode depender da conclusão de outra etapa (ela só começa depois que a etapa da qual
+depende termina) ou não depender de nenhuma - etapas sem dependência começam em paralelo, junto com
+o início da POC. Não force uma cadeia sequencial única quando o trabalho real permite passos em
+paralelo (ex: preparar o ambiente do cliente e configurar o equipamento internamente podem
+acontecer ao mesmo tempo, antes de uma etapa de integração que depende das duas).
+
 Responda em português do Brasil. Responda APENAS com um objeto JSON, sem markdown, sem texto
 extra, no formato:
 {
   "knowledge_base_warning": "aviso em português caso a Base de Conhecimento não cubra este equipamento, ou null caso contrário",
   "tasks": [
-    { "name": "nome curto da etapa", "duration_days": 3 }
+    { "name": "nome curto da etapa", "duration_days": 3, "depends_on_index": null },
+    { "name": "outra etapa que só começa depois da primeira", "duration_days": 2, "depends_on_index": 0 }
   ]
-}`;
+}
+"depends_on_index" é o índice (a partir de 0) de outra etapa nesta MESMA lista, ou null se a etapa
+não depende de nenhuma outra.`;
 
     const resolution = await resolveProvider("poc_schedule_generation", settings as any);
     if (resolution.isFallback) {
       await recordProviderFallback({ tenantId, taskType: "poc_schedule_generation", intendedProvider: resolution.intendedProvider, userId: requireUserId(req) });
     }
 
-    const { text, inputTokens, outputTokens } = await generateJsonWithProvider(resolution.provider, resolution.model, prompt);
+    let text: string, inputTokens: number, outputTokens: number;
+    try {
+      ({ text, inputTokens, outputTokens } = await generateJsonWithProvider(resolution.provider, resolution.model, prompt));
+    } catch (aiErr: any) {
+      return res.status(502).json({ success: false, message: friendlyAiErrorMessage(aiErr, resolution.provider) });
+    }
 
     await recordAiUsage({
       tenantId,
@@ -884,23 +957,59 @@ extra, no formato:
     // Same regeneration safety as test cases: only drafts nobody has touched yet get replaced.
     await dbStore.deleteUneditedAiPocTasks(req.params.id);
 
-    let cursorStartDate = poc.start_date;
-    let previousTaskId: string | undefined;
-    const created = [];
-    for (const item of parsed) {
-      const durationDays = Number(item?.duration_days);
-      if (!item?.name || !Number.isFinite(durationDays) || durationDays < 1) continue;
+    // Validate each item's own fields first and keep original array indices, since
+    // depends_on_index refers to positions in the AI's own list, not the filtered/created list.
+    const validItems = parsed
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => item?.name && Number.isFinite(Number(item.duration_days)) && Number(item.duration_days) >= 1);
+    const validIndices = new Set(validItems.map(({ index }) => index));
 
+    // Start dates come from walking the dependency graph (topological order via memoized
+    // computeStart), not a blind sequential chain - a task with no dependency (or one pointing at
+    // an invalid/filtered-out index) starts at the POC's own start date, same as any other
+    // independent/parallel task.
+    const startDateByIndex = new Map<number, string>();
+    const computeStart = (index: number, seen: Set<number>): string => {
+      if (startDateByIndex.has(index)) return startDateByIndex.get(index)!;
+      if (seen.has(index)) return poc.start_date; // cycle guard
+      seen.add(index);
+
+      const entry = validItems.find(({ index: i }) => i === index);
+      const depIndex = entry ? Number(entry.item.depends_on_index) : NaN;
+      let start = poc.start_date;
+      if (Number.isFinite(depIndex) && validIndices.has(depIndex) && depIndex !== index) {
+        const depEntry = validItems.find(({ index: i }) => i === depIndex)!;
+        const depStart = computeStart(depIndex, seen);
+        start = addDaysToIsoDay(depStart, Number(depEntry.item.duration_days));
+      }
+      startDateByIndex.set(index, start);
+      return start;
+    };
+
+    // Two passes because depends_on_index can point at a LATER item in the AI's own list (nothing
+    // requires the AI to list a dependency before its dependent) - creating in listed order first
+    // and wiring dependsOnTaskId in a second pass, once every task's real id is known, avoids
+    // silently dropping a forward-referenced dependency.
+    const taskIdByIndex = new Map<number, string>();
+    const created = [];
+    for (const { item, index } of validItems) {
       const task = await dbStore.createPocTask(req.params.id, {
         name: String(item.name),
-        start_date: cursorStartDate,
-        duration_days: durationDays,
-        depends_on_task_id: previousTaskId,
+        start_date: computeStart(index, new Set()),
+        duration_days: Number(item.duration_days),
         generated_by_ai: true,
       });
       created.push(task);
-      previousTaskId = task.id;
-      cursorStartDate = addDaysToIsoDay(cursorStartDate, durationDays);
+      taskIdByIndex.set(index, task.id);
+    }
+
+    for (const { item, index } of validItems) {
+      const depIndex = Number(item.depends_on_index);
+      if (!Number.isFinite(depIndex) || !validIndices.has(depIndex) || depIndex === index) continue;
+      const dependsOnTaskId = taskIdByIndex.get(depIndex);
+      if (dependsOnTaskId) {
+        await dbStore.updatePocTask(taskIdByIndex.get(index)!, { depends_on_task_id: dependsOnTaskId });
+      }
     }
 
     res.json({
@@ -1071,7 +1180,12 @@ provedores exigem um objeto no nível superior), sem markdown, sem texto extra, 
       await recordProviderFallback({ tenantId, taskType: "poc_test_generation", intendedProvider: resolution.intendedProvider, userId: requireUserId(req) });
     }
 
-    const { text, inputTokens, outputTokens } = await generateJsonWithProvider(resolution.provider, resolution.model, prompt);
+    let text: string, inputTokens: number, outputTokens: number;
+    try {
+      ({ text, inputTokens, outputTokens } = await generateJsonWithProvider(resolution.provider, resolution.model, prompt));
+    } catch (aiErr: any) {
+      return res.status(502).json({ success: false, message: friendlyAiErrorMessage(aiErr, resolution.provider) });
+    }
 
     await recordAiUsage({
       tenantId,

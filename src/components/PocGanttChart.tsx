@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Trash2, X, Sparkles } from "lucide-react";
+import { Plus, Trash2, X, Sparkles, Pen } from "lucide-react";
 import { Poc, PocTask, PocTaskStatus } from "../types";
 import ApiClient from "../lib/api";
 
@@ -63,6 +63,13 @@ export default function PocGanttChart({ poc, canManage }: PocGanttChartProps) {
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState("");
   const [knowledgeBaseWarning, setKnowledgeBaseWarning] = useState("");
+
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editStart, setEditStart] = useState("");
+  const [editDuration, setEditDuration] = useState(1);
+  const [editDependsOn, setEditDependsOn] = useState("");
+  const [editError, setEditError] = useState("");
 
   const [dragTaskId, setDragTaskId] = useState<string | null>(null);
   const [dragMode, setDragMode] = useState<"move" | "resize" | null>(null);
@@ -214,6 +221,39 @@ export default function PocGanttChart({ poc, canManage }: PocGanttChartProps) {
       await fetchTasks();
     } catch (e: any) {
       alert(e.message || "Não foi possível remover a tarefa.");
+    }
+  };
+
+  const startEditTask = (task: PocTask) => {
+    setEditingTaskId(task.id);
+    setEditName(task.name);
+    setEditStart(task.start_date);
+    setEditDuration(task.duration_days);
+    setEditDependsOn(task.depends_on_task_id || "");
+    setEditError("");
+  };
+
+  // Every task is fully editable after AI generation (or manual creation) - name, dates, order
+  // (via start_date) and dependency, including clearing the dependency entirely so tasks can run
+  // in parallel instead of a forced single chain (explicitly requested: a suggested schedule
+  // shouldn't lock tasks into one sequential line if the real work can happen side by side).
+  const saveEditTask = async () => {
+    if (!editingTaskId || !editName.trim()) return;
+    setSaving(true);
+    setEditError("");
+    try {
+      await ApiClient.put(`/api/pocs/${poc.id}/tasks/${editingTaskId}`, {
+        name: editName.trim(),
+        start_date: editStart,
+        duration_days: editDuration,
+        depends_on_task_id: editDependsOn || null,
+      });
+      setEditingTaskId(null);
+      await fetchTasks();
+    } catch (e: any) {
+      setEditError(e.message || "Não foi possível salvar as alterações.");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -508,20 +548,76 @@ export default function PocGanttChart({ poc, canManage }: PocGanttChartProps) {
 
           {canManage && (
             <div className="border-t border-slate-200 divide-y divide-slate-100">
-              {tasks.map((t) => (
-                <div key={t.id} className="flex items-center justify-between px-3 py-1.5 gap-2">
-                  <span className="text-[11px] text-slate-500 truncate">{t.name}</span>
-                  <select
-                    className="text-[11px] border border-slate-200 rounded-md px-1.5 py-1"
-                    value={t.status}
-                    onChange={(e) => updateStatus(t, e.target.value as PocTaskStatus)}
-                  >
-                    {(["planned", "in_progress", "done"] as PocTaskStatus[]).map((s) => (
-                      <option key={s} value={s}>{STATUS_LABEL[s]}</option>
-                    ))}
-                  </select>
-                </div>
-              ))}
+              {tasks.map((t) =>
+                editingTaskId === t.id ? (
+                  <div key={t.id} className="p-3 bg-slate-50 space-y-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                      <input
+                        className="sm:col-span-2 p-1.5 text-xs rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                        placeholder="Nome da tarefa"
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                      />
+                      <input
+                        type="date"
+                        className="p-1.5 text-xs rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                        value={editStart}
+                        onChange={(e) => setEditStart(e.target.value)}
+                      />
+                      <input
+                        type="number"
+                        min={1}
+                        className="p-1.5 text-xs rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                        placeholder="Duração (dias)"
+                        value={editDuration}
+                        onChange={(e) => setEditDuration(parseInt(e.target.value, 10) || 1)}
+                      />
+                    </div>
+                    <select
+                      className="w-full p-1.5 text-xs rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                      value={editDependsOn}
+                      onChange={(e) => setEditDependsOn(e.target.value)}
+                    >
+                      <option value="">Nenhuma (executa em paralelo)</option>
+                      {tasks.filter((other) => other.id !== t.id).map((other) => (
+                        <option key={other.id} value={other.id}>Depende de: {other.name}</option>
+                      ))}
+                    </select>
+                    {editError && <p className="text-[11px] text-red-600">{editError}</p>}
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => setEditingTaskId(null)} className="px-2.5 py-1 border border-slate-300 rounded hover:bg-slate-100 font-mono text-[11px] cursor-pointer text-slate-500">
+                        Cancelar
+                      </button>
+                      <button
+                        onClick={saveEditTask}
+                        disabled={saving || !editName.trim()}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-[11px] font-bold py-1 px-3 rounded shadow transition-all cursor-pointer disabled:opacity-60"
+                      >
+                        Salvar
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div key={t.id} className="flex items-center justify-between px-3 py-1.5 gap-2">
+                    <span className="text-[11px] text-slate-500 truncate flex-1">{t.name}</span>
+                    <select
+                      className="text-[11px] border border-slate-200 rounded-md px-1.5 py-1"
+                      value={t.status}
+                      onChange={(e) => updateStatus(t, e.target.value as PocTaskStatus)}
+                    >
+                      {(["planned", "in_progress", "done"] as PocTaskStatus[]).map((s) => (
+                        <option key={s} value={s}>{STATUS_LABEL[s]}</option>
+                      ))}
+                    </select>
+                    <button onClick={() => startEditTask(t)} className="text-slate-400 hover:text-slate-700" title="Editar tarefa">
+                      <Pen size={13} />
+                    </button>
+                    <button onClick={() => removeTask(t)} className="text-slate-300 hover:text-red-500" title="Remover tarefa">
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                )
+              )}
             </div>
           )}
         </div>

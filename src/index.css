@@ -1,1 +1,16 @@
 @import "tailwindcss";
+
+/* Native <input type="date"> renders its internal day/month/year segments (and the calendar-icon
+   button) as OS-native form controls in several browsers/OS combos - they don't reliably inherit
+   the page's font-family from a `font-*` class the way normal text does, even though Tailwind's
+   Preflight already sets `font-family: inherit` on the <input> element itself. Reported directly
+   (date fields visually mismatched the rest of the UI) - these overrides make the internal parts
+   inherit explicitly instead of falling back to the browser/OS default UI font. */
+input[type="date"]::-webkit-datetime-edit,
+input[type="date"]::-webkit-datetime-edit-fields-wrapper,
+input[type="date"]::-webkit-datetime-edit-text,
+input[type="date"]::-webkit-datetime-edit-month-field,
+input[type="date"]::-webkit-datetime-edit-day-field,
+input[type="date"]::-webkit-datetime-edit-year-field {
+  font-family: inherit;
+}

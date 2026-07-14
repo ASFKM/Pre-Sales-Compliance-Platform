@@ -47,12 +47,17 @@ enum ProjectStatus {
 // Add-on module (Fase 6 do roadmap) - only meaningful for tenants whose Fleet Manager
 // ModuleEntitlement includes "poc" (see server/utils/fleetLicense.ts). Mirrors the funnel a
 // presales team actually runs a proof of concept through, ending in a recorded customer decision.
+// Fase K (2026-07-14): won/lost dropped as separate statuses - that outcome already lives on
+// PocAcceptance.decision (set by the acceptance workflow itself), so the pipeline only needs one
+// terminal "completed" stage. "not_started" is a new default stage before a POC is actually
+// planned (dates/kickoff defined) - previously every new POC started life as "planned" even before
+// that was true.
 enum PocStatus {
+  not_started
   planned
   in_progress
   blocked
-  completed_won
-  completed_lost
+  completed
 }
 
 // Fase 6 (add-on), Fase C: tracked separately from PocStatus - equipment can still be sitting at
@@ -355,7 +360,8 @@ model Poc {
   standaloneContactPhone String?   @map("standalone_contact_phone")
   name                   String
   objective              String    @db.Text
-  status                 PocStatus @default(planned)
+  status                 PocStatus @default(not_started)
+  archived               Boolean   @default(false)
   startDate              DateTime  @map("start_date")
   endDate                DateTime  @map("end_date")
   ownerUserId            String    @map("owner_user_id")
