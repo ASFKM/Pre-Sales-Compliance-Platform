@@ -1334,6 +1334,13 @@ class DBStore {
     return a ? mapPocAcceptance(a) : undefined;
   }
 
+  // Deliberately not prisma.pocAcceptance.upsert() - same reason documented in detail on
+  // saveAnalysisResult below: the tenant-scoping extension unconditionally adds `tenantId` to an
+  // upsert's `where`, but this model's only unique constraint is `@@unique([pocId])` alone, so the
+  // combined where matches no unique index and the extension hard-blocks the call outright
+  // (confirmed live, 2026-07-14: every save/finalize on the acceptance panel was a 500, including
+  // just toggling the won/lost decision off). findUnique+create/update sidesteps the extension's
+  // upsert-specific handling entirely.
   public async upsertPocAcceptance(
     pocId: string,
     updates: {
@@ -1346,30 +1353,37 @@ class DBStore {
       approved_at?: string | null;
     }
   ): Promise<PocAcceptance> {
-    const a = await prisma.pocAcceptance.upsert({
-      where: { pocId },
-      create: {
-        id: randomId("acc"),
-        tenantId: requireTenantId(),
-        pocId,
-        decision: updates.decision || "pending",
-        signedBy: updates.signed_by,
-        signedAt: updates.signed_at ? new Date(updates.signed_at) : undefined,
-        notes: updates.notes,
-        pendingApproval: updates.pending_approval ?? false,
-        approvedByUserId: updates.approved_by_user_id ?? undefined,
-        approvedAt: updates.approved_at ? new Date(updates.approved_at) : undefined,
-      },
-      update: {
-        decision: updates.decision,
-        signedBy: updates.signed_by,
-        signedAt: updates.signed_at ? new Date(updates.signed_at) : undefined,
-        notes: updates.notes,
-        pendingApproval: updates.pending_approval,
-        approvedByUserId: updates.approved_by_user_id === undefined ? undefined : updates.approved_by_user_id,
-        approvedAt: updates.approved_at === undefined ? undefined : (updates.approved_at ? new Date(updates.approved_at) : null),
-      },
-    });
+    const existing = await prisma.pocAcceptance.findUnique({ where: { pocId } });
+    let a;
+    if (existing) {
+      a = await prisma.pocAcceptance.update({
+        where: { pocId },
+        data: {
+          decision: updates.decision,
+          signedBy: updates.signed_by,
+          signedAt: updates.signed_at ? new Date(updates.signed_at) : undefined,
+          notes: updates.notes,
+          pendingApproval: updates.pending_approval,
+          approvedByUserId: updates.approved_by_user_id === undefined ? undefined : updates.approved_by_user_id,
+          approvedAt: updates.approved_at === undefined ? undefined : (updates.approved_at ? new Date(updates.approved_at) : null),
+        },
+      });
+    } else {
+      a = await prisma.pocAcceptance.create({
+        data: {
+          id: randomId("acc"),
+          tenantId: requireTenantId(),
+          pocId,
+          decision: updates.decision || "pending",
+          signedBy: updates.signed_by,
+          signedAt: updates.signed_at ? new Date(updates.signed_at) : undefined,
+          notes: updates.notes,
+          pendingApproval: updates.pending_approval ?? false,
+          approvedByUserId: updates.approved_by_user_id ?? undefined,
+          approvedAt: updates.approved_at ? new Date(updates.approved_at) : undefined,
+        },
+      });
+    }
     return mapPocAcceptance(a);
   }
 
@@ -1387,26 +1401,25 @@ class DBStore {
     return mapPocAcceptance(a);
   }
 
+  // Same reason as upsertPocAcceptance above - not prisma.pocAcceptance.upsert().
   public async attachPocAcceptanceDocument(
     pocId: string,
     file: { storage_provider: "local" | "s3" | "gcs"; storage_path: string; original_filename: string }
   ): Promise<PocAcceptance> {
-    const a = await prisma.pocAcceptance.upsert({
-      where: { pocId },
-      create: {
-        id: randomId("acc"),
-        tenantId: requireTenantId(),
-        pocId,
-        signedDocumentStorageProvider: file.storage_provider,
-        signedDocumentStoragePath: file.storage_path,
-        signedDocumentOriginalFilename: file.original_filename,
-      },
-      update: {
-        signedDocumentStorageProvider: file.storage_provider,
-        signedDocumentStoragePath: file.storage_path,
-        signedDocumentOriginalFilename: file.original_filename,
-      },
-    });
+    const existing = await prisma.pocAcceptance.findUnique({ where: { pocId } });
+    const documentData = {
+      signedDocumentStorageProvider: file.storage_provider,
+      signedDocumentStoragePath: file.storage_path,
+      signedDocumentOriginalFilename: file.original_filename,
+    };
+    let a;
+    if (existing) {
+      a = await prisma.pocAcceptance.update({ where: { pocId }, data: documentData });
+    } else {
+      a = await prisma.pocAcceptance.create({
+        data: { id: randomId("acc"), tenantId: requireTenantId(), pocId, ...documentData },
+      });
+    }
     return mapPocAcceptance(a);
   }
 
