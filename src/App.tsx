@@ -95,9 +95,8 @@ const AI_ORIENTATION_MODE_LABEL: Record<string, string> = {
 const translations = {
   workspace: "Área de Trabalho",
   proposalsStudio: "Estúdio de Propostas",
-  tenderTemplates: "Modelos de Licitação",
   approvalCenter: "Centro de Aprovação",
-  adminConsole: "Console do Administrador",
+  adminConsole: "Configurações",
   geminiOnline: "Gemini 2.5 Flash Ativo",
   bidsManager: "Gestor de Licitações",
   newBid: "Nova Proposta",
@@ -920,20 +919,6 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               {t("proposalsStudio")}
             </button>
           </div>
-
-          {canAccessAdminSection("templates") && (
-            <div className="flex items-center">
-              <button
-                onClick={() => {
-                  setActiveAdminSection("templates");
-                  setActiveTab("admin");
-                }}
-                className={`py-4 px-1 border-b-2 transition-all ${activeTab === "admin" && activeAdminSection === "templates" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
-              >
-                {t("tenderTemplates")}
-              </button>
-            </div>
-          )}
 
           <div className="flex items-center">
             <button

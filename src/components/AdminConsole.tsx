@@ -418,10 +418,10 @@ export default function AdminConsole({
               <aside className="w-full lg:w-72 bg-slate-950 text-slate-300 border-b lg:border-b-0 lg:border-r border-slate-800 flex flex-col shrink-0 max-h-72 lg:max-h-none">
                 <div className="p-5 border-b border-slate-800">
                   <p className="text-[10px] uppercase tracking-[0.25em] text-slate-500 font-mono mb-1">
-                    {locale === "pt" ? "Configurações" : "Settings"}
+                    {locale === "pt" ? "Administração" : "Administration"}
                   </p>
                   <h2 className="text-lg font-bold text-white">
-                    {locale === "pt" ? "Console do Administrador" : "Administrator Console"}
+                    {locale === "pt" ? "Configurações" : "Settings"}
                   </h2>
                   <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
                     {locale === "pt" ? "Central de configuração global do sistema." : "Global system configuration center."}
