@@ -57,6 +57,22 @@ customizable templates with a fully documented variable glossary.
    request/log line, structured audit logs separate from technical debug logs, and a sanitized
    diagnostic export bundle for support.
 
+## Add-on Modules
+
+Some capabilities are sold as separate entitlements, signed and delivered by a companion Fleet
+Manager installation (`ModuleEntitlement`) rather than being always-on — a tenant only sees the
+module's navigation/API surface once it's actually licensed, enforced at both the UI and the route
+layer (`requireModule`), not just hidden in the frontend.
+
+- **Gestão de POC (Proof-of-Concept management)**: a full pipeline for running customer proofs of
+  concept end to end — success criteria, an interactive Gantt schedule (drag/resize, critical
+  path), equipment loan tracking (importable straight from the linked project's BOM, with shipment
+  status via real carrier tracking), an AI-generated test-case notebook and final report grounded
+  in the tenant's own Knowledge Base (not generic boilerplate — it explicitly flags missing
+  coverage instead of inventing specs), and a client-acceptance workflow with a real approval gate
+  that locks the record once a POC is concluded. See `docs/roadmap/REDESIGN_ROADMAP_2026-07.md`
+  (Fase 6) for the full build log of each phase.
+
 ---
 
 ## Local Development Setup

@@ -352,9 +352,79 @@ placeholder manual — mecanismo de assinatura eletrônica formal fica deliberad
 sessão futura. Verificado ponta a ponta via API: estado pendente default, decisão, upload/download,
 reanexação sem órfão.
 
-**Todas as 6 fases (A–F) estão implementadas e verificadas.** Único item pendente antes de
-considerar o módulo pronto para uso real: a ressalva da Fase D (verificação visual manual do
-arrastar/redimensionar do Gantt no navegador, já que esta sessão não teve ferramenta de browser).
+**Todas as 6 fases (A–F) estão implementadas e verificadas.** A ressalva da Fase D (verificação
+visual do drag no navegador) segue registrada como limitação de sessões sem ferramenta de browser -
+não impediu o uso real do módulo, confirmado pelo próprio responsável do produto usando-o em
+sessões seguintes.
+
+### Rodada 2 (Fases G–J) e Rodada 3 (Fases K–O) — melhorias reais de uso, 2026-07-14
+
+Depois de usar o módulo de verdade, o responsável do produto reportou lacunas e um bug de qualidade
+sério (IA "inventando" conteúdo). Duas rodadas de implementação fecharam esses itens, todas
+verificadas com chamadas reais de IA e API contra a POC real do tenant, dados de teste removidos
+depois de cada verificação:
+
+- **Fase G** (`ddbb7e0`): equipamento da POC importável direto do BOM do projeto vinculado
+  (`GET/POST /api/pocs/:id/equipment/bom-candidates|from-bom`); toda inclusão de equipamento roda
+  busca automática na Base de Conhecimento por nome/fabricante; upload de datasheet do equipamento
+  passa a alimentar a Base de Conhecimento **geral** do tenant (reaproveita o pipeline de upload +
+  análise por IA já existente, não cria um paralelo).
+- **Fase H** (`c960506`): corrige o bug de alucinação relatado — pedir um caderno de teste sobre
+  "DAI" gerava métricas inventadas sem consultar a Base de Conhecimento. A geração de casos de
+  teste e a nova sugestão de cronograma por IA (`poc_schedule_generation`) passam a se ancorar no
+  conteúdo real da Base de Conhecimento vinculada ao equipamento, com instrução explícita para
+  sinalizar falta de base em vez de inventar.
+- **Fase I** (`729e621`): status do equipamento por rastreio real via Site Rastreio
+  (`server/utils/siteRastreio.ts`), configurável em Integrações e API — com código de rastreio, o
+  status mostrado passa a ser o texto literal da transportadora; sem código, cai no fluxo manual
+  anterior sem quebrar quem não usa a integração. Testado com chave real do Site Rastreio.
+- **Fase J** (`38cb532`): campos de endereço completo na POC (mesmo padrão já usado em `Customer`
+  no CMSaaS), com autopreenchimento por CEP via ViaCEP proxied pelo backend (CSP da aplicação fixa
+  `connect-src 'self'`, então a chamada não pode ser feita direto do navegador).
+- **Fase K** (`758bba6`): pipeline de status da POC redesenhado para 5 colunas reais
+  (`not_started → planned → in_progress → blocked → completed`, migração tratando a troca de enum
+  do Postgres com cuidado - conversão via texto intermediário, não `ALTER TYPE` direto), com
+  arrastar-e-soltar nativo entre colunas e arquivamento de POCs concluídas (popup dedicado). Ganha/
+  perdida deixa de ser status separado - vira indicação visual (borda verde/vermelha) a partir de
+  `PocAcceptance.decision`, já existente. Mesmo commit corrigiu vários bugs de UI reportados
+  (rolagem quebrada em todo o módulo, sub-header de projeto indevido na tela de POC, fonte
+  inconsistente em campos de data).
+- **Fases L/M** (`a38b2b2`): novo Relatório Final da POC obrigatório, questionário gerado por IA
+  (`poc_final_report_generation`, mesmo padrão de ancoragem na Base de Conhecimento da Fase H) que
+  o pré-vendas responde com o resultado real observado. Fluxo de aceite redesenhado: decisão Ganha/
+  Perdida vira seleção local desmarcável (sem salvamento automático), "Finalizar" exige relatório
+  100% respondido e poe a POC em `pending_approval` real (não pula direto para concluída), e só
+  "Aprovar" marca a POC como `completed` de fato - a partir daí, toda rota de escrita do módulo
+  responde 423 (trava de edição via middleware único, não replicado rota a rota).
+- **Fase N** (`860c467`): KPI de POCs ativas no Dashboard "Início", condicionado ao módulo estar
+  habilitado.
+- **Fase O** (`99adef5`): Admin Console passa a indicar o provedor/modelo recomendado por tarefa de
+  IA (raciocínio documentado inline em `AdminConsole.tsx`), e ganhou um botão "Salvar" explícito no
+  Orquestrador de IA (cada campo já salvava sozinho; o botão só dá confirmação visual clara).
+- **Correção adicional** (`63b5c5a`): bug real de correlação encontrado após uso - o caderno de
+  teste citava um equipamento diferente do realmente selecionado na POC, e nada era correlacionado
+  a "DAI" mesmo havendo conhecimento real na base. Causa raiz dupla: a busca por Base de
+  Conhecimento não filtrava por identidade do equipamento (duas câmeras da mesma marca com termos
+  genéricos em comum "venciam" uma a outra por volume de linhas na base), e a sigla "DAI"
+  (português) nunca batia com "AID" (Automatic Incident Detection, sigla internacional usada na
+  entrada real da base) por ser uma busca de substring literal. Corrigido com filtro de identidade
+  por part number/nome e uma pequena tabela explícita de sinônimos de domínio.
+- **Correção de segurança** (`641fb4d`): os 7 modelos Prisma do módulo de POC (`Poc`,
+  `PocSuccessCriterion`, `PocEquipmentItem`, `PocTask`, `PocTestCase`, `PocAcceptance`,
+  `PocFinalReportQuestion`) nunca haviam sido registrados em `TENANT_SCOPED_MODELS`
+  (`src/prisma.ts`) - a mesma classe de bug que um teste de regressão dedicado
+  (`src/prisma.test.ts`) existe especificamente para pegar, documentada no próprio arquivo como um
+  incidente anterior idêntico com outros 5 modelos. Sem entrar nesse conjunto, a extensão do Prisma
+  Client não injeta automaticamente o filtro `tenant_id` nessas queries, e `dbStore.ts` não filtra
+  manualmente por tenant nos métodos de POC - risco de vazamento de dados entre tenants (impacto
+  prático hoje é baixo, produção roda com um único tenant, mas é uma falha real de isolamento).
+  Corrigido; suíte de testes completa voltou a passar, e a CI do GitHub (vermelha havia vários
+  commits) voltou a ficar verde. Dois bugs pré-existentes e não relacionados também corrigidos no
+  mesmo esforço de estabilização de CI: `scripts/regression-admin-console.sh` testava
+  `POST /api/templates/proposals` com um corpo JSON que a rota real não aceita mais há tempos (exige
+  upload multipart de verdade); e `scripts/regression-workspace-documents.sh` tinha um typo
+  (`HTTP:211` em vez de `HTTP:201`) que abortava o script antes de exercitar RBAC/limpeza de
+  documentos de verdade.
 
 **CRM** continua apenas nomeado, sem detalhe (fica para sessão futura dedicada).
 
