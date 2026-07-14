@@ -9,6 +9,7 @@ import {
   Poc,
   PocSuccessCriterion,
   PocEquipmentItem,
+  PocTask,
   Document,
   AIAnalysisJob,
   AnalysisResult,
@@ -138,6 +139,20 @@ function mapPocEquipmentItem(e: any): PocEquipmentItem {
     created_at: e.createdAt.toISOString(),
     updated_at: e.updatedAt.toISOString(),
   } as PocEquipmentItem;
+}
+
+function mapPocTask(t: any): PocTask {
+  return {
+    id: t.id,
+    poc_id: t.pocId,
+    name: t.name,
+    start_date: t.startDate.toISOString().substring(0, 10),
+    duration_days: t.durationDays,
+    status: t.status,
+    depends_on_task_id: t.dependsOnTaskId ?? undefined,
+    created_at: t.createdAt.toISOString(),
+    updated_at: t.updatedAt.toISOString(),
+  } as PocTask;
 }
 
 function mapDocument(d: any): Document {
@@ -968,6 +983,66 @@ class DBStore {
     if (!provider || !path || !filename) return undefined;
 
     return { storage_provider: provider as "local" | "s3" | "gcs", storage_path: path, original_filename: filename };
+  }
+
+  // Poc tasks (Fase 6, Fase D) - single-predecessor FS dependency chain, critical path computed
+  // on the frontend (small per-POC graph, no benefit to persisting it server-side).
+  public async getPocTasks(pocId: string): Promise<PocTask[]> {
+    const rows = await prisma.pocTask.findMany({
+      where: { pocId },
+      orderBy: { startDate: "asc" },
+    });
+    return rows.map(mapPocTask);
+  }
+
+  public async createPocTask(
+    pocId: string,
+    task: { name: string; start_date: string; duration_days: number; depends_on_task_id?: string }
+  ): Promise<PocTask> {
+    const t = await prisma.pocTask.create({
+      data: {
+        id: randomId("pt"),
+        tenantId: requireTenantId(),
+        pocId,
+        name: task.name,
+        startDate: new Date(task.start_date),
+        durationDays: task.duration_days,
+        dependsOnTaskId: task.depends_on_task_id || null,
+      },
+    });
+    return mapPocTask(t);
+  }
+
+  public async updatePocTask(
+    id: string,
+    updates: { name?: string; start_date?: string; duration_days?: number; status?: PocTask["status"]; depends_on_task_id?: string | null }
+  ): Promise<PocTask | undefined> {
+    const exists = await prisma.pocTask.findUnique({ where: { id } });
+    if (!exists) return undefined;
+
+    const t = await prisma.pocTask.update({
+      where: { id },
+      data: {
+        name: updates.name,
+        startDate: updates.start_date ? new Date(updates.start_date) : undefined,
+        durationDays: updates.duration_days,
+        status: updates.status,
+        dependsOnTaskId: updates.depends_on_task_id === undefined ? undefined : updates.depends_on_task_id,
+      },
+    });
+    return mapPocTask(t);
+  }
+
+  public async deletePocTask(id: string): Promise<boolean> {
+    try {
+      // Dependents pointing at this task get their dependsOnTaskId cleared (onDelete: SetNull in
+      // the schema), not cascaded away - deleting one task shouldn't silently delete the rest of
+      // the chain after it.
+      await prisma.pocTask.delete({ where: { id } });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   // Documents

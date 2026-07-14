@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Plus, X, ArrowLeft, Pen, Check, Trash2, Paperclip, TriangleAlert, Download } from "lucide-react";
 import { Poc, PocStatus, PocSuccessCriterion, PocEquipmentItem, PocEquipmentStatus, Project } from "../types";
 import ApiClient from "../lib/api";
+import PocGanttChart from "./PocGanttChart";
 
 const STATUS_LABEL: Record<PocStatus, string> = {
   planned: "Planejada",
@@ -121,7 +122,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
   const [newCriterionText, setNewCriterionText] = useState("");
   const [addingCriterion, setAddingCriterion] = useState(false);
 
-  const [detailTab, setDetailTab] = useState<"overview" | "equipment">("overview");
+  const [detailTab, setDetailTab] = useState<"overview" | "equipment" | "gantt">("overview");
   const [equipment, setEquipment] = useState<PocEquipmentItem[]>([]);
   const [loadingEquipment, setLoadingEquipment] = useState(false);
   const [newEquipmentName, setNewEquipmentName] = useState("");
@@ -399,6 +400,12 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
             {equipmentPendingReturn > 0 && pocIsOverdue && (
               <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
             )}
+          </button>
+          <button
+            onClick={() => setDetailTab("gantt")}
+            className={`h-9 px-1 border-b-2 transition-all text-xs font-bold uppercase tracking-wider ${detailTab === "gantt" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+          >
+            Cronograma
           </button>
         </div>
 
@@ -728,6 +735,13 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
               </button>
             </div>
           )}
+        </div>
+        )}
+
+        {detailTab === "gantt" && (
+        <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-5">
+          <h2 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700 mb-4">Cronograma</h2>
+          <PocGanttChart poc={selectedPoc} canManage={canManage} />
         </div>
         )}
       </div>

@@ -418,4 +418,103 @@ function downloadInvoiceHandler(which: "shipping" | "return") {
 router.get("/:id/equipment/:itemId/shipping-invoice", requirePermission("poc:read"), requireModule("poc"), downloadInvoiceHandler("shipping"));
 router.get("/:id/equipment/:itemId/return-invoice", requirePermission("poc:read"), requireModule("poc"), downloadInvoiceHandler("return"));
 
+// Cronograma (Fase D) - tasks with a single-predecessor finish-to-start dependency chain. Dates
+// stay simple ISO day strings (like everywhere else in this file); the Gantt itself does all the
+// day-grid/critical-path math on the frontend.
+const PocTaskSchema = z.object({
+  name: z.string().min(2, "Name is required"),
+  start_date: z.string().min(5, "Start date is required"),
+  duration_days: z.number().int().min(1, "Duration must be at least 1 day"),
+  depends_on_task_id: z.string().optional(),
+});
+
+router.get("/:id/tasks", requirePermission("poc:read"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const poc = await dbStore.getPoc(req.params.id);
+    if (!poc) {
+      return res.status(404).json({ success: false, message: "POC not found" });
+    }
+    const tasks = await dbStore.getPocTasks(req.params.id);
+    res.json(tasks);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/:id/tasks", requirePermission("poc:manage"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const validated = PocTaskSchema.parse(req.body);
+
+    const poc = await dbStore.getPoc(req.params.id);
+    if (!poc) {
+      return res.status(404).json({ success: false, message: "POC not found" });
+    }
+
+    if (validated.depends_on_task_id) {
+      const existingTasks = await dbStore.getPocTasks(req.params.id);
+      if (!existingTasks.some((t) => t.id === validated.depends_on_task_id)) {
+        return res.status(400).json({ success: false, message: "depends_on_task_id must belong to the same POC." });
+      }
+    }
+
+    const task = await dbStore.createPocTask(req.params.id, validated);
+    res.status(201).json(task);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ success: false, message: err.issues[0].message });
+    }
+    next(err);
+  }
+});
+
+router.put("/:id/tasks/:taskId", requirePermission("poc:manage"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const validated = z
+      .object({
+        name: z.string().min(2).optional(),
+        start_date: z.string().min(5).optional(),
+        duration_days: z.number().int().min(1).optional(),
+        status: z.enum(["planned", "in_progress", "done"]).optional(),
+        depends_on_task_id: z.string().nullable().optional(),
+      })
+      .parse(req.body);
+
+    const existingTasks = await dbStore.getPocTasks(req.params.id);
+    if (!existingTasks.some((t) => t.id === req.params.taskId)) {
+      return res.status(404).json({ success: false, message: "Task not found for this POC." });
+    }
+
+    if (validated.depends_on_task_id) {
+      if (validated.depends_on_task_id === req.params.taskId) {
+        return res.status(400).json({ success: false, message: "A task cannot depend on itself." });
+      }
+      if (!existingTasks.some((t) => t.id === validated.depends_on_task_id)) {
+        return res.status(400).json({ success: false, message: "depends_on_task_id must belong to the same POC." });
+      }
+    }
+
+    const updated = await dbStore.updatePocTask(req.params.taskId, validated);
+    res.json(updated);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ success: false, message: err.issues[0].message });
+    }
+    next(err);
+  }
+});
+
+router.delete("/:id/tasks/:taskId", requirePermission("poc:manage"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const existingTasks = await dbStore.getPocTasks(req.params.id);
+    if (!existingTasks.some((t) => t.id === req.params.taskId)) {
+      return res.status(404).json({ success: false, message: "Task not found for this POC." });
+    }
+
+    await dbStore.deletePocTask(req.params.taskId);
+    res.json({ success: true, message: "Task deleted successfully" });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

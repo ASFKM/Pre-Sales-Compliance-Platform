@@ -105,6 +105,20 @@ export interface PocEquipmentItem {
   updated_at: string;
 }
 
+export type PocTaskStatus = "planned" | "in_progress" | "done";
+
+export interface PocTask {
+  id: string;
+  poc_id: string;
+  name: string;
+  start_date: string;
+  duration_days: number;
+  status: PocTaskStatus;
+  depends_on_task_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Document {
   id: string;
   project_id: string;

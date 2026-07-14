@@ -64,6 +64,12 @@ enum PocEquipmentStatus {
   returned
 }
 
+enum PocTaskStatus {
+  planned
+  in_progress
+  done
+}
+
 enum StorageProvider {
   local
   s3
@@ -220,6 +226,7 @@ model Tenant {
   pocs                   Poc[]
   pocSuccessCriteria     PocSuccessCriterion[]
   pocEquipmentItems      PocEquipmentItem[]
+  pocTasks               PocTask[]
 
   @@map("tenants")
 }
@@ -345,6 +352,7 @@ model Poc {
 
   successCriteria PocSuccessCriterion[]
   equipmentItems  PocEquipmentItem[]
+  tasks           PocTask[]
 
   @@index([tenantId])
   @@map("pocs")
@@ -399,6 +407,31 @@ model PocEquipmentItem {
   @@index([tenantId])
   @@index([pocId])
   @@map("poc_equipment_items")
+}
+
+// Fase 6 (add-on), Fase D: single-predecessor dependency chain (FS - finish-to-start), not a full
+// multi-predecessor graph - covers the common linear/branching case the approved mockup was built
+// against without the extra modeling weight of a join table. Critical path is computed on the
+// frontend (small graph, no need to persist it) by walking these dependsOnTaskId chains.
+model PocTask {
+  id            String        @id
+  tenantId      String        @map("tenant_id")
+  tenant        Tenant        @relation(fields: [tenantId], references: [id])
+  pocId         String        @map("poc_id")
+  poc           Poc           @relation(fields: [pocId], references: [id], onDelete: Cascade)
+  name          String
+  startDate     DateTime      @map("start_date")
+  durationDays  Int           @default(1) @map("duration_days")
+  status        PocTaskStatus @default(planned)
+  dependsOnTaskId String?     @map("depends_on_task_id")
+  dependsOnTask   PocTask?    @relation("PocTaskDependency", fields: [dependsOnTaskId], references: [id], onDelete: SetNull)
+  dependents      PocTask[]   @relation("PocTaskDependency")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@index([pocId])
+  @@map("poc_tasks")
 }
 
 model Document {
