@@ -794,7 +794,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
               <div>
                 <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Nome</label>
                 <input
-                  className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                  className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
                   value={editValues.name}
                   onChange={(e) => setEditValues({ ...editValues, name: e.target.value })}
                 />
@@ -802,7 +802,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
               <div>
                 <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Objetivo</label>
                 <textarea
-                  className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                  className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
                   rows={3}
                   value={editValues.objective}
                   onChange={(e) => setEditValues({ ...editValues, objective: e.target.value })}
@@ -812,7 +812,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                 <div>
                   <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Status</label>
                   <select
-                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
                     value={editValues.status}
                     onChange={(e) => setEditValues({ ...editValues, status: e.target.value as PocStatus })}
                   >
@@ -825,7 +825,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                   <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Início</label>
                   <input
                     type="date"
-                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
                     value={editValues.start_date}
                     onChange={(e) => setEditValues({ ...editValues, start_date: e.target.value })}
                   />
@@ -834,7 +834,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                   <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Prazo final</label>
                   <input
                     type="date"
-                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
                     value={editValues.end_date}
                     onChange={(e) => setEditValues({ ...editValues, end_date: e.target.value })}
                   />
@@ -842,7 +842,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                 <div>
                   <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Contato do cliente</label>
                   <input
-                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
                     value={editValues.customer_contact_name}
                     onChange={(e) => setEditValues({ ...editValues, customer_contact_name: e.target.value })}
                   />
@@ -851,7 +851,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
               <div>
                 <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Cargo do contato</label>
                 <input
-                  className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                  className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
                   value={editValues.customer_contact_role}
                   onChange={(e) => setEditValues({ ...editValues, customer_contact_role: e.target.value })}
                 />
@@ -863,7 +863,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                   <div>
                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">CEP</label>
                     <input
-                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
                       placeholder="00000-000"
                       value={editValues.address_zip}
                       onChange={(e) => setEditValues({ ...editValues, address_zip: e.target.value })}
@@ -874,7 +874,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                   <div className="sm:col-span-2">
                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Rua</label>
                     <input
-                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
                       value={editValues.address_street}
                       onChange={(e) => setEditValues({ ...editValues, address_street: e.target.value })}
                     />
@@ -882,7 +882,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                   <div>
                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Número</label>
                     <input
-                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
                       value={editValues.address_number}
                       onChange={(e) => setEditValues({ ...editValues, address_number: e.target.value })}
                     />
@@ -890,7 +890,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                   <div className="sm:col-span-2">
                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Complemento</label>
                     <input
-                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
                       value={editValues.address_complement}
                       onChange={(e) => setEditValues({ ...editValues, address_complement: e.target.value })}
                     />
@@ -898,7 +898,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                   <div className="sm:col-span-2">
                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Bairro</label>
                     <input
-                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
                       value={editValues.address_neighborhood}
                       onChange={(e) => setEditValues({ ...editValues, address_neighborhood: e.target.value })}
                     />
@@ -906,7 +906,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                   <div className="sm:col-span-2">
                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Cidade</label>
                     <input
-                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
                       value={editValues.address_city}
                       onChange={(e) => setEditValues({ ...editValues, address_city: e.target.value })}
                     />
@@ -914,7 +914,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                   <div>
                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">UF</label>
                     <input
-                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
                       maxLength={2}
                       value={editValues.address_state}
                       onChange={(e) => setEditValues({ ...editValues, address_state: e.target.value.toUpperCase() })}
@@ -1384,7 +1384,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                 <div>
                   <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Projeto</label>
                   <select
-                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
                     value={createForm.project_id}
                     onChange={(e) => setCreateForm({ ...createForm, project_id: e.target.value })}
                   >
@@ -1399,7 +1399,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                   <div className="md:col-span-2">
                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Nome do cliente</label>
                     <input
-                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
                       value={createForm.standalone_customer_name}
                       onChange={(e) => setCreateForm({ ...createForm, standalone_customer_name: e.target.value })}
                     />
@@ -1407,7 +1407,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                   <div>
                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Nome do contato</label>
                     <input
-                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
                       value={createForm.standalone_contact_name}
                       onChange={(e) => setCreateForm({ ...createForm, standalone_contact_name: e.target.value })}
                     />
@@ -1415,7 +1415,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                   <div>
                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">E-mail</label>
                     <input
-                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
                       value={createForm.standalone_contact_email}
                       onChange={(e) => setCreateForm({ ...createForm, standalone_contact_email: e.target.value })}
                     />
@@ -1423,7 +1423,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                   <div className="md:col-span-2">
                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Telefone</label>
                     <input
-                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
                       value={createForm.standalone_contact_phone}
                       onChange={(e) => setCreateForm({ ...createForm, standalone_contact_phone: e.target.value })}
                     />
@@ -1434,7 +1434,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
               <div>
                 <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Nome da POC</label>
                 <input
-                  className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                  className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
                   value={createForm.name}
                   onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
                 />
@@ -1452,7 +1452,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                   <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Início</label>
                   <input
                     type="date"
-                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
                     value={createForm.start_date}
                     onChange={(e) => setCreateForm({ ...createForm, start_date: e.target.value })}
                   />
@@ -1461,7 +1461,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                   <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Prazo final</label>
                   <input
                     type="date"
-                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
                     value={createForm.end_date}
                     onChange={(e) => setCreateForm({ ...createForm, end_date: e.target.value })}
                   />
@@ -1471,7 +1471,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                 <div>
                   <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Contato do cliente</label>
                   <input
-                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
                     value={createForm.customer_contact_name}
                     onChange={(e) => setCreateForm({ ...createForm, customer_contact_name: e.target.value })}
                   />
@@ -1479,7 +1479,7 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                 <div>
                   <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Cargo</label>
                   <input
-                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
                     value={createForm.customer_contact_role}
                     onChange={(e) => setCreateForm({ ...createForm, customer_contact_role: e.target.value })}
                   />
