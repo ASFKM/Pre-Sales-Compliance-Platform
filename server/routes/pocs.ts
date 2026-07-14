@@ -958,6 +958,17 @@ router.post("/:id/tasks/generate", requirePermission("poc:manage"), requireModul
       });
     }
 
+    // Fase 6 follow-up (reported directly, 2026-07-14): the schedule used to be suggested purely
+    // from the objective, with no idea what the test notebook actually calls for - the Cronograma
+    // tab was reordered to come AFTER Cadernos de Teste in the UI specifically because the
+    // schedule is meant to depend on it. A POC whose test cases call for distinct scenarios
+    // (illumination conditions, vehicle types, failure-mode tests, etc.) should get schedule steps
+    // that map to actually executing those tests, not a generic install→test→report skeleton.
+    const testCases = await dbStore.getPocTestCases(req.params.id);
+    const testCasesList = testCases.length
+      ? testCases.map((tc) => `- [${tc.code}] ${tc.title}: ${tc.objective}`).join("\n")
+      : "(nenhum caso de teste cadastrado ainda no Caderno de Testes)";
+
     const kbContext = await getPocKnowledgeBaseContext(req.params.id);
 
     const promptRow = await prisma.promptTemplate.findFirst({ where: { type: "poc_schedule_generation", isActive: true } });
@@ -969,6 +980,11 @@ OBJETIVO DA POC:
 ${poc.objective}
 
 PERÍODO PLANEJADO DA POC: ${poc.start_date} a ${poc.end_date}
+
+CASOS DE TESTE JÁ REGISTRADOS NO CADERNO DE TESTES (o cronograma deve refletir a execução real
+desses casos - agrupe casos relacionados numa mesma etapa quando fizer sentido, mas não ignore
+casos que exigem uma etapa própria por serem cenários distintos):
+${testCasesList}
 
 ${knowledgeBaseGroundingBlock(kbContext)}
 

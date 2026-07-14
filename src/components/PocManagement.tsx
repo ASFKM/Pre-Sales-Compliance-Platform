@@ -621,16 +621,16 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
             )}
           </button>
           <button
-            onClick={() => setDetailTab("gantt")}
-            className={`h-9 px-1 border-b-2 transition-all text-xs font-bold uppercase tracking-wider ${detailTab === "gantt" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
-          >
-            Cronograma
-          </button>
-          <button
             onClick={() => setDetailTab("tests")}
             className={`h-9 px-1 border-b-2 transition-all text-xs font-bold uppercase tracking-wider ${detailTab === "tests" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
           >
             Cadernos de Teste
+          </button>
+          <button
+            onClick={() => setDetailTab("gantt")}
+            className={`h-9 px-1 border-b-2 transition-all text-xs font-bold uppercase tracking-wider ${detailTab === "gantt" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+          >
+            Cronograma
           </button>
           <button
             onClick={() => setDetailTab("acceptance")}
@@ -1177,17 +1177,17 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
         </div>
         )}
 
-        {detailTab === "gantt" && (
-        <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-5">
-          <h2 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700 mb-4">Cronograma</h2>
-          <PocGanttChart poc={selectedPoc} canManage={canManage} />
-        </div>
-        )}
-
         {detailTab === "tests" && (
         <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-5">
           <h2 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700 mb-4">Cadernos de Teste</h2>
           <PocTestCases pocId={selectedPoc.id} canManage={canManage} />
+        </div>
+        )}
+
+        {detailTab === "gantt" && (
+        <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-5">
+          <h2 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700 mb-4">Cronograma</h2>
+          <PocGanttChart poc={selectedPoc} canManage={canManage} />
         </div>
         )}
 

@@ -21,7 +21,9 @@ export const FACTORY_DEFAULT_POC_TEST_GENERATION_PROMPT =
 export const FACTORY_DEFAULT_POC_SCHEDULE_GENERATION_PROMPT =
   "Você é um engenheiro de pré-vendas técnico responsável por planejar o cronograma de uma prova " +
   "de conceito (POC). Sugira as etapas necessárias para validar o objetivo descrito, em uma " +
-  "ordem realista de execução.";
+  "ordem realista de execução, refletindo de verdade os casos de teste já registrados no Caderno " +
+  "de Testes da POC - o cronograma existe para executar esses testes, não é um planejamento " +
+  "genérico independente deles.";
 
 // Fase M (add-on) - same module gating as the two prompts above.
 export const FACTORY_DEFAULT_POC_FINAL_REPORT_GENERATION_PROMPT =
