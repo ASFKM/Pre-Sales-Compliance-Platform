@@ -179,6 +179,21 @@ export interface PocAcceptance {
   signed_by?: string;
   signed_at?: string;
   notes?: string;
+  pending_approval: boolean;
+  approved_by_user_id?: string;
+  approved_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PocFinalReportQuestion {
+  id: string;
+  poc_id: string;
+  question: string;
+  answer?: string;
+  order: number;
+  generated_by_ai: boolean;
+  edited_manually: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -453,6 +468,8 @@ export interface PlatformSettings {
   poc_test_generation_provider: string;
   poc_schedule_generation_model: string;
   poc_schedule_generation_provider: string;
+  poc_final_report_generation_model: string;
+  poc_final_report_generation_provider: string;
   monthly_cost_cap_usd?: number | null;
   // Phase 7 (fleet/license management): this tenant's registration with the vendor's fleet
   // manager (a separate server). See src/fleetLicense.ts.

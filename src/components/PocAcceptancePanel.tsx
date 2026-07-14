@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
-import { Check, X as XIcon, Upload, Download, Info } from "lucide-react";
-import { PocAcceptance, PocAcceptanceDecision } from "../types";
+import { Check, X as XIcon, Upload, Download, Info, Sparkles, Lock, ShieldCheck } from "lucide-react";
+import { PocAcceptance, PocAcceptanceDecision, PocFinalReportQuestion, PocStatus } from "../types";
 import ApiClient from "../lib/api";
 
 interface PocAcceptancePanelProps {
   pocId: string;
   canManage: boolean;
+  pocStatus: PocStatus;
+  onPocUpdated?: () => void;
 }
 
-export default function PocAcceptancePanel({ pocId, canManage }: PocAcceptancePanelProps) {
+export default function PocAcceptancePanel({ pocId, canManage, pocStatus, onPocUpdated }: PocAcceptancePanelProps) {
   const [acceptance, setAcceptance] = useState<PocAcceptance | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -18,6 +20,25 @@ export default function PocAcceptancePanel({ pocId, canManage }: PocAcceptancePa
   const [signedAt, setSignedAt] = useState("");
   const [notes, setNotes] = useState("");
 
+  const [questions, setQuestions] = useState<PocFinalReportQuestion[]>([]);
+  const [loadingQuestions, setLoadingQuestions] = useState(true);
+  const [generatingReport, setGeneratingReport] = useState(false);
+  const [reportError, setReportError] = useState("");
+  const [reportKbWarning, setReportKbWarning] = useState("");
+  const [answerDrafts, setAnswerDrafts] = useState<Record<string, string>>({});
+  const [savingQuestionId, setSavingQuestionId] = useState<string | null>(null);
+
+  // Fase L: Ganha/Perdida is local-only (deselectable) until "Finalizar" is clicked - there is no
+  // autosave on this decision anymore (reported directly: it felt like nothing was saved when
+  // clicking away, because clicking Ganha/Perdida used to commit immediately with no visible
+  // confirmation).
+  const [localDecision, setLocalDecision] = useState<PocAcceptanceDecision | null>(null);
+  const [finalizing, setFinalizing] = useState(false);
+  const [finalizeError, setFinalizeError] = useState("");
+  const [approving, setApproving] = useState(false);
+
+  const locked = pocStatus === "completed";
+
   const fetchAcceptance = async () => {
     setLoading(true);
     try {
@@ -26,6 +47,7 @@ export default function PocAcceptancePanel({ pocId, canManage }: PocAcceptancePa
       setSignedBy(data.signed_by || "");
       setSignedAt(data.signed_at || "");
       setNotes(data.notes || "");
+      setLocalDecision(data.decision && data.decision !== "pending" ? data.decision : null);
     } catch (e) {
       setAcceptance(null);
     } finally {
@@ -33,21 +55,29 @@ export default function PocAcceptancePanel({ pocId, canManage }: PocAcceptancePa
     }
   };
 
+  const fetchQuestions = async () => {
+    setLoadingQuestions(true);
+    try {
+      const data = await ApiClient.get<PocFinalReportQuestion[]>(`/api/pocs/${pocId}/final-report`);
+      const list = Array.isArray(data) ? data : [];
+      setQuestions(list);
+      setAnswerDrafts(Object.fromEntries(list.map((q) => [q.id, q.answer || ""])));
+    } catch (e) {
+      setQuestions([]);
+    } finally {
+      setLoadingQuestions(false);
+    }
+  };
+
   useEffect(() => {
     fetchAcceptance();
+    fetchQuestions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pocId]);
 
-  const setDecision = async (decision: PocAcceptanceDecision) => {
-    setSaving(true);
-    try {
-      const data = await ApiClient.put<PocAcceptance>(`/api/pocs/${pocId}/acceptance`, { decision });
-      setAcceptance(data);
-    } catch (e: any) {
-      alert(e.message || "Não foi possível registrar a decisão.");
-    } finally {
-      setSaving(false);
-    }
+  const toggleDecision = (decision: PocAcceptanceDecision) => {
+    if (locked) return;
+    setLocalDecision((prev) => (prev === decision ? null : decision));
   };
 
   const saveDetails = async () => {
@@ -85,35 +115,182 @@ export default function PocAcceptancePanel({ pocId, canManage }: PocAcceptancePa
     window.open(`/api/pocs/${pocId}/acceptance/signed-document?token=${encodeURIComponent(token)}`, "_blank");
   };
 
+  const generateReport = async () => {
+    setGeneratingReport(true);
+    setReportError("");
+    setReportKbWarning("");
+    try {
+      const data = await ApiClient.post<{ questions: PocFinalReportQuestion[]; knowledge_base_warning: string | null }>(`/api/pocs/${pocId}/final-report/generate`, {});
+      const list = Array.isArray(data?.questions) ? data.questions : [];
+      setQuestions(list);
+      setAnswerDrafts(Object.fromEntries(list.map((q) => [q.id, q.answer || ""])));
+      if (data?.knowledge_base_warning) setReportKbWarning(data.knowledge_base_warning);
+    } catch (e: any) {
+      setReportError(e.message || "Não foi possível gerar o relatório final.");
+    } finally {
+      setGeneratingReport(false);
+    }
+  };
+
+  const saveAnswer = async (question: PocFinalReportQuestion) => {
+    setSavingQuestionId(question.id);
+    try {
+      const updated = await ApiClient.put<PocFinalReportQuestion>(`/api/pocs/${pocId}/final-report/${question.id}`, { answer: answerDrafts[question.id] || "" });
+      setQuestions((prev) => prev.map((q) => (q.id === question.id ? updated : q)));
+    } catch (e: any) {
+      alert(e.message || "Não foi possível salvar a resposta.");
+    } finally {
+      setSavingQuestionId(null);
+    }
+  };
+
+  const answeredCount = questions.filter((q) => q.answer && q.answer.trim()).length;
+  const reportComplete = questions.length > 0 && answeredCount === questions.length;
+  const canFinalize = reportComplete && localDecision !== null;
+
+  const finalize = async () => {
+    if (!localDecision) return;
+    setFinalizing(true);
+    setFinalizeError("");
+    try {
+      const data = await ApiClient.post<PocAcceptance>(`/api/pocs/${pocId}/acceptance/finalize`, { decision: localDecision });
+      setAcceptance(data);
+      onPocUpdated?.();
+    } catch (e: any) {
+      setFinalizeError(e.message || "Não foi possível finalizar o aceite.");
+    } finally {
+      setFinalizing(false);
+    }
+  };
+
+  const approve = async () => {
+    setApproving(true);
+    try {
+      const data = await ApiClient.post<PocAcceptance>(`/api/pocs/${pocId}/acceptance/approve`, {});
+      setAcceptance(data);
+      onPocUpdated?.();
+    } catch (e: any) {
+      alert(e.message || "Não foi possível aprovar.");
+    } finally {
+      setApproving(false);
+    }
+  };
+
   if (loading || !acceptance) {
     return <p className="text-xs text-slate-400">Carregando...</p>;
   }
 
-  const decision = acceptance.decision;
+  const pendingApproval = acceptance.pending_approval;
+  const readOnly = locked || pendingApproval || !canManage;
 
   return (
     <div className="space-y-5">
+      {locked && (
+        <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 text-slate-600 text-xs rounded-md px-3 py-2">
+          <Lock size={14} className="shrink-0" />
+          Esta POC foi concluída e aprovada - o aceite não pode mais ser alterado.
+        </div>
+      )}
+      {pendingApproval && !locked && (
+        <div className="flex items-center justify-between gap-2 bg-amber-50 border border-amber-200 text-amber-900 text-xs rounded-md px-3 py-2">
+          <span className="flex items-center gap-2"><ShieldCheck size={14} className="shrink-0" />Aguardando aprovação para concluir a POC.</span>
+          {canManage && (
+            <button
+              onClick={approve}
+              disabled={approving}
+              className="bg-amber-600 hover:bg-amber-700 text-white font-mono text-[11px] font-bold py-1 px-3 rounded shadow disabled:opacity-60"
+            >
+              {approving ? "Aprovando..." : "Aprovar"}
+            </button>
+          )}
+        </div>
+      )}
+
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono">Relatório Final da POC</div>
+          {!readOnly && (
+            <button
+              onClick={generateReport}
+              disabled={generatingReport}
+              className="inline-flex items-center gap-1.5 border border-emerald-600 text-emerald-700 hover:bg-emerald-50 font-mono text-[11px] font-bold py-1 px-3 rounded transition-all cursor-pointer disabled:opacity-60"
+            >
+              <Sparkles size={12} />
+              {generatingReport ? "Gerando..." : questions.length > 0 ? "Gerar novamente com IA" : "Gerar com IA"}
+            </button>
+          )}
+        </div>
+
+        {reportError && <div className="p-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-xs mb-2">{reportError}</div>}
+        {reportKbWarning && (
+          <div className="p-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-xs mb-2">
+            <span className="font-bold">Base de Conhecimento insuficiente: </span>
+            {reportKbWarning}
+          </div>
+        )}
+
+        {loadingQuestions ? (
+          <p className="text-xs text-slate-400">Carregando...</p>
+        ) : questions.length === 0 ? (
+          <p className="text-xs text-slate-400 italic border border-dashed border-slate-300 rounded-lg py-4 text-center">
+            Nenhum relatório final gerado ainda. Ele é obrigatório para finalizar o aceite.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            <div className="text-[11px] text-slate-500 font-mono">{answeredCount} de {questions.length} respondidas</div>
+            {questions.map((q, idx) => (
+              <div key={q.id} className="border border-slate-200 rounded-lg p-3 space-y-1.5">
+                <div className="text-xs font-semibold text-slate-800">{idx + 1}. {q.question}</div>
+                <textarea
+                  className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400 font-sans text-sm text-slate-800"
+                  rows={2}
+                  placeholder="Resposta com o resultado real observado"
+                  value={answerDrafts[q.id] ?? ""}
+                  disabled={readOnly}
+                  onChange={(e) => setAnswerDrafts({ ...answerDrafts, [q.id]: e.target.value })}
+                  onBlur={() => { if (!readOnly && answerDrafts[q.id] !== (q.answer || "")) saveAnswer(q); }}
+                />
+                {savingQuestionId === q.id && <p className="text-[10px] text-slate-400">Salvando...</p>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>
           <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono mb-2">Decisão final</div>
           <div className="flex gap-2">
             <button
-              onClick={() => canManage && setDecision("won")}
-              disabled={!canManage || saving}
-              className={`flex-1 rounded-lg border-2 py-3 text-center transition-all ${decision === "won" ? "border-emerald-600 bg-emerald-50" : "border-slate-200 hover:border-slate-300"}`}
+              onClick={() => toggleDecision("won")}
+              disabled={readOnly || finalizing}
+              className={`flex-1 rounded-lg border-2 py-3 text-center transition-all ${localDecision === "won" ? "border-emerald-600 bg-emerald-50" : "border-slate-200 hover:border-slate-300"}`}
             >
-              <Check size={20} className={`mx-auto mb-1 ${decision === "won" ? "text-emerald-600" : "text-slate-300"}`} />
-              <span className={`text-sm font-bold ${decision === "won" ? "text-emerald-700" : "text-slate-500"}`}>Ganha</span>
+              <Check size={20} className={`mx-auto mb-1 ${localDecision === "won" ? "text-emerald-600" : "text-slate-300"}`} />
+              <span className={`text-sm font-bold ${localDecision === "won" ? "text-emerald-700" : "text-slate-500"}`}>Ganha</span>
             </button>
             <button
-              onClick={() => canManage && setDecision("lost")}
-              disabled={!canManage || saving}
-              className={`flex-1 rounded-lg border-2 py-3 text-center transition-all ${decision === "lost" ? "border-red-500 bg-red-50" : "border-slate-200 hover:border-slate-300"}`}
+              onClick={() => toggleDecision("lost")}
+              disabled={readOnly || finalizing}
+              className={`flex-1 rounded-lg border-2 py-3 text-center transition-all ${localDecision === "lost" ? "border-red-500 bg-red-50" : "border-slate-200 hover:border-slate-300"}`}
             >
-              <XIcon size={20} className={`mx-auto mb-1 ${decision === "lost" ? "text-red-600" : "text-slate-300"}`} />
-              <span className={`text-sm font-bold ${decision === "lost" ? "text-red-600" : "text-slate-500"}`}>Perdida</span>
+              <XIcon size={20} className={`mx-auto mb-1 ${localDecision === "lost" ? "text-red-600" : "text-slate-300"}`} />
+              <span className={`text-sm font-bold ${localDecision === "lost" ? "text-red-600" : "text-slate-500"}`}>Perdida</span>
             </button>
           </div>
+          {!readOnly && (
+            <>
+              <button
+                onClick={finalize}
+                disabled={!canFinalize || finalizing}
+                className="w-full mt-2 bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-2 rounded shadow transition-all cursor-pointer disabled:opacity-40"
+                title={!reportComplete ? "Responda todo o Relatório Final primeiro" : !localDecision ? "Selecione Ganha ou Perdida" : ""}
+              >
+                {finalizing ? "Finalizando..." : "Finalizar"}
+              </button>
+              {finalizeError && <p className="text-[11px] text-red-600 mt-1">{finalizeError}</p>}
+            </>
+          )}
         </div>
 
         <div>
@@ -131,7 +308,7 @@ export default function PocAcceptancePanel({ pocId, canManage }: PocAcceptancePa
               Nenhum documento anexado ainda
             </p>
           )}
-          {canManage && (
+          {!readOnly && (
             <label className="mt-2 flex items-center justify-center gap-2 px-3 py-1.5 border border-slate-300 rounded hover:bg-slate-100 font-mono text-xs cursor-pointer text-slate-500">
               <Upload size={13} />
               {uploading ? "Enviando..." : acceptance.signed_document_original_filename ? "Substituir documento" : "Anexar documento assinado"}
@@ -156,7 +333,7 @@ export default function PocAcceptancePanel({ pocId, canManage }: PocAcceptancePa
           <input
             className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400 font-sans text-sm text-slate-800"
             value={signedBy}
-            disabled={!canManage}
+            disabled={readOnly}
             onChange={(e) => setSignedBy(e.target.value)}
             placeholder="Nome do responsável no cliente"
           />
@@ -167,7 +344,7 @@ export default function PocAcceptancePanel({ pocId, canManage }: PocAcceptancePa
             type="date"
             className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400 font-sans text-sm text-slate-800"
             value={signedAt}
-            disabled={!canManage}
+            disabled={readOnly}
             onChange={(e) => setSignedAt(e.target.value)}
           />
         </div>
@@ -178,15 +355,15 @@ export default function PocAcceptancePanel({ pocId, canManage }: PocAcceptancePa
           className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400 font-sans text-sm text-slate-800"
           rows={3}
           value={notes}
-          disabled={!canManage}
+          disabled={readOnly}
           onChange={(e) => setNotes(e.target.value)}
         />
       </div>
-      {canManage && (
+      {!readOnly && (
         <button
           onClick={saveDetails}
           disabled={saving}
-          className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
+          className="bg-slate-800 hover:bg-slate-900 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
         >
           {saving ? "Salvando..." : "Salvar"}
         </button>

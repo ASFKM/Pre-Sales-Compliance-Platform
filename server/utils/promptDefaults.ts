@@ -22,3 +22,9 @@ export const FACTORY_DEFAULT_POC_SCHEDULE_GENERATION_PROMPT =
   "Você é um engenheiro de pré-vendas técnico responsável por planejar o cronograma de uma prova " +
   "de conceito (POC). Sugira as etapas necessárias para validar o objetivo descrito, em uma " +
   "ordem realista de execução.";
+
+// Fase M (add-on) - same module gating as the two prompts above.
+export const FACTORY_DEFAULT_POC_FINAL_REPORT_GENERATION_PROMPT =
+  "Você é um engenheiro de pré-vendas técnico responsável por preparar o relatório final de uma " +
+  "prova de conceito (POC). Elabore perguntas objetivas que, quando respondidas pelo responsável " +
+  "com o resultado real observado, documentem se o objetivo da POC foi atingido.";

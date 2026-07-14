@@ -9,7 +9,7 @@ import { requireUserId } from "../middleware/security";
 import { createStorageAdapter } from "../utils/storage";
 import { getFleetLicenseStatus } from "../utils/fleetLicense";
 import { getCurrentTenantId } from "../../src/tenantContext";
-import { FACTORY_DEFAULT_CLASSIFICATION_PROMPT, FACTORY_DEFAULT_ANALYSIS_PROMPT, FACTORY_DEFAULT_POC_TEST_GENERATION_PROMPT, FACTORY_DEFAULT_POC_SCHEDULE_GENERATION_PROMPT } from "../utils/promptDefaults";
+import { FACTORY_DEFAULT_CLASSIFICATION_PROMPT, FACTORY_DEFAULT_ANALYSIS_PROMPT, FACTORY_DEFAULT_POC_TEST_GENERATION_PROMPT, FACTORY_DEFAULT_POC_SCHEDULE_GENERATION_PROMPT, FACTORY_DEFAULT_POC_FINAL_REPORT_GENERATION_PROMPT } from "../utils/promptDefaults";
 import { getCurrentMonthSpendUsd, getCurrentMonthSpendByTaskTypeAndProvider } from "../../src/aiOrchestrator";
 
 const router = express.Router();
@@ -280,7 +280,8 @@ function validateAISettingsUpdates(updates: any, customProviderKeys: string[] = 
     "spec_copilot_model",
     "document_classification_model",
     "poc_test_generation_model",
-    "poc_schedule_generation_model"
+    "poc_schedule_generation_model",
+    "poc_final_report_generation_model"
   ];
   const providerFields = [
     "document_analysis_provider",
@@ -290,7 +291,8 @@ function validateAISettingsUpdates(updates: any, customProviderKeys: string[] = 
     "spec_copilot_provider",
     "document_classification_provider",
     "poc_test_generation_provider",
-    "poc_schedule_generation_provider"
+    "poc_schedule_generation_provider",
+    "poc_final_report_generation_provider"
   ];
   const allowedLanguages = ["Portuguese", "English", "Spanish"];
   const allowedLogLevels = ["DEBUG", "INFO", "WARN", "ERROR"];
@@ -374,6 +376,8 @@ router.put("/settings/ai", requirePermission("ai:settings"), async (req: Request
       "poc_test_generation_provider",
       "poc_schedule_generation_model",
       "poc_schedule_generation_provider",
+      "poc_final_report_generation_model",
+      "poc_final_report_generation_provider",
       "monthly_cost_cap_usd",
       "default_language",
       "default_log_level"
@@ -618,11 +622,20 @@ router.get("/settings/prompts", requirePermission("ai:settings"), async (req: Re
         version: "v1.0",
         created_by: requireUserId(req),
       });
+      await dbStore.ensurePromptSeeded({
+        type: "poc_final_report_generation",
+        name: "POC Final Report Questionnaire Prompt",
+        content: FACTORY_DEFAULT_POC_FINAL_REPORT_GENERATION_PROMPT,
+        language: "Portuguese",
+        version: "v1.0",
+        created_by: requireUserId(req),
+      });
     }
 
+    const pocPromptTypes = ["poc_test_generation", "poc_schedule_generation", "poc_final_report_generation"];
     let prompts = await dbStore.getPrompts();
     if (!pocEnabled) {
-      prompts = prompts.filter((p) => p.type !== "poc_test_generation" && p.type !== "poc_schedule_generation");
+      prompts = prompts.filter((p) => !pocPromptTypes.includes(p.type));
     }
 
     res.json(
@@ -633,6 +646,7 @@ router.get("/settings/prompts", requirePermission("ai:settings"), async (req: Re
           : p.type === "analysis" ? FACTORY_DEFAULT_ANALYSIS_PROMPT
           : p.type === "poc_test_generation" ? FACTORY_DEFAULT_POC_TEST_GENERATION_PROMPT
           : p.type === "poc_schedule_generation" ? FACTORY_DEFAULT_POC_SCHEDULE_GENERATION_PROMPT
+          : p.type === "poc_final_report_generation" ? FACTORY_DEFAULT_POC_FINAL_REPORT_GENERATION_PROMPT
           : "",
       }))
     );

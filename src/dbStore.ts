@@ -13,6 +13,7 @@ import {
   PocTask,
   PocTestCase,
   PocAcceptance,
+  PocFinalReportQuestion,
   Document,
   AIAnalysisJob,
   AnalysisResult,
@@ -203,9 +204,26 @@ function mapPocAcceptance(a: any): PocAcceptance {
     signed_by: a.signedBy ?? undefined,
     signed_at: a.signedAt ? a.signedAt.toISOString().substring(0, 10) : undefined,
     notes: a.notes ?? undefined,
+    pending_approval: a.pendingApproval,
+    approved_by_user_id: a.approvedByUserId ?? undefined,
+    approved_at: a.approvedAt ? a.approvedAt.toISOString() : undefined,
     created_at: a.createdAt.toISOString(),
     updated_at: a.updatedAt.toISOString(),
   } as PocAcceptance;
+}
+
+function mapPocFinalReportQuestion(q: any): PocFinalReportQuestion {
+  return {
+    id: q.id,
+    poc_id: q.pocId,
+    question: q.question,
+    answer: q.answer ?? undefined,
+    order: q.order,
+    generated_by_ai: q.generatedByAi,
+    edited_manually: q.editedManually,
+    created_at: q.createdAt.toISOString(),
+    updated_at: q.updatedAt.toISOString(),
+  } as PocFinalReportQuestion;
 }
 
 function mapDocument(d: any): Document {
@@ -389,6 +407,8 @@ function mapSettings(s: any): PlatformSettings {
     poc_test_generation_provider: s.pocTestGenerationProvider,
     poc_schedule_generation_model: s.pocScheduleGenerationModel,
     poc_schedule_generation_provider: s.pocScheduleGenerationProvider,
+    poc_final_report_generation_model: s.pocFinalReportGenerationModel,
+    poc_final_report_generation_provider: s.pocFinalReportGenerationProvider,
     monthly_cost_cap_usd: s.monthlyCostCapUsd ?? null,
     fleet_manager_url: s.fleetManagerUrl ?? null,
     fleet_manager_api_key_encrypted: s.fleetManagerApiKeyEncrypted ?? undefined,
@@ -1262,6 +1282,50 @@ class DBStore {
     });
   }
 
+  // Poc final report (Fase M) - AI-generated questionnaire, same "IA rascunha, humano valida"
+  // regeneration safety as PocTestCase/PocTask, except here what a human "edits" is filling in the
+  // answer (the question itself is what the AI authored).
+  public async getPocFinalReportQuestions(pocId: string): Promise<PocFinalReportQuestion[]> {
+    const rows = await prisma.pocFinalReportQuestion.findMany({ where: { pocId }, orderBy: { order: "asc" } });
+    return rows.map(mapPocFinalReportQuestion);
+  }
+
+  public async createPocFinalReportQuestion(
+    pocId: string,
+    q: { question: string; order: number; generated_by_ai?: boolean }
+  ): Promise<PocFinalReportQuestion> {
+    const created = await prisma.pocFinalReportQuestion.create({
+      data: {
+        id: randomId("frq"),
+        tenantId: requireTenantId(),
+        pocId,
+        question: q.question,
+        order: q.order,
+        generatedByAi: q.generated_by_ai ?? false,
+      },
+    });
+    return mapPocFinalReportQuestion(created);
+  }
+
+  public async updatePocFinalReportQuestion(
+    id: string,
+    updates: { answer?: string; edited_manually?: boolean }
+  ): Promise<PocFinalReportQuestion | undefined> {
+    const exists = await prisma.pocFinalReportQuestion.findUnique({ where: { id } });
+    if (!exists) return undefined;
+    const updated = await prisma.pocFinalReportQuestion.update({
+      where: { id },
+      data: { answer: updates.answer, editedManually: updates.edited_manually },
+    });
+    return mapPocFinalReportQuestion(updated);
+  }
+
+  public async deleteUneditedAiPocFinalReportQuestions(pocId: string): Promise<void> {
+    await prisma.pocFinalReportQuestion.deleteMany({
+      where: { pocId, generatedByAi: true, editedManually: false },
+    });
+  }
+
   // Poc acceptance (Fase 6, Fase F) - one row per POC (1:1), lazily created on first write since
   // most POCs live their whole life without a decision yet; getPocAcceptance returns undefined
   // rather than a row until something is actually recorded.
@@ -1272,7 +1336,15 @@ class DBStore {
 
   public async upsertPocAcceptance(
     pocId: string,
-    updates: { decision?: PocAcceptance["decision"]; signed_by?: string; signed_at?: string; notes?: string }
+    updates: {
+      decision?: PocAcceptance["decision"];
+      signed_by?: string;
+      signed_at?: string;
+      notes?: string;
+      pending_approval?: boolean;
+      approved_by_user_id?: string | null;
+      approved_at?: string | null;
+    }
   ): Promise<PocAcceptance> {
     const a = await prisma.pocAcceptance.upsert({
       where: { pocId },
@@ -1284,14 +1356,34 @@ class DBStore {
         signedBy: updates.signed_by,
         signedAt: updates.signed_at ? new Date(updates.signed_at) : undefined,
         notes: updates.notes,
+        pendingApproval: updates.pending_approval ?? false,
+        approvedByUserId: updates.approved_by_user_id ?? undefined,
+        approvedAt: updates.approved_at ? new Date(updates.approved_at) : undefined,
       },
       update: {
         decision: updates.decision,
         signedBy: updates.signed_by,
         signedAt: updates.signed_at ? new Date(updates.signed_at) : undefined,
         notes: updates.notes,
+        pendingApproval: updates.pending_approval,
+        approvedByUserId: updates.approved_by_user_id === undefined ? undefined : updates.approved_by_user_id,
+        approvedAt: updates.approved_at === undefined ? undefined : (updates.approved_at ? new Date(updates.approved_at) : null),
       },
     });
+    return mapPocAcceptance(a);
+  }
+
+  // Fase L: approving is the one place PocAcceptance and Poc.status change together - a
+  // transaction so a POC can never end up "approved" without actually being marked completed (or
+  // vice versa) if one write succeeded and the other didn't.
+  public async approvePocAcceptance(pocId: string, approvedByUserId: string): Promise<PocAcceptance> {
+    const [a] = await prisma.$transaction([
+      prisma.pocAcceptance.update({
+        where: { pocId },
+        data: { pendingApproval: false, approvedByUserId, approvedAt: new Date() },
+      }),
+      prisma.poc.update({ where: { id: pocId }, data: { status: "completed" } }),
+    ]);
     return mapPocAcceptance(a);
   }
 
@@ -1771,6 +1863,8 @@ class DBStore {
         pocTestGenerationProvider: updates.poc_test_generation_provider,
         pocScheduleGenerationModel: updates.poc_schedule_generation_model,
         pocScheduleGenerationProvider: updates.poc_schedule_generation_provider,
+        pocFinalReportGenerationModel: updates.poc_final_report_generation_model,
+        pocFinalReportGenerationProvider: updates.poc_final_report_generation_provider,
         monthlyCostCapUsd: updates.monthly_cost_cap_usd,
         fleetManagerUrl: updates.fleet_manager_url,
         fleetManagerApiKeyEncrypted: updates.fleet_manager_api_key_encrypted,

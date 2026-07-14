@@ -44,6 +44,7 @@ const TASK_CAPABILITY: Record<string, TaskCapability> = {
   document_classification: "text",
   poc_test_generation: "text",
   poc_schedule_generation: "text",
+  poc_final_report_generation: "text",
 };
 
 // Curated, not exhaustive - especially for OpenAI, whose model lineup changes fast across several
@@ -122,6 +123,7 @@ const AI_TASK_TYPE_LABEL: Record<string, { pt: string; en: string }> = {
   document_classification: { pt: "Classificação de Documentos", en: "Document Classification" },
   poc_test_generation: { pt: "Geração de Cadernos de Teste (POC)", en: "Test Script Generation (POC)" },
   poc_schedule_generation: { pt: "Sugestão de Cronograma (POC)", en: "Schedule Suggestion (POC)" },
+  poc_final_report_generation: { pt: "Relatório Final (POC)", en: "Final Report (POC)" },
 };
 
 // Column order for the per-provider cost breakdown table - the 3 providers this platform has
@@ -1206,6 +1208,7 @@ export default function AdminConsole({
                             // Add-on (Fase 6): only shown once the tenant's Fleet Manager entitlement includes "poc".
                             ...(pocModuleEnabled ? [{ field: "poc_test_generation_provider", modelField: "poc_test_generation_model", taskKey: "poc_test_generation", label: locale === "pt" ? "Geração de Cadernos de Teste (POC)" : "Test Script Generation (POC)" }] : []),
                             ...(pocModuleEnabled ? [{ field: "poc_schedule_generation_provider", modelField: "poc_schedule_generation_model", taskKey: "poc_schedule_generation", label: locale === "pt" ? "Sugestão de Cronograma (POC)" : "Schedule Suggestion (POC)" }] : []),
+                            ...(pocModuleEnabled ? [{ field: "poc_final_report_generation_provider", modelField: "poc_final_report_generation_model", taskKey: "poc_final_report_generation", label: locale === "pt" ? "Relatório Final (POC)" : "Final Report (POC)" }] : []),
                           ].map(({ field, modelField, taskKey, label }) => {
                             const capability = TASK_CAPABILITY[taskKey];
                             const currentProvider = (platformSettings as any)?.[field] || "gemini";
@@ -1361,6 +1364,7 @@ export default function AdminConsole({
                             : type === "analysis" ? tx("Pre-Sales Technical Specification Analyser", "Analisador de Especificação Técnica de Pré-Vendas")
                             : type === "poc_test_generation" ? tx("POC Test Case Generation Prompt", "Prompt de Geração de Cadernos de Teste (POC)")
                             : type === "poc_schedule_generation" ? tx("POC Schedule Suggestion Prompt", "Prompt de Sugestão de Cronograma (POC)")
+                            : type === "poc_final_report_generation" ? tx("POC Final Report Questionnaire Prompt", "Prompt de Relatório Final (POC)")
                             : type;
                           const activeVersion = versions.find((v) => v.is_active) || versions[0];
                           const selectedId = selectedPromptVersionByType[type] ?? activeVersion?.id;

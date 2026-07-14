@@ -697,6 +697,8 @@ export function useAdminConsole(params: UseAdminConsoleParams) {
       "poc_test_generation_provider",
       "poc_schedule_generation_model",
       "poc_schedule_generation_provider",
+      "poc_final_report_generation_model",
+      "poc_final_report_generation_provider",
       "monthly_cost_cap_usd",
       "default_language",
       "default_log_level"

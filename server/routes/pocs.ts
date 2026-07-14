@@ -15,7 +15,7 @@ import { resolveProvider, checkCostCap, recordProviderFallback, recordAiUsage } 
 import { generateJsonWithProvider } from "../utils/aiProviders";
 import { estimateCostUsd } from "../utils/aiPricing";
 import { prisma } from "../../src/prisma";
-import { FACTORY_DEFAULT_POC_TEST_GENERATION_PROMPT, FACTORY_DEFAULT_POC_SCHEDULE_GENERATION_PROMPT } from "../utils/promptDefaults";
+import { FACTORY_DEFAULT_POC_TEST_GENERATION_PROMPT, FACTORY_DEFAULT_POC_SCHEDULE_GENERATION_PROMPT, FACTORY_DEFAULT_POC_FINAL_REPORT_GENERATION_PROMPT } from "../utils/promptDefaults";
 import { extractKnowledgeBaseKeywords } from "./analysis";
 import { triggerKnowledgeBaseAnalysis } from "./knowledgeBase";
 import { getSiteRastreioApiKey, queryTrackingStatus } from "../utils/siteRastreio";
@@ -26,6 +26,29 @@ const router = express.Router();
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
+});
+
+// Fase L: once a POC is fully approved (Poc.status === "completed"), nothing about it can be
+// edited anymore - equipment, cronograma, casos de teste, visão geral, aceite. One shared
+// middleware instead of copy-pasting the same check into every write route below, since every
+// mutating route under /:id shares this exact rule. Read (GET) requests always pass through
+// untouched - "locked" means read-only, not access-denied. Archiving and the acceptance
+// finalize/approve endpoints are the explicit exceptions: archiving only ever applies to an
+// already-completed POC, and finalize/approve ARE the mechanism that reaches "completed" in the
+// first place, so they can't be blocked by the state they're the one to set.
+const POC_LOCK_EXEMPT_SUFFIXES = ["/archive", "/acceptance/finalize", "/acceptance/approve"];
+router.use("/:id", async (req: Request, res: Response, next: NextFunction) => {
+  if (!["POST", "PUT", "DELETE"].includes(req.method)) return next();
+  if (POC_LOCK_EXEMPT_SUFFIXES.some((suffix) => req.path.endsWith(suffix))) return next();
+  try {
+    const poc = await dbStore.getPoc(req.params.id);
+    if (poc && poc.status === "completed") {
+      return res.status(423).json({ success: false, message: "Esta POC foi concluída e aprovada - não é mais possível editá-la." });
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
 });
 
 // Fase G: same keyword-extraction + IDF-weighted search already proven for BOM enrichment
@@ -1240,6 +1263,158 @@ provedores exigem um objeto no nível superior), sem markdown, sem texto extra, 
   }
 });
 
+// Relatório Final da POC (Fase M) - AI-generated questionnaire the presales engineer answers with
+// the real observed outcome, mandatory before the acceptance can be finalized (see
+// POST /:id/acceptance/finalize below). Same "IA rascunha, humano valida" regeneration safety as
+// test cases/tasks (dbStore.deleteUneditedAiPocFinalReportQuestions), same KB grounding
+// (getPocKnowledgeBaseContext) that fixed the test-case hallucination bug, plus the POC's own test
+// cases as extra context since they document what was actually validated.
+router.get("/:id/final-report", requirePermission("poc:read"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const poc = await dbStore.getPoc(req.params.id);
+    if (!poc) {
+      return res.status(404).json({ success: false, message: "POC not found" });
+    }
+    const questions = await dbStore.getPocFinalReportQuestions(req.params.id);
+    res.json(questions);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/:id/final-report/:questionId", requirePermission("poc:manage"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { answer } = z.object({ answer: z.string() }).parse(req.body);
+
+    const questions = await dbStore.getPocFinalReportQuestions(req.params.id);
+    if (!questions.some((q) => q.id === req.params.questionId)) {
+      return res.status(404).json({ success: false, message: "Question not found for this POC." });
+    }
+
+    const updated = await dbStore.updatePocFinalReportQuestion(req.params.questionId, { answer, edited_manually: true });
+    res.json(updated);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ success: false, message: err.issues[0].message });
+    }
+    next(err);
+  }
+});
+
+router.post("/:id/final-report/generate", requirePermission("poc:manage"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.headers["x-tenant-id"] as string;
+
+    const poc = await dbStore.getPoc(req.params.id);
+    if (!poc) {
+      return res.status(404).json({ success: false, message: "POC not found" });
+    }
+
+    const settings = await dbStore.getSettings();
+
+    const costCap = await checkCostCap(tenantId, settings.monthly_cost_cap_usd ?? null);
+    if (costCap.blocked) {
+      return res.status(402).json({
+        success: false,
+        message: `Monthly AI cost cap reached ($${costCap.currentSpendUsd.toFixed(2)} of $${costCap.capUsd?.toFixed(2)}). Generation blocked until next month or the cap is raised in Admin > IA, Prompts e Custos.`
+      });
+    }
+
+    const successCriteria = await dbStore.getPocSuccessCriteria(req.params.id);
+    const criteriaList = successCriteria.length
+      ? successCriteria.map((c) => `- ${c.description}`).join("\n")
+      : "(nenhum critério de sucesso definido ainda)";
+
+    const testCases = await dbStore.getPocTestCases(req.params.id);
+    const testCasesList = testCases.length
+      ? testCases.map((tc) => `- [${tc.code}] ${tc.title}: ${tc.objective} (status: ${tc.status})`).join("\n")
+      : "(nenhum caso de teste cadastrado ainda)";
+
+    const kbContext = await getPocKnowledgeBaseContext(req.params.id);
+
+    const promptRow = await prisma.promptTemplate.findFirst({ where: { type: "poc_final_report_generation", isActive: true } });
+    const instructions = promptRow?.content?.trim() || FACTORY_DEFAULT_POC_FINAL_REPORT_GENERATION_PROMPT;
+
+    const prompt = `${instructions} Elabore de 5 a 8 perguntas objetivas para o relatório final desta POC.
+
+OBJETIVO DA POC:
+${poc.objective}
+
+CRITÉRIOS DE SUCESSO:
+${criteriaList}
+
+CASOS DE TESTE REGISTRADOS:
+${testCasesList}
+
+${knowledgeBaseGroundingBlock(kbContext)}
+
+As perguntas devem cobrir se o objetivo foi atingido, se os critérios de sucesso foram cumpridos, e
+pedir evidências concretas do que foi observado durante a execução - não perguntas genéricas que
+sirvam para qualquer POC.
+
+Responda em português do Brasil. Responda APENAS com um objeto JSON, sem markdown, sem texto
+extra, no formato:
+{
+  "knowledge_base_warning": "aviso em português caso a Base de Conhecimento não cubra este equipamento, ou null caso contrário",
+  "questions": [
+    "pergunta objetiva 1",
+    "pergunta objetiva 2"
+  ]
+}`;
+
+    const resolution = await resolveProvider("poc_final_report_generation", settings as any);
+    if (resolution.isFallback) {
+      await recordProviderFallback({ tenantId, taskType: "poc_final_report_generation", intendedProvider: resolution.intendedProvider, userId: requireUserId(req) });
+    }
+
+    let text: string, inputTokens: number, outputTokens: number;
+    try {
+      ({ text, inputTokens, outputTokens } = await generateJsonWithProvider(resolution.provider, resolution.model, prompt));
+    } catch (aiErr: any) {
+      return res.status(502).json({ success: false, message: friendlyAiErrorMessage(aiErr, resolution.provider) });
+    }
+
+    await recordAiUsage({
+      tenantId,
+      taskType: "poc_final_report_generation",
+      provider: resolution.provider,
+      model: resolution.model,
+      estimatedCostUsd: estimateCostUsd(resolution.model, inputTokens, outputTokens),
+    });
+
+    let parsed: any[];
+    let knowledgeBaseWarning: string | null = null;
+    try {
+      const parsedObj = JSON.parse(text.trim());
+      parsed = parsedObj?.questions;
+      if (!Array.isArray(parsed)) throw new Error("not an array");
+      if (typeof parsedObj?.knowledge_base_warning === "string") {
+        knowledgeBaseWarning = parsedObj.knowledge_base_warning;
+      }
+    } catch {
+      return res.status(502).json({ success: false, message: "A IA retornou uma resposta em formato inesperado. Tente novamente." });
+    }
+
+    // Same regeneration safety as test cases/tasks: only drafts nobody has answered/edited yet
+    // get replaced.
+    await dbStore.deleteUneditedAiPocFinalReportQuestions(req.params.id);
+
+    const remaining = await dbStore.getPocFinalReportQuestions(req.params.id);
+    let order = remaining.length;
+    for (const q of parsed) {
+      if (typeof q !== "string" || !q.trim()) continue;
+      await dbStore.createPocFinalReportQuestion(req.params.id, { question: q.trim(), order: order++, generated_by_ai: true });
+    }
+
+    res.json({
+      questions: await dbStore.getPocFinalReportQuestions(req.params.id),
+      knowledge_base_warning: knowledgeBaseWarning,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Aceite do Cliente (Fase F) - final decision record. The signed document is a manual upload
 // placeholder deliberately, not a real e-signature integration (product decision, 2026-07-13,
 // left open for a future session) - reuses the same storage adapter as equipment invoices.
@@ -1278,6 +1453,70 @@ router.put("/:id/acceptance", requirePermission("poc:manage"), requireModule("po
     if (err instanceof z.ZodError) {
       return res.status(400).json({ success: false, message: err.issues[0].message });
     }
+    next(err);
+  }
+});
+
+// Fase L: "Finalizar" is a real gate, not just setting the decision - it requires the mandatory
+// Relatório Final (Fase M) fully answered, and puts the POC into pending_approval rather than
+// jumping straight to completed. Only a separate "Aprovar" (below) actually flips Poc.status.
+router.post("/:id/acceptance/finalize", requirePermission("poc:manage"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { decision } = z.object({ decision: z.enum(["won", "lost"]) }).parse(req.body);
+
+    const poc = await dbStore.getPoc(req.params.id);
+    if (!poc) {
+      return res.status(404).json({ success: false, message: "POC not found" });
+    }
+
+    const questions = await dbStore.getPocFinalReportQuestions(req.params.id);
+    if (questions.length === 0) {
+      return res.status(400).json({ success: false, message: "Gere e responda o Relatório Final da POC antes de finalizar." });
+    }
+    const unanswered = questions.filter((q) => !q.answer || !q.answer.trim());
+    if (unanswered.length > 0) {
+      return res.status(400).json({ success: false, message: `Responda todas as perguntas do Relatório Final antes de finalizar (${unanswered.length} pendente(s)).` });
+    }
+
+    const acceptance = await dbStore.upsertPocAcceptance(req.params.id, { decision, pending_approval: true });
+    res.json(acceptance);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ success: false, message: err.issues[0].message });
+    }
+    next(err);
+  }
+});
+
+// Fase L: only "poc:manage" (same permission as the rest of the module - not a new granular
+// approval permission, per the approved plan) can approve, and only while genuinely pending.
+router.post("/:id/acceptance/approve", requirePermission("poc:manage"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const poc = await dbStore.getPoc(req.params.id);
+    if (!poc) {
+      return res.status(404).json({ success: false, message: "POC not found" });
+    }
+
+    const acceptance = await dbStore.getPocAcceptance(req.params.id);
+    if (!acceptance?.pending_approval) {
+      return res.status(400).json({ success: false, message: "Esta POC não está aguardando aprovação." });
+    }
+
+    const userId = requireUserId(req);
+    const approved = await dbStore.approvePocAcceptance(req.params.id, userId);
+
+    await dbStore.addAuditLog({
+      user_id: userId,
+      action: "Approve Poc Acceptance",
+      entity_type: "Poc",
+      entity_id: req.params.id,
+      ip_address: req.ip || "127.0.0.1",
+      user_agent: req.headers["user-agent"] || "unknown",
+      metadata: JSON.stringify({ decision: approved.decision }),
+    });
+
+    res.json(approved);
+  } catch (err) {
     next(err);
   }
 });

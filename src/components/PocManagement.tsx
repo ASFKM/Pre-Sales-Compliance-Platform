@@ -1193,7 +1193,12 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
         {detailTab === "acceptance" && (
         <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-5">
           <h2 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700 mb-4">Aceite do Cliente</h2>
-          <PocAcceptancePanel pocId={selectedPoc.id} canManage={canManage} />
+          <PocAcceptancePanel
+            pocId={selectedPoc.id}
+            canManage={canManage}
+            pocStatus={selectedPoc.status}
+            onPocUpdated={() => { fetchPocs(); if (viewingArchivedPoc) fetchArchivedPocs(); }}
+          />
         </div>
         )}
       </div>
