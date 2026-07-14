@@ -323,7 +323,17 @@ de prazo vencido com equipamento não devolvido. Dois bugs reais encontrados e c
 ponta a ponta: reanexar um arquivo não apagava o arquivo físico anterior (vazamento de storage), e
 excluir um item de equipamento não removia os arquivos físicos anexados.
 
-Faltam Fases D–F (Cronograma Gantt, Cadernos de Teste por IA, Aceite do Cliente).
+**Fase D concluída** (commit `a6d023d`, 2026-07-13): modelo `PocTask` com dependência de
+predecessor único (finish-to-start), caminho crítico calculado no frontend, componente
+`PocGanttChart.tsx` próprio (sem biblioteca de terceiros) reaproveitando a interação já validada
+no mockup — arrastar para mover, redimensionar, conectores, linha de hoje. Backend (CRUD, validação
+de dependência, reagendamento, exclusão sem cascata) verificado ponta a ponta via API. **Limitação
+registrada**: a interação de arrastar/redimensionar no navegador em si não foi verificada
+visualmente nesta sessão — sem ferramenta de browser disponível, só a lógica de persistência que o
+drag aciona no `mouseup` foi testada de verdade. Recomendo uma passada manual no navegador antes de
+liberar esta fase para uso real.
+
+Faltam Fases E–F (Cadernos de Teste por IA, Aceite do Cliente).
 **CRM** continua apenas nomeado, sem detalhe (fica para sessão futura dedicada).
 
 Dois módulos novos, ambos vendidos por assinatura separadamente (ligado à Fase 7 — um cliente pode
