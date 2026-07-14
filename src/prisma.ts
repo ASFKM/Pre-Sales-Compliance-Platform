@@ -25,9 +25,10 @@ export const TENANT_SCOPED_MODELS = new Set([
   "aIAnalysisJob", "aiProviderConfig", "aiUsageLog", "analysisResult", "approvalDecision",
   "approvalWorkflow", "approvalStage", "auditLog", "backgroundTask", "brandingSettings",
   "conversationMessage", "debugLog", "document", "documentContent", "integrationConnector",
-  "knowledgeBaseDocument", "knowledgeBaseEntry", "platformSettings", "project", "promptTemplate",
-  "proposal", "proposalTemplate", "role", "systemMessage", "task", "user", "teamMembership",
-  "vertical",
+  "knowledgeBaseDocument", "knowledgeBaseEntry", "platformSettings", "poc", "pocAcceptance",
+  "pocEquipmentItem", "pocFinalReportQuestion", "pocSuccessCriterion", "pocTask", "pocTestCase",
+  "project", "promptTemplate", "proposal", "proposalTemplate", "role", "systemMessage", "task",
+  "user", "teamMembership", "vertical",
 ]);
 
 const READ_OPS = new Set(["findFirst", "findFirstOrThrow", "findUnique", "findUniqueOrThrow", "findMany", "count", "aggregate", "groupBy"]);
