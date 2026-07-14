@@ -300,8 +300,11 @@ opções — os três são só decoração de UI hoje, sem integração real.
 
 ## Fase 6 — Módulos futuros: POC e CRM
 
-**Status**: **Gestão de POC** em implementação faseada (plano de 6 fases aprovado em 2026-07-13,
-`/home/sakae/.claude/plans/parsed-dancing-fountain.md`). **Fase A concluída e verificada** (commit
+**Status**: **Gestão de POC** com as 6 fases do plano aprovado em 2026-07-13
+(`/home/sakae/.claude/plans/parsed-dancing-fountain.md`) **implementadas e verificadas** — módulo
+add-on completo, gated pelo Fleet Manager (`ModuleEntitlement "poc"`), pronto para uso real assim
+que a ressalva da Fase D (verificação visual do drag no navegador) for conferida manualmente.
+**Fase A** (commit
 `ce18168`, 2026-07-13): schema `Poc`, `enabled_modules` na sessão via `getFleetLicenseStatus`,
 middleware `requireModule` (defesa em profundidade ao lado de `requirePermission`), permissões
 `poc:read`/`poc:manage`, rotas `/api/pocs`, aba "Gestão de POC · Add-on" com kanban por status e
@@ -343,7 +346,16 @@ reverter a configuração para o padrão. Bug real encontrado e corrigido: o pro
 raiz, mas `generateJsonWithProvider` força `response_format: json_object` para OpenAI (exige objeto
 no nível superior) — toda chamada real via OpenAI quebrava com 502 até a correção.
 
-Faltam Fase F (Aceite do Cliente).
+**Fase F concluída** (commit `ab37f83`, 2026-07-14): modelo `PocAcceptance` (1:1 com `Poc`, criado
+sob demanda no primeiro registro), decisão ganha/perdida, upload de documento assinado como
+placeholder manual — mecanismo de assinatura eletrônica formal fica deliberadamente em aberto para
+sessão futura. Verificado ponta a ponta via API: estado pendente default, decisão, upload/download,
+reanexação sem órfão.
+
+**Todas as 6 fases (A–F) estão implementadas e verificadas.** Único item pendente antes de
+considerar o módulo pronto para uso real: a ressalva da Fase D (verificação visual manual do
+arrastar/redimensionar do Gantt no navegador, já que esta sessão não teve ferramenta de browser).
+
 **CRM** continua apenas nomeado, sem detalhe (fica para sessão futura dedicada).
 
 Dois módulos novos, ambos vendidos por assinatura separadamente (ligado à Fase 7 — um cliente pode
