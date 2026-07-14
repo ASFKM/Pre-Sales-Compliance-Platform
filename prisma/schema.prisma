@@ -467,6 +467,11 @@ model PocTask {
   dependsOnTaskId String?     @map("depends_on_task_id")
   dependsOnTask   PocTask?    @relation("PocTaskDependency", fields: [dependsOnTaskId], references: [id], onDelete: SetNull)
   dependents      PocTask[]   @relation("PocTaskDependency")
+  // Fase H: same "IA rascunha, humano valida" regeneration safety as PocTestCase - a
+  // "Sugerir cronograma com IA" can freely replace tasks nobody has touched, never ones a human
+  // created from scratch or edited.
+  generatedByAi   Boolean       @default(false) @map("generated_by_ai")
+  editedManually  Boolean       @default(false) @map("edited_manually")
   createdAt     DateTime      @default(now()) @map("created_at")
   updatedAt     DateTime      @updatedAt @map("updated_at")
 
@@ -755,6 +760,10 @@ model PlatformSettings {
   // pure text-in/text-out, same orchestrator pattern as the 4 task types above.
   pocTestGenerationModel        String          @default("gemini-3.5-flash") @map("poc_test_generation_model")
   pocTestGenerationProvider     String          @default("gemini") @map("poc_test_generation_provider")
+  // Fase H (add-on): schedule suggestion from a POC's objective + linked equipment's Knowledge
+  // Base grounding - same orchestrator pattern as poc_test_generation above.
+  pocScheduleGenerationModel    String          @default("gemini-3.5-flash") @map("poc_schedule_generation_model")
+  pocScheduleGenerationProvider String          @default("gemini") @map("poc_schedule_generation_provider")
   // Per-tenant monthly AI spend cap - null means uncapped. Enforced (hard block once reached,
   // not just tracked), with an 80%-of-cap warning logged before that point.
   monthlyCostCapUsd             Float?          @map("monthly_cost_cap_usd")

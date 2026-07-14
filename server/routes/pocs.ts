@@ -15,7 +15,7 @@ import { resolveProvider, checkCostCap, recordProviderFallback, recordAiUsage } 
 import { generateJsonWithProvider } from "../utils/aiProviders";
 import { estimateCostUsd } from "../utils/aiPricing";
 import { prisma } from "../../src/prisma";
-import { FACTORY_DEFAULT_POC_TEST_GENERATION_PROMPT } from "../utils/promptDefaults";
+import { FACTORY_DEFAULT_POC_TEST_GENERATION_PROMPT, FACTORY_DEFAULT_POC_SCHEDULE_GENERATION_PROMPT } from "../utils/promptDefaults";
 import { extractKnowledgeBaseKeywords } from "./analysis";
 import { triggerKnowledgeBaseAnalysis } from "./knowledgeBase";
 
@@ -37,6 +37,69 @@ async function countKnowledgeBaseMatches(name: string, manufacturer?: string): P
   if (keywords.length === 0) return 0;
   const matches = await dbStore.searchApprovedKnowledgeBase(keywords, 10);
   return matches.length;
+}
+
+// Fase H: real grounding for both AI generation routes below (test cases, schedule) - the actual
+// fix for the reported hallucination bug (asked to generate a test for "DAI", the model invented
+// plausible-sounding but fake metrics instead of drawing on the tenant's own Knowledge Base, which
+// DOES have real DAI entries once the equipment is linked - see countKnowledgeBaseMatches above).
+// Walks every equipment item on the POC (not just ones already flagged with kb_match_count > 0 -
+// approved entries can be added to the KB after the equipment item itself was created) and
+// collects the union of matching approved entries, deduplicated by id since the same entry can
+// legitimately match more than one piece of equipment (e.g. a shared VMS license).
+async function getPocKnowledgeBaseContext(pocId: string): Promise<{ hasContext: boolean; contextText: string }> {
+  const items = await dbStore.getPocEquipmentItems(pocId);
+  const seenEntryIds = new Set<string>();
+  const entries: { trigger: string; knowledge: string }[] = [];
+
+  for (const item of items) {
+    const keywords = extractKnowledgeBaseKeywords([item.name, item.manufacturer].filter(Boolean).join(" "), 25, 3);
+    if (keywords.length === 0) continue;
+    const matches = await dbStore.searchApprovedKnowledgeBase(keywords, 5);
+    for (const m of matches) {
+      if (seenEntryIds.has(m.id)) continue;
+      seenEntryIds.add(m.id);
+      entries.push({ trigger: m.trigger, knowledge: m.knowledge });
+    }
+  }
+
+  if (entries.length === 0) {
+    return { hasContext: false, contextText: "" };
+  }
+
+  const contextText = entries.map((e, i) => `${i + 1}. Situação: ${e.trigger}\n   Conhecimento: ${e.knowledge}`).join("\n");
+  return { hasContext: true, contextText };
+}
+
+// Shared instructions for how the two generation prompts below must use (or refuse to use) the
+// grounding context - kept as one function so the anti-hallucination rule can't drift apart
+// between test-case and schedule generation.
+function knowledgeBaseGroundingBlock(kb: { hasContext: boolean; contextText: string }): string {
+  if (kb.hasContext) {
+    return `BASE DE CONHECIMENTO DISPONÍVEL PARA O(S) EQUIPAMENTO(S) DESTA POC (fonte de verdade
+obrigatória - use estas informações reais para qualquer detalhe técnico específico, como métricas,
+thresholds, nomes de funcionalidades ou comportamento de um recurso do fabricante):
+${kb.contextText}
+
+Regra crítica: qualquer especificação técnica concreta (número, percentual, nome de funcionalidade,
+comportamento específico do equipamento) só pode vir do que está listado acima ou do objetivo/
+critérios de sucesso informados pelo usuário. NUNCA invente uma métrica, threshold ou comportamento
+que não esteja em nenhuma dessas duas fontes - isso vale especialmente para taxas de acerto/
+assertividade/precisão (%): se a Base de Conhecimento ou o objetivo/critérios não informam um
+percentual-alvo explícito para a funcionalidade sendo testada, o resultado esperado deve pedir para
+medir e registrar o percentual observado (ex: "registrar a taxa de detecção observada"), nunca
+afirmar um número-alvo que você mesmo inventou.`;
+  }
+  return `BASE DE CONHECIMENTO: não há nenhuma entrada aprovada na Base de Conhecimento para o(s)
+equipamento(s) cadastrado(s) nesta POC ainda.
+
+Regra crítica: como não há base real, NÃO invente métricas, thresholds, percentuais de
+assertividade ou qualquer comportamento específico de um recurso do fabricante - isso já aconteceu
+antes e gerou conteúdo fabricado (o caso relatado foi pedir um teste de "DAI" e a IA inventar
+números). Gere apenas o que puder ser validado unicamente com base no objetivo e nos critérios de
+sucesso informados pelo usuário, em nível funcional/genérico. Preencha o campo
+"knowledge_base_warning" da resposta explicando que a Base de Conhecimento não tem cobertura para
+este equipamento ainda e que o conteúdo gerado é genérico por esse motivo.`;
 }
 
 const PocStatusEnum = z.enum(["planned", "in_progress", "blocked", "completed_won", "completed_lost"]);
@@ -637,7 +700,15 @@ router.put("/:id/tasks/:taskId", requirePermission("poc:manage"), requireModule(
       }
     }
 
-    const updated = await dbStore.updatePocTask(req.params.taskId, validated);
+    // Same rule as test cases: editing actual content (not just a status/reorder update) means a
+    // human has taken ownership of this task - a future "Sugerir cronograma com IA" must never
+    // silently overwrite it again.
+    const contentChanged = validated.name !== undefined || validated.start_date !== undefined || validated.duration_days !== undefined || validated.depends_on_task_id !== undefined;
+
+    const updated = await dbStore.updatePocTask(req.params.taskId, {
+      ...validated,
+      edited_manually: contentChanged ? true : undefined,
+    });
     res.json(updated);
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -656,6 +727,117 @@ router.delete("/:id/tasks/:taskId", requirePermission("poc:manage"), requireModu
 
     await dbStore.deletePocTask(req.params.taskId);
     res.json({ success: true, message: "Task deleted successfully" });
+  } catch (err) {
+    next(err);
+  }
+});
+
+function addDaysToIsoDay(isoDay: string, days: number): string {
+  const d = new Date(isoDay);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().substring(0, 10);
+}
+
+// Fase H: cronograma sugerido pela IA, mesma ancoragem na Base de Conhecimento usada em
+// test-cases/generate (ver getPocKnowledgeBaseContext) - sem isso, a IA tenderia a inventar etapas
+// específicas de um recurso do fabricante sem saber se ele realmente existe/funciona como descrito.
+router.post("/:id/tasks/generate", requirePermission("poc:manage"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.headers["x-tenant-id"] as string;
+
+    const poc = await dbStore.getPoc(req.params.id);
+    if (!poc) {
+      return res.status(404).json({ success: false, message: "POC not found" });
+    }
+
+    const settings = await dbStore.getSettings();
+
+    const costCap = await checkCostCap(tenantId, settings.monthly_cost_cap_usd ?? null);
+    if (costCap.blocked) {
+      return res.status(402).json({
+        success: false,
+        message: `Monthly AI cost cap reached ($${costCap.currentSpendUsd.toFixed(2)} of $${costCap.capUsd?.toFixed(2)}). Generation blocked until next month or the cap is raised in Admin > IA, Prompts e Custos.`
+      });
+    }
+
+    const kbContext = await getPocKnowledgeBaseContext(req.params.id);
+
+    const promptRow = await prisma.promptTemplate.findFirst({ where: { type: "poc_schedule_generation", isActive: true } });
+    const instructions = promptRow?.content?.trim() || FACTORY_DEFAULT_POC_SCHEDULE_GENERATION_PROMPT;
+
+    const prompt = `${instructions} Sugira de 3 a 8 etapas, em ordem de execução (a primeira etapa
+listada é a primeira a ser executada, cada etapa seguinte depende da conclusão da anterior).
+
+OBJETIVO DA POC:
+${poc.objective}
+
+PERÍODO PLANEJADO DA POC: ${poc.start_date} a ${poc.end_date}
+
+${knowledgeBaseGroundingBlock(kbContext)}
+
+Responda em português do Brasil. Responda APENAS com um objeto JSON, sem markdown, sem texto
+extra, no formato:
+{
+  "knowledge_base_warning": "aviso em português caso a Base de Conhecimento não cubra este equipamento, ou null caso contrário",
+  "tasks": [
+    { "name": "nome curto da etapa", "duration_days": 3 }
+  ]
+}`;
+
+    const resolution = await resolveProvider("poc_schedule_generation", settings as any);
+    if (resolution.isFallback) {
+      await recordProviderFallback({ tenantId, taskType: "poc_schedule_generation", intendedProvider: resolution.intendedProvider, userId: requireUserId(req) });
+    }
+
+    const { text, inputTokens, outputTokens } = await generateJsonWithProvider(resolution.provider, resolution.model, prompt);
+
+    await recordAiUsage({
+      tenantId,
+      taskType: "poc_schedule_generation",
+      provider: resolution.provider,
+      model: resolution.model,
+      estimatedCostUsd: estimateCostUsd(resolution.model, inputTokens, outputTokens),
+    });
+
+    let parsed: any[];
+    let knowledgeBaseWarning: string | null = null;
+    try {
+      const parsedObj = JSON.parse(text.trim());
+      parsed = parsedObj?.tasks;
+      if (!Array.isArray(parsed)) throw new Error("not an array");
+      if (typeof parsedObj?.knowledge_base_warning === "string") {
+        knowledgeBaseWarning = parsedObj.knowledge_base_warning;
+      }
+    } catch {
+      return res.status(502).json({ success: false, message: "A IA retornou uma resposta em formato inesperado. Tente novamente." });
+    }
+
+    // Same regeneration safety as test cases: only drafts nobody has touched yet get replaced.
+    await dbStore.deleteUneditedAiPocTasks(req.params.id);
+
+    let cursorStartDate = poc.start_date;
+    let previousTaskId: string | undefined;
+    const created = [];
+    for (const item of parsed) {
+      const durationDays = Number(item?.duration_days);
+      if (!item?.name || !Number.isFinite(durationDays) || durationDays < 1) continue;
+
+      const task = await dbStore.createPocTask(req.params.id, {
+        name: String(item.name),
+        start_date: cursorStartDate,
+        duration_days: durationDays,
+        depends_on_task_id: previousTaskId,
+        generated_by_ai: true,
+      });
+      created.push(task);
+      previousTaskId = task.id;
+      cursorStartDate = addDaysToIsoDay(cursorStartDate, durationDays);
+    }
+
+    res.json({
+      tasks: await dbStore.getPocTasks(req.params.id),
+      knowledge_base_warning: knowledgeBaseWarning,
+    });
   } catch (err) {
     next(err);
   }
@@ -787,6 +969,9 @@ router.post("/:id/test-cases/generate", requirePermission("poc:manage"), require
       ? successCriteria.map((c) => `- ${c.description}`).join("\n")
       : "(nenhum critério de sucesso definido ainda)";
 
+    // Fase H: grounding fix for the reported hallucination bug - see getPocKnowledgeBaseContext.
+    const kbContext = await getPocKnowledgeBaseContext(req.params.id);
+
     // Only the persona/instruction framing is admin-editable (Admin > IA, Prompts e Custos) -
     // same rule as classification/analysis: the JSON response schema below stays fixed in code
     // so an admin can tune tone/emphasis without being able to break parsing.
@@ -801,9 +986,12 @@ ${poc.objective}
 CRITÉRIOS DE SUCESSO:
 ${criteriaList}
 
+${knowledgeBaseGroundingBlock(kbContext)}
+
 Responda em português do Brasil. Responda APENAS com um objeto JSON (não um array na raiz - alguns
 provedores exigem um objeto no nível superior), sem markdown, sem texto extra, no formato:
 {
+  "knowledge_base_warning": "aviso em português caso a Base de Conhecimento não cubra este equipamento, ou null caso contrário",
   "test_cases": [
     { "title": "título curto do caso de teste", "objective": "o que este teste valida", "steps": "passo a passo, uma linha por passo", "expected_result": "resultado esperado, mensurável quando possível" }
   ]
@@ -825,10 +1013,14 @@ provedores exigem um objeto no nível superior), sem markdown, sem texto extra, 
     });
 
     let parsed: any[];
+    let knowledgeBaseWarning: string | null = null;
     try {
       const parsedObj = JSON.parse(text.trim());
       parsed = Array.isArray(parsedObj) ? parsedObj : parsedObj?.test_cases;
       if (!Array.isArray(parsed)) throw new Error("not an array");
+      if (!Array.isArray(parsedObj) && typeof parsedObj?.knowledge_base_warning === "string") {
+        knowledgeBaseWarning = parsedObj.knowledge_base_warning;
+      }
     } catch {
       return res.status(502).json({ success: false, message: "A IA retornou uma resposta em formato inesperado. Tente novamente." });
     }
@@ -856,7 +1048,10 @@ provedores exigem um objeto no nível superior), sem markdown, sem texto extra, 
       );
     }
 
-    res.json(await dbStore.getPocTestCases(req.params.id));
+    res.json({
+      test_cases: await dbStore.getPocTestCases(req.params.id),
+      knowledge_base_warning: knowledgeBaseWarning,
+    });
   } catch (err) {
     next(err);
   }

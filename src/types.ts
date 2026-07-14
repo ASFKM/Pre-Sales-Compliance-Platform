@@ -132,6 +132,8 @@ export interface PocTask {
   duration_days: number;
   status: PocTaskStatus;
   depends_on_task_id?: string;
+  generated_by_ai: boolean;
+  edited_manually: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -435,6 +437,8 @@ export interface PlatformSettings {
   document_classification_provider: string;
   poc_test_generation_model: string;
   poc_test_generation_provider: string;
+  poc_schedule_generation_model: string;
+  poc_schedule_generation_provider: string;
   monthly_cost_cap_usd?: number | null;
   // Phase 7 (fleet/license management): this tenant's registration with the vendor's fleet
   // manager (a separate server). See src/fleetLicense.ts.

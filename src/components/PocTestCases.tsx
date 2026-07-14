@@ -36,6 +36,7 @@ export default function PocTestCases({ pocId, canManage }: PocTestCasesProps) {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState("");
+  const [knowledgeBaseWarning, setKnowledgeBaseWarning] = useState("");
 
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<ManualFormState>(EMPTY_FORM);
@@ -64,9 +65,13 @@ export default function PocTestCases({ pocId, canManage }: PocTestCasesProps) {
   const generate = async () => {
     setGenerating(true);
     setGenerateError("");
+    setKnowledgeBaseWarning("");
     try {
-      const data = await ApiClient.post<PocTestCase[]>(`/api/pocs/${pocId}/test-cases/generate`, {});
-      setCases(Array.isArray(data) ? data : []);
+      const data = await ApiClient.post<{ test_cases: PocTestCase[]; knowledge_base_warning: string | null }>(`/api/pocs/${pocId}/test-cases/generate`, {});
+      setCases(Array.isArray(data?.test_cases) ? data.test_cases : []);
+      if (data?.knowledge_base_warning) {
+        setKnowledgeBaseWarning(data.knowledge_base_warning);
+      }
     } catch (e: any) {
       setGenerateError(e.message || "Não foi possível gerar os casos de teste.");
     } finally {
@@ -159,6 +164,12 @@ export default function PocTestCases({ pocId, canManage }: PocTestCasesProps) {
         )}
       </div>
       {generateError && <div className="p-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-xs">{generateError}</div>}
+      {knowledgeBaseWarning && (
+        <div className="p-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-xs">
+          <span className="font-bold">Base de Conhecimento insuficiente: </span>
+          {knowledgeBaseWarning}
+        </div>
+      )}
 
       {showForm && (
         <div className="border border-slate-200 rounded-lg p-4 bg-slate-50 space-y-3">

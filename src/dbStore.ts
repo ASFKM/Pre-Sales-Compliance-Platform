@@ -158,6 +158,8 @@ function mapPocTask(t: any): PocTask {
     duration_days: t.durationDays,
     status: t.status,
     depends_on_task_id: t.dependsOnTaskId ?? undefined,
+    generated_by_ai: t.generatedByAi,
+    edited_manually: t.editedManually,
     created_at: t.createdAt.toISOString(),
     updated_at: t.updatedAt.toISOString(),
   } as PocTask;
@@ -373,6 +375,8 @@ function mapSettings(s: any): PlatformSettings {
     document_classification_provider: s.documentClassificationProvider,
     poc_test_generation_model: s.pocTestGenerationModel,
     poc_test_generation_provider: s.pocTestGenerationProvider,
+    poc_schedule_generation_model: s.pocScheduleGenerationModel,
+    poc_schedule_generation_provider: s.pocScheduleGenerationProvider,
     monthly_cost_cap_usd: s.monthlyCostCapUsd ?? null,
     fleet_manager_url: s.fleetManagerUrl ?? null,
     fleet_manager_api_key_encrypted: s.fleetManagerApiKeyEncrypted ?? undefined,
@@ -1086,7 +1090,7 @@ class DBStore {
 
   public async createPocTask(
     pocId: string,
-    task: { name: string; start_date: string; duration_days: number; depends_on_task_id?: string }
+    task: { name: string; start_date: string; duration_days: number; depends_on_task_id?: string; generated_by_ai?: boolean }
   ): Promise<PocTask> {
     const t = await prisma.pocTask.create({
       data: {
@@ -1097,6 +1101,7 @@ class DBStore {
         startDate: new Date(task.start_date),
         durationDays: task.duration_days,
         dependsOnTaskId: task.depends_on_task_id || null,
+        generatedByAi: task.generated_by_ai ?? false,
       },
     });
     return mapPocTask(t);
@@ -1104,7 +1109,14 @@ class DBStore {
 
   public async updatePocTask(
     id: string,
-    updates: { name?: string; start_date?: string; duration_days?: number; status?: PocTask["status"]; depends_on_task_id?: string | null }
+    updates: {
+      name?: string;
+      start_date?: string;
+      duration_days?: number;
+      status?: PocTask["status"];
+      depends_on_task_id?: string | null;
+      edited_manually?: boolean;
+    }
   ): Promise<PocTask | undefined> {
     const exists = await prisma.pocTask.findUnique({ where: { id } });
     if (!exists) return undefined;
@@ -1117,6 +1129,7 @@ class DBStore {
         durationDays: updates.duration_days,
         status: updates.status,
         dependsOnTaskId: updates.depends_on_task_id === undefined ? undefined : updates.depends_on_task_id,
+        editedManually: updates.edited_manually,
       },
     });
     return mapPocTask(t);
@@ -1132,6 +1145,14 @@ class DBStore {
     } catch {
       return false;
     }
+  }
+
+  // Fase H: same regeneration safety as deleteUneditedAiPocTestCases - "Sugerir cronograma com IA"
+  // only replaces drafts nobody has touched yet.
+  public async deleteUneditedAiPocTasks(pocId: string): Promise<void> {
+    await prisma.pocTask.deleteMany({
+      where: { pocId, generatedByAi: true, editedManually: false },
+    });
   }
 
   // Poc test cases (Fase 6, Fase E) - "IA rascunha, humano valida", same pattern already used in
@@ -1709,6 +1730,8 @@ class DBStore {
         documentClassificationProvider: updates.document_classification_provider,
         pocTestGenerationModel: updates.poc_test_generation_model,
         pocTestGenerationProvider: updates.poc_test_generation_provider,
+        pocScheduleGenerationModel: updates.poc_schedule_generation_model,
+        pocScheduleGenerationProvider: updates.poc_schedule_generation_provider,
         monthlyCostCapUsd: updates.monthly_cost_cap_usd,
         fleetManagerUrl: updates.fleet_manager_url,
         fleetManagerApiKeyEncrypted: updates.fleet_manager_api_key_encrypted,

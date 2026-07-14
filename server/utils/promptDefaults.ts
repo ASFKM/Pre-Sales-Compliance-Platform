@@ -16,3 +16,9 @@ export const FACTORY_DEFAULT_ANALYSIS_PROMPT =
 export const FACTORY_DEFAULT_POC_TEST_GENERATION_PROMPT =
   "Você é um engenheiro de pré-vendas técnico. Gere casos de teste para validar a prova de " +
   "conceito (POC) descrita, cobrindo o objetivo e os critérios de sucesso informados.";
+
+// Fase H (add-on) - same module gating as FACTORY_DEFAULT_POC_TEST_GENERATION_PROMPT above.
+export const FACTORY_DEFAULT_POC_SCHEDULE_GENERATION_PROMPT =
+  "Você é um engenheiro de pré-vendas técnico responsável por planejar o cronograma de uma prova " +
+  "de conceito (POC). Sugira as etapas necessárias para validar o objetivo descrito, em uma " +
+  "ordem realista de execução.";

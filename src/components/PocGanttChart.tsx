@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Trash2, X } from "lucide-react";
+import { Plus, Trash2, X, Sparkles } from "lucide-react";
 import { Poc, PocTask, PocTaskStatus } from "../types";
 import ApiClient from "../lib/api";
 
@@ -60,6 +60,9 @@ export default function PocGanttChart({ poc, canManage }: PocGanttChartProps) {
   const [formDependsOn, setFormDependsOn] = useState("");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState("");
+  const [knowledgeBaseWarning, setKnowledgeBaseWarning] = useState("");
 
   const [dragTaskId, setDragTaskId] = useState<string | null>(null);
   const [dragMode, setDragMode] = useState<"move" | "resize" | null>(null);
@@ -82,6 +85,23 @@ export default function PocGanttChart({ poc, canManage }: PocGanttChartProps) {
     fetchTasks();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [poc.id]);
+
+  const generateSchedule = async () => {
+    setGenerating(true);
+    setGenerateError("");
+    setKnowledgeBaseWarning("");
+    try {
+      const data = await ApiClient.post<{ tasks: PocTask[]; knowledge_base_warning: string | null }>(`/api/pocs/${poc.id}/tasks/generate`, {});
+      setTasks(Array.isArray(data?.tasks) ? data.tasks : []);
+      if (data?.knowledge_base_warning) {
+        setKnowledgeBaseWarning(data.knowledge_base_warning);
+      }
+    } catch (e: any) {
+      setGenerateError(e.message || "Não foi possível gerar o cronograma sugerido.");
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   const anchor = useMemo(() => {
     const dates = tasks.map((t) => parseDay(t.start_date));
@@ -281,15 +301,33 @@ export default function PocGanttChart({ poc, canManage }: PocGanttChartProps) {
           {canManage && <span className="text-slate-400 italic">arraste para mover · arraste a borda direita para redimensionar</span>}
         </div>
         {canManage && (
-          <button
-            onClick={() => setShowForm(true)}
-            className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer"
-          >
-            <Plus size={13} />
-            Nova tarefa
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={generateSchedule}
+              disabled={generating}
+              className="inline-flex items-center gap-1.5 border border-emerald-600 text-emerald-700 hover:bg-emerald-50 font-mono text-xs font-bold py-1.5 px-4 rounded transition-all cursor-pointer disabled:opacity-60"
+            >
+              <Sparkles size={13} />
+              {generating ? "Gerando..." : "Sugerir cronograma com IA"}
+            </button>
+            <button
+              onClick={() => setShowForm(true)}
+              className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer"
+            >
+              <Plus size={13} />
+              Nova tarefa
+            </button>
+          </div>
         )}
       </div>
+
+      {generateError && <div className="p-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-xs">{generateError}</div>}
+      {knowledgeBaseWarning && (
+        <div className="p-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-xs">
+          <span className="font-bold">Base de Conhecimento insuficiente: </span>
+          {knowledgeBaseWarning}
+        </div>
+      )}
 
       {showForm && (
         <div className="border border-slate-200 rounded-lg p-4 bg-slate-50 space-y-3">
