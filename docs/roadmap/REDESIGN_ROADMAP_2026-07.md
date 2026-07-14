@@ -316,7 +316,14 @@ existente intacto.
 Tela mostra checklist marcável/removível e stakeholders (responsável interno + contato do cliente).
 Testado ponta a ponta da mesma forma que a Fase A; migração aditiva aplicada com backup prévio.
 
-Faltam Fases C–F (Equipamento, Cronograma Gantt, Cadernos de Teste por IA, Aceite do Cliente).
+**Fase C concluída e verificada** (commit `0dcf8aa`, 2026-07-13): modelo `PocEquipmentItem`
+(sem estoque central entre POCs, decisão de produto), upload de NF de envio/devolução reaproveitando
+o storage adapter existente (não a tabela `Document`, cujo `projectId` é obrigatório), alerta visual
+de prazo vencido com equipamento não devolvido. Dois bugs reais encontrados e corrigidos no teste
+ponta a ponta: reanexar um arquivo não apagava o arquivo físico anterior (vazamento de storage), e
+excluir um item de equipamento não removia os arquivos físicos anexados.
+
+Faltam Fases D–F (Cronograma Gantt, Cadernos de Teste por IA, Aceite do Cliente).
 **CRM** continua apenas nomeado, sem detalhe (fica para sessão futura dedicada).
 
 Dois módulos novos, ambos vendidos por assinatura separadamente (ligado à Fase 7 — um cliente pode
