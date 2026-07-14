@@ -132,6 +132,9 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
   const [loadingArchived, setLoadingArchived] = useState(false);
   const [dragPocId, setDragPocId] = useState<string | null>(null);
   const [archiving, setArchiving] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingPoc, setDeletingPoc] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createForm, setCreateForm] = useState<CreateFormState>(EMPTY_CREATE_FORM);
@@ -231,6 +234,24 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
       alert(e.message || "Não foi possível arquivar a POC.");
     } finally {
       setArchiving(false);
+    }
+  };
+
+  const deletePocHandler = async () => {
+    if (!selectedPoc) return;
+    setDeletingPoc(true);
+    setDeleteError("");
+    try {
+      await ApiClient.delete(`/api/pocs/${selectedPoc.id}`);
+      setShowDeleteConfirm(false);
+      setViewingArchivedPoc(null);
+      setSelectedPocId(null);
+      setIsEditing(false);
+      await fetchPocs();
+    } catch (e: any) {
+      setDeleteError(e.message || "Não foi possível excluir a POC.");
+    } finally {
+      setDeletingPoc(false);
     }
   };
 
@@ -918,6 +939,12 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
                 >
                   {saving ? "Salvando..." : "Salvar alterações"}
                 </button>
+                <button
+                  onClick={() => { setDeleteError(""); setShowDeleteConfirm(true); }}
+                  className="ml-auto bg-red-600 hover:bg-red-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer"
+                >
+                  Excluir POC
+                </button>
               </div>
             </div>
           )}
@@ -1201,6 +1228,42 @@ export default function PocManagement({ hasPermission, projects }: PocManagement
             onPocUpdated={() => { fetchPocs(); if (viewingArchivedPoc) fetchArchivedPocs(); }}
           />
         </div>
+        )}
+
+        {showDeleteConfirm && (
+          <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50">
+            <div className="bg-white rounded-xl border border-slate-200 w-[420px] overflow-hidden shadow-2xl">
+              <div className="bg-red-600 text-white p-4 flex justify-between items-center">
+                <h3 className="text-sm font-bold uppercase font-mono tracking-wider">Excluir POC</h3>
+                <button onClick={() => setShowDeleteConfirm(false)} className="text-red-100 hover:text-white cursor-pointer">
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="p-5 space-y-4">
+                <p className="text-sm text-slate-700">
+                  Tem certeza que deseja excluir a POC <span className="font-semibold">"{selectedPoc.name}"</span>? Essa ação
+                  remove permanentemente o equipamento, cronograma, casos de teste, relatório final e aceite associados, e
+                  <span className="font-semibold"> não pode ser desfeita</span>.
+                </p>
+                {deleteError && <div className="p-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-xs">{deleteError}</div>}
+                <div className="flex items-center gap-2 justify-end">
+                  <button
+                    onClick={() => setShowDeleteConfirm(false)}
+                    className="px-3 py-1.5 border border-slate-300 rounded hover:bg-slate-100 font-mono text-xs cursor-pointer text-slate-500"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={deletePocHandler}
+                    disabled={deletingPoc}
+                    className="bg-red-600 hover:bg-red-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
+                  >
+                    {deletingPoc ? "Excluindo..." : "Excluir definitivamente"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     );

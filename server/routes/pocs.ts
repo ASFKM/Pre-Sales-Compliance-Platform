@@ -328,6 +328,35 @@ router.put("/:id", requirePermission("poc:manage"), requireModule("poc"), async 
 
 router.delete("/:id", requirePermission("poc:manage"), requireModule("poc"), async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const poc = await dbStore.getPoc(req.params.id);
+    if (!poc) {
+      return res.status(404).json({ success: false, message: "POC not found" });
+    }
+
+    // Deleting the POC cascades every child row at the DB level (onDelete: Cascade on the schema
+    // relations), but physical files (equipment invoices, acceptance signed document) live outside
+    // Postgres in the storage adapter - without cleaning those up first, deleting the POC would
+    // orphan them permanently, same cleanup discipline already used for a single equipment item's
+    // own delete route below. Datasheets are deliberately NOT touched here: they become part of the
+    // tenant's general Knowledge Base on upload (Fase G), and stay there even after the POC that
+    // introduced them is gone.
+    const settings = await dbStore.getSettings();
+    const equipmentItems = await dbStore.getPocEquipmentItems(req.params.id);
+    for (const item of equipmentItems) {
+      for (const which of ["shipping", "return"] as const) {
+        const file = await dbStore.getPocEquipmentInvoiceFile(item.id, which);
+        if (file) {
+          const adapter = createStorageAdapter({ ...settings, storage_mode: file.storage_provider });
+          await adapter.deleteFile(file.storage_path).catch(() => {});
+        }
+      }
+    }
+    const acceptanceFile = await dbStore.getPocAcceptanceDocumentFile(req.params.id);
+    if (acceptanceFile) {
+      const adapter = createStorageAdapter({ ...settings, storage_mode: acceptanceFile.storage_provider });
+      await adapter.deleteFile(acceptanceFile.storage_path).catch(() => {});
+    }
+
     const deleted = await dbStore.deletePoc(req.params.id);
     if (!deleted) {
       return res.status(404).json({ success: false, message: "POC not found" });
