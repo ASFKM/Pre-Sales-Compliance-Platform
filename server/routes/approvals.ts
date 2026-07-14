@@ -298,7 +298,7 @@ router.post("/proposals/:proposalId/approval/decision", requireAuth, async (req:
       comments: comments || ""
     });
 
-    let nextStatus: "submitted" | "approved" | "rejected" = "submitted";
+    let nextStatus: "submitted" | "approved" | "rejected";
 
     if (decision === "rejected") {
       nextStatus = "rejected";

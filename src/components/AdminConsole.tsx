@@ -425,7 +425,6 @@ export default function AdminConsole({
     handleCreateProposalTemplate,
     handleValidateProposalTemplate,
     handleSetDefaultProposalTemplate,
-    handleUpdateProposalTemplate,
     handleDeleteProposalTemplate,
     handleUpdatePromptTemplate,
     handleCreatePromptVersion,

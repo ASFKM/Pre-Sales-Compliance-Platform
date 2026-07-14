@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Key, Mail, Lock, CircleCheck, CircleAlert, ArrowRight } from "lucide-react";
+import { Key, Mail, Lock, CircleAlert, ArrowRight } from "lucide-react";
 import ApiClient from "../lib/api";
 
 interface LoginProps {

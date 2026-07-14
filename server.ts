@@ -1,4 +1,4 @@
-import express, { Response, NextFunction } from "express";
+import express, { Response } from "express";
 import type { Request } from "./server/types/express";
 import path from "path";
 import fs from "fs";

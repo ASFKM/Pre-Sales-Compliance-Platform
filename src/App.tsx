@@ -18,43 +18,11 @@ import ClassifyDocumentModal from "./components/modals/ClassifyDocumentModal";
 import AuditLogsModal from "./components/modals/AuditLogsModal";
 import DebugConsoleModal from "./components/modals/DebugConsoleModal";
 import {
-  FileText,
   Plus,
   Trash2,
   RefreshCw,
-  ShieldAlert,
-  Database,
-  HardDrive,
-  CircleCheck,
-  Cpu,
   LogOut,
-  Check,
-  X,
-  Save,
-  Download,
-  PenLine,
-  MessageSquare,
-  Settings,
-  Users,
-  Layers,
-  Activity,
-  FileSpreadsheet,
-  FolderPlus,
-  HelpCircle,
-  Sparkles,
-  FileCode,
-  DollarSign,
-  TrendingUp,
-  TriangleAlert,
-  ExternalLink,
-  Lock,
-  Menu,
-  ChevronRight,
-  ListTodo,
-  Folder,
-  FolderOpen,
-  ArrowLeft,
-  FilePlus
+  FileSpreadsheet
 } from "lucide-react";
 import {
   Project,
@@ -67,7 +35,6 @@ import {
   PromptTemplate,
   PlatformSettings,
   IntegrationConnector,
-  PricingRow,
   Role,
   ApprovalWorkflow
 } from "./types";
@@ -334,7 +301,7 @@ export default function App() {
   const [proposals, setProposals] = useState<Proposal[]>([]);
 
   // UI Controls & Lists
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [, setIsLoading] = useState<boolean>(false);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [analysisError, setAnalysisError] = useState<string>("");
   const [showNewProjectModal, setShowNewProjectModal] = useState<boolean>(false);
@@ -353,7 +320,7 @@ export default function App() {
   const [approvalWorkflows, setApprovalWorkflows] = useState<ApprovalWorkflow[]>([]);
   const [approvalDecisions, setApprovalDecisions] = useState<any[]>([]);
   const [integrations, setIntegrations] = useState<IntegrationConnector[]>([]);
-  const [systemStatus, setSystemStatus] = useState<any>(null);
+  const [, setSystemStatus] = useState<any>(null);
 
   // Modals / Overlays
   const [showDebugConsole, setShowDebugConsole] = useState<boolean>(false);
