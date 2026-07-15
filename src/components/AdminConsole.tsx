@@ -1,5 +1,5 @@
 import { Dispatch, SetStateAction, useEffect, useState } from "react";
-import { Trash2, Star, Check } from "lucide-react";
+import { Trash2, Star, Check, Pencil, X } from "lucide-react";
 import {
   AuditLog,
   BrandingSettings,
@@ -27,6 +27,16 @@ interface FleetLicenseStatus {
   customer_city: string | null;
   customer_state: string | null;
   customer_logo_base64: string | null;
+}
+
+interface SystemMessageRow {
+  id: string;
+  source: "fleet_manager" | "local";
+  audience: "admin_only" | "all_users";
+  body: string;
+  created_by: string;
+  created_at: string;
+  expires_at: string | null;
 }
 
 // AI Orchestrator UI redesign (2026-07): each task needs a different real capability from the
@@ -332,6 +342,53 @@ export default function AdminConsole({
   const [newVerticalName, setNewVerticalName] = useState("");
   const [newBroadcastMessage, setNewBroadcastMessage] = useState("");
   const [newBroadcastExpiryMinutes, setNewBroadcastExpiryMinutes] = useState("1440");
+  const [systemMessages, setSystemMessages] = useState<SystemMessageRow[]>([]);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editMessageBody, setEditMessageBody] = useState("");
+  const [editMessageAudience, setEditMessageAudience] = useState<"admin_only" | "all_users">("all_users");
+  const [editMessageExpiryMinutes, setEditMessageExpiryMinutes] = useState("");
+
+  const loadSystemMessages = () => {
+    ApiClient.get<SystemMessageRow[]>("/api/messages").then(setSystemMessages).catch(() => setSystemMessages([]));
+  };
+
+  useEffect(() => {
+    loadSystemMessages();
+  }, []);
+
+  const startEditingMessage = (m: SystemMessageRow) => {
+    setEditingMessageId(m.id);
+    setEditMessageBody(m.body);
+    setEditMessageAudience(m.audience);
+    setEditMessageExpiryMinutes("");
+  };
+
+  const handleUpdateMessage = async (id: string) => {
+    if (!editMessageBody.trim()) return;
+    try {
+      await ApiClient.put(`/api/messages/${id}`, {
+        audience: editMessageAudience,
+        body: editMessageBody.trim(),
+        // Empty selection = leave the current expiry untouched (undefined is dropped by the
+        // backend's partial-update schema); "0" is the explicit "never expires" choice.
+        ...(editMessageExpiryMinutes !== "" ? { expires_in_minutes: editMessageExpiryMinutes === "0" ? null : parseInt(editMessageExpiryMinutes, 10) } : {}),
+      });
+      setEditingMessageId(null);
+      loadSystemMessages();
+    } catch (err: any) {
+      alert(err.message || (locale === "pt" ? "Não foi possível salvar a mensagem." : "Could not save the message."));
+    }
+  };
+
+  const handleDeleteMessage = async (id: string) => {
+    if (!confirm(locale === "pt" ? "Excluir esta mensagem?" : "Delete this message?")) return;
+    try {
+      await ApiClient.delete(`/api/messages/${id}`);
+      loadSystemMessages();
+    } catch (err: any) {
+      alert(err.message || (locale === "pt" ? "Não foi possível excluir." : "Could not delete."));
+    }
+  };
 
   const loadVerticals = () => {
     ApiClient.get<{ id: string; name: string; is_active: boolean }[]>("/api/verticals").then(setVerticals).catch(() => setVerticals([]));
@@ -785,7 +842,7 @@ export default function AdminConsole({
                               expires_in_minutes: newBroadcastExpiryMinutes ? parseInt(newBroadcastExpiryMinutes, 10) : null,
                             });
                             setNewBroadcastMessage("");
-                            alert(locale === "pt" ? "Aviso enviado." : "Notice sent.");
+                            loadSystemMessages();
                           } catch (err: any) {
                             alert(err.message || (locale === "pt" ? "Não foi possível enviar." : "Could not send."));
                           }
@@ -794,6 +851,87 @@ export default function AdminConsole({
                       >
                         {locale === "pt" ? "Enviar" : "Send"}
                       </button>
+                    </div>
+
+                    <div className="border-t border-slate-100 pt-3 space-y-2">
+                      <h4 className="text-xs font-bold uppercase tracking-wider font-mono text-slate-600">
+                        {locale === "pt" ? "Avisos Enviados" : "Sent Notices"}
+                      </h4>
+                      {systemMessages.length === 0 && (
+                        <p className="text-xs text-slate-400 italic">{locale === "pt" ? "Nenhum aviso ativo." : "No active notices."}</p>
+                      )}
+                      {systemMessages.map((m) => (
+                        <div key={m.id} className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
+                          {editingMessageId === m.id ? (
+                            <>
+                              <input
+                                type="text"
+                                value={editMessageBody}
+                                onChange={(e) => setEditMessageBody(e.target.value)}
+                                className="w-full p-2 rounded bg-white border border-slate-200 text-xs"
+                              />
+                              <div className="flex flex-wrap items-center gap-2">
+                                <select
+                                  value={editMessageAudience}
+                                  onChange={(e) => setEditMessageAudience(e.target.value as "admin_only" | "all_users")}
+                                  className="p-2 rounded bg-white border border-slate-200 text-xs"
+                                >
+                                  <option value="all_users">{locale === "pt" ? "Todos os usuários" : "All users"}</option>
+                                  <option value="admin_only">{locale === "pt" ? "Somente admins" : "Admins only"}</option>
+                                </select>
+                                <select
+                                  value={editMessageExpiryMinutes}
+                                  onChange={(e) => setEditMessageExpiryMinutes(e.target.value)}
+                                  className="p-2 rounded bg-white border border-slate-200 text-xs"
+                                >
+                                  <option value="">{locale === "pt" ? "Manter expiração atual" : "Keep current expiry"}</option>
+                                  <option value="60">{locale === "pt" ? "1 hora a partir de agora" : "1 hour from now"}</option>
+                                  <option value="240">{locale === "pt" ? "4 horas a partir de agora" : "4 hours from now"}</option>
+                                  <option value="1440">{locale === "pt" ? "1 dia a partir de agora" : "1 day from now"}</option>
+                                  <option value="4320">{locale === "pt" ? "3 dias a partir de agora" : "3 days from now"}</option>
+                                  <option value="10080">{locale === "pt" ? "7 dias a partir de agora" : "7 days from now"}</option>
+                                  <option value="0">{locale === "pt" ? "Nunca expira" : "Never expires"}</option>
+                                </select>
+                                <button
+                                  onClick={() => handleUpdateMessage(m.id)}
+                                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-1.5 rounded"
+                                >
+                                  {locale === "pt" ? "Salvar" : "Save"}
+                                </button>
+                                <button
+                                  onClick={() => setEditingMessageId(null)}
+                                  className="text-slate-500 hover:text-slate-700 text-xs font-bold px-3 py-1.5 rounded border border-slate-200"
+                                >
+                                  {locale === "pt" ? "Cancelar" : "Cancel"}
+                                </button>
+                              </div>
+                            </>
+                          ) : (
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-xs text-slate-700 break-words">{m.body}</p>
+                                <p className="text-[10px] text-slate-400 mt-1">
+                                  {m.source === "fleet_manager" ? (locale === "pt" ? "Fleet Manager" : "Fleet Manager") : m.created_by}
+                                  {" · "}
+                                  {m.audience === "admin_only" ? (locale === "pt" ? "Somente admins" : "Admins only") : (locale === "pt" ? "Todos os usuários" : "All users")}
+                                  {" · "}
+                                  {m.expires_at ? new Date(m.expires_at).toLocaleString(locale === "pt" ? "pt-BR" : "en-US") : (locale === "pt" ? "Nunca expira" : "Never expires")}
+                                </p>
+                              </div>
+                              {m.source === "local" && (
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button onClick={() => startEditingMessage(m)} className="text-slate-400 hover:text-slate-700 p-1" title={locale === "pt" ? "Editar" : "Edit"}>
+                                    <Pencil size={13} />
+                                  </button>
+                                  <button onClick={() => handleDeleteMessage(m.id)} className="text-red-400 hover:text-red-700 p-1" title={locale === "pt" ? "Excluir" : "Delete"}>
+                                    <X size={13} />
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
@@ -2163,8 +2301,22 @@ export default function AdminConsole({
                           </div>
                           <div className="p-3 bg-slate-50 border border-slate-100 rounded-lg">
                             <span className="text-[10px] text-slate-400 font-mono block uppercase">{locale === "pt" ? "Status da Assinatura" : "Subscription Status"}</span>
-                            <span className={`text-sm font-extrabold font-mono mt-1 block ${fleetLicenseStatus.status === "active" ? "text-emerald-600" : "text-red-600"}`}>
-                              {fleetLicenseStatus.status === "active" ? (locale === "pt" ? "Ativa" : "Active") : (locale === "pt" ? "Suspensa" : "Suspended")}
+                            <span
+                              className={`text-sm font-extrabold font-mono mt-1 block ${
+                                fleetLicenseStatus.status === "active"
+                                  ? "text-emerald-600"
+                                  : fleetLicenseStatus.block_mode === "read_only"
+                                  ? "text-amber-600"
+                                  : "text-red-600"
+                              }`}
+                            >
+                              {fleetLicenseStatus.status === "active"
+                                ? (locale === "pt" ? "Ativa" : "Active")
+                                : fleetLicenseStatus.block_mode === "full_lockout"
+                                ? (locale === "pt" ? "Bloqueada - Acesso Total" : "Blocked - Full Lockout")
+                                : fleetLicenseStatus.block_mode === "read_only"
+                                ? (locale === "pt" ? "Bloqueada - Somente Leitura" : "Blocked - Read Only")
+                                : (locale === "pt" ? "Suspensa" : "Suspended")}
                             </span>
                           </div>
                           <div className="p-3 bg-slate-50 border border-slate-100 rounded-lg">
