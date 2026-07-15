@@ -110,6 +110,15 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       return res.status(401).json({ success: false, message: "Invalid or expired session token.", correlationId });
     }
 
+    // Defensive: a session (or a refresh-token-derived one, in particular) with no roleId is
+    // corrupt, not just unauthenticated - dbStore.getRoleById(undefined) below would otherwise
+    // throw a raw, unhandled PrismaClientValidationError instead of a clean 401 (confirmed live,
+    // 2026-07-15: 72 identical 500s on /api/messages from one such session over about an hour).
+    // Same recovery as any other invalid session: force a real login instead of crashing.
+    if (!session.roleId) {
+      return res.status(401).json({ success: false, message: "Invalid or expired session token.", correlationId });
+    }
+
     if (!session.mfaVerified) {
       return res.status(401).json({
         success: false,
