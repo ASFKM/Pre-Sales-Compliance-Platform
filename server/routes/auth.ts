@@ -88,7 +88,19 @@ interface RequireAuthOptions {
 }
 
 // Session validation middleware to protect modular endpoints
-export async function requireAuth(req: Request, res: Response, next: NextFunction, options?: RequireAuthOptions) {
+// `options` MUST carry a default value (not just be TypeScript-optional with `?`) - Function.length
+// only counts parameters before the first one with a default, so this keeps requireAuth.length at
+// 3. Express uses that raw JS arity to decide whether a middleware is regular (<=3 params) or
+// error-handling (exactly 4, `(err, req, res, next)`) when it's registered directly in a route's
+// handler array (e.g. `router.get("/", requireAuth, handler)`), as opposed to being called through
+// requirePermission()/requireModule()'s own wrapper closures (which always have arity 3 and invoke
+// requireAuth as a plain function call, unaffected by this). A bare `options?: RequireAuthOptions`
+// silently made requireAuth.length === 4, which made Express treat it as error-handling middleware
+// and skip it entirely for every normal (non-error) request on any route using it directly - a
+// real, live authentication bypass, not a hypothetical: confirmed via production logs that
+// requireAuth's own body never executed at all for GET /api/projects, on ALL 27 routes across the
+// codebase that reference requireAuth directly rather than through requirePermission/requireModule.
+export async function requireAuth(req: Request, res: Response, next: NextFunction, options: RequireAuthOptions = {}) {
   const authHeader = req.headers["authorization"];
   const correlationId = (req.headers["x-correlation-id"] as string) || "corr-unknown";
 
