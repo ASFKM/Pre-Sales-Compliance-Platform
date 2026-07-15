@@ -54,7 +54,8 @@ import {
   Folder,
   FolderOpen,
   ArrowLeft,
-  FilePlus
+  FilePlus,
+  Globe
 } from "lucide-react";
 import {
   Project,
@@ -932,9 +933,22 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
           <div className="flex items-center">
             <button
               onClick={() => setActiveTab("knowledgeBase")}
-              className={`py-4 px-1 border-b-2 transition-all ${activeTab === "knowledgeBase" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
+              className={`py-4 px-1 border-b-2 transition-all flex items-center gap-1.5 ${activeTab === "knowledgeBase" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
             >
               Base de Conhecimento
+              {hasModule("ia_kb") && (
+                // Same Globe-icon language as the per-entry "Base Global" badge inside the
+                // Knowledge Base page itself (KnowledgeBase.tsx) - this is the glance-level signal,
+                // visible from anywhere in the app, that the tenant is on the full ia_kb add-on
+                // (managed AI + shared global Knowledge Base), not just the local/base experience.
+                <span
+                  title="Add-on IA/KB ativo: IA gerenciada e Base de Conhecimento global compartilhada via CMSaaS"
+                  className="inline-flex items-center gap-1 text-[9px] font-mono font-bold uppercase text-blue-300 bg-blue-500/10 border border-blue-400/30 rounded-full px-1.5 py-0.5"
+                >
+                  <Globe size={9} />
+                  IA/KB
+                </span>
+              )}
             </button>
           </div>
 
