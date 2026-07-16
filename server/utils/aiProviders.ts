@@ -70,15 +70,13 @@ async function callFleetManagerAiProxy(
       prompt,
       files: (files || []).map((f) => ({ mime_type: f.mimeType, base64_data: f.base64Data })),
     }),
-    // Mirrors the real provider calls below (Anthropic alone documents needing minutes on a large
-    // document) - the proxy adds one network hop but not meaningfully more latency than calling
-    // the provider directly would. Raised from 150s alongside the proxy's own MAX_OUTPUT_TOKENS
-    // bump (server/utils/aiProxyClient.ts on the Fleet Manager side, 32768) - a real analysis
-    // genuinely needing that much output can take longer than 150s to finish generating, and was
-    // timing out here (confirmed via production logs) even after the truncation bug itself was
-    // fixed. Stays above the Fleet Manager's own internal timeout so its clearer, cause-specific
-    // error reaches the caller instead of this generic AbortSignal firing first.
-    signal: AbortSignal.timeout(300_000),
+    // How long a real analysis can legitimately take has no fixed ceiling - a large enough tender
+    // document (many pages, multiple attachments) can genuinely need a long time to fully process,
+    // and a hardcoded number here just relocates the same "timed out on a big real document"
+    // failure to a different number instead of removing it (already happened once: 150s -> 300s
+    // was still too short for a real production document). Configurable via env instead; default
+    // generous (30min) rather than tightly tuned to what's been seen so far.
+    signal: AbortSignal.timeout((Number(process.env.AI_PROXY_TIMEOUT_MS) || 1_800_000)),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.success) {
