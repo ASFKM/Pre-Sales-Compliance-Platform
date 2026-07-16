@@ -49,6 +49,15 @@ export class LocalStorageAdapter implements StorageAdapter {
   async uploadFile(projectId: string, fileBuffer: Buffer, originalFilename: string, mimeType: string): Promise<string> {
     void mimeType;
 
+    // Defense in depth: projectId ids look like "p_<16 hex chars>" (src/idGenerator.ts), so this
+    // is never legitimately rejecting a real project. Callers are expected to have already
+    // confirmed projectId belongs to the caller's tenant before reaching here - this check exists
+    // so that a caller who forgets that (as server/routes/documents.ts's upload route once did)
+    // can't turn this join into a path traversal out of baseUploadDir.
+    if (!/^[A-Za-z0-9_-]+$/.test(projectId)) {
+      throw new Error(`Invalid projectId for storage: ${JSON.stringify(projectId)}`);
+    }
+
     const projectDir = path.join(this.baseUploadDir, projectId);
     // recursive: true is idempotent (no error if the path already exists), so this doesn't need
     // an existsSync check first - one non-blocking call covers both "first upload ever" and

@@ -41,14 +41,14 @@ Respond in Brazilian Portuguese. Respond with ONLY a JSON object matching this s
       await recordProviderFallback({ tenantId, taskType: "document_classification", intendedProvider: resolution.intendedProvider, userId: "system" });
     }
 
-    const { text, inputTokens, outputTokens } = await generateJsonWithProvider(resolution.provider as ConnectedProvider, resolution.model, prompt);
+    const { text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(resolution.provider as ConnectedProvider, resolution.model, prompt);
 
     await recordAiUsage({
       tenantId,
       taskType: "document_classification",
       provider: resolution.provider,
       model: resolution.model,
-      estimatedCostUsd: estimateCostUsd(resolution.model, inputTokens, outputTokens),
+      estimatedCostUsd: billedCostUsd ?? estimateCostUsd(resolution.model, inputTokens, outputTokens),
     });
 
     const parsed = JSON.parse(text.trim());

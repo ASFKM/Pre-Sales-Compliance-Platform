@@ -205,6 +205,39 @@ function sanitizeSettingsForBackup(settings: Record<string, any>): Record<string
   return sanitized;
 }
 
+// Shared by the full heartbeat and the lightweight license-status poll below - both receive the
+// same signed {license, signature} shape and must apply the same signature/anti-replay checks
+// before trusting it. Returns whether the response was accepted and cached.
+async function verifyAndCacheLicensePayload(tenantId: string, data: { license: LicenseStatusPayload; signature: string }): Promise<boolean> {
+  if (!verifyPayload(data.license, data.signature)) {
+    logger.error({ tenantId }, "Fleet manager response signature verification FAILED - ignoring response");
+    return false;
+  }
+
+  // Anti-replay (Fase 1.6 of the Zero Trust rollout): a captured {payload, signature} pair stays
+  // validly signed for its whole valid_until window (up to 24h) - without this check, replaying
+  // an old "active" response would resurrect that status even after a real suspension. issued_at
+  // is set fresh by the Fleet Manager on every response (full heartbeat or lightweight poll
+  // alike), so it doubles as a monotonic nonce with no wire-format change on that end: reject
+  // anything that isn't strictly newer than what's already cached.
+  const previousRaw = await redis.get(licenseCacheKey(tenantId));
+  if (previousRaw) {
+    const previous: CachedLicense = JSON.parse(previousRaw);
+    if (new Date(data.license.issued_at).getTime() <= new Date(previous.payload.issued_at).getTime()) {
+      logger.error(
+        { tenantId, newIssuedAt: data.license.issued_at, cachedIssuedAt: previous.payload.issued_at },
+        "Fleet manager response replay suspected - issued_at not newer than cached, ignoring response"
+      );
+      return false;
+    }
+  }
+
+  const cached: CachedLicense = { payload: data.license, signature: data.signature, verifiedAt: new Date().toISOString() };
+  const ttlMs = new Date(data.license.valid_until).getTime() - Date.now();
+  await redis.set(licenseCacheKey(tenantId), JSON.stringify(cached), "PX", Math.max(ttlMs, 60000));
+  return true;
+}
+
 // Called periodically (every 15-60 min) for every tenant with fleet reporting enabled. Never
 // throws - a fleet manager outage or network failure must not disrupt the Pre-Sales Compliance
 // Platform itself (fail-open is the whole point).
@@ -286,33 +319,9 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
       }
 
       const data = await res.json();
-      if (!verifyPayload(data.license, data.signature)) {
-        logger.error({ tenantId }, "Fleet manager heartbeat signature verification FAILED - ignoring response");
+      if (!(await verifyAndCacheLicensePayload(tenantId, data))) {
         return;
       }
-
-      // Anti-replay (Fase 1.6 of the Zero Trust rollout): a captured {payload, signature} pair
-      // stays validly signed for its whole valid_until window (up to 24h) - without this check,
-      // replaying an old "active" response would resurrect that status even after a real
-      // suspension. issued_at already exists on the payload and is set fresh by the Fleet
-      // Manager on every heartbeat, so it doubles as a monotonic nonce with no wire-format
-      // change on that end: reject anything that isn't strictly newer than what's already
-      // cached.
-      const previousRaw = await redis.get(licenseCacheKey(tenantId));
-      if (previousRaw) {
-        const previous: CachedLicense = JSON.parse(previousRaw);
-        if (new Date(data.license.issued_at).getTime() <= new Date(previous.payload.issued_at).getTime()) {
-          logger.error(
-            { tenantId, newIssuedAt: data.license.issued_at, cachedIssuedAt: previous.payload.issued_at },
-            "Fleet manager heartbeat replay suspected - issued_at not newer than cached, ignoring response"
-          );
-          return;
-        }
-      }
-
-      const cached: CachedLicense = { payload: data.license, signature: data.signature, verifiedAt: new Date().toISOString() };
-      const ttlMs = new Date(data.license.valid_until).getTime() - Date.now();
-      await redis.set(licenseCacheKey(tenantId), JSON.stringify(cached), "PX", Math.max(ttlMs, 60000));
       await redis.set(lastLogSyncKey(tenantId), new Date().toISOString());
 
       // ia_kb add-on: on the exact heartbeat where the entitlement transitions from absent/off to
@@ -442,6 +451,45 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
   });
 }
 
+// Lightweight poll (every 30-60s, see runLicenseStatusPollForAllEnabledTenants below), separate
+// from the full heartbeat's 20min cadence - lets a block/unblock applied in the Fleet Manager
+// reach this installation almost immediately, without paying the cost of the full heartbeat's
+// log collection, vuln scan and KB sync at that frequency. Silent on failure by design: at this
+// polling rate, logging every transient miss the way the full heartbeat does would be noise, and
+// a real persistent problem still surfaces there.
+export async function runLicenseStatusPollForTenant(tenantId: string): Promise<void> {
+  await runWithTenant({ tenantId }, async () => {
+    try {
+      const settings = await dbStore.getSettings();
+      if (!settings.fleet_manager_enabled || !settings.fleet_manager_url || !settings.fleet_manager_api_key_encrypted) {
+        return;
+      }
+
+      const apiKey = decryptSecret(settings.fleet_manager_api_key_encrypted);
+      const res = await fetch(`${settings.fleet_manager_url}/api/heartbeat/license-status`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(8000),
+      });
+
+      if (!res.ok) return;
+
+      const data = await res.json();
+      await verifyAndCacheLicensePayload(tenantId, data);
+    } catch {
+      // Fail-open, same reasoning as the full heartbeat: a network blip here just leaves
+      // whatever's already cached (still valid for up to 24h) in place.
+    }
+  });
+}
+
+export async function runLicenseStatusPollForAllEnabledTenants(): Promise<void> {
+  const tenants = await dbStore.getAllTenantIdsWithFleetReportingEnabled();
+  for (const tenantId of tenants) {
+    await runLicenseStatusPollForTenant(tenantId);
+  }
+}
+
 export interface FleetLicenseStatus {
   connected: boolean;
   status: "active" | "suspended" | null;
@@ -525,7 +573,7 @@ export async function checkLicenseEnforcement(tenantId: string): Promise<Enforce
     return {
       blocked: cached.payload.block_mode === "full_lockout",
       readOnly: cached.payload.block_mode === "read_only",
-      message: "This account is suspended. Contact AI Pre-Sales Solutions to restore access.",
+      message: "Esta conta está suspensa. Entre em contato com a AI Pre-Sales Solutions para restaurar o acesso.",
     };
   } catch {
     return { blocked: false, readOnly: false };

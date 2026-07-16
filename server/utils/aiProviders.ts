@@ -79,7 +79,12 @@ async function callFleetManagerAiProxy(
   if (!res.ok || !data.success) {
     throw new Error(data?.message || `Falha ao chamar o proxy de IA do Fleet Manager (HTTP ${res.status}).`);
   }
-  return { text: data.text || "", inputTokens: data.input_tokens || 0, outputTokens: data.output_tokens || 0 };
+  return {
+    text: data.text || "",
+    inputTokens: data.input_tokens || 0,
+    outputTokens: data.output_tokens || 0,
+    billedCostUsd: typeof data.billed_cost_usd === "number" ? data.billed_cost_usd : undefined,
+  };
 }
 
 async function getCustomProviderConfig(providerKey: string): Promise<{ baseUrl: string; apiKey: string; supportsVision: boolean; supportsWebSearch: boolean }> {
@@ -159,6 +164,12 @@ export interface ProviderJsonResult {
   text: string;
   inputTokens: number;
   outputTokens: number;
+  // Set only when this call was routed through the Fleet Manager's ia_kb proxy - the actual
+  // amount billed to the tenant (real provider cost + markup), computed there since the markup
+  // percentage and the CMSaaS's own pricing table must never be exposed to the Presales side.
+  // Callers must prefer this over a local estimateCostUsd() re-estimate whenever it's present,
+  // since a local estimate never includes the markup and always understates what was billed.
+  billedCostUsd?: number;
 }
 
 export interface ProviderFileInput {

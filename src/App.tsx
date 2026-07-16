@@ -18,43 +18,11 @@ import ClassifyDocumentModal from "./components/modals/ClassifyDocumentModal";
 import AuditLogsModal from "./components/modals/AuditLogsModal";
 import DebugConsoleModal from "./components/modals/DebugConsoleModal";
 import {
-  FileText,
   Plus,
   Trash2,
   RefreshCw,
-  ShieldAlert,
-  Database,
-  HardDrive,
-  CircleCheck,
-  Cpu,
   LogOut,
-  Check,
-  X,
-  Save,
-  Download,
-  PenLine,
-  MessageSquare,
-  Settings,
-  Users,
-  Layers,
-  Activity,
   FileSpreadsheet,
-  FolderPlus,
-  HelpCircle,
-  Sparkles,
-  FileCode,
-  DollarSign,
-  TrendingUp,
-  TriangleAlert,
-  ExternalLink,
-  Lock,
-  Menu,
-  ChevronRight,
-  ListTodo,
-  Folder,
-  FolderOpen,
-  ArrowLeft,
-  FilePlus,
   Globe
 } from "lucide-react";
 import {
@@ -68,7 +36,6 @@ import {
   PromptTemplate,
   PlatformSettings,
   IntegrationConnector,
-  PricingRow,
   Role,
   ApprovalWorkflow
 } from "./types";
@@ -335,7 +302,7 @@ export default function App() {
   const [proposals, setProposals] = useState<Proposal[]>([]);
 
   // UI Controls & Lists
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [, setIsLoading] = useState<boolean>(false);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [analysisError, setAnalysisError] = useState<string>("");
   const [showNewProjectModal, setShowNewProjectModal] = useState<boolean>(false);
@@ -354,7 +321,7 @@ export default function App() {
   const [approvalWorkflows, setApprovalWorkflows] = useState<ApprovalWorkflow[]>([]);
   const [approvalDecisions, setApprovalDecisions] = useState<any[]>([]);
   const [integrations, setIntegrations] = useState<IntegrationConnector[]>([]);
-  const [systemStatus, setSystemStatus] = useState<any>(null);
+  const [, setSystemStatus] = useState<any>(null);
 
   // Modals / Overlays
   const [showDebugConsole, setShowDebugConsole] = useState<boolean>(false);
@@ -371,6 +338,10 @@ export default function App() {
   // disables immediately on click AND stays correctly disabled after a reload, preventing the
   // user from accidentally starting a second simultaneous analysis for the same project.
   const isProjectAnalyzing = isAnalyzing || activeTasks.some((t) => t.type === "document_analysis" && t.result_id === selectedProjectId && t.status !== "completed" && t.status !== "failed");
+  // Real progress for the "Executar Análise IA" button's own embedded bar - undefined until the
+  // background task actually reports a percentage (isAnalyzing can be true before that first
+  // update arrives), so the button falls back to an indeterminate look rather than a stuck 0%.
+  const projectAnalysisTask = activeTasks.find((t) => t.type === "document_analysis" && t.result_id === selectedProjectId && t.status !== "completed" && t.status !== "failed");
   const displayAnalysisResult = analysisResult;
 
   // Fetch initial system settings & logs
@@ -987,25 +958,6 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
         {/* User Context & AI Health */}
         <div className="flex items-center gap-2 lg:gap-4 shrink-0">
           <div className="flex items-center gap-3">
-            {activeTasks.length > 0 && (
-              <button
-                onClick={() => setActiveTab("workspace")}
-                className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 px-2.5 py-1.5 rounded-lg border border-emerald-700/50 transition-colors cursor-pointer"
-                title={activeTasks[0].current_step}
-              >
-                <span className="relative flex h-2 w-2 shrink-0">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                </span>
-                <span className="hidden md:inline text-[11px] text-slate-300 font-mono max-w-[160px] truncate">
-                  {activeTasks[0].current_step}
-                  {typeof activeTasks[0].progress_pct === "number" && ` (${activeTasks[0].progress_pct}%)`}
-                </span>
-                {activeTasks.length > 1 && (
-                  <span className="text-[9px] bg-emerald-600 text-white rounded-full px-1.5 font-bold">{activeTasks.length}</span>
-                )}
-              </button>
-            )}
             <div
               className="flex items-center gap-2 bg-slate-800 p-1.5 rounded-lg border border-slate-700/80 transition-colors"
             >
@@ -1192,13 +1144,23 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
             <button
               onClick={handleRunAnalysis}
               disabled={isProjectAnalyzing || documents.length === 0}
-              className={`w-full py-2.5 rounded font-bold text-sm tracking-wide shadow-sm flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              className={`relative w-full py-2.5 rounded font-bold text-sm tracking-wide shadow-sm flex items-center justify-center gap-2 transition-all cursor-pointer overflow-hidden ${
                 isProjectAnalyzing ? "bg-slate-700 text-slate-300" :
                 documents.length === 0 ? "bg-slate-200 text-slate-400 cursor-not-allowed" : "bg-emerald-600 hover:bg-emerald-700 text-white font-mono"
               }`}
             >
-              <RefreshCw size={15} className={isProjectAnalyzing ? "animate-spin" : ""} />
-              {isProjectAnalyzing ? t("compiling").toUpperCase() : t("runAi").toUpperCase()}
+              {isProjectAnalyzing && (
+                <span
+                  className="absolute inset-y-0 left-0 bg-emerald-600/40 transition-all duration-500"
+                  style={{ width: `${typeof projectAnalysisTask?.progress_pct === "number" ? projectAnalysisTask.progress_pct : 8}%` }}
+                />
+              )}
+              <span className="relative flex items-center justify-center gap-2">
+                <RefreshCw size={15} className={isProjectAnalyzing ? "animate-spin" : ""} />
+                {isProjectAnalyzing
+                  ? `${t("compiling").toUpperCase()}${typeof projectAnalysisTask?.progress_pct === "number" ? ` (${projectAnalysisTask.progress_pct}%)` : ""}`
+                  : t("runAi").toUpperCase()}
+              </span>
             </button>
             <p className="text-[9px] text-slate-400 text-center mt-1.5 leading-tight font-mono">
               {tx("Powered by", "Executado por")} {PROVIDER_DISPLAY_NAME[platformSettings?.document_analysis_provider || "gemini"] || platformSettings?.document_analysis_provider}
@@ -1399,9 +1361,11 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
             return (
               <span className="flex items-center gap-2 border-l border-slate-700 pl-6">
                 <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0"></span>
-                <span className="truncate max-w-[220px]">
-                  Análise: {analysisTask.current_step}
-                  {typeof analysisTask.progress_pct === "number" && ` (${analysisTask.progress_pct}%)`}
+                <span className="w-[220px] overflow-hidden shrink-0">
+                  <span className="inline-block whitespace-nowrap animate-footer-task-ticker">
+                    Análise: {analysisTask.current_step}
+                    {typeof analysisTask.progress_pct === "number" && ` (${analysisTask.progress_pct}%)`}
+                  </span>
                 </span>
                 <span className="w-16 h-1.5 bg-slate-700 rounded-full overflow-hidden shrink-0">
                   <span
@@ -1423,9 +1387,11 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
             return (
               <span className="flex items-center gap-2 border-l border-slate-700 pl-6">
                 <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0"></span>
-                <span className="truncate max-w-[220px]">
-                  {label}: {pocTask.current_step}
-                  {typeof pocTask.progress_pct === "number" && ` (${pocTask.progress_pct}%)`}
+                <span className="w-[220px] overflow-hidden shrink-0">
+                  <span className="inline-block whitespace-nowrap animate-footer-task-ticker">
+                    {label}: {pocTask.current_step}
+                    {typeof pocTask.progress_pct === "number" && ` (${pocTask.progress_pct}%)`}
+                  </span>
                 </span>
                 <span className="w-16 h-1.5 bg-slate-700 rounded-full overflow-hidden shrink-0">
                   <span

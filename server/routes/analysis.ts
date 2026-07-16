@@ -498,13 +498,13 @@ Respond with ONLY a JSON array (no markdown, no extra text), one object per item
       // same fail-soft behavior as before, just scoped to one chunk instead of the whole BOM.
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          const { text, inputTokens, outputTokens } = await searchWebWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, promptFor(chunk));
+          const { text, inputTokens, outputTokens, billedCostUsd } = await searchWebWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, promptFor(chunk));
           await recordAiUsage({
             tenantId,
             taskType: "bom_web_search",
             provider: providerResolution.provider,
             model: providerResolution.model,
-            estimatedCostUsd: estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
+            estimatedCostUsd: billedCostUsd ?? estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
           });
           // The model prefaces the JSON with explanatory prose that can itself contain stray
           // "[...]" (e.g. citing "[16:9]" resolution) - a single greedy [\s\S]*] regex grabbed
@@ -897,13 +897,13 @@ Write all generated content fields strictly in ${project.proposal_language}. Mai
       updateTaskProgress(task.id, { currentStep: "Analisando com IA", progressPct: simulatedProgress }).catch(() => {});
     }, 10000);
 
-    let rawText: string, inputTokens: number, outputTokens: number;
+    let rawText: string, inputTokens: number, outputTokens: number, billedCostUsd: number | undefined;
     try {
-      ({ text: rawText, inputTokens, outputTokens } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt, documentFiles));
+      ({ text: rawText, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt, documentFiles));
     } finally {
       clearInterval(progressTicker);
     }
-    const realEstimatedCostUsd = estimateCostUsd(providerResolution.model, inputTokens, outputTokens);
+    const realEstimatedCostUsd = billedCostUsd ?? estimateCostUsd(providerResolution.model, inputTokens, outputTokens);
 
     // 3. Add Structured Output Validation using Zod
     // Every provider is explicitly told to respond with raw JSON only, but Claude in particular
@@ -1101,7 +1101,7 @@ Answer concisely and specifically, citing the source document/section when the a
 extracted text or analysis above. If the answer isn't covered by the material provided, say so plainly
 instead of inventing information.`;
 
-    const { text: answer, inputTokens, outputTokens } = await generateTextWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt, documentFiles);
+    const { text: answer, inputTokens, outputTokens, billedCostUsd } = await generateTextWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt, documentFiles);
 
     const userId = requireUserId(req);
 
@@ -1138,7 +1138,7 @@ instead of inventing information.`;
       taskType: "spec_copilot_chat",
       provider: providerResolution.provider,
       model: providerResolution.model,
-      estimatedCostUsd: estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
+      estimatedCostUsd: billedCostUsd ?? estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
     });
 
     res.json({ success: true, answer: answer || "Nenhuma resposta gerada.", provider: providerResolution.provider });

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Trash2, X, Sparkles, Pen } from "lucide-react";
+import { Plus, Trash2, Sparkles, Pen } from "lucide-react";
 import { Poc, PocTask, PocTaskStatus } from "../types";
 import ApiClient from "../lib/api";
 import { BackgroundTask } from "../hooks/useBackgroundTasks";

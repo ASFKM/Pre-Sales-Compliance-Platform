@@ -56,13 +56,13 @@ Classify as exactly one of:
 
 Respond with ONLY a JSON object: { "classification": "duplicate"|"contradiction"|"distinct", "conflicting_entry_id": "..." or null, "reason": "one short sentence in Portuguese" }`;
 
-    const { text, inputTokens, outputTokens } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);
+    const { text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);
     await recordAiUsage({
       tenantId,
       taskType: "kb_reconciliation",
       provider: providerResolution.provider,
       model: providerResolution.model,
-      estimatedCostUsd: estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
+      estimatedCostUsd: billedCostUsd ?? estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
     });
 
     const fenceMatch = text.match(/```json\s*([\s\S]*?)```/);

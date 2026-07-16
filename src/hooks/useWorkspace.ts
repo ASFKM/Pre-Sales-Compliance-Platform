@@ -36,7 +36,7 @@ export function useWorkspace(params: UseWorkspaceParams) {
     locale, tx, hasPermission, selectedProjectId, analysisResult, setAnalysisResult,
     fetchGlobalConfigs, fetchProjectDetails, setActiveTab, waitForTask,
     proposalTemplates, selectedTemplateIdByType,
-    documents, projectFolders, setProjectFolders, docFolderMapping, setDocFolderMapping,
+    documents, setProjectFolders, docFolderMapping, setDocFolderMapping,
     virtualFiles, setVirtualFiles,
     chatMessage, setChatMessage, setChatHistory, setIsChatSending,
   } = params;
