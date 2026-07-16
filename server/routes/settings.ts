@@ -7,7 +7,7 @@ import { requirePermission } from "./auth";
 import { encryptSecret, decryptSecret, maskSecret } from "../utils/security";
 import { requireUserId } from "../middleware/security";
 import { createStorageAdapter } from "../utils/storage";
-import { getFleetLicenseStatus } from "../utils/fleetLicense";
+import { getFleetLicenseStatus, runHeartbeatForTenant, runLicenseStatusPollForTenant } from "../utils/fleetLicense";
 import { getCurrentTenantId } from "../../src/tenantContext";
 import { FACTORY_DEFAULT_CLASSIFICATION_PROMPT, FACTORY_DEFAULT_ANALYSIS_PROMPT, FACTORY_DEFAULT_POC_TEST_GENERATION_PROMPT, FACTORY_DEFAULT_POC_SCHEDULE_GENERATION_PROMPT, FACTORY_DEFAULT_POC_FINAL_REPORT_GENERATION_PROMPT } from "../utils/promptDefaults";
 import { getCurrentMonthSpendUsd, getCurrentMonthSpendByTaskTypeAndProvider } from "../../src/aiOrchestrator";
@@ -215,6 +215,20 @@ router.put("/settings", requirePermission("admin:settings"), async (req: Request
     }
 
     await dbStore.updateSettings(updates);
+
+    // Issue #28: connecting/reconfiguring the CMSaaS link used to just sit until the next
+    // timer tick (heartbeat every 20min, license poll every 45s) with no feedback - an admin
+    // who just entered a working URL/key had no way to know it actually worked without waiting.
+    // Fire both once, right now, in the background (not awaited - each already has its own
+    // network timeout, and the settings save itself shouldn't block on reaching an external
+    // server). Both are self-guarding no-ops if fleet_manager isn't actually enabled/configured.
+    if (["fleet_manager_url", "fleet_manager_enabled", "fleet_manager_api_key_encrypted"].some((f) => f in updates)) {
+      const tenantId = getCurrentTenantId();
+      if (tenantId) {
+        void runHeartbeatForTenant(tenantId).catch(() => {});
+        void runLicenseStatusPollForTenant(tenantId).catch(() => {});
+      }
+    }
 
     await auditSettingsChange(req, "Update Global Platform Settings", "PlatformSettings", "global", sanitizeSettingsAudit(updates));
 
