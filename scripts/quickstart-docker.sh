@@ -44,10 +44,12 @@ echo "[2/4] Aguardando bancos ficarem prontos..."
 for i in $(seq 1 30); do docker exec presales-postgres pg_isready -U app_user >/dev/null 2>&1 && break; sleep 1; done
 for i in $(seq 1 30); do docker exec presales-redis redis-cli -a "$REDIS_PASSWORD" --no-auth-warning ping >/dev/null 2>&1 && break; sleep 1; done
 
-DATABASE_URL="postgresql://app_user:${PG_PASSWORD}@localhost:5432/commercial_assistant"
-REDIS_URL="redis://:${REDIS_PASSWORD}@localhost:6379/0"
+export DATABASE_URL="postgresql://app_user:${PG_PASSWORD}@localhost:5432/commercial_assistant"
+export REDIS_URL="redis://:${REDIS_PASSWORD}@localhost:6379/0"
 
 echo "[3/4] Instalando dependências..."
+# postinstall runs `prisma generate`, which needs DATABASE_URL in the environment already -
+# exporting above (not just assigning) is what makes that visible to this child process.
 npm install --silent
 
 echo "[4/4] Rodando o instalador..."
