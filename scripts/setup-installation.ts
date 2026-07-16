@@ -246,6 +246,7 @@ const ADMINISTRATOR_PERMISSIONS = [
   "template:manage", "approval:manage", "admin:users", "admin:roles", "admin:settings",
   "admin:audit", "admin:debug", "admin:diagnostics", "ai:settings", "branding:manage",
   "storage:manage", "integrations:manage", "knowledge_base:read", "knowledge_base:write",
+  "poc:read", "poc:manage",
 ];
 
 async function bootstrapTenant(a: Answers): Promise<{ tenantId: string; adminEmail: string }> {
