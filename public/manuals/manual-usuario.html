@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manual do Usuário — Pre-Sales Compliance Platform</title>
+<style>
+  :root {
+    --ink: #14181c; --ink-soft: #3a4149; --ink-faint: #6b7480;
+    --paper: #f7f8f9; --paper-raised: #ffffff; --hairline: #dde1e5; --hairline-strong: #c4cad0;
+    --accent: #0f766e; --accent-soft: #e6f4f2;
+    --mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
+    --serif: Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, "Times New Roman", serif;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink: #e7eaed; --ink-soft: #b7c0c8; --ink-faint: #838d97; --paper: #14181c; --paper-raised: #1b2126; --hairline: #2a323a; --hairline-strong: #3a434c; --accent: #4fd1c5; --accent-soft: #123a36; }
+  }
+  html[data-theme="dark"] { --ink: #e7eaed; --ink-soft: #b7c0c8; --ink-faint: #838d97; --paper: #14181c; --paper-raised: #1b2126; --hairline: #2a323a; --hairline-strong: #3a434c; --accent: #4fd1c5; --accent-soft: #123a36; }
+  html[data-theme="light"] { --ink: #14181c; --ink-soft: #3a4149; --ink-faint: #6b7480; --paper: #f7f8f9; --paper-raised: #ffffff; --hairline: #dde1e5; --hairline-strong: #c4cad0; --accent: #0f766e; --accent-soft: #e6f4f2; }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--paper); }
+  body { color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+  a { color: var(--accent); }
+  code { font-family: var(--mono); font-size: 0.9em; background: var(--hairline); padding: 1px 5px; border-radius: 4px; }
+  pre { background: var(--paper-raised); border: 1px solid var(--hairline); border-radius: 8px; padding: 12px 14px; overflow-x: auto; }
+  pre code { background: none; padding: 0; }
+
+  .topbar { position: sticky; top: 0; z-index: 20; background: var(--paper-raised); border-bottom: 1px solid var(--hairline); }
+  .topbar-inner { max-width: 1180px; margin: 0 auto; padding: 12px 20px; display: flex; align-items: center; gap: 16px; }
+  .brand { font-family: var(--serif); font-weight: 700; font-size: 16px; white-space: nowrap; }
+  .brand span { color: var(--accent); }
+  .other-manual { margin-left: auto; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+
+  .search-wrap { position: relative; flex: 1; max-width: 480px; }
+  #search-input { width: 100%; padding: 8px 12px 8px 32px; border-radius: 8px; border: 1px solid var(--hairline-strong); background: var(--paper); color: var(--ink); font-size: 13.5px; font-family: var(--sans); }
+  #search-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 13px; color: var(--ink-faint); pointer-events: none; }
+  #search-results { position: absolute; top: calc(100% + 6px); left: 0; right: 0; background: var(--paper-raised); border: 1px solid var(--hairline-strong); border-radius: 10px; box-shadow: 0 8px 24px -8px rgba(0,0,0,.25); max-height: 60vh; overflow-y: auto; display: none; z-index: 30; }
+  #search-results.open { display: block; }
+  .result-item { display: block; padding: 9px 14px; text-decoration: none; color: var(--ink); border-bottom: 1px solid var(--hairline); cursor: pointer; }
+  .result-item:last-child { border-bottom: none; }
+  .result-item:hover, .result-item.active { background: var(--accent-soft); }
+  .result-heading { font-weight: 700; font-size: 13px; }
+  .result-snippet { font-size: 12px; color: var(--ink-faint); margin-top: 2px; }
+  .result-snippet mark, .result-heading mark { background: none; color: var(--accent); font-weight: 700; }
+  .no-results { padding: 14px; font-size: 13px; color: var(--ink-faint); }
+
+  .layout { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 240px 1fr; gap: 40px; padding: 28px 20px 100px; }
+  @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } .sidebar { display: none; } }
+
+  .sidebar { position: sticky; top: 68px; align-self: start; max-height: calc(100vh - 90px); overflow-y: auto; }
+  .sidebar .cap { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-faint); margin: 0 0 10px; }
+  .nav-link { display: block; font-size: 12.5px; padding: 5px 0; color: var(--ink-soft); text-decoration: none; border-left: 2px solid transparent; padding-left: 10px; margin-left: -1px; }
+  .nav-link:hover { color: var(--accent); }
+
+  .content h1 { font-family: var(--serif); font-size: 30px; margin: 0 0 6px; text-wrap: balance; }
+  .content h2 { font-family: var(--serif); font-size: 21px; margin: 44px 0 14px; padding-top: 8px; border-top: 1px solid var(--hairline); }
+  .content h2:first-of-type { border-top: none; margin-top: 20px; }
+  .content h3 { font-size: 15px; font-weight: 700; margin: 26px 0 10px; color: var(--ink); }
+  .content p { font-size: 14px; line-height: 1.7; color: var(--ink-soft); max-width: 720px; }
+  .content ul { font-size: 14px; line-height: 1.7; color: var(--ink-soft); max-width: 720px; padding-left: 20px; }
+  .content li { margin-bottom: 4px; }
+  .content blockquote { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 10px 16px; border-radius: 0 8px 8px 0; font-size: 13.5px; color: var(--ink-soft); max-width: 700px; margin: 16px 0; }
+  .table-wrap { overflow-x: auto; margin: 14px 0; }
+  table { border-collapse: collapse; font-size: 13px; width: 100%; max-width: 760px; }
+  th, td { text-align: left; padding: 7px 12px; border-bottom: 1px solid var(--hairline); }
+  th { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-faint); border-bottom: 1px solid var(--hairline-strong); }
+
+  figure.screenshot { margin: 18px 0 26px; }
+  figure.screenshot img { max-width: 100%; border-radius: 10px; border: 1px solid var(--hairline-strong); box-shadow: 0 1px 2px rgba(0,0,0,.06), 0 12px 28px -12px rgba(0,0,0,.18); display: block; }
+  figure.screenshot figcaption { font-size: 12px; color: var(--ink-faint); margin-top: 8px; }
+
+  mark.hl { background: #ffe58a; color: #14181c; padding: 0 2px; border-radius: 2px; }
+  html[data-theme="dark"] mark.hl, @media (prefers-color-scheme: dark) { mark.hl { background: #7a5d00; color: #fff3d0; } }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">Pre-Sales <span>Compliance Platform</span></div>
+      <div class="search-wrap">
+        <span class="search-icon">&#9906;</span>
+        <input id="search-input" type="text" placeholder="Pesquisar no manual... (ex: aprovação, POC, cor primária)" autocomplete="off">
+        <div id="search-results"></div>
+      </div>
+      <a class="other-manual" href="manual-administracao.html" target="_blank" rel="noopener">Manual de Administração &rarr;</a>
+    </div>
+  </div>
+  <div class="layout">
+    <nav class="sidebar">
+      <p class="cap">Neste manual</p>
+      <a href="#sumario" class="nav-link">Sumário</a>
+<a href="#o-que-e-o-pre-sales-compliance-platform" class="nav-link">O que é o Pre-Sales Compliance Platform</a>
+<a href="#primeiro-acesso" class="nav-link">Primeiro acesso</a>
+<a href="#pagina-inicial" class="nav-link">Página Inicial</a>
+<a href="#projetos" class="nav-link">Projetos</a>
+<a href="#criar-um-novo-projeto" class="nav-link">Criar um novo projeto</a>
+<a href="#1-fluxo-com-ia-recomendado" class="nav-link">1 Fluxo com IA (recomendado)</a>
+<a href="#2-fluxo-manual-sem-ia" class="nav-link">2 Fluxo manual (sem IA)</a>
+<a href="#area-de-trabalho-do-projeto" class="nav-link">Área de Trabalho do projeto</a>
+<a href="#1-resumo-executivo-de-conformidade" class="nav-link">1 Resumo Executivo de Conformidade</a>
+<a href="#2-grade-de-requisitos" class="nav-link">2 Grade de Requisitos</a>
+<a href="#3-riscos-e-oportunidades" class="nav-link">3 Riscos e Oportunidades</a>
+<a href="#4-bom-conformidade" class="nav-link">4 BOM &amp; Conformidade</a>
+<a href="#5-estudio-de-geracao-de-propostas" class="nav-link">5 Estúdio de Geração de Propostas</a>
+<a href="#6-explorador-de-arquivos" class="nav-link">6 Explorador de Arquivos</a>
+<a href="#7-perguntas-de-esclarecimento-e-copiloto-de-especificacoes" class="nav-link">7 Perguntas de Esclarecimento e Copiloto de Especificações</a>
+<a href="#estudio-de-propostas" class="nav-link">Estúdio de Propostas</a>
+<a href="#centro-de-aprovacao" class="nav-link">Centro de Aprovação</a>
+<a href="#base-de-conhecimento" class="nav-link">Base de Conhecimento</a>
+<a href="#gestao-de-poc-prova-de-conceito" class="nav-link">Gestão de POC (Prova de Conceito)</a>
+<a href="#visao-geral" class="nav-link">Visão Geral</a>
+<a href="#equipamento" class="nav-link">Equipamento</a>
+<a href="#cadernos-de-teste" class="nav-link">Cadernos de Teste</a>
+<a href="#cronograma" class="nav-link">Cronograma</a>
+<a href="#aceite-do-cliente" class="nav-link">Aceite do Cliente</a>
+<a href="#perguntas-frequentes" class="nav-link">Perguntas frequentes</a>
+    </nav>
+    <main class="content">
+<h1 id="manual-do-usuario-pre-sales-compliance-platform">Manual do Usuário — Pre-Sales Compliance Platform</h1>
+<p>Este manual cobre o uso do dia a dia do Pre-Sales Compliance Platform: como criar projetos, deixar</p>
+<p>a IA analisar editais e especificações técnicas, gerar propostas, conduzir aprovações e gerenciar</p>
+<p>Provas de Conceito (POC). Para configurações administrativas (usuários, perfis, IA, templates,</p>
+<p>integrações), veja o <a href="./MANUAL_DE_ADMINISTRACAO.md">Manual de Administração</a>.</p>
+<h2 id="sumario">Sumário</h2>
+<h2 id="o-que-e-o-pre-sales-compliance-platform">O que é o Pre-Sales Compliance Platform</h2>
+<p>O Pre-Sales Compliance Platform é a ferramenta usada pela equipe de pré-vendas para transformar um</p>
+<p>edital, termo de referência ou especificação técnica em uma proposta comercial completa, com o</p>
+<p>apoio de Inteligência Artificial em cada etapa: extração de requisitos, identificação de riscos e</p>
+<p>oportunidades, montagem de lista de materiais (BOM) com precificação, e geração do texto final da</p>
+<p>proposta em múltiplos formatos.</p>
+<p>O fluxo típico é:</p>
+<pre><code>Documento do cliente (edital/especificação)
+        │
+        ▼
+   Análise por IA (requisitos, riscos, BOM)
+        │
+        ▼
+   Geração de proposta(s)
+        │
+        ▼
+   Fluxo de aprovação interna
+        │
+        ▼
+   Proposta final exportada (DOCX/PDF)
+        │
+        ▼
+   (opcional) Prova de Conceito (POC) com o cliente</code></pre>
+<h2 id="primeiro-acesso">Primeiro acesso</h2>
+<figure class="screenshot"><img src="screenshots/01-login.png" alt="01-login.png" loading="lazy"></figure>
+<p>Acesse a URL da sua instância e informe <strong>e-mail</strong> e <strong>senha</strong>. As credenciais são criadas por um</p>
+<p>administrador — não existe autocadastro.</p>
+<p>Se sua conta tiver <strong>autenticação em duas etapas (MFA)</strong> habilitada, uma segunda tela pede um</p>
+<p>código de 6 dígitos gerado pelo seu aplicativo autenticador (Google Authenticator, Authy, etc.).</p>
+<blockquote><strong>Esqueci minha senha.</strong> Fale com um administrador — a redefinição de senha é feita por eles em Configurações → Usuários e Acessos (veja o Manual de Administração).</blockquote>
+<h2 id="pagina-inicial">Página Inicial</h2>
+<figure class="screenshot"><img src="screenshots/03-home.png" alt="03-home.png" loading="lazy"></figure>
+<p>Ao entrar, você cai na Página Inicial, seu painel do dia a dia:</p>
+<ul><li><strong>Minhas Tarefas</strong> — lista pessoal de pendências. Você pode adicionar uma tarefa livre, marcar</li></ul>
+<p>  como concluída ou excluir. Isso é só um lembrete pessoal, não afeta o andamento real dos</p>
+<p>  projetos.</p>
+<ul><li><strong>Licitações por Setor</strong> — gráfico mostrando quantos projetos ativos existem por vertical de</li></ul>
+<p>  negócio (Saúde, Educação, Transporte, etc.), ajudando a enxergar onde está concentrado o esforço</p>
+<p>  comercial.</p>
+<ul><li><strong>Pipeline de Status</strong> — visão geral de quantos projetos estão em cada etapa (Rascunho, Análise</li></ul>
+<p>  em Andamento, Aguardando Cliente, Concluído).</p>
+<ul><li><strong>Projetos e Editais Ativos</strong> — atalho para os projetos mais recentes; clique em qualquer um</li></ul>
+<p>  para abrir direto na Área de Trabalho.</p>
+<ul><li><strong>Indicador de POC</strong> (se o módulo de Prova de Conceito estiver habilitado na sua instância) —</li></ul>
+<p>  resumo rápido de quantas POCs estão em andamento.</p>
+<ul><li><strong>+ Adicionar Nova</strong> — abre o assistente de criação de novo projeto (seção 5).</li></ul>
+<h2 id="projetos">Projetos</h2>
+<figure class="screenshot"><img src="screenshots/04-projetos.png" alt="04-projetos.png" loading="lazy"></figure>
+<p>A aba <strong>Projetos</strong> lista todos os projetos da sua organização em formato de tabela: nome, cliente,</p>
+<p>vertical, status e prazo final.</p>
+<ul><li>Clique em qualquer linha para abrir o projeto na Área de Trabalho.</li><li>O botão de <strong>editar</strong> permite corrigir os dados cadastrais do projeto (não o conteúdo gerado</li></ul>
+<p>  pela IA).</p>
+<ul><li>O botão de <strong>excluir</strong> apaga o projeto permanentemente — o sistema pede confirmação antes.</li></ul>
+<blockquote>Editar e excluir exigem permissão específica (<code>project:update</code> / <code>project:delete</code>). Se você não vir esses botões, seu perfil de acesso não tem essa permissão — fale com um administrador.</blockquote>
+<h2 id="criar-um-novo-projeto">Criar um novo projeto</h2>
+<p>Existem dois caminhos para criar um projeto: <strong>com IA</strong> (recomendado, mais rápido) e <strong>manual</strong>.</p>
+<h3 id="1-fluxo-com-ia-recomendado">1 Fluxo com IA (recomendado)</h3>
+<p><strong>Passo 1 — Enviar Documentos</strong></p>
+<figure class="screenshot"><img src="screenshots/05-novo-projeto-passo1.png" alt="05-novo-projeto-passo1.png" loading="lazy"></figure>
+<p>Arraste ou selecione o(s) arquivo(s) do edital/especificação técnica do cliente (PDF, DOCX, etc.)</p>
+<p>e clique em <strong>Analisar com IA</strong>. A IA lê o(s) documento(s) e pré-preenche automaticamente os campos</p>
+<p>do projeto: título, cliente, vertical, escopo, prazo, modalidade de contratação, entre outros.</p>
+<p><strong>Passo 2 — Validar Dados</strong></p>
+<figure class="screenshot"><img src="screenshots/06-novo-projeto-passo2.png" alt="06-novo-projeto-passo2.png" loading="lazy"></figure>
+<p>Revise o que a IA extraiu e corrija o que for necessário — todos os campos ficam editáveis. Quando</p>
+<p>estiver correto, clique em <strong>Confirmar e Criar Projeto</strong>.</p>
+<p>Campos disponíveis:</p>
+<div class="table-wrap"><table><thead><tr><th>Campo</th><th>Descrição</th></tr></thead><tbody><tr><td>Título do Projeto</td><td>Nome interno de identificação</td></tr><tr><td>Cliente</td><td>Nome do cliente/órgão</td></tr><tr><td>Código da Oportunidade</td><td>Referência interna (CRM, número do processo, etc.)</td></tr><tr><td>Vertical do Setor</td><td>Área de negócio (Saúde, Educação, Transporte...)</td></tr><tr><td>Descrição do Escopo</td><td>Resumo do que está sendo licitado/contratado</td></tr><tr><td>Prazo Final</td><td>Data limite para entrega da proposta</td></tr><tr><td>Idioma de Saída da IA</td><td>Idioma em que a IA vai gerar textos de conformidade</td></tr><tr><td>Modalidade de Contratação</td><td>Licitação, Leilão ou Outra (com subtipo específico)</td></tr><tr><td>Regras de Orientação de Design da IA</td><td>Instruções extras para guiar o tom/estilo da IA</td></tr></tbody></table></div>
+<h3 id="2-fluxo-manual-sem-ia">2 Fluxo manual (sem IA)</h3>
+<figure class="screenshot"><img src="screenshots/07-novo-projeto-manual.png" alt="07-novo-projeto-manual.png" loading="lazy"></figure>
+<p>Se você ainda não tem os documentos do cliente em mãos, ou prefere cadastrar o projeto sem</p>
+<p>análise automática, clique no link <strong>"Não tenho documentos ainda, criar manualmente"</strong>, dentro do</p>
+<p>Passo 1 do assistente. Isso abre um formulário direto com os mesmos campos da tabela acima, sem</p>
+<p>upload nem análise de IA.</p>
+<blockquote><strong>Importante:</strong> o upload de documentos só acontece na criação do projeto. Depois de criado, não há uma tela para anexar novos documentos ao mesmo projeto — os documentos de referência que você quiser adicionar depois entram pela <strong>Base de Conhecimento</strong> (seção 9) ou pelo <strong>Explorador de Arquivos</strong> dentro do projeto (seção 6.6), que permite criar documentos de texto/notas, mas não reanalisar um PDF novo pela IA. Se precisar reprocessar um documento novo do cliente com IA, crie um novo projeto para ele.</blockquote>
+<h2 id="area-de-trabalho-do-projeto">Área de Trabalho do projeto</h2>
+<p>Depois de aberto, um projeto tem 6 sub-abas horizontais. Uma coluna fixa à direita mostra as</p>
+<p><strong>Perguntas de Esclarecimento Urgentes</strong> identificadas pela IA (com prioridade e motivo) e o botão</p>
+<p>flutuante do <strong>Copiloto de Especificações</strong>.</p>
+<h3 id="1-resumo-executivo-de-conformidade">1 Resumo Executivo de Conformidade</h3>
+<figure class="screenshot"><img src="screenshots/08-workspace-resumo.png" alt="08-workspace-resumo.png" loading="lazy"></figure>
+<p>Visão consolidada gerada pela IA: um resumo executivo do que está sendo pedido, mais um cronograma</p>
+<p>preliminar de engenharia sugerido.</p>
+<h3 id="2-grade-de-requisitos">2 Grade de Requisitos</h3>
+<figure class="screenshot"><img src="screenshots/09-workspace-requisitos.png" alt="09-workspace-requisitos.png" loading="lazy"></figure>
+<p>Matriz com todos os requisitos técnicos e comerciais extraídos do documento original. Cada linha</p>
+<p>pode ser editada — inclusive para adicionar notas de engenharia próprias, complementando o que a</p>
+<p>IA identificou.</p>
+<h3 id="3-riscos-e-oportunidades">3 Riscos e Oportunidades</h3>
+<figure class="screenshot"><img src="screenshots/10-workspace-riscos.png" alt="10-workspace-riscos.png" loading="lazy"></figure>
+<p>Dois grupos de itens identificados pela IA:</p>
+<ul><li><strong>Riscos</strong> — pontos do edital que podem gerar problema contratual, técnico ou financeiro.</li><li><strong>Oportunidades</strong> — pontos onde é possível fazer upsell, oferecer um SLA diferenciado, ou</li></ul>
+<p>  destacar um diferencial competitivo.</p>
+<h3 id="4-bom-conformidade">4 BOM &amp; Conformidade</h3>
+<figure class="screenshot"><img src="screenshots/11-workspace-bom.png" alt="11-workspace-bom.png" loading="lazy"></figure>
+<p>Lista de materiais (Bill of Materials) extraída ou montada a partir do escopo do projeto, com</p>
+<p>precificação e uma matriz de conformidade ponto a ponto (item do edital → item ofertado). Use</p>
+<p><strong>Adicionar Item</strong> para incluir manualmente um item que a IA não tenha identificado.</p>
+<h3 id="5-estudio-de-geracao-de-propostas">5 Estúdio de Geração de Propostas</h3>
+<figure class="screenshot"><img src="screenshots/12-workspace-propostas.png" alt="12-workspace-propostas.png" loading="lazy"></figure>
+<p>A partir daqui você gera qualquer um dos formatos de proposta disponíveis:</p>
+<div class="table-wrap"><table><thead><tr><th>Tipo de proposta</th><th>Uso típico</th></tr></thead><tbody><tr><td>Técnica</td><td>Foco em especificações e conformidade</td></tr><tr><td>Comercial</td><td>Foco em preço e condições comerciais</td></tr><tr><td>Técnico-Comercial</td><td>Combina as duas anteriores</td></tr><tr><td>Resumo Executivo</td><td>Versão curta para tomadores de decisão</td></tr><tr><td>Relatório de Riscos</td><td>Documento interno de análise de risco</td></tr><tr><td>Relatório de BOM</td><td>Lista de materiais formatada para envio</td></tr><tr><td>Relatório de Perguntas</td><td>Consolida as perguntas de esclarecimento a enviar ao cliente</td></tr></tbody></table></div>
+<p>Cada proposta gerada fica disponível para edição e exportação no <strong>Estúdio de Propostas</strong> (seção 7).</p>
+<h3 id="6-explorador-de-arquivos">6 Explorador de Arquivos</h3>
+<figure class="screenshot"><img src="screenshots/13-workspace-arquivos.png" alt="13-workspace-arquivos.png" loading="lazy"></figure>
+<p>Organizador de documentos do projeto em pastas virtuais. Já vêm 4 pastas padrão: <strong>Especificações</strong>,</p>
+<p><strong>Desenhos CAD</strong>, <strong>Planilhas Financeiras</strong> e <strong>Propostas e Minutas</strong>. Você pode criar novas pastas,</p>
+<p>mover/renomear itens, e criar <strong>Novos Documentos</strong> de texto (notas, minutas) diretamente aqui —</p>
+<p>mas, como explicado na seção 5.2, este explorador não substitui o upload de um documento real do</p>
+<p>cliente para nova análise por IA.</p>
+<h3 id="7-perguntas-de-esclarecimento-e-copiloto-de-especificacoes">7 Perguntas de Esclarecimento e Copiloto de Especificações</h3>
+<figure class="screenshot"><img src="screenshots/14-copiloto.png" alt="14-copiloto.png" loading="lazy"></figure>
+<ul><li>A coluna direita lista as <strong>Perguntas de Esclarecimento Urgentes</strong> que a IA identificou como</li></ul>
+<p>  necessárias para eliminar ambiguidade do edital antes de propor. Use <strong>Exportar DOCX</strong> para</p>
+<p>  gerar um documento pronto para enviar ao cliente.</p>
+<ul><li>O botão flutuante <strong>Copiloto de Especificações</strong> abre um chat onde você pode perguntar qualquer</li></ul>
+<p>  coisa sobre os documentos do projeto ("qual o prazo de entrega do item 4?", "esse edital exige</p>
+<p>  certificação X?") e a IA responde com base no conteúdo já analisado.</p>
+<h2 id="estudio-de-propostas">Estúdio de Propostas</h2>
+<figure class="screenshot"><img src="screenshots/15-propostas.png" alt="15-propostas.png" loading="lazy"></figure>
+<p>Lista todas as propostas já geradas para o projeto selecionado. Ao abrir uma proposta:</p>
+<ul><li>O texto é <strong>editável diretamente na tela</strong> — o que você edita aqui é exatamente o que sai no</li></ul>
+<p>  arquivo exportado.</p>
+<ul><li><strong>Exportar DOCX</strong> / <strong>Exportar PDF</strong> geram o arquivo final para download.</li><li><strong>Enviar para Aprovação de Fluxo</strong> move a proposta para o Centro de Aprovação (seção 8).</li></ul>
+<h2 id="centro-de-aprovacao">Centro de Aprovação</h2>
+<figure class="screenshot"><img src="screenshots/16-aprovacao.png" alt="16-aprovacao.png" loading="lazy"></figure>
+<p>Mostra a trilha de aprovação de uma proposta enviada, com uma etapa por revisor configurado no</p>
+<p>fluxo (configurado pelo administrador — veja o Manual de Administração). Cada etapa mostra:</p>
+<ul><li>Quem é o aprovador responsável (pessoa ou perfil).</li><li>O status atual (Pendente / Aprovado / Rejeitado).</li><li>Comentário do aprovador, se houver.</li></ul>
+<p>Se você for o aprovador de uma etapa pendente, os botões <strong>Aprovar</strong> e <strong>Rejeitar</strong> aparecem para</p>
+<p>você. Quando todas as etapas obrigatórias estiverem aprovadas, o botão <strong>Liberar Versão Final</strong></p>
+<p>fica disponível (requer a permissão <code>proposal:approve</code>).</p>
+<p>Algumas regras importantes de como o fluxo funciona:</p>
+<ul><li>As etapas não precisam ser decididas em ordem — cada aprovador pode decidir sua etapa a qualquer</li></ul>
+<p>  momento.</p>
+<ul><li>Cada etapa só pode ser decidida uma vez; não é possível voltar atrás.</li><li><strong>Uma rejeição em qualquer etapa encerra o processo inteiro na hora</strong> — as demais etapas</li></ul>
+<p>  pendentes deixam de poder ser decididas.</p>
+<blockquote><strong>Não consigo enviar minha proposta para aprovação.</strong> Se aparecer um erro dizendo que não há fluxo de aprovação ativo, é uma limitação conhecida: o vínculo entre projeto e fluxo de aprovação hoje só pode ser feito pelo time técnico, não por uma tela própria — peça para um administrador acionar o suporte técnico.</blockquote>
+<h2 id="base-de-conhecimento">Base de Conhecimento</h2>
+<figure class="screenshot"><img src="screenshots/17-kb-upload.png" alt="17-kb-upload.png" loading="lazy"></figure>
+<p>A Base de Conhecimento reúne material de referência reutilizável entre projetos — datasheets,</p>
+<p>catálogos, informações técnicas recorrentes — para a IA consultar automaticamente em análises</p>
+<p>futuras.</p>
+<p>Três sub-abas:</p>
+<ul><li><strong>Upload de Arquivos</strong> — envie um documento de referência; a IA sugere trechos relevantes para</li></ul>
+<p>  virarem entradas da base.</p>
+<figure class="screenshot"><img src="screenshots/18-kb-aprovacoes.png" alt="18-kb-aprovacoes.png" loading="lazy"></figure>
+<ul><li><strong>Aprovações</strong> — entradas sugeridas (pela IA ou por colegas) aguardando revisão humana antes de</li></ul>
+<p>  entrar oficialmente na base. Aprove ou rejeite cada uma.</p>
+<figure class="screenshot"><img src="screenshots/19-kb-base.png" alt="19-kb-base.png" loading="lazy"></figure>
+<ul><li><strong>Base de Conhecimento</strong> — todas as entradas já aprovadas, pesquisáveis e editáveis. Entradas</li></ul>
+<p>  com o selo <strong>Global</strong> vêm de uma base compartilhada entre instalações (recurso de add-on,</p>
+<p>  gerenciado pelo administrador) — o conteúdo é o mesmo, só a origem é diferente.</p>
+<h2 id="gestao-de-poc-prova-de-conceito">Gestão de POC (Prova de Conceito)</h2>
+<blockquote>Esta seção só aparece se o módulo de POC estiver habilitado na sua instância. *(Os prints desta seção dependem de uma instalação com licença de POC ativa emitida pelo CMSaaS — não incluídos nesta versão do manual; o texto abaixo descreve o funcionamento real da tela.)*</blockquote>
+<p>A tela principal é um quadro Kanban com as POCs organizadas por status: <strong>Não iniciada</strong>,</p>
+<p><strong>Planejada</strong>, <strong>Em andamento</strong>, <strong>Bloqueada</strong>, <strong>Concluída</strong>. Clique em <strong>Nova POC</strong> para criar</p>
+<p>uma, ou em qualquer card para abrir o detalhe.</p>
+<p>Cada POC tem 5 abas:</p>
+<h3 id="visao-geral">Visão Geral</h3>
+<p>Dados gerais da POC — cliente, local, datas, responsável.</p>
+<h3 id="equipamento">Equipamento</h3>
+<p>Equipamentos alocados para a demonstração. Um indicador visual avisa quando algum item está com</p>
+<p>devolução atrasada.</p>
+<h3 id="cadernos-de-teste">Cadernos de Teste</h3>
+<p>Casos de teste que serão executados durante a POC. Você pode:</p>
+<ul><li><strong>Regenerar com IA</strong> — a IA sugere um caderno de teste completo com base no escopo do projeto</li></ul>
+<p>  (acompanhe pela barra de progresso).</p>
+<ul><li><strong>Adicionar manualmente</strong> — título, objetivo, passos e resultado esperado.</li></ul>
+<p>Cada caso de teste tem status próprio (Pendente / Em andamento / Aprovado / Reprovado), atualizado</p>
+<p>conforme os testes são executados com o cliente.</p>
+<h3 id="cronograma">Cronograma</h3>
+<p>Gráfico de Gantt com as tarefas da POC ao longo do tempo — arraste para ajustar datas, adicione</p>
+<p>ou remova tarefas.</p>
+<h3 id="aceite-do-cliente">Aceite do Cliente</h3>
+<p>Ao final da POC:</p>
+<ul><li>Registre nome e data de quem assinou o aceite, e anexe o documento assinado, se houver.</li><li>Marque o resultado como <strong>Ganha</strong> ou <strong>Perdida</strong>.</li><li>Responda o questionário do relatório final gerado pela IA — as respostas alimentam o relatório</li></ul>
+<p>  final da POC.</p>
+<ul><li>Clique em <strong>Finalizar</strong> para consolidar o resultado (o toggle Ganha/Perdida só é salvo neste</li></ul>
+<p>  momento, não automaticamente).</p>
+<h2 id="perguntas-frequentes">Perguntas frequentes</h2>
+<p><strong>Posso desfazer a exclusão de um projeto?</strong></p>
+<p>Não. A exclusão é permanente e pede confirmação antes — confira bem antes de excluir.</p>
+<p><strong>A IA errou um requisito/risco/item de BOM. Como corrijo?</strong></p>
+<p>Todos os campos gerados pela IA nas sub-abas da Área de Trabalho são editáveis diretamente. Edite</p>
+<p>como faria com qualquer outro campo.</p>
+<p><strong>Consigo gerar a mesma proposta em dois formatos diferentes?</strong></p>
+<p>Sim — cada geração cria uma proposta nova e independente; gere quantos tipos precisar a partir do</p>
+<p>Estúdio de Geração de Propostas.</p>
+<p><strong>Não vejo a aba de POC.</strong> O módulo de Prova de Conceito é habilitado por instalação — fale com um</p>
+<p>administrador se achar que deveria estar disponível para você.</p>
+<p><strong>Não consigo aprovar/rejeitar uma proposta mesmo estando no fluxo.</strong> Confirme com um</p>
+<p>administrador se você está configurado como aprovador daquela etapa específica (por usuário ou por</p>
+<p>perfil) e se sua conta tem a permissão <code>proposal:approve</code>.</p>
+    </main>
+  </div>
+
+<script>
+(function () {
+  var THEME_KEY = "manual-theme";
+  var stored = null;
+  try { stored = localStorage.getItem(THEME_KEY); } catch (e) {}
+  if (stored) document.documentElement.setAttribute("data-theme", stored);
+
+  var INDEX = [{"id":"sumario","heading":"Sumário","text":""},{"id":"o-que-e-o-pre-sales-compliance-platform","heading":"O que é o Pre-Sales Compliance Platform","text":"O Pre-Sales Compliance Platform é a ferramenta usada pela equipe de pré-vendas para transformar um edital, termo de referência ou especificação técnica em uma proposta comercial completa, com o apoio de Inteligência Artificial em cada etapa: extração de requisitos, identificação de riscos e oportunidades, montagem de lista de materiais (BOM) com precificação, e geração do texto final da proposta em múltiplos formatos. O fluxo típico é:"},{"id":"primeiro-acesso","heading":"Primeiro acesso","text":"Acesse a URL da sua instância e informe **e-mail** e **senha**. As credenciais são criadas por um administrador — não existe autocadastro. Se sua conta tiver **autenticação em duas etapas (MFA)** habilitada, uma segunda tela pede um código de 6 dígitos gerado pelo seu aplicativo autenticador (Google Authenticator, Authy, etc.). **Esqueci minha senha.** Fale com um administrador — a redefinição de senha é feita por eles em Configurações → Usuários e Acessos (veja o Manual de Administração)."},{"id":"pagina-inicial","heading":"Página Inicial","text":"Ao entrar, você cai na Página Inicial, seu painel do dia a dia: **Minhas Tarefas** — lista pessoal de pendências. Você pode adicionar uma tarefa livre, marcar como concluída ou excluir. Isso é só um lembrete pessoal, não afeta o andamento real dos projetos. **Licitações por Setor** — gráfico mostrando quantos projetos ativos existem por vertical de negócio (Saúde, Educação, Transporte, etc.), ajudando a enxergar onde está concentrado o esforço comercial. **Pipeline de Status** — visão geral de q"},{"id":"projetos","heading":"Projetos","text":"A aba **Projetos** lista todos os projetos da sua organização em formato de tabela: nome, cliente, vertical, status e prazo final. Clique em qualquer linha para abrir o projeto na Área de Trabalho. O botão de **editar** permite corrigir os dados cadastrais do projeto (não o conteúdo gerado pela IA). O botão de **excluir** apaga o projeto permanentemente — o sistema pede confirmação antes. Editar e excluir exigem permissão específica (`project:update` / `project:delete`). Se você não vir esses bo"},{"id":"criar-um-novo-projeto","heading":"Criar um novo projeto","text":"Existem dois caminhos para criar um projeto: **com IA** (recomendado, mais rápido) e **manual**. **Passo 1 — Enviar Documentos** Arraste ou selecione o(s) arquivo(s) do edital/especificação técnica do cliente (PDF, DOCX, etc.) e clique em **Analisar com IA**. A IA lê o(s) documento(s) e pré-preenche automaticamente os campos do projeto: título, cliente, vertical, escopo, prazo, modalidade de contratação, entre outros. **Passo 2 — Validar Dados** Revise o que a IA extraiu e corrija o que for nece"},{"id":"1-fluxo-com-ia-recomendado","heading":"1 Fluxo com IA (recomendado)","text":""},{"id":"2-fluxo-manual-sem-ia","heading":"2 Fluxo manual (sem IA)","text":""},{"id":"area-de-trabalho-do-projeto","heading":"Área de Trabalho do projeto","text":"Depois de aberto, um projeto tem 6 sub-abas horizontais. Uma coluna fixa à direita mostra as **Perguntas de Esclarecimento Urgentes** identificadas pela IA (com prioridade e motivo) e o botão flutuante do **Copiloto de Especificações**. Visão consolidada gerada pela IA: um resumo executivo do que está sendo pedido, mais um cronograma preliminar de engenharia sugerido. Matriz com todos os requisitos técnicos e comerciais extraídos do documento original. Cada linha pode ser editada — inclusive par"},{"id":"1-resumo-executivo-de-conformidade","heading":"1 Resumo Executivo de Conformidade","text":""},{"id":"2-grade-de-requisitos","heading":"2 Grade de Requisitos","text":""},{"id":"3-riscos-e-oportunidades","heading":"3 Riscos e Oportunidades","text":""},{"id":"4-bom-conformidade","heading":"4 BOM & Conformidade","text":""},{"id":"5-estudio-de-geracao-de-propostas","heading":"5 Estúdio de Geração de Propostas","text":""},{"id":"6-explorador-de-arquivos","heading":"6 Explorador de Arquivos","text":""},{"id":"7-perguntas-de-esclarecimento-e-copiloto-de-especificacoes","heading":"7 Perguntas de Esclarecimento e Copiloto de Especificações","text":""},{"id":"estudio-de-propostas","heading":"Estúdio de Propostas","text":"Lista todas as propostas já geradas para o projeto selecionado. Ao abrir uma proposta: O texto é **editável diretamente na tela** — o que você edita aqui é exatamente o que sai no arquivo exportado. **Exportar DOCX** / **Exportar PDF** geram o arquivo final para download. **Enviar para Aprovação de Fluxo** move a proposta para o Centro de Aprovação (seção 8)."},{"id":"centro-de-aprovacao","heading":"Centro de Aprovação","text":"Mostra a trilha de aprovação de uma proposta enviada, com uma etapa por revisor configurado no fluxo (configurado pelo administrador — veja o Manual de Administração). Cada etapa mostra: Quem é o aprovador responsável (pessoa ou perfil). O status atual (Pendente / Aprovado / Rejeitado). Comentário do aprovador, se houver. Se você for o aprovador de uma etapa pendente, os botões **Aprovar** e **Rejeitar** aparecem para você. Quando todas as etapas obrigatórias estiverem aprovadas, o botão **Liber"},{"id":"base-de-conhecimento","heading":"Base de Conhecimento","text":"A Base de Conhecimento reúne material de referência reutilizável entre projetos — datasheets, catálogos, informações técnicas recorrentes — para a IA consultar automaticamente em análises futuras. Três sub-abas: **Upload de Arquivos** — envie um documento de referência; a IA sugere trechos relevantes para virarem entradas da base. **Aprovações** — entradas sugeridas (pela IA ou por colegas) aguardando revisão humana antes de entrar oficialmente na base. Aprove ou rejeite cada uma. **Base de Conh"},{"id":"gestao-de-poc-prova-de-conceito","heading":"Gestão de POC (Prova de Conceito)","text":"Esta seção só aparece se o módulo de POC estiver habilitado na sua instância. *(Os prints desta seção dependem de uma instalação com licença de POC ativa emitida pelo CMSaaS — não incluídos nesta versão do manual; o texto abaixo descreve o funcionamento real da tela.)* A tela principal é um quadro Kanban com as POCs organizadas por status: **Não iniciada**, **Planejada**, **Em andamento**, **Bloqueada**, **Concluída**. Clique em **Nova POC** para criar uma, ou em qualquer card para abrir o detal"},{"id":"visao-geral","heading":"Visão Geral","text":""},{"id":"equipamento","heading":"Equipamento","text":""},{"id":"cadernos-de-teste","heading":"Cadernos de Teste","text":""},{"id":"cronograma","heading":"Cronograma","text":""},{"id":"aceite-do-cliente","heading":"Aceite do Cliente","text":""},{"id":"perguntas-frequentes","heading":"Perguntas frequentes","text":"**Posso desfazer a exclusão de um projeto?** Não. A exclusão é permanente e pede confirmação antes — confira bem antes de excluir. **A IA errou um requisito/risco/item de BOM. Como corrijo?** Todos os campos gerados pela IA nas sub-abas da Área de Trabalho são editáveis diretamente. Edite como faria com qualquer outro campo. **Consigo gerar a mesma proposta em dois formatos diferentes?** Sim — cada geração cria uma proposta nova e independente; gere quantos tipos precisar a partir do Estúdio de "}];
+  var input = document.getElementById("search-input");
+  var resultsBox = document.getElementById("search-results");
+
+  function norm(s) {
+    return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  }
+
+  function highlight(text, q) {
+    if (!q) return text;
+    var idx = norm(text).indexOf(q);
+    if (idx === -1) return text;
+    return text.slice(0, idx) + '<mark class="hl">' + text.slice(idx, idx + q.length) + "</mark>" + text.slice(idx + q.length);
+  }
+
+  function snippetAround(text, q) {
+    var n = norm(text);
+    var idx = n.indexOf(q);
+    if (idx === -1) return text.slice(0, 140);
+    var start = Math.max(0, idx - 60);
+    var end = Math.min(text.length, idx + q.length + 80);
+    return (start > 0 ? "…" : "") + text.slice(start, end) + (end < text.length ? "…" : "");
+  }
+
+  function render(query) {
+    var q = norm(query.trim());
+    if (!q) {
+      resultsBox.classList.remove("open");
+      resultsBox.innerHTML = "";
+      return;
+    }
+    var matches = INDEX.filter(function (item) {
+      return norm(item.heading).indexOf(q) !== -1 || norm(item.text).indexOf(q) !== -1;
+    }).slice(0, 12);
+
+    if (matches.length === 0) {
+      resultsBox.innerHTML = '<div class="no-results">Nada encontrado para "' + query + '".</div>';
+      resultsBox.classList.add("open");
+      return;
+    }
+
+    resultsBox.innerHTML = matches
+      .map(function (m) {
+        var headingHtml = highlight(m.heading, q);
+        var snippet = norm(m.text).indexOf(q) !== -1 ? highlight(snippetAround(m.text, q), q) : "";
+        return (
+          '<a class="result-item" href="#' + m.id + '" data-id="' + m.id + '">' +
+          '<div class="result-heading">' + headingHtml + "</div>" +
+          (snippet ? '<div class="result-snippet">' + snippet + "</div>" : "") +
+          "</a>"
+        );
+      })
+      .join("");
+    resultsBox.classList.add("open");
+  }
+
+  input.addEventListener("input", function () { render(input.value); });
+  input.addEventListener("focus", function () { if (input.value.trim()) render(input.value); });
+
+  resultsBox.addEventListener("click", function (e) {
+    var item = e.target.closest(".result-item");
+    if (!item) return;
+    e.preventDefault();
+    var id = item.getAttribute("data-id");
+    var target = document.getElementById(id);
+    resultsBox.classList.remove("open");
+    input.value = "";
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      target.style.transition = "background-color .2s";
+      target.style.backgroundColor = "var(--accent-soft)";
+      setTimeout(function () { target.style.backgroundColor = ""; }, 1200);
+    }
+  });
+
+  document.addEventListener("click", function (e) {
+    if (!e.target.closest(".search-wrap")) resultsBox.classList.remove("open");
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") { resultsBox.classList.remove("open"); input.blur(); }
+    if (e.key === "/" && document.activeElement !== input) { e.preventDefault(); input.focus(); }
+  });
+})();
+</script>
+</body>
+</html>
