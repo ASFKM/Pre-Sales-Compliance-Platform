@@ -209,6 +209,28 @@ async function bootstrap() {
     logger.info({ port: PORT }, "Enterprise App Server listening");
   });
 
+  // A BackgroundTask's whole life lives in this process's memory (see src/backgroundTasks.ts) -
+  // if the process restarts while one is "running"/"queued" (a deploy, a crash), that row is
+  // orphaned forever: nothing will ever mark it completed/failed again, so the UI that's polling
+  // it shows a permanently stuck progress bar (confirmed against a real production case - a
+  // restart mid-analysis left exactly this). Not tenant-scoped on purpose - no tenant context is
+  // active this early at boot, so the scoping extension (src/prisma.ts) passes this through
+  // unscoped across every tenant, which is exactly what a startup-wide sweep needs.
+  (async () => {
+    try {
+      const { prisma } = await import("./src/prisma");
+      const orphaned = await prisma.backgroundTask.updateMany({
+        where: { status: { in: ["running", "queued"] } },
+        data: { status: "failed", errorMessage: "Interrompido por reinicialização do servidor durante a execução." },
+      });
+      if (orphaned.count > 0) {
+        logger.warn({ count: orphaned.count }, "Marked orphaned background tasks (left running/queued by a previous process) as failed on boot");
+      }
+    } catch (err) {
+      logger.error({ err }, "Failed to clean up orphaned background tasks on boot");
+    }
+  })();
+
   // Phase 7 (fleet/license management): reports to the vendor's fleet manager and picks up any
   // pending admin commands - client-initiated, since on-prem installs sit behind NAT/firewalls
   // that block inbound but allow outbound. Runs once shortly after boot, then every 20 minutes.
