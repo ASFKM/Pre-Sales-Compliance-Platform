@@ -33,7 +33,24 @@ REDIS_PASSWORD=$(openssl rand -hex 24)
 
 echo ""
 echo "[1/4] Subindo Postgres e Redis..."
-docker rm -f presales-postgres presales-redis >/dev/null 2>&1 || true
+# Postgres only applies POSTGRES_PASSWORD when it initializes an EMPTY data directory - if
+# presales-pgdata already has data (from a previous attempt), removing just the container and
+# reusing the volume keeps the OLD password while this run generates a NEW one, causing a silent
+# auth mismatch on the next step. Removing the container without also removing a pre-existing
+# volume is exactly what caused that the first time, so ask before wiping instead of guessing.
+if docker volume inspect presales-pgdata >/dev/null 2>&1 || docker volume inspect presales-redisdata >/dev/null 2>&1; then
+  echo "Já existem dados de uma tentativa de instalação anterior neste servidor."
+  read -rp "Apagar esses dados e recomeçar do zero? [s/N]: " WIPE_OLD
+  if [[ "$WIPE_OLD" =~ ^[sSyY] ]]; then
+    docker rm -f presales-postgres presales-redis >/dev/null 2>&1 || true
+    docker volume rm -f presales-pgdata presales-redisdata >/dev/null 2>&1 || true
+  else
+    echo "Abortado - nada foi alterado. Remova os volumes manualmente (docker volume rm presales-pgdata presales-redisdata) se quiser recomeçar."
+    exit 1
+  fi
+else
+  docker rm -f presales-postgres presales-redis >/dev/null 2>&1 || true
+fi
 docker run -d --name presales-postgres \
   -e POSTGRES_DB=commercial_assistant -e POSTGRES_USER=app_user -e POSTGRES_PASSWORD="$PG_PASSWORD" \
   -p 127.0.0.1:5432:5432 -v presales-pgdata:/var/lib/postgresql/data postgres:16-alpine >/dev/null
