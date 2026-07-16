@@ -28,3 +28,16 @@ input[type="date"]::-webkit-datetime-edit-year-field {
 .animate-footer-task-ticker {
   animation: footer-task-ticker 9s linear infinite;
 }
+
+/* POC kanban card: discreet attention cue for "planned" POCs whose start date has arrived, so the
+   user notices to move it to "in_progress" without a real notification system (none exists in
+   this codebase - see PocManagement.tsx's pocIsOverdue for the same "computed on render" idiom).
+   A slow, low-amplitude ring pulse rather than animate-pulse's opacity flicker - meant to catch
+   the eye in a kanban column without being distracting while it stays true. */
+@keyframes poc-start-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.35); }
+  50% { box-shadow: 0 0 0 5px rgba(245, 158, 11, 0); }
+}
+.animate-poc-start-glow {
+  animation: poc-start-glow 2.4s ease-in-out infinite;
+}
