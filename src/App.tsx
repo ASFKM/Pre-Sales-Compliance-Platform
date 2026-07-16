@@ -1356,49 +1356,51 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
             LLM Propostas: <span className="text-emerald-400 font-bold uppercase">{PROVIDER_DISPLAY_NAME[platformSettings?.proposal_generation_provider || "gemini"] || platformSettings?.proposal_generation_provider}</span>
           </span>
           {(() => {
-            const analysisTask = activeTasks.find((t) => t.type === "document_analysis");
-            if (!analysisTask) return null;
+            // Single fixed-width slot for ALL active job types (was two separate shrink-0
+            // w-[220px] blocks, one per task type, added independently over time - with 2+ types
+            // running at once their combined width exceeded the footer and forced a horizontal
+            // scrollbar on the whole page, confirmed against a real production report. Generic
+            // over task type now (not a hardcoded .find() per type) so a future new AI task type
+            // (e.g. the Fase 5 proposal-opinion tasks) never needs this file touched again to stay
+            // bounded - only the newest/first active task's detail is shown, any others collapse
+            // into a "+N" badge with the rest listed in its title tooltip.
+            if (activeTasks.length === 0) return null;
+            const footerTaskLabel = (type: string) => {
+              switch (type) {
+                case "document_analysis": return "Análise";
+                case "poc_test_generation": return "Caderno de Testes";
+                case "poc_schedule_generation": return "Cronograma";
+                case "proposal_generation": return "Proposta";
+                case "project_intake_analysis": return "Triagem";
+                case "knowledge_base_analysis": return "Base de Conhecimento";
+                default: return type;
+              }
+            };
+            const primary = activeTasks[0];
+            const extra = activeTasks.slice(1);
             return (
-              <span className="flex items-center gap-2 border-l border-slate-700 pl-6">
+              <span className="flex items-center gap-2 border-l border-slate-700 pl-6 w-[260px] shrink-0">
                 <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0"></span>
-                <span className="w-[220px] overflow-hidden shrink-0">
+                <span className="flex-1 min-w-0 overflow-hidden">
                   <span className="inline-block whitespace-nowrap animate-footer-task-ticker">
-                    Análise: {analysisTask.current_step}
-                    {typeof analysisTask.progress_pct === "number" && ` (${analysisTask.progress_pct}%)`}
+                    {footerTaskLabel(primary.type)}: {primary.current_step}
+                    {typeof primary.progress_pct === "number" && ` (${primary.progress_pct}%)`}
                   </span>
                 </span>
                 <span className="w-16 h-1.5 bg-slate-700 rounded-full overflow-hidden shrink-0">
                   <span
                     className="block h-full bg-amber-400 transition-all duration-500"
-                    style={{ width: `${typeof analysisTask.progress_pct === "number" ? analysisTask.progress_pct : 5}%` }}
+                    style={{ width: `${typeof primary.progress_pct === "number" ? primary.progress_pct : 5}%` }}
                   />
                 </span>
-              </span>
-            );
-          })()}
-          {(() => {
-            // Fase 6 follow-up (reported directly, 2026-07-14): same diagnostic-footer progress
-            // indicator as document analysis above, for the two POC AI generation flows (caderno
-            // de testes/cronograma) - both moved to the same async background-task pattern so a
-            // real ~15-30s AI round-trip shows real progress instead of just a disabled button.
-            const pocTask = activeTasks.find((t) => t.type === "poc_test_generation" || t.type === "poc_schedule_generation");
-            if (!pocTask) return null;
-            const label = pocTask.type === "poc_test_generation" ? "Caderno de Testes" : "Cronograma";
-            return (
-              <span className="flex items-center gap-2 border-l border-slate-700 pl-6">
-                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0"></span>
-                <span className="w-[220px] overflow-hidden shrink-0">
-                  <span className="inline-block whitespace-nowrap animate-footer-task-ticker">
-                    {label}: {pocTask.current_step}
-                    {typeof pocTask.progress_pct === "number" && ` (${pocTask.progress_pct}%)`}
-                  </span>
-                </span>
-                <span className="w-16 h-1.5 bg-slate-700 rounded-full overflow-hidden shrink-0">
+                {extra.length > 0 && (
                   <span
-                    className="block h-full bg-amber-400 transition-all duration-500"
-                    style={{ width: `${typeof pocTask.progress_pct === "number" ? pocTask.progress_pct : 5}%` }}
-                  />
-                </span>
+                    className="shrink-0 text-amber-300 font-bold"
+                    title={extra.map((t) => `${footerTaskLabel(t.type)}: ${t.current_step}`).join(", ")}
+                  >
+                    +{extra.length}
+                  </span>
+                )}
               </span>
             );
           })()}
