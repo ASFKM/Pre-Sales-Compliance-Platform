@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
+import { Agent, fetch as undiciFetch } from "undici";
 import { dbStore } from "../../src/dbStore";
 import { prisma } from "../../src/prisma";
 import { redis } from "../../src/redis";
@@ -60,7 +61,8 @@ async function callFleetManagerAiProxy(
   files?: ProviderFileInput[]
 ): Promise<ProviderJsonResult> {
   const { baseUrl, apiKey } = await getFleetManagerProxyConfig();
-  const res = await fetch(`${baseUrl}/api/ai-proxy/${endpoint}`, {
+  const proxyTimeoutMs = Number(process.env.AI_PROXY_TIMEOUT_MS) || 1_800_000;
+  const res = await undiciFetch(`${baseUrl}/api/ai-proxy/${endpoint}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
@@ -73,12 +75,22 @@ async function callFleetManagerAiProxy(
     // How long a real analysis can legitimately take has no fixed ceiling - a large enough tender
     // document (many pages, multiple attachments) can genuinely need a long time to fully process,
     // and a hardcoded number here just relocates the same "timed out on a big real document"
-    // failure to a different number instead of removing it (already happened once: 150s -> 300s
-    // was still too short for a real production document). Configurable via env instead; default
-    // generous (30min) rather than tightly tuned to what's been seen so far.
-    signal: AbortSignal.timeout((Number(process.env.AI_PROXY_TIMEOUT_MS) || 1_800_000)),
-  });
-  const data = await res.json().catch(() => ({}));
+    // failure to a different number instead of removing it (already happened twice: 150s -> 300s,
+    // still too short). Configurable via env instead; default generous (30min).
+    signal: AbortSignal.timeout(proxyTimeoutMs),
+    // The actual root cause of a real production failure this raced past both of the above:
+    // Node's global fetch() (undici) has its OWN internal headersTimeout, 300s by DEFAULT,
+    // completely independent of the AbortSignal above - it fires the instant the Fleet Manager
+    // takes longer than 5 minutes to send back response headers, which it can't do until the
+    // whole Anthropic/Gemini/OpenAI call has finished generating (a single buffered res.json(),
+    // not a stream relayed through). The direct-key path (callBuiltInProvider below) never hits
+    // this because it talks to the AI provider's own SDK directly, with no intermediate HTTP hop
+    // that has its own headers timeout. Using undici's fetch explicitly (not the global one) so a
+    // per-call dispatcher can override both headersTimeout and bodyTimeout to the same budget as
+    // the outer AbortSignal, instead of a hidden, shorter ceiling nobody configured on purpose.
+    dispatcher: new Agent({ headersTimeout: proxyTimeoutMs, bodyTimeout: proxyTimeoutMs }),
+  } as any);
+  const data = await res.json().catch(() => ({})) as any;
   if (!res.ok || !data.success) {
     throw new Error(data?.message || `Falha ao chamar o proxy de IA do Fleet Manager (HTTP ${res.status}).`);
   }
