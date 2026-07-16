@@ -51,10 +51,10 @@ if docker volume inspect presales-pgdata >/dev/null 2>&1 || docker volume inspec
 else
   docker rm -f presales-postgres presales-redis >/dev/null 2>&1 || true
 fi
-docker run -d --name presales-postgres \
+docker run -d --name presales-postgres --restart unless-stopped \
   -e POSTGRES_DB=commercial_assistant -e POSTGRES_USER=app_user -e POSTGRES_PASSWORD="$PG_PASSWORD" \
   -p 127.0.0.1:5432:5432 -v presales-pgdata:/var/lib/postgresql/data postgres:16-alpine >/dev/null
-docker run -d --name presales-redis \
+docker run -d --name presales-redis --restart unless-stopped \
   -p 127.0.0.1:6379:6379 -v presales-redisdata:/data redis:7-alpine --requirepass "$REDIS_PASSWORD" >/dev/null
 
 echo "[2/4] Aguardando bancos ficarem prontos..."
