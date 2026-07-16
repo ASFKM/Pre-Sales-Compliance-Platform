@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manual de Administração — Pre-Sales Compliance Platform</title>
+<style>
+  :root {
+    --ink: #14181c; --ink-soft: #3a4149; --ink-faint: #6b7480;
+    --paper: #f7f8f9; --paper-raised: #ffffff; --hairline: #dde1e5; --hairline-strong: #c4cad0;
+    --accent: #0f766e; --accent-soft: #e6f4f2;
+    --mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
+    --serif: Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, "Times New Roman", serif;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink: #e7eaed; --ink-soft: #b7c0c8; --ink-faint: #838d97; --paper: #14181c; --paper-raised: #1b2126; --hairline: #2a323a; --hairline-strong: #3a434c; --accent: #4fd1c5; --accent-soft: #123a36; }
+  }
+  html[data-theme="dark"] { --ink: #e7eaed; --ink-soft: #b7c0c8; --ink-faint: #838d97; --paper: #14181c; --paper-raised: #1b2126; --hairline: #2a323a; --hairline-strong: #3a434c; --accent: #4fd1c5; --accent-soft: #123a36; }
+  html[data-theme="light"] { --ink: #14181c; --ink-soft: #3a4149; --ink-faint: #6b7480; --paper: #f7f8f9; --paper-raised: #ffffff; --hairline: #dde1e5; --hairline-strong: #c4cad0; --accent: #0f766e; --accent-soft: #e6f4f2; }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--paper); }
+  body { color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+  a { color: var(--accent); }
+  code { font-family: var(--mono); font-size: 0.9em; background: var(--hairline); padding: 1px 5px; border-radius: 4px; }
+  pre { background: var(--paper-raised); border: 1px solid var(--hairline); border-radius: 8px; padding: 12px 14px; overflow-x: auto; }
+  pre code { background: none; padding: 0; }
+
+  .topbar { position: sticky; top: 0; z-index: 20; background: var(--paper-raised); border-bottom: 1px solid var(--hairline); }
+  .topbar-inner { max-width: 1180px; margin: 0 auto; padding: 12px 20px; display: flex; align-items: center; gap: 16px; }
+  .brand { font-family: var(--serif); font-weight: 700; font-size: 16px; white-space: nowrap; }
+  .brand span { color: var(--accent); }
+  .other-manual { margin-left: auto; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+
+  .search-wrap { position: relative; flex: 1; max-width: 480px; }
+  #search-input { width: 100%; padding: 8px 12px 8px 32px; border-radius: 8px; border: 1px solid var(--hairline-strong); background: var(--paper); color: var(--ink); font-size: 13.5px; font-family: var(--sans); }
+  #search-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 13px; color: var(--ink-faint); pointer-events: none; }
+  #search-results { position: absolute; top: calc(100% + 6px); left: 0; right: 0; background: var(--paper-raised); border: 1px solid var(--hairline-strong); border-radius: 10px; box-shadow: 0 8px 24px -8px rgba(0,0,0,.25); max-height: 60vh; overflow-y: auto; display: none; z-index: 30; }
+  #search-results.open { display: block; }
+  .result-item { display: block; padding: 9px 14px; text-decoration: none; color: var(--ink); border-bottom: 1px solid var(--hairline); cursor: pointer; }
+  .result-item:last-child { border-bottom: none; }
+  .result-item:hover, .result-item.active { background: var(--accent-soft); }
+  .result-heading { font-weight: 700; font-size: 13px; }
+  .result-snippet { font-size: 12px; color: var(--ink-faint); margin-top: 2px; }
+  .result-snippet mark, .result-heading mark { background: none; color: var(--accent); font-weight: 700; }
+  .no-results { padding: 14px; font-size: 13px; color: var(--ink-faint); }
+
+  .layout { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 240px 1fr; gap: 40px; padding: 28px 20px 100px; }
+  @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } .sidebar { display: none; } }
+
+  .sidebar { position: sticky; top: 68px; align-self: start; max-height: calc(100vh - 90px); overflow-y: auto; }
+  .sidebar .cap { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-faint); margin: 0 0 10px; }
+  .nav-link { display: block; font-size: 12.5px; padding: 5px 0; color: var(--ink-soft); text-decoration: none; border-left: 2px solid transparent; padding-left: 10px; margin-left: -1px; }
+  .nav-link:hover { color: var(--accent); }
+
+  .content h1 { font-family: var(--serif); font-size: 30px; margin: 0 0 6px; text-wrap: balance; }
+  .content h2 { font-family: var(--serif); font-size: 21px; margin: 44px 0 14px; padding-top: 8px; border-top: 1px solid var(--hairline); }
+  .content h2:first-of-type { border-top: none; margin-top: 20px; }
+  .content h3 { font-size: 15px; font-weight: 700; margin: 26px 0 10px; color: var(--ink); }
+  .content p { font-size: 14px; line-height: 1.7; color: var(--ink-soft); max-width: 720px; }
+  .content ul { font-size: 14px; line-height: 1.7; color: var(--ink-soft); max-width: 720px; padding-left: 20px; }
+  .content li { margin-bottom: 4px; }
+  .content blockquote { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 10px 16px; border-radius: 0 8px 8px 0; font-size: 13.5px; color: var(--ink-soft); max-width: 700px; margin: 16px 0; }
+  .table-wrap { overflow-x: auto; margin: 14px 0; }
+  table { border-collapse: collapse; font-size: 13px; width: 100%; max-width: 760px; }
+  th, td { text-align: left; padding: 7px 12px; border-bottom: 1px solid var(--hairline); }
+  th { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-faint); border-bottom: 1px solid var(--hairline-strong); }
+
+  figure.screenshot { margin: 18px 0 26px; }
+  figure.screenshot img { max-width: 100%; border-radius: 10px; border: 1px solid var(--hairline-strong); box-shadow: 0 1px 2px rgba(0,0,0,.06), 0 12px 28px -12px rgba(0,0,0,.18); display: block; }
+  figure.screenshot figcaption { font-size: 12px; color: var(--ink-faint); margin-top: 8px; }
+
+  mark.hl { background: #ffe58a; color: #14181c; padding: 0 2px; border-radius: 2px; }
+  html[data-theme="dark"] mark.hl, @media (prefers-color-scheme: dark) { mark.hl { background: #7a5d00; color: #fff3d0; } }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">Pre-Sales <span>Compliance Platform</span></div>
+      <div class="search-wrap">
+        <span class="search-icon">&#9906;</span>
+        <input id="search-input" type="text" placeholder="Pesquisar no manual... (ex: aprovação, POC, cor primária)" autocomplete="off">
+        <div id="search-results"></div>
+      </div>
+      <a class="other-manual" href="manual-usuario.html" target="_blank" rel="noopener">Manual do Usuário &rarr;</a>
+    </div>
+  </div>
+  <div class="layout">
+    <nav class="sidebar">
+      <p class="cap">Neste manual</p>
+      <a href="#sumario" class="nav-link">Sumário</a>
+<a href="#visao-geral-do-sistema" class="nav-link">Visão Geral do Sistema</a>
+<a href="#usuarios-e-acessos" class="nav-link">Usuários e Acessos</a>
+<a href="#1-perfis-roles" class="nav-link">1 Perfis (Roles)</a>
+<a href="#2-diretorio-de-usuarios" class="nav-link">2 Diretório de Usuários</a>
+<a href="#ia-prompts-e-custos" class="nav-link">IA, Prompts e Custos</a>
+<a href="#1-modelos-e-provedores-de-ia" class="nav-link">1 Modelos e Provedores de IA</a>
+<a href="#2-custos-de-ia-e-prompts" class="nav-link">2 Custos de IA e Prompts</a>
+<a href="#3-templates-de-prompt" class="nav-link">3 Templates de Prompt</a>
+<a href="#templates-de-propostas" class="nav-link">Templates de Propostas</a>
+<a href="#fluxo-de-aprovacao-de-propostas" class="nav-link">Fluxo de Aprovação de Propostas</a>
+<a href="#1-como-a-decisao-realmente-funciona" class="nav-link">1 Como a decisão realmente funciona</a>
+<a href="#2-limitacao-importante-como-um-fluxo-e-vinculado-a-um-projeto" class="nav-link">2 Limitação importante: como um fluxo é vinculado a um projeto</a>
+<a href="#subscricao-e-licenca" class="nav-link">Subscrição e Licença</a>
+<a href="#personalizacao-e-identidade-visual" class="nav-link">Personalização e Identidade Visual</a>
+<a href="#integracoes-crms-erps-e-apis" class="nav-link">Integrações, CRMs, ERPs e APIs</a>
+<a href="#armazenamento-e-documentos" class="nav-link">Armazenamento e Documentos</a>
+<a href="#auditoria-e-diagnostico" class="nav-link">Auditoria e Diagnóstico</a>
+<a href="#boas-praticas-de-administracao" class="nav-link">Boas práticas de administração</a>
+    </nav>
+    <main class="content">
+<h1 id="manual-de-administracao-pre-sales-compliance-platform">Manual de Administração — Pre-Sales Compliance Platform</h1>
+<p>Este manual cobre a área <strong>Configurações</strong>, disponível para usuários com pelo menos uma permissão</p>
+<p>administrativa. Para o uso do dia a dia (projetos, propostas, POC), veja o</p>
+<p><a href="./MANUAL_DO_USUARIO.md">Manual do Usuário</a>.</p>
+<p>A área de Configurações tem 10 seções na barra lateral. Cada seção só aparece para quem tem a(s)</p>
+<p>permissão(ões) correspondente(s) — é normal um administrador não-técnico não ver, por exemplo,</p>
+<p>"Armazenamento e Documentos".</p>
+<h2 id="sumario">Sumário</h2>
+<h2 id="visao-geral-do-sistema">Visão Geral do Sistema</h2>
+<figure class="screenshot"><img src="screenshots/26-admin-visao-geral.png" alt="26-admin-visao-geral.png" loading="lazy"></figure>
+<p><strong>Permissão necessária:</strong> qualquer permissão administrativa.</p>
+<p>Painel inicial da área de Configurações, com cards de resumo:</p>
+<ul><li><strong>Integrações</strong> — atalho e status resumido dos conectores configurados.</li><li><strong>Provedores de IA</strong> — quais provedores (Gemini, OpenAI, Anthropic, personalizados) estão</li></ul>
+<p>  configurados e prontos para uso.</p>
+<ul><li><strong>Sistema</strong> — licença, modo de armazenamento e branding em um único lugar.</li><li><strong>Atalhos de Configuração</strong> — links diretos para as seções mais usadas.</li><li><strong>Resumo Operacional</strong> — modelo de IA padrão, número de prompts customizados, número de logs de</li></ul>
+<p>  auditoria e número de usuários cadastrados.</p>
+<ul><li><strong>Enviar Aviso a Todos os Usuários</strong> — formulário para publicar um comunicado que aparece para</li></ul>
+<p>  todos os usuários da instância (útil para avisar sobre manutenção, mudanças de processo, etc.).</p>
+<h2 id="usuarios-e-acessos">Usuários e Acessos</h2>
+<p><strong>Permissões necessárias:</strong> <code>admin:users</code> (gerenciar usuários) e/ou <code>admin:roles</code> (gerenciar</p>
+<p>perfis).</p>
+<h3 id="1-perfis-roles">1 Perfis (Roles)</h3>
+<figure class="screenshot"><img src="screenshots/27-admin-perfis.png" alt="27-admin-perfis.png" loading="lazy"></figure>
+<p>Um <strong>perfil</strong> é um conjunto nomeado de permissões (ex: "Vendedor", "Engenheiro", "Aprovador"). Cada</p>
+<p>card de perfil mostra checkboxes com todas as permissões do sistema — marque/desmarque para ajustar</p>
+<p>o que aquele perfil pode fazer, e clique em <strong>Criar Novo Perfil</strong> para começar um do zero.</p>
+<blockquote>Mudar as permissões de um perfil afeta <strong>imediatamente</strong> todos os usuários que já têm esse perfil atribuído — não é preciso "salvar e aplicar" separadamente por usuário.</blockquote>
+<p>Referência rápida das permissões disponíveis:</p>
+<div class="table-wrap"><table><thead><tr><th>Permissão</th><th>Controla</th></tr></thead><tbody><tr><td><code>project:create</code> / <code>project:update</code> / <code>project:delete</code></td><td>Criar, editar, excluir projetos</td></tr><tr><td><code>analysis:run</code> / <code>analysis:read</code> / <code>analysis:edit</code></td><td>Rodar, ver e editar análises de IA</td></tr><tr><td><code>proposal:generate</code> / <code>proposal:edit</code> / <code>proposal:export</code> / <code>proposal:approve</code></td><td>Ciclo de vida da proposta</td></tr><tr><td><code>approval:manage</code></td><td>Configurar fluxos de aprovação</td></tr><tr><td><code>document:upload</code> / <code>document:read</code> / <code>document:delete</code></td><td>Documentos do projeto</td></tr><tr><td><code>knowledge_base:read</code> / <code>knowledge_base:write</code></td><td>Base de Conhecimento</td></tr><tr><td><code>poc:read</code> / <code>poc:manage</code></td><td>Módulo de Prova de Conceito</td></tr><tr><td><code>template:manage</code></td><td>Templates de proposta e verticais</td></tr><tr><td><code>branding:manage</code></td><td>Logo e cores da identidade visual</td></tr><tr><td><code>integrations:manage</code></td><td>Conectores de CRM/ERP</td></tr><tr><td><code>storage:manage</code></td><td>Modo de armazenamento de arquivos</td></tr><tr><td><code>ai:settings</code></td><td>Provedores de IA, prompts, teto de custo</td></tr><tr><td><code>admin:users</code> / <code>admin:roles</code></td><td>Gestão de usuários e perfis</td></tr><tr><td><code>admin:settings</code></td><td>Licença/assinatura e conexão com o CMSaaS</td></tr><tr><td><code>admin:audit</code></td><td>Log de auditoria</td></tr><tr><td><code>admin:debug</code> / <code>admin:diagnostics</code></td><td>Console de debug e pacote de diagnóstico</td></tr></tbody></table></div>
+<h3 id="2-diretorio-de-usuarios">2 Diretório de Usuários</h3>
+<figure class="screenshot"><img src="screenshots/28-admin-usuarios.png" alt="28-admin-usuarios.png" loading="lazy"></figure>
+<p>Tabela com todos os usuários da instância. <strong>+ Novo Usuário</strong> pede nome, e-mail, senha inicial e</p>
+<p>perfil. Cada linha tem uma opção de <strong>redefinir senha</strong> — use quando um usuário esquecer a senha</p>
+<p>(não existe fluxo de "esqueci minha senha" self-service).</p>
+<blockquote>Ao criar um usuário, escolha o perfil com cuidado — como não há tela de "editar permissões individuais", quem precisar de um conjunto de permissões diferente de qualquer perfil existente vai precisar de um perfil novo (seção 2.1).</blockquote>
+<h2 id="ia-prompts-e-custos">IA, Prompts e Custos</h2>
+<p><strong>Permissão necessária:</strong> <code>ai:settings</code>.</p>
+<p>Esta é a seção mais densa do Admin Console.</p>
+<h3 id="1-modelos-e-provedores-de-ia">1 Modelos e Provedores de IA</h3>
+<figure class="screenshot"><img src="screenshots/29-admin-ia-provedores.png" alt="29-admin-ia-provedores.png" loading="lazy"></figure>
+<ul><li>Cadastre chaves de API para Gemini, OpenAI e/ou Anthropic, e provedores personalizados</li></ul>
+<p>  compatíveis com a API da OpenAI (clique em <strong>+ Adicionar Provedor</strong>).</p>
+<ul><li>No <strong>mapa Tarefa → Provedor → Modelo</strong>, escolha qual provedor/modelo atende cada tipo de tarefa</li></ul>
+<p>  de IA do sistema (análise de documento, geração de proposta, classificação, etc.) — não é</p>
+<p>  preciso usar o mesmo provedor para tudo.</p>
+<ul><li><strong>Teto Mensal de Custo (USD)</strong> — defina um limite de gasto mensal com IA; o sistema bloqueia</li></ul>
+<p>  novas chamadas ao atingir o teto (com aviso em 80% do valor).</p>
+<blockquote><strong>Se o add-on IA/KB (gerenciado pelo CMSaaS) estiver ativo</strong> nesta instalação, esta seção vira <strong>somente-leitura</strong>, com um aviso explicando que os provedores/modelos agora são geridos centralmente. Isso é esperado — não é um bug. Para mudar algo nesse caso, o pedido precisa ir para quem administra o CMSaaS, não por aqui.</blockquote>
+<h3 id="2-custos-de-ia-e-prompts">2 Custos de IA e Prompts</h3>
+<p>*(Card visível na mesma tela do print anterior, coluna "Custos de IA e Prompts")*</p>
+<p>Mostra o consumo do mês corrente por serviço e provedor, e a data do próximo vencimento de</p>
+<p>cobrança. É informativo — a cobrança em si é gerida pelo CMSaaS.</p>
+<h3 id="3-templates-de-prompt">3 Templates de Prompt</h3>
+<figure class="screenshot"><img src="screenshots/30-admin-ia-prompts.png" alt="30-admin-ia-prompts.png" loading="lazy"></figure>
+<p>Quatro prompts do sistema podem ser customizados, cada um com histórico de versões:</p>
+<ul><li>Classificação de Documentos</li><li>Geração de Caderno de Teste (POC)</li><li>Sugestão de Cronograma (POC)</li><li>Questionário de Relatório Final (POC)</li></ul>
+<p>Para cada um: <strong>criar nova versão</strong> (editar o texto do prompt), <strong>ativar uma versão</strong> (torná-la a</p>
+<p>usada em produção), ou <strong>resetar para o padrão de fábrica</strong> se algo sair errado. Versões antigas</p>
+<p>ficam guardadas — nada é perdido ao trocar de versão ativa.</p>
+<h2 id="templates-de-propostas">Templates de Propostas</h2>
+<figure class="screenshot"><img src="screenshots/31-admin-templates.png" alt="31-admin-templates.png" loading="lazy"></figure>
+<p><strong>Permissão necessária:</strong> <code>template:manage</code>.</p>
+<p>Envie um arquivo DOCX de modelo para cada um dos 7 tipos de proposta (Técnica, Comercial,</p>
+<p>Técnico-Comercial, Resumo Executivo, Relatório de Riscos, Relatório de BOM, Relatório de</p>
+<p>Perguntas) em <strong>Enviar Template</strong>. Cada tipo pode ter múltiplas versões enviadas — use <strong>Ativar</strong></p>
+<p>para escolher qual delas é usada quando um usuário gera aquele tipo de proposta.</p>
+<p>Nesta mesma tela fica a gestão de <strong>Verticais de Indústria</strong> (Saúde, Educação, Transporte etc.) —</p>
+<p>ative, desative ou exclua verticais conforme o mercado de atuação da empresa mudar.</p>
+<h2 id="fluxo-de-aprovacao-de-propostas">Fluxo de Aprovação de Propostas</h2>
+<figure class="screenshot"><img src="screenshots/32-admin-fluxo-aprovacao.png" alt="32-admin-fluxo-aprovacao.png" loading="lazy"></figure>
+<p><strong>Permissão necessária:</strong> <code>approval:manage</code>.</p>
+<p>Um <strong>fluxo</strong> define quantas etapas uma proposta passa antes de ser considerada aprovada, e quem</p>
+<p>aprova cada etapa. Clique em <strong>+ Novo Fluxo</strong>, depois <strong>+ Nova Etapa</strong> para cada etapa, definindo:</p>
+<ul><li><strong>Nome da etapa</strong> (precisa ser único dentro do fluxo).</li><li><strong>Aprovador</strong> — uma pessoa específica, ou qualquer usuário que tenha um determinado perfil.</li><li><strong>Obrigatória</strong> (<code>mandatory</code>) — ligada por padrão. Veja o efeito exato abaixo.</li><li><strong>Aplica-se a</strong> (<code>applies_to</code>) — um rótulo livre (ex: "Propostas Técnicas", "all"). Hoje esse</li></ul>
+<p>  campo é só informativo/organizacional: nenhuma tela filtra automaticamente por ele ao vincular</p>
+<p>  um fluxo a um projeto (veja a limitação importante logo abaixo).</p>
+<h3 id="1-como-a-decisao-realmente-funciona">1 Como a decisão realmente funciona</h3>
+<p>Isso não está descrito em nenhum lugar da interface, então vale entender antes de configurar um</p>
+<p>fluxo real:</p>
+<ul><li><strong>As etapas não são estritamente sequenciais.</strong> O sistema não bloqueia a decisão de uma etapa</li></ul>
+<p>  posterior antes de uma anterior ser decidida — cada aprovador configurado pode decidir sua</p>
+<p>  própria etapa a qualquer momento, independentemente do estado das outras. A ordem cadastrada</p>
+<p>  serve principalmente para exibição.</p>
+<ul><li><strong>Cada etapa só pode ser decidida uma vez.</strong> Depois de registrada, a decisão daquela etapa é</li></ul>
+<p>  definitiva — não existe "mudar de ideia" ou refazer a decisão pela interface.</p>
+<ul><li>**A proposta só vira "Aprovada" quando TODAS as etapas marcadas como obrigatórias tiverem</li></ul>
+<p>  decisão "Aprovado".** Etapas não-obrigatórias não precisam ser decididas para a proposta avançar.</p>
+<ul><li>**Uma única rejeição, em qualquer etapa — obrigatória ou não — rejeita a proposta inteira</li></ul>
+<p>  imediatamente.** A partir daí, nenhuma outra etapa pode mais ser decidida (o sistema só aceita</p>
+<p>  decisões enquanto a proposta está com status "Enviada para Aprovação"). Ou seja: uma etapa</p>
+<p>  opcional configurada sem cuidado ainda pode travar/encerrar todo o processo sozinha se seu</p>
+<p>  aprovador rejeitar.</p>
+<blockquote>Se o aprovador de uma etapa for um perfil (não uma pessoa), qualquer usuário com aquele perfil pode decidir aquela etapa — útil para não travar a aprovação na ausência de uma pessoa específica.</blockquote>
+<h3 id="2-limitacao-importante-como-um-fluxo-e-vinculado-a-um-projeto">2 Limitação importante: como um fluxo é vinculado a um projeto</h3>
+<p>**No estado atual do sistema, não existe nenhuma tela para escolher qual fluxo de aprovação se</p>
+<p>aplica a um projeto específico.** Esse vínculo (<code>selected_approval_workflow_id</code>, no projeto) não</p>
+<p>aparece em nenhum formulário — nem na criação do projeto (com IA ou manual), nem na edição.</p>
+<p>Na prática, isso significa que o botão <strong>"Enviar para Aprovação de Fluxo"</strong> (Estúdio de Propostas,</p>
+<p>veja o Manual do Usuário) vai retornar erro ("fluxo de aprovação ativo não encontrado") em</p>
+<p>qualquer projeto criado normalmente pela interface, mesmo depois de você cadastrar um fluxo aqui —</p>
+<p>o campo do projeto nunca é preenchido com o ID do fluxo real.</p>
+<p>Até que essa tela exista, o vínculo só pode ser feito manualmente no banco de dados (tarefa para o</p>
+<p>time técnico/suporte, não para o administrador pela interface). Recomendamos reportar isso como</p>
+<p>item de produto a ser corrigido — hoje, cadastrar um fluxo de aprovação aqui não é suficiente para</p>
+<p>usá-lo de fato em um projeto real.</p>
+<h2 id="subscricao-e-licenca">Subscrição e Licença</h2>
+<figure class="screenshot"><img src="screenshots/33-admin-licenca.png" alt="33-admin-licenca.png" loading="lazy"></figure>
+<p><strong>Permissão necessária:</strong> <code>admin:settings</code>.</p>
+<p>Esta seção é <strong>somente-leitura</strong> para os dados vindos do CMSaaS via heartbeat automático: nome e</p>
+<p>logo do cliente, plano contratado, status da assinatura, vigência do contrato, módulos habilitados</p>
+<p>e horário da última verificação. Não é possível editar esses dados por aqui — qualquer mudança de</p>
+<p>plano/contrato precisa ser feita do lado do CMSaaS.</p>
+<p>Nesta mesma tela, porém, fica a configuração da <strong>conexão</strong> com o CMSaaS em si: ativar/desativar a</p>
+<p>integração, URL do Fleet Manager e chave de API. Isso sim é configurável localmente — é o "fio"</p>
+<p>que liga esta instalação ao painel de licenciamento central.</p>
+<h2 id="personalizacao-e-identidade-visual">Personalização e Identidade Visual</h2>
+<figure class="screenshot"><img src="screenshots/34-admin-branding.png" alt="34-admin-branding.png" loading="lazy"></figure>
+<p><strong>Permissão necessária:</strong> <code>branding:manage</code>.</p>
+<ul><li>Envie o logo da empresa (arraste ou clique — aceita PNG, JPEG, SVG ou WEBP) ou remova o logo</li></ul>
+<p>  atual.</p>
+<ul><li>Escolha a <strong>Cor Primária</strong> e a <strong>Cor de Destaque</strong> usadas na interface.</li></ul>
+<h2 id="integracoes-crms-erps-e-apis">Integrações, CRMs, ERPs e APIs</h2>
+<figure class="screenshot"><img src="screenshots/35-admin-integracoes.png" alt="35-admin-integracoes.png" loading="lazy"></figure>
+<p><strong>Permissão necessária:</strong> <code>integrations:manage</code>.</p>
+<p>Conecte sistemas externos: conectores prontos para <strong>Salesforce</strong> e <strong>HubSpot</strong> (URL já</p>
+<p>pré-preenchida, só falta a credencial), ou um conector do tipo <strong>customizado</strong> para qualquer outro</p>
+<p>sistema com API compatível.</p>
+<h2 id="armazenamento-e-documentos">Armazenamento e Documentos</h2>
+<figure class="screenshot"><img src="screenshots/36-admin-armazenamento.png" alt="36-admin-armazenamento.png" loading="lazy"></figure>
+<p><strong>Permissão necessária:</strong> <code>storage:manage</code>.</p>
+<p>Escolha onde os arquivos enviados pelos usuários (documentos de projeto, templates, etc.) são</p>
+<p>fisicamente armazenados:</p>
+<div class="table-wrap"><table><thead><tr><th>Modo</th><th>Quando usar</th></tr></thead><tbody><tr><td>Diretórios Locais</td><td>Instalação on-premise simples, sem dependência de nuvem</td></tr><tr><td>AWS S3</td><td>Ambiente já usa infraestrutura AWS</td></tr><tr><td>Google Cloud Storage</td><td>Ambiente já usa infraestrutura GCP</td></tr></tbody></table></div>
+<p>Cada modo pede os campos específicos daquele provedor (caminho local, nome do bucket S3, nome do</p>
+<p>bucket GCS).</p>
+<blockquote>Trocar o modo de armazenamento não migra automaticamente os arquivos já enviados no modo anterior — planeje essa mudança com cuidado, de preferência logo no início da operação da instância.</blockquote>
+<h2 id="auditoria-e-diagnostico">Auditoria e Diagnóstico</h2>
+<figure class="screenshot"><img src="screenshots/37-admin-auditoria.png" alt="37-admin-auditoria.png" loading="lazy"></figure>
+<p><strong>Permissões necessárias:</strong> <code>admin:audit</code> (log de auditoria), <code>admin:debug</code> /</p>
+<p><code>admin:diagnostics</code> (console de debug e diagnóstico).</p>
+<ul><li><strong>Log de Auditoria</strong> — botão "Audit Logs (N)" abre o livro completo de ações administrativas e</li></ul>
+<p>  sensíveis realizadas na instância (quem fez o quê e quando). <strong>Exportar Livro CSV</strong> gera um</p>
+<p>  arquivo para auditoria externa/compliance.</p>
+<ul><li><strong>Console de Diagnóstico</strong> — botão "Abrir Console de Diagnóstico" abre uma tela técnica com</li></ul>
+<p>  logs de debug do sistema e um botão para <strong>baixar o Pacote de Diagnóstico</strong> (um resumo</p>
+<p>  sanitizado do estado do sistema, útil para enviar ao suporte técnico em caso de problema).</p>
+<figure class="screenshot"><img src="screenshots/38-admin-diagnostico.png" alt="38-admin-diagnostico.png" loading="lazy"></figure>
+<h2 id="boas-praticas-de-administracao">Boas práticas de administração</h2>
+<ul><li><strong>Prefira perfis a exceções por pessoa.</strong> Se duas ou três pessoas vão precisar do mesmo conjunto</li></ul>
+<p>  de permissões, crie um perfil em vez de lembrar manualmente quem tem o quê.</p>
+<ul><li><strong>Revise o log de auditoria periodicamente</strong>, não só quando algo dá errado — é a forma mais</li></ul>
+<p>  simples de perceber uso indevido ou configuração incorreta cedo.</p>
+<ul><li><strong>Trate os Templates de Propostas como um documento controlado.</strong> Antes de ativar uma nova versão</li></ul>
+<p>  de template, revise o conteúdo — ele vira imediatamente o padrão para todas as propostas novas</p>
+<p>  daquele tipo.</p>
+<ul><li><strong>Configure o Teto Mensal de Custo de IA</strong> (seção 3.1) desde o início, mesmo que generoso — evita</li></ul>
+<p>  surpresa na fatura do provedor de IA.</p>
+<ul><li><strong>Ao adicionar um novo tipo de aprovador</strong> em um fluxo (seção 5), prefira vincular por perfil em</li></ul>
+<p>  vez de pessoa específica sempre que fizer sentido — reduz a chance de uma aprovação travar por</p>
+<p>  ausência de alguém.</p>
+    </main>
+  </div>
+
+<script>
+(function () {
+  var THEME_KEY = "manual-theme";
+  var stored = null;
+  try { stored = localStorage.getItem(THEME_KEY); } catch (e) {}
+  if (stored) document.documentElement.setAttribute("data-theme", stored);
+
+  var INDEX = [{"id":"sumario","heading":"Sumário","text":""},{"id":"visao-geral-do-sistema","heading":"Visão Geral do Sistema","text":"**Permissão necessária:** qualquer permissão administrativa. Painel inicial da área de Configurações, com cards de resumo: **Integrações** — atalho e status resumido dos conectores configurados. **Provedores de IA** — quais provedores (Gemini, OpenAI, Anthropic, personalizados) estão configurados e prontos para uso. **Sistema** — licença, modo de armazenamento e branding em um único lugar. **Atalhos de Configuração** — links diretos para as seções mais usadas. **Resumo Operacional** — modelo de "},{"id":"usuarios-e-acessos","heading":"Usuários e Acessos","text":"**Permissões necessárias:** `admin:users` (gerenciar usuários) e/ou `admin:roles` (gerenciar perfis). Um **perfil** é um conjunto nomeado de permissões (ex: \"Vendedor\", \"Engenheiro\", \"Aprovador\"). Cada card de perfil mostra checkboxes com todas as permissões do sistema — marque/desmarque para ajustar o que aquele perfil pode fazer, e clique em **Criar Novo Perfil** para começar um do zero. Mudar as permissões de um perfil afeta **imediatamente** todos os usuários que já têm esse perfil atribuído"},{"id":"1-perfis-roles","heading":"1 Perfis (Roles)","text":""},{"id":"2-diretorio-de-usuarios","heading":"2 Diretório de Usuários","text":""},{"id":"ia-prompts-e-custos","heading":"IA, Prompts e Custos","text":"**Permissão necessária:** `ai:settings`. Esta é a seção mais densa do Admin Console. Cadastre chaves de API para Gemini, OpenAI e/ou Anthropic, e provedores personalizados compatíveis com a API da OpenAI (clique em **+ Adicionar Provedor**). No **mapa Tarefa → Provedor → Modelo**, escolha qual provedor/modelo atende cada tipo de tarefa de IA do sistema (análise de documento, geração de proposta, classificação, etc.) — não é preciso usar o mesmo provedor para tudo. **Teto Mensal de Custo (USD)** "},{"id":"1-modelos-e-provedores-de-ia","heading":"1 Modelos e Provedores de IA","text":""},{"id":"2-custos-de-ia-e-prompts","heading":"2 Custos de IA e Prompts","text":""},{"id":"3-templates-de-prompt","heading":"3 Templates de Prompt","text":""},{"id":"templates-de-propostas","heading":"Templates de Propostas","text":"**Permissão necessária:** `template:manage`. Envie um arquivo DOCX de modelo para cada um dos 7 tipos de proposta (Técnica, Comercial, Técnico-Comercial, Resumo Executivo, Relatório de Riscos, Relatório de BOM, Relatório de Perguntas) em **Enviar Template**. Cada tipo pode ter múltiplas versões enviadas — use **Ativar** para escolher qual delas é usada quando um usuário gera aquele tipo de proposta. Nesta mesma tela fica a gestão de **Verticais de Indústria** (Saúde, Educação, Transporte etc.) —"},{"id":"fluxo-de-aprovacao-de-propostas","heading":"Fluxo de Aprovação de Propostas","text":"**Permissão necessária:** `approval:manage`. Um **fluxo** define quantas etapas uma proposta passa antes de ser considerada aprovada, e quem aprova cada etapa. Clique em **+ Novo Fluxo**, depois **+ Nova Etapa** para cada etapa, definindo: **Nome da etapa** (precisa ser único dentro do fluxo). **Aprovador** — uma pessoa específica, ou qualquer usuário que tenha um determinado perfil. **Obrigatória** (`mandatory`) — ligada por padrão. Veja o efeito exato abaixo. **Aplica-se a** (`applies_to`) — u"},{"id":"1-como-a-decisao-realmente-funciona","heading":"1 Como a decisão realmente funciona","text":""},{"id":"2-limitacao-importante-como-um-fluxo-e-vinculado-a-um-projeto","heading":"2 Limitação importante: como um fluxo é vinculado a um projeto","text":""},{"id":"subscricao-e-licenca","heading":"Subscrição e Licença","text":"**Permissão necessária:** `admin:settings`. Esta seção é **somente-leitura** para os dados vindos do CMSaaS via heartbeat automático: nome e logo do cliente, plano contratado, status da assinatura, vigência do contrato, módulos habilitados e horário da última verificação. Não é possível editar esses dados por aqui — qualquer mudança de plano/contrato precisa ser feita do lado do CMSaaS. Nesta mesma tela, porém, fica a configuração da **conexão** com o CMSaaS em si: ativar/desativar a integração,"},{"id":"personalizacao-e-identidade-visual","heading":"Personalização e Identidade Visual","text":"**Permissão necessária:** `branding:manage`. Envie o logo da empresa (arraste ou clique — aceita PNG, JPEG, SVG ou WEBP) ou remova o logo atual. Escolha a **Cor Primária** e a **Cor de Destaque** usadas na interface."},{"id":"integracoes-crms-erps-e-apis","heading":"Integrações, CRMs, ERPs e APIs","text":"**Permissão necessária:** `integrations:manage`. Conecte sistemas externos: conectores prontos para **Salesforce** e **HubSpot** (URL já pré-preenchida, só falta a credencial), ou um conector do tipo **customizado** para qualquer outro sistema com API compatível."},{"id":"armazenamento-e-documentos","heading":"Armazenamento e Documentos","text":"**Permissão necessária:** `storage:manage`. Escolha onde os arquivos enviados pelos usuários (documentos de projeto, templates, etc.) são fisicamente armazenados: Cada modo pede os campos específicos daquele provedor (caminho local, nome do bucket S3, nome do bucket GCS). Trocar o modo de armazenamento não migra automaticamente os arquivos já enviados no modo anterior — planeje essa mudança com cuidado, de preferência logo no início da operação da instância."},{"id":"auditoria-e-diagnostico","heading":"Auditoria e Diagnóstico","text":"**Permissões necessárias:** `admin:audit` (log de auditoria), `admin:debug` / `admin:diagnostics` (console de debug e diagnóstico). **Log de Auditoria** — botão \"Audit Logs (N)\" abre o livro completo de ações administrativas e sensíveis realizadas na instância (quem fez o quê e quando). **Exportar Livro CSV** gera um arquivo para auditoria externa/compliance. **Console de Diagnóstico** — botão \"Abrir Console de Diagnóstico\" abre uma tela técnica com logs de debug do sistema e um botão para **bai"},{"id":"boas-praticas-de-administracao","heading":"Boas práticas de administração","text":"**Prefira perfis a exceções por pessoa.** Se duas ou três pessoas vão precisar do mesmo conjunto de permissões, crie um perfil em vez de lembrar manualmente quem tem o quê. **Revise o log de auditoria periodicamente**, não só quando algo dá errado — é a forma mais simples de perceber uso indevido ou configuração incorreta cedo. **Trate os Templates de Propostas como um documento controlado.** Antes de ativar uma nova versão de template, revise o conteúdo — ele vira imediatamente o padrão para to"}];
+  var input = document.getElementById("search-input");
+  var resultsBox = document.getElementById("search-results");
+
+  function norm(s) {
+    return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  }
+
+  function highlight(text, q) {
+    if (!q) return text;
+    var idx = norm(text).indexOf(q);
+    if (idx === -1) return text;
+    return text.slice(0, idx) + '<mark class="hl">' + text.slice(idx, idx + q.length) + "</mark>" + text.slice(idx + q.length);
+  }
+
+  function snippetAround(text, q) {
+    var n = norm(text);
+    var idx = n.indexOf(q);
+    if (idx === -1) return text.slice(0, 140);
+    var start = Math.max(0, idx - 60);
+    var end = Math.min(text.length, idx + q.length + 80);
+    return (start > 0 ? "…" : "") + text.slice(start, end) + (end < text.length ? "…" : "");
+  }
+
+  function render(query) {
+    var q = norm(query.trim());
+    if (!q) {
+      resultsBox.classList.remove("open");
+      resultsBox.innerHTML = "";
+      return;
+    }
+    var matches = INDEX.filter(function (item) {
+      return norm(item.heading).indexOf(q) !== -1 || norm(item.text).indexOf(q) !== -1;
+    }).slice(0, 12);
+
+    if (matches.length === 0) {
+      resultsBox.innerHTML = '<div class="no-results">Nada encontrado para "' + query + '".</div>';
+      resultsBox.classList.add("open");
+      return;
+    }
+
+    resultsBox.innerHTML = matches
+      .map(function (m) {
+        var headingHtml = highlight(m.heading, q);
+        var snippet = norm(m.text).indexOf(q) !== -1 ? highlight(snippetAround(m.text, q), q) : "";
+        return (
+          '<a class="result-item" href="#' + m.id + '" data-id="' + m.id + '">' +
+          '<div class="result-heading">' + headingHtml + "</div>" +
+          (snippet ? '<div class="result-snippet">' + snippet + "</div>" : "") +
+          "</a>"
+        );
+      })
+      .join("");
+    resultsBox.classList.add("open");
+  }
+
+  input.addEventListener("input", function () { render(input.value); });
+  input.addEventListener("focus", function () { if (input.value.trim()) render(input.value); });
+
+  resultsBox.addEventListener("click", function (e) {
+    var item = e.target.closest(".result-item");
+    if (!item) return;
+    e.preventDefault();
+    var id = item.getAttribute("data-id");
+    var target = document.getElementById(id);
+    resultsBox.classList.remove("open");
+    input.value = "";
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      target.style.transition = "background-color .2s";
+      target.style.backgroundColor = "var(--accent-soft)";
+      setTimeout(function () { target.style.backgroundColor = ""; }, 1200);
+    }
+  });
+
+  document.addEventListener("click", function (e) {
+    if (!e.target.closest(".search-wrap")) resultsBox.classList.remove("open");
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") { resultsBox.classList.remove("open"); input.blur(); }
+    if (e.key === "/" && document.activeElement !== input) { e.preventDefault(); input.focus(); }
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,5 +1,5 @@
 import { Dispatch, SetStateAction, useEffect, useState } from "react";
-import { Trash2, Star, Check } from "lucide-react";
+import { Trash2, Star, Check, BookOpen } from "lucide-react";
 import {
   AuditLog,
   BrandingSettings,
@@ -512,6 +512,15 @@ export default function AdminConsole({
                   <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
                     {locale === "pt" ? "Central de configuração global do sistema." : "Global system configuration center."}
                   </p>
+                  <a
+                    href="/manuals/manual-administracao.html"
+                    target="_blank"
+                    rel="noopener"
+                    className="mt-3 inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-400 hover:text-emerald-300 hover:underline"
+                  >
+                    <BookOpen size={12} />
+                    {locale === "pt" ? "Manual de Administração" : "Administration Manual"}
+                  </a>
                 </div>
 
                 <div className="p-3 grid grid-cols-2 sm:grid-cols-3 lg:block lg:space-y-1 gap-2 lg:gap-0 overflow-y-auto">

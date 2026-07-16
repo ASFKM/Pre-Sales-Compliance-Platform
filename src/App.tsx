@@ -1424,6 +1424,14 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
           })()}
         </div>
         <div className="flex gap-4">
+          <a
+            href="/manuals/manual-usuario.html"
+            target="_blank"
+            rel="noopener"
+            className="text-slate-300 hover:text-emerald-400 hover:underline cursor-pointer transition-colors"
+          >
+            Manual do Usuário
+          </a>
           {hasPermission("admin:audit") && (
             <button
               onClick={() => setShowAuditModal(true)}
