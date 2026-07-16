@@ -71,9 +71,23 @@ npm install --silent
 
 echo "[4/4] Rodando o instalador..."
 SUMMARY_FILE="$HOME/presales-instalacao-resumo.txt"
-printf '%s\n' "$DATABASE_URL" "$REDIS_URL" "$APP_URL" "" "$COMPANY_NAME" "$ADMIN_NAME" "$ADMIN_EMAIL" "" "" "" "" "" "" \
-  | npm run setup 2>&1 | tee "$SUMMARY_FILE"
+# setup-installation.ts has its own "already exists, overwrite?" prompt for a leftover .env from a
+# previous failed attempt - only asked when .env is actually present, so it must only be answered
+# here when that's the case, or it swallows the DATABASE_URL answer instead and aborts silently.
+ANSWERS=()
+[[ -f .env ]] && ANSWERS+=("s")
+ANSWERS+=("$DATABASE_URL" "$REDIS_URL" "$APP_URL" "" "$COMPANY_NAME" "$ADMIN_NAME" "$ADMIN_EMAIL" "" "" "" "" "" "")
+printf '%s\n' "${ANSWERS[@]}" | npm run setup 2>&1 | tee "$SUMMARY_FILE"
 chmod 600 "$SUMMARY_FILE"
+
+# The wizard exits 0 both when it finishes AND when the operator/answers decline a prompt (e.g.
+# the overwrite question above) - pipefail doesn't distinguish those, so check the actual output
+# for the real completion marker instead of trusting the exit code.
+if ! grep -q "Instalação concluída" "$SUMMARY_FILE"; then
+  echo ""
+  echo "=== A instalação NÃO foi concluída - veja o motivo acima ou em $SUMMARY_FILE ===" >&2
+  exit 1
+fi
 
 echo ""
 echo "=== Concluído. Resumo completo salvo em $SUMMARY_FILE (login, e-mail, senha) ==="
