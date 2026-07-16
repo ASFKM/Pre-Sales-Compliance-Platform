@@ -34,17 +34,30 @@ export function useBackgroundTasks(isAuthenticated: boolean) {
 
     let cancelled = false;
 
-    fetch("/api/tasks/active", { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => r.json())
-      .then((data) => {
-        if (cancelled || !data.success) return;
-        const map: Record<string, BackgroundTask> = {};
-        for (const t of data.tasks) map[t.id] = t;
-        setTasks((prev) => ({ ...map, ...prev }));
-      })
-      .catch(() => {});
+    // Reconciles local state against the server's authoritative snapshot of what's actually
+    // still active. Spreading `map` AFTER `prev` (not before) matters: a task's terminal SSE
+    // message (failed/completed) can be missed - a backgrounded tab, a brief network blip, the
+    // EventSource silently reconnecting - and /api/tasks/active never re-lists a terminal task,
+    // so the old `{...map, ...prev}` order let a stale "running" entry sit in `prev` forever,
+    // never overwritten by fresher (correctly absent) data. This way, `map` always wins for any
+    // task id it actually knows about; call this again on every SSE reconnect (see es.onopen
+    // below), not just on mount, so a connection drop mid-session self-heals instead of only a
+    // full page reload clearing it (confirmed against a real stuck-at-68% job in production).
+    const syncActiveSnapshot = () => {
+      fetch("/api/tasks/active", { headers: { Authorization: `Bearer ${token}` } })
+        .then((r) => r.json())
+        .then((data) => {
+          if (cancelled || !data.success) return;
+          const map: Record<string, BackgroundTask> = {};
+          for (const t of data.tasks) map[t.id] = t;
+          setTasks((prev) => ({ ...prev, ...map }));
+        })
+        .catch(() => {});
+    };
+    syncActiveSnapshot();
 
     const es = new EventSource(`/api/tasks/stream?token=${encodeURIComponent(token)}`);
+    es.onopen = syncActiveSnapshot;
     es.onmessage = (ev) => {
       try {
         const task: BackgroundTask = JSON.parse(ev.data);
