@@ -35,12 +35,26 @@ export class ApiClient {
 
     if (!response.ok) {
       let errorMsg = "An error occurred during the API request.";
+      let errorCode: string | undefined;
       try {
         const errorData = await response.json();
         errorMsg = errorData.message || errorMsg;
+        errorCode = errorData.code;
       } catch (e) {
         // Fallback if response isn't JSON
       }
+
+      // full_lockout (LICENSE_SUSPENDED) is a 403, not a 401, so it wouldn't otherwise hit the
+      // branch above - without this, an already-open tab keeps its token in localStorage and
+      // just watches every subsequent action fail one at a time instead of being logged out, the
+      // same way it would be for a truly expired session. LICENSE_READ_ONLY is deliberately not
+      // included here: read-only is meant to keep the user logged in and browsing.
+      if (response.status === 403 && errorCode === "LICENSE_SUSPENDED") {
+        localStorage.removeItem("ca_session_token");
+        localStorage.removeItem("ca_user");
+        window.dispatchEvent(new Event("unauthorized"));
+      }
+
       throw new Error(errorMsg);
     }
 

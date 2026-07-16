@@ -179,7 +179,10 @@ router.get("/settings/iakb-task-config", requirePermission("ai:settings"), async
   }
 });
 
-router.get("/settings/fleet-license-status", requirePermission("admin:settings"), async (req: Request, res: Response, next: NextFunction) => {
+// allowWhileLicenseBlocked: an admin locked out by full_lockout still needs to see *why* -
+// plan, contract, and which block_mode is active - so this one read stays reachable even when
+// every other authenticated route is being rejected by the same enforcement.
+router.get("/settings/fleet-license-status", requirePermission("admin:settings", { allowWhileLicenseBlocked: true }), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const tenantId = getCurrentTenantId();
     if (!tenantId) {

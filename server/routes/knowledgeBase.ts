@@ -143,13 +143,13 @@ reusable (e.g. a one-off administrative note), respond with reusable: false inst
 
 Respond with ONLY a JSON object: { "reusable": true, "trigger": "...", "knowledge": "..." }`;
 
-    const { text, inputTokens, outputTokens } = await generateTextWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);
+    const { text, inputTokens, outputTokens, billedCostUsd } = await generateTextWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);
     await recordAiUsage({
       tenantId,
       taskType: "kb_suggest",
       provider: providerResolution.provider,
       model: providerResolution.model,
-      estimatedCostUsd: estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
+      estimatedCostUsd: billedCostUsd ?? estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
     });
     const jsonMatch = text.match(/```json\s*([\s\S]*?)```/) || [null, text.slice(text.indexOf("{"))];
     const parsed = JSON.parse((jsonMatch[1] || text).trim());
@@ -329,13 +329,13 @@ Respond with ONLY a JSON array (no markdown, no extra text):
 [{ "category": "bom_part_number" | "engineering_note", "trigger": "...", "knowledge": "..." }]`;
 
         try {
-          const { text, inputTokens, outputTokens } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt, files);
+          const { text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt, files);
           await recordAiUsage({
             tenantId,
             taskType: "knowledge_base_analysis",
             provider: providerResolution.provider,
             model: providerResolution.model,
-            estimatedCostUsd: estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
+            estimatedCostUsd: billedCostUsd ?? estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
             backgroundTaskId: task.id,
           });
           const fenceMatch = text.match(/```json\s*([\s\S]*?)```/);

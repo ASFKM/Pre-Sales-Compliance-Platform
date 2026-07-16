@@ -80,8 +80,27 @@ async function buildSessionUser(user: any, role: any) {
   };
 }
 
+interface RequireAuthOptions {
+  // The fleet license status endpoint needs to stay reachable under full_lockout - otherwise an
+  // admin has no way to see *why* they're blocked (plan, contract, block_mode) once the same
+  // enforcement that's supposed to lock out real usage also locks out the screen explaining it.
+  allowWhileLicenseBlocked?: boolean;
+}
+
 // Session validation middleware to protect modular endpoints
-export async function requireAuth(req: Request, res: Response, next: NextFunction) {
+// `options` MUST carry a default value (not just be TypeScript-optional with `?`) - Function.length
+// only counts parameters before the first one with a default, so this keeps requireAuth.length at
+// 3. Express uses that raw JS arity to decide whether a middleware is regular (<=3 params) or
+// error-handling (exactly 4, `(err, req, res, next)`) when it's registered directly in a route's
+// handler array (e.g. `router.get("/", requireAuth, handler)`), as opposed to being called through
+// requirePermission()/requireModule()'s own wrapper closures (which always have arity 3 and invoke
+// requireAuth as a plain function call, unaffected by this). A bare `options?: RequireAuthOptions`
+// silently made requireAuth.length === 4, which made Express treat it as error-handling middleware
+// and skip it entirely for every normal (non-error) request on any route using it directly - a
+// real, live authentication bypass, not a hypothetical: confirmed via production logs that
+// requireAuth's own body never executed at all for GET /api/projects, on ALL 27 routes across the
+// codebase that reference requireAuth directly rather than through requirePermission/requireModule.
+export async function requireAuth(req: Request, res: Response, next: NextFunction, options: RequireAuthOptions = {}) {
   const authHeader = req.headers["authorization"];
   const correlationId = (req.headers["x-correlation-id"] as string) || "corr-unknown";
 
@@ -100,6 +119,15 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     const session = await getSession(token);
 
     if (!session) {
+      return res.status(401).json({ success: false, message: "Invalid or expired session token.", correlationId });
+    }
+
+    // Defensive: a session (or a refresh-token-derived one, in particular) with no roleId is
+    // corrupt, not just unauthenticated - dbStore.getRoleById(undefined) below would otherwise
+    // throw a raw, unhandled PrismaClientValidationError instead of a clean 401 (confirmed live,
+    // 2026-07-15: 72 identical 500s on /api/messages from one such session over about an hour).
+    // Same recovery as any other invalid session: force a real login instead of crashing.
+    if (!session.roleId) {
       return res.status(401).json({ success: false, message: "Invalid or expired session token.", correlationId });
     }
 
@@ -125,7 +153,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     // signature-verified "suspended" status from the fleet manager - no cached status (never
     // registered, or the fleet manager has been unreachable) always allows through (fail-open).
     const enforcement = await checkLicenseEnforcement(user.tenant_id);
-    if (enforcement.blocked) {
+    if (enforcement.blocked && !options?.allowWhileLicenseBlocked) {
       return res.status(403).json({ success: false, code: "LICENSE_SUSPENDED", message: enforcement.message });
     }
     if (enforcement.readOnly && !["GET", "HEAD", "OPTIONS"].includes(req.method)) {
@@ -156,7 +184,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 }
 
 // RBAC Authorization Middleware creator
-export function requirePermission(permission: string) {
+export function requirePermission(permission: string, options?: RequireAuthOptions) {
   return (req: Request, res: Response, next: NextFunction) => {
     requireAuth(req, res, async () => {
       try {
@@ -173,7 +201,7 @@ export function requirePermission(permission: string) {
       } catch (err) {
         next(err);
       }
-    });
+    }, options);
   };
 }
 
@@ -244,6 +272,30 @@ router.post("/login", loginRateLimiter, async (req: Request, res: Response, next
 
     // Everything from here on knows the user, and therefore the tenant.
     await runWithTenant({ tenantId: user.tenant_id }, async () => {
+      // Phase 7 (fleet/license management): full_lockout blocks the login itself, not just
+      // authenticated calls after the fact - requireAuth alone can't cover this, since a brand
+      // new session doesn't go through it yet. read_only intentionally isn't checked here: it
+      // still allows login (see requireAuth's own GET/HEAD/OPTIONS carve-out for the rest).
+      const enforcement = await checkLicenseEnforcement(user.tenant_id);
+      if (enforcement.blocked) {
+        await dbStore.addAuditLog({
+          user_id: user.id,
+          action: "Blocked Login For Suspended License",
+          entity_type: "Authentication",
+          entity_id: user.id,
+          ip_address: req.ip || "127.0.0.1",
+          user_agent: req.headers["user-agent"] || "unknown",
+          metadata: JSON.stringify({ email: user.email })
+        });
+
+        res.status(403).json({
+          success: false,
+          code: "LICENSE_SUSPENDED",
+          message: enforcement.message
+        });
+        return;
+      }
+
       if (user.status && user.status !== "ACTIVE") {
         await dbStore.addAuditLog({
           user_id: user.id,
@@ -408,6 +460,15 @@ router.post("/mfa/verify", async (req: Request, res: Response, next: NextFunctio
     const ip = req.ip || "127.0.0.1";
     const sessionUser = await dbStore.getUserById(session.userId);
     const lockoutEmail = sessionUser?.email || session.userId;
+
+    // Same full_lockout gap as /login: this session exists but hasn't gone through requireAuth
+    // yet, so nothing else would catch a lockout that started between password step and MFA step.
+    if (sessionUser) {
+      const enforcement = await checkLicenseEnforcement(sessionUser.tenant_id);
+      if (enforcement.blocked) {
+        return res.status(403).json({ success: false, code: "LICENSE_SUSPENDED", message: enforcement.message });
+      }
+    }
 
     if (await isLockedOut("mfa", lockoutEmail, ip)) {
       logDebugMessage({
