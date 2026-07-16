@@ -72,8 +72,13 @@ async function callFleetManagerAiProxy(
     }),
     // Mirrors the real provider calls below (Anthropic alone documents needing minutes on a large
     // document) - the proxy adds one network hop but not meaningfully more latency than calling
-    // the provider directly would.
-    signal: AbortSignal.timeout(150_000),
+    // the provider directly would. Raised from 150s alongside the proxy's own MAX_OUTPUT_TOKENS
+    // bump (server/utils/aiProxyClient.ts on the Fleet Manager side, 32768) - a real analysis
+    // genuinely needing that much output can take longer than 150s to finish generating, and was
+    // timing out here (confirmed via production logs) even after the truncation bug itself was
+    // fixed. Stays above the Fleet Manager's own internal timeout so its clearer, cause-specific
+    // error reaches the caller instead of this generic AbortSignal firing first.
+    signal: AbortSignal.timeout(300_000),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.success) {
