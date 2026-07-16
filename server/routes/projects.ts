@@ -23,7 +23,8 @@ export const ProjectSchema = z.object({
   selected_approval_workflow_id: z.string().optional().default("w1"),
   procurement_modality: z.string().optional(),
   procurement_subtype: z.string().optional(),
-  custom_modality: z.string().optional()
+  custom_modality: z.string().optional(),
+  brand_style_id: z.string().nullable().optional()
 });
 
 router.get("/", requireAuth, async (req: Request, res: Response, next: NextFunction) => {

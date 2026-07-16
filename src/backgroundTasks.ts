@@ -4,7 +4,7 @@ import { getCurrentTenantId } from "./tenantContext";
 import { randomId } from "./idGenerator";
 import { logger } from "../server/utils/logger";
 
-export type BackgroundTaskType = "document_analysis" | "proposal_generation" | "project_intake_analysis" | "knowledge_base_analysis" | "poc_test_generation" | "poc_schedule_generation";
+export type BackgroundTaskType = "document_analysis" | "proposal_generation" | "project_intake_analysis" | "knowledge_base_analysis" | "poc_test_generation" | "poc_schedule_generation" | "section_reanalysis" | "proposal_opinion_panel";
 export type BackgroundTaskStatus = "queued" | "running" | "completed" | "failed";
 
 export interface BackgroundTask {

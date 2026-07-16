@@ -108,6 +108,16 @@ enum BackgroundTaskType {
   knowledge_base_analysis
   poc_test_generation
   poc_schedule_generation
+  // Roadmap item: focused single-section re-run of an already-completed analysis (e.g. just the
+  // BOM) when a section comes out unsatisfactory - reuses document_analysis's own provider/model
+  // config (same AI capability, just a narrower prompt), but needs its own type so the UI/progress
+  // label can distinguish "rerunning one section" from "running the full 8-section analysis".
+  section_reanalysis
+  // Roadmap item (official): "Pareceres de IA Multi-Perspectiva em Propostas" - 4 opinions
+  // (Technical/Commercial/Legal/Financial) generated sequentially as one background task, results
+  // persisted in ProposalOpinionRun/ProposalAiOpinionItem (unlike the synchronous, unpersisted
+  // sla-risk-check) so the panel survives a page reload, attached to the proposal.
+  proposal_opinion_panel
 }
 
 enum BackgroundTaskStatus {
@@ -235,8 +245,11 @@ model Tenant {
   approvalWorkflows       ApprovalWorkflow[]
   approvalStages          ApprovalStage[]
   approvalDecisions       ApprovalDecision[]
+  proposalOpinionRuns     ProposalOpinionRun[]
+  proposalAiOpinionItems  ProposalAiOpinionItem[]
   tasks                   Task[]
   brandingSettings        BrandingSettings?
+  brandStyles             BrandStyle[]
   teamMemberships         TeamMembership[]
   integrationConnectors   IntegrationConnector[]
   knowledgeBaseDocuments  KnowledgeBaseDocument[]
@@ -331,6 +344,10 @@ model Project {
   aiOrientationMode          String        @map("ai_orientation_mode")
   aiOrientationText          String        @map("ai_orientation_text") @db.Text
   selectedApprovalWorkflowId String?       @map("selected_approval_workflow_id")
+  // Roadmap item (customer_request): "Identidade Visual em DOCX" Fase 4b - a project/client can
+  // override the tenant-wide BrandingSettings (logo + primary color) with a reusable named
+  // BrandStyle for co-branded proposals. Null = use the tenant default, unchanged from before.
+  brandStyleId               String?       @map("brand_style_id")
   procurementModality        String?       @map("procurement_modality")
   procurementSubtype         String?       @map("procurement_subtype")
   customModality             String?       @map("custom_modality")
@@ -714,6 +731,16 @@ model AnalysisResult {
   preliminarySchedule    Json @map("preliminary_schedule")
   clarificationQuestions Json @map("clarification_questions")
 
+  // Roadmap item (customer_request): staleness signal for hardcoded prompt/parsing logic (as
+  // opposed to AIAnalysisJob.promptTemplateVersion, which only versions the admin-editable prompt
+  // TEXT via PromptTemplate) - e.g. the ~5 real bugs fixed in enrichBomWithWebSearch's matching/
+  // parsing logic this session had no way to mark already-saved AnalysisResult rows as outdated.
+  // One key per hardcoded logic unit that writes to this row (see src/aiLogicVersions.ts),
+  // e.g. { "document_analysis": 1, "bom_enrichment": 6 } - null on rows written before this
+  // column existed, treated as "legacy/unknown" (distinct from both stale and up-to-date) rather
+  // than flagged en masse on deploy.
+  logicVersions Json? @map("logic_versions")
+
   technicalProposalDraft  String       @map("technical_proposal_draft") @db.Text
   commercialProposalDraft String       @map("commercial_proposal_draft") @db.Text
   reviewStatus            ReviewStatus @default(pending) @map("review_status")
@@ -880,6 +907,11 @@ model PlatformSettings {
   // Fase M (add-on): mandatory final-report questionnaire generation - same orchestrator pattern.
   pocFinalReportGenerationModel    String          @default("gemini-3.5-flash") @map("poc_final_report_generation_model")
   pocFinalReportGenerationProvider String          @default("gemini") @map("poc_final_report_generation_provider")
+  // Item 3 roadmap (official): "Pareceres de IA Multi-Perspectiva em Propostas" - one shared
+  // provider/model slot for all 4 opinion perspectives (not 4 separate slots) - see the roadmap
+  // decision already confirmed: 1 task type, not 4, to minimize sync points.
+  proposalOpinionPanelModel        String          @default("gemini-3.5-flash") @map("proposal_opinion_panel_model")
+  proposalOpinionPanelProvider     String          @default("gemini") @map("proposal_opinion_panel_provider")
   // Per-tenant monthly AI spend cap - null means uncapped. Enforced (hard block once reached,
   // not just tracked), with an 80%-of-cap warning logged before that point.
   monthlyCostCapUsd                Float?          @map("monthly_cost_cap_usd")
@@ -1034,11 +1066,65 @@ model Proposal {
   // user can rewrite any section before submitting for approval. The DOCX/PDF are (re)generated
   // from this field, not directly from the raw analysis JSON, once it exists.
   editableContent       String?          @map("editable_content") @db.Text
+  // Points at the most recent ProposalOpinionRun for this proposal - avoids an ORDER BY on every
+  // read. Nullable: most proposals will never have a run.
+  latestOpinionRunId    String?          @map("latest_opinion_run_id")
 
   decisions ApprovalDecision[]
+  opinionRuns ProposalOpinionRun[]
 
   @@index([tenantId])
   @@map("proposals")
+}
+
+// Roadmap item (official): "Pareceres de IA Multi-Perspectiva em Propostas" - never a gate that
+// blocks the proposal signing flow (this product's AI is always consultative, never applies
+// anything on its own) - a run's 4 opinions are purely informational context for the human
+// approver, surfaced before ApprovalWorkflow's existing human stages. A "run" (not 4 columns
+// directly on Proposal) allows reprocessing without losing history, isolates a failure to one
+// perspective (the other 3 stay usable - same spirit as ApprovalWorkflow -> ApprovalStage ->
+// ApprovalDecision), and doesn't require touching Proposal again if a 5th perspective is added
+// later.
+model ProposalOpinionRun {
+  id                String                  @id
+  tenantId          String                  @map("tenant_id")
+  tenant            Tenant                  @relation(fields: [tenantId], references: [id])
+  proposalId        String                  @map("proposal_id")
+  proposal          Proposal                @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  backgroundTaskId  String?                 @map("background_task_id")
+  status            String                  // "pending" | "running" | "completed" | "partial" | "failed"
+  requestedByUserId String                  @map("requested_by_user_id")
+  // Same staleness-versioning pattern as AnalysisResult.logicVersions (src/aiLogicVersions.ts) -
+  // this run's prompts are hardcoded logic too, so a saved run can go stale the same way.
+  logicVersion      Int                     @map("logic_version")
+  createdAt         DateTime                @default(now()) @map("created_at")
+  completedAt       DateTime?               @map("completed_at")
+  opinions          ProposalAiOpinionItem[]
+
+  @@index([tenantId])
+  @@index([proposalId])
+  @@map("proposal_opinion_runs")
+}
+
+model ProposalAiOpinionItem {
+  id           String             @id
+  tenantId     String             @map("tenant_id")
+  tenant       Tenant             @relation(fields: [tenantId], references: [id])
+  runId        String             @map("run_id")
+  run          ProposalOpinionRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  perspective  String             // "technical" | "commercial" | "legal" | "financial"
+  status       String             // "completed" | "failed"
+  severity     String?            // "info" | "warning" | "critical"
+  summary      String             @db.Text
+  content      String             @db.Text
+  raw          Json?
+  providerUsed String?            @map("provider_used")
+  modelUsed    String?            @map("model_used")
+  createdAt    DateTime           @default(now()) @map("created_at")
+
+  @@unique([runId, perspective])
+  @@index([tenantId])
+  @@map("proposal_ai_opinion_items")
 }
 
 model ApprovalWorkflow {
@@ -1121,6 +1207,31 @@ model Task {
   @@index([tenantId])
   @@index([ownerUserId])
   @@map("tasks")
+}
+
+// Roadmap item (customer_request): "Identidade Visual em DOCX" Fase 4b - a reusable, named brand
+// style (logo + primary color) a project can opt into instead of the tenant-wide BrandingSettings
+// default, so the same client's branding can be set up once and reused across every one of their
+// projects rather than re-entered per project. Deliberately a small subset of BrandingSettings'
+// fields (only what buildDocxBuffer's branding header actually consumes today - see
+// server/utils/docx.ts's BrandingHeader) - not a full theme/UI branding system, just DOCX output.
+model BrandStyle {
+  id           String   @id
+  tenantId     String   @map("tenant_id")
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  name         String
+  companyName  String?  @map("company_name")
+  // Inline base64 data URL, same convention as BrandingSettings' own logo fields (see
+  // useAdminConsole.ts's upload handler) - not a storage-adapter path.
+  logoDataUrl  String?  @map("logo_data_url") @db.Text
+  primaryColor String?  @map("primary_color")
+  createdBy    String   @map("created_by")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("brand_styles")
 }
 
 model BrandingSettings {

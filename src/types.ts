@@ -35,6 +35,17 @@ export interface TeamMembership {
 
 export type ProjectStatus = "draft" | "analysis_in_progress" | "waiting_customer" | "waiting_internal" | "completed" | "canceled";
 
+export interface BrandStyle {
+  id: string;
+  name: string;
+  company_name?: string;
+  logo_data_url?: string;
+  primary_color?: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -51,6 +62,10 @@ export interface Project {
   ai_orientation_mode: "Vendor-neutral" | "Preferred manufacturer" | "Mandatory manufacturer" | "Existing customer standard" | "Free AI recommendation" | "Custom instruction";
   ai_orientation_text: string;
   selected_approval_workflow_id: string;
+  // Roadmap item (customer_request): "Identidade Visual em DOCX" Fase 4b - reusable named brand
+  // style this project opts into instead of the tenant-wide BrandingSettings default. Null/undefined
+  // = use the tenant default, unchanged from before.
+  brand_style_id?: string | null;
   procurement_modality?: string;
   procurement_subtype?: string;
   custom_modality?: string;
@@ -298,6 +313,14 @@ export interface BOMItem {
   // sourced_via_web_search/sourced_via_knowledge_base in the UI badge, since "found by search"
   // stops being true/relevant once a person has actually verified/corrected the value themselves.
   edited_by?: string;
+  // Deterministic-enough brand-policy compliance signal (see server/routes/analysis.ts's
+  // computeBrandPolicyCrossCheck) - absent/null on BOMs saved before this existed, or on items
+  // where no brand policy applies at all (e.g. a cabinet/enclosure the mandated camera brand
+  // doesn't make - a legitimate non-match, never flagged as a violation).
+  brand_policy_applicable?: boolean | null;
+  brand_policy_compliant?: boolean | null;
+  brand_policy_note?: string | null;
+  brand_policy_confidence?: "high" | "medium" | "low" | null;
 }
 
 export interface DynamicMatrixColumn {
@@ -379,6 +402,13 @@ export interface AnalysisResult {
   approved_at?: string;
   created_at: string;
   updated_at: string;
+  // Staleness signal for hardcoded logic (see src/aiLogicVersions.ts) - null on rows written
+  // before this existed ("legacy/unknown", distinct from both stale and up-to-date).
+  logic_versions?: Record<string, number> | null;
+  // Computed server-side on GET /projects/:id/analysis-result (never sent by the client) -
+  // true/false once logic_versions has that key, null when unknown/legacy.
+  is_document_analysis_stale?: boolean | null;
+  is_bom_enrichment_stale?: boolean | null;
 }
 
 export interface ConversationMessage {
@@ -489,6 +519,8 @@ export interface PlatformSettings {
   poc_schedule_generation_provider: string;
   poc_final_report_generation_model: string;
   poc_final_report_generation_provider: string;
+  proposal_opinion_panel_model: string;
+  proposal_opinion_panel_provider: string;
   monthly_cost_cap_usd?: number | null;
   // Phase 7 (fleet/license management): this tenant's registration with the vendor's fleet
   // manager (a separate server). See src/fleetLicense.ts.
@@ -567,6 +599,20 @@ export interface Proposal {
   commercial_assumptions?: string;
   exclusions?: string;
   editable_content?: string;
+  // Points at the most recent ProposalOpinionRun for this proposal - see
+  // server/routes/proposals.ts's opinion-panel endpoints. Nullable: most proposals never have one.
+  latest_opinion_run_id?: string | null;
+}
+
+// Roadmap item (customer_request): "Alerta de Risco de SLA via Base de Conhecimento" - flags a
+// proposed commercial/SLA term against the approved Knowledge Base's own recorded lessons learned
+// (by vertical/client), before the proposal is sent. Never invented risks: grounded in a specific
+// KB entry (related_lesson), same discipline as the BOM enrichment's known_knowledge matching.
+export interface SlaRiskFlag {
+  term_excerpt: string;
+  risk_description: string;
+  related_lesson: string;
+  severity: "high" | "medium" | "low";
 }
 
 export interface ApprovalWorkflow {

@@ -1,26 +1,93 @@
-import { useState } from "react";
-import { TriangleAlert, Download, PenLine, X } from "lucide-react";
-import { Proposal } from "../types";
+import { useEffect, useState } from "react";
+import { TriangleAlert, Download, PenLine, ShieldAlert, Sparkles, X } from "lucide-react";
+import { Proposal, SlaRiskFlag } from "../types";
 import { useProposals } from "../hooks/useProposals";
+import { BackgroundTask } from "../hooks/useBackgroundTasks";
+
+const OPINION_PERSPECTIVES = ["technical", "commercial", "legal", "financial"] as const;
+type OpinionPerspective = (typeof OPINION_PERSPECTIVES)[number];
+const OPINION_PERSPECTIVE_LABEL: Record<OpinionPerspective, { pt: string; en: string }> = {
+  technical: { pt: "Técnico", en: "Technical" },
+  commercial: { pt: "Comercial", en: "Commercial" },
+  legal: { pt: "Jurídico", en: "Legal" },
+  financial: { pt: "Financeiro", en: "Financial" },
+};
+interface OpinionItem {
+  perspective: OpinionPerspective;
+  status: "completed" | "failed";
+  severity?: "info" | "warning" | "critical" | null;
+  summary: string;
+  content: string;
+}
+interface OpinionRun {
+  id: string;
+  status: "pending" | "running" | "completed" | "partial" | "failed";
+  opinions: OpinionItem[];
+}
 
 interface ProposalsProps {
   locale: "en" | "pt";
   hasPermission: (perm: string) => boolean;
   proposals: Proposal[];
   selectedProjectId: string;
+  activeTasks: BackgroundTask[];
+  waitForTask: (taskId: string) => Promise<BackgroundTask>;
   fetchGlobalConfigs: () => Promise<void> | void;
   fetchProjectDetails: (projectId: string) => Promise<void> | void;
   handleReleaseProposal: (propId: string) => void;
 }
 
 export default function Proposals({
-  locale, hasPermission, proposals, selectedProjectId,
+  locale, hasPermission, proposals, selectedProjectId, activeTasks, waitForTask,
   fetchGlobalConfigs, fetchProjectDetails, handleReleaseProposal,
 }: ProposalsProps) {
   const { handleUpdateProposalCommercial, handleSubmitProposalApproval } = useProposals({
     locale, hasPermission, proposals, selectedProjectId, fetchGlobalConfigs, fetchProjectDetails,
   });
   const [exportingId, setExportingId] = useState<string | null>(null);
+  // Roadmap item (official): "Pareceres de IA Multi-Perspectiva em Propostas" - keyed by
+  // proposal.id, undefined = not yet fetched, null = fetched but no run exists yet.
+  const [opinionRuns, setOpinionRuns] = useState<Record<string, OpinionRun | null | undefined>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    for (const prop of proposals) {
+      if (opinionRuns[prop.id] !== undefined) continue;
+      fetch(`/api/proposals/${prop.id}/opinion-panel`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (cancelled || !data.success) return;
+          setOpinionRuns((prev) => ({ ...prev, [prop.id]: data.run }));
+        })
+        .catch(() => {});
+    }
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proposals]);
+
+  const activeOpinionPanelTask = (proposalId: string) =>
+    activeTasks.find((t) => t.type === "proposal_opinion_panel" && t.result_id === proposalId);
+
+  const generateOpinionPanel = async (proposalId: string) => {
+    try {
+      const res = await fetch(`/api/proposals/${proposalId}/opinion-panel`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível gerar os pareceres de IA." : "Could not generate the AI opinion panel."));
+        return;
+      }
+      const finished = await waitForTask(data.task_id);
+      if (finished.status === "failed") {
+        throw new Error(finished.error_message || (locale === "pt" ? "Falha ao gerar os pareceres de IA." : "Failed to generate the AI opinion panel."));
+      }
+      const res2 = await fetch(`/api/proposals/${proposalId}/opinion-panel`);
+      const data2 = await res2.json().catch(() => ({}));
+      if (data2.success) setOpinionRuns((prev) => ({ ...prev, [proposalId]: data2.run }));
+    } catch (err) {
+      console.error(err);
+      alert(err instanceof Error ? err.message : String(err));
+    }
+  };
   const [editingProposal, setEditingProposal] = useState<Proposal | null>(null);
   const [editedContent, setEditedContent] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
@@ -53,6 +120,30 @@ export default function Proposals({
       alert(locale === "pt" ? "Erro ao salvar as alterações." : "Error saving changes.");
     } finally {
       setSavingEdit(false);
+    }
+  };
+
+  // Roadmap item (customer_request): "Alerta de Risco de SLA via Base de Conhecimento" - flags
+  // proposed commercial/SLA/penalty terms against the approved Knowledge Base's own recorded
+  // lessons learned, before the proposal is sent. undefined = never checked yet, [] = checked and
+  // clean, non-empty = flagged risks to show.
+  const [slaCheckResults, setSlaCheckResults] = useState<Record<string, SlaRiskFlag[]>>({});
+  const [checkingSlaId, setCheckingSlaId] = useState<string | null>(null);
+  const checkSlaRisk = async (propId: string) => {
+    setCheckingSlaId(propId);
+    try {
+      const res = await fetch(`/api/proposals/${propId}/sla-risk-check`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível verificar riscos de SLA." : "Could not check SLA risks."));
+        return;
+      }
+      setSlaCheckResults((prev) => ({ ...prev, [propId]: data.risks || [] }));
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao verificar riscos de SLA." : "Error checking SLA risks.");
+    } finally {
+      setCheckingSlaId(null);
     }
   };
 
@@ -148,6 +239,33 @@ export default function Proposals({
                               <PenLine size={12} /> {locale === "pt" ? "Revisar e Editar" : "Review & Edit"}
                             </button>
                           )}
+                          {prop.status === "draft" && hasPermission("proposal:edit") && (
+                            <button
+                              onClick={() => checkSlaRisk(prop.id)}
+                              disabled={checkingSlaId === prop.id}
+                              className="flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 font-mono text-[11px] font-bold px-3 py-1.5 rounded border border-amber-200 transition-all shadow-sm disabled:opacity-50 cursor-pointer"
+                            >
+                              <ShieldAlert size={12} className={checkingSlaId === prop.id ? "animate-pulse" : ""} />
+                              {checkingSlaId === prop.id ? (locale === "pt" ? "Verificando..." : "Checking...") : (locale === "pt" ? "Verificar Riscos de SLA" : "Check SLA Risks")}
+                            </button>
+                          )}
+                          {prop.status === "draft" && hasPermission("proposal:edit") && (() => {
+                            const activeTask = activeOpinionPanelTask(prop.id);
+                            const isRunning = !!activeTask;
+                            return (
+                              <button
+                                onClick={() => generateOpinionPanel(prop.id)}
+                                disabled={isRunning}
+                                className="flex items-center gap-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 font-mono text-[11px] font-bold px-3 py-1.5 rounded border border-purple-200 transition-all shadow-sm disabled:opacity-50 cursor-pointer"
+                                title={locale === "pt" ? "Gera 4 pareceres de IA (Técnico/Comercial/Jurídico/Financeiro) - puramente informativo, nunca bloqueia o fluxo de aprovação" : "Generates 4 AI opinions (Technical/Commercial/Legal/Financial) - purely informational, never blocks the approval flow"}
+                              >
+                                <Sparkles size={12} className={isRunning ? "animate-pulse" : ""} />
+                                {isRunning
+                                  ? `${locale === "pt" ? "Gerando" : "Generating"}${activeTask?.progress_pct != null ? ` ${activeTask.progress_pct}%` : "..."}`
+                                  : (locale === "pt" ? "Gerar Pareceres de IA" : "Generate AI Opinions")}
+                              </button>
+                            );
+                          })()}
                           {hasPermission("proposal:export") && (
                             <>
                               <button
@@ -285,6 +403,70 @@ export default function Proposals({
                           </div>
                         </div>
                       </div>
+
+                      {slaCheckResults[prop.id] !== undefined && (
+                        slaCheckResults[prop.id].length === 0 ? (
+                          <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                            <ShieldAlert size={14} />
+                            {locale === "pt" ? "Nenhum risco histórico encontrado na Base de Conhecimento para os termos propostos." : "No historical risk found in the Knowledge Base for the proposed terms."}
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <h4 className="text-xs uppercase font-bold text-amber-700 tracking-wider font-mono">{locale === "pt" ? "Riscos de SLA Sinalizados pela Base de Conhecimento" : "SLA Risks Flagged by the Knowledge Base"}</h4>
+                            {slaCheckResults[prop.id].map((risk, i) => (
+                              <div key={i} className={`text-xs rounded-lg p-3 border ${
+                                risk.severity === "high" ? "bg-red-50 border-red-200 text-red-800" :
+                                risk.severity === "medium" ? "bg-amber-50 border-amber-200 text-amber-800" :
+                                "bg-slate-50 border-slate-200 text-slate-700"
+                              }`}>
+                                <p className="font-bold uppercase text-[10px] tracking-wider mb-1">
+                                  {risk.severity === "high" ? (locale === "pt" ? "Alto" : "High") : risk.severity === "medium" ? (locale === "pt" ? "Médio" : "Medium") : (locale === "pt" ? "Baixo" : "Low")}
+                                </p>
+                                <p className="italic mb-1">"{risk.term_excerpt}"</p>
+                                <p className="mb-1">{risk.risk_description}</p>
+                                <p className="text-[10px] opacity-75">{locale === "pt" ? "Lição relacionada:" : "Related lesson:"} {risk.related_lesson}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )
+                      )}
+
+                      {opinionRuns[prop.id] && (
+                        <div className="space-y-2">
+                          <h4 className="text-xs uppercase font-bold text-purple-700 tracking-wider font-mono flex items-center gap-1.5">
+                            <Sparkles size={12} />
+                            {locale === "pt" ? "Pareceres de IA Multi-Perspectiva" : "Multi-Perspective AI Opinions"}
+                            {opinionRuns[prop.id]!.status === "partial" && (
+                              <span className="text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full normal-case tracking-normal">
+                                {locale === "pt" ? "parcial" : "partial"}
+                              </span>
+                            )}
+                          </h4>
+                          <div className="grid grid-cols-2 gap-2">
+                            {OPINION_PERSPECTIVES.map((perspective) => {
+                              const item = opinionRuns[prop.id]!.opinions.find((o) => o.perspective === perspective);
+                              const label = OPINION_PERSPECTIVE_LABEL[perspective][locale];
+                              if (!item || item.status === "failed") {
+                                return (
+                                  <div key={perspective} className="text-xs rounded-lg p-3 border bg-slate-50 border-slate-200 text-slate-400 italic">
+                                    <p className="font-bold uppercase text-[10px] tracking-wider mb-1 not-italic text-slate-500">{label}</p>
+                                    {locale === "pt" ? "Indisponível" : "Unavailable"}
+                                  </div>
+                                );
+                              }
+                              const severityStyle = item.severity === "critical" ? "bg-red-50 border-red-200 text-red-800"
+                                : item.severity === "warning" ? "bg-amber-50 border-amber-200 text-amber-800"
+                                : "bg-slate-50 border-slate-200 text-slate-700";
+                              return (
+                                <details key={perspective} className={`text-xs rounded-lg p-3 border ${severityStyle}`}>
+                                  <summary className="cursor-pointer font-bold uppercase text-[10px] tracking-wider">{label}: {item.summary}</summary>
+                                  <p className="mt-2 whitespace-pre-wrap">{item.content}</p>
+                                </details>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
 
                     </div>
                   ))}

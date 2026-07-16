@@ -3,6 +3,7 @@ import { Trash2, Star, Check, BookOpen, Pencil, X } from "lucide-react";
 import {
   AuditLog,
   BrandingSettings,
+  BrandStyle,
   Document,
   IntegrationConnector,
   PlatformSettings,
@@ -168,6 +169,7 @@ const AI_TASK_TYPE_LABEL: Record<string, { pt: string; en: string }> = {
   poc_test_generation: { pt: "Geração de Cadernos de Teste (POC)", en: "Test Script Generation (POC)" },
   poc_schedule_generation: { pt: "Sugestão de Cronograma (POC)", en: "Schedule Suggestion (POC)" },
   poc_final_report_generation: { pt: "Relatório Final (POC)", en: "Final Report (POC)" },
+  proposal_opinion_panel: { pt: "Pareceres de IA Multi-Perspectiva (Propostas)", en: "Multi-Perspective AI Opinions (Proposals)" },
 };
 
 // Column order for the per-provider cost breakdown table - the 3 providers this platform has
@@ -254,6 +256,82 @@ export default function AdminConsole({
   // has no way to "activate" itself, plan/status/contract term are only ever set on the Fleet
   // Manager side.
   const [fleetLicenseStatus, setFleetLicenseStatus] = useState<FleetLicenseStatus | null>(null);
+
+  // Roadmap item (customer_request): "Identidade Visual em DOCX" Fase 4b - reusable named brand
+  // styles a project can opt into instead of the tenant-wide branding above (Fase 4a). Own local
+  // state/fetch, not routed through useAdminConsole - a small, independent CRUD surface.
+  const [brandStyles, setBrandStyles] = useState<BrandStyle[]>([]);
+  const [editingBrandStyle, setEditingBrandStyle] = useState<Partial<BrandStyle> | null>(null);
+  const [savingBrandStyle, setSavingBrandStyle] = useState(false);
+
+  useEffect(() => {
+    if (activeAdminSection !== "branding") return;
+    fetch("/api/brand-styles")
+      .then((r) => r.json())
+      .then((data) => { if (Array.isArray(data)) setBrandStyles(data); })
+      .catch(() => {});
+  }, [activeAdminSection]);
+
+  const saveBrandStyle = async () => {
+    if (!editingBrandStyle?.name?.trim()) {
+      alert(locale === "pt" ? "O nome do estilo é obrigatório." : "Style name is required.");
+      return;
+    }
+    setSavingBrandStyle(true);
+    try {
+      const isNew = !editingBrandStyle.id;
+      const res = await fetch(isNew ? "/api/brand-styles" : `/api/brand-styles/${editingBrandStyle.id}`, {
+        method: isNew ? "POST" : "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: editingBrandStyle.name,
+          company_name: editingBrandStyle.company_name,
+          logo_data_url: editingBrandStyle.logo_data_url,
+          primary_color: editingBrandStyle.primary_color,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível salvar o estilo de marca." : "Could not save the brand style."));
+        return;
+      }
+      setBrandStyles((prev) => (isNew ? [...prev, data] : prev.map((s) => (s.id === data.id ? data : s))));
+      setEditingBrandStyle(null);
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao salvar o estilo de marca." : "Error saving the brand style.");
+    } finally {
+      setSavingBrandStyle(false);
+    }
+  };
+
+  const deleteBrandStyle = async (id: string) => {
+    if (!confirm(locale === "pt" ? "Remover este estilo de marca? Projetos que o usam voltam a usar a identidade visual padrão." : "Remove this brand style? Projects using it will revert to the default branding.")) return;
+    const res = await fetch(`/api/brand-styles/${id}`, { method: "DELETE" });
+    if (res.ok) setBrandStyles((prev) => prev.filter((s) => s.id !== id));
+  };
+
+  // Only PNG/JPEG accepted - unlike the tenant-wide logo above (which also allows SVG/WebP for
+  // on-screen UI use), a brand style's logo is embedded into an exported DOCX via
+  // server/utils/docx.ts's buildDocxBuffer, whose image decoder only supports those two formats.
+  const handleBrandStyleLogoUpload = (file?: File) => {
+    if (!file) return;
+    const allowed = ["image/png", "image/jpeg"];
+    if (!allowed.includes(file.type)) {
+      alert(locale === "pt" ? "Formato inválido. Use PNG ou JPG (formatos suportados na exportação DOCX)." : "Invalid format. Use PNG or JPG (formats supported in DOCX export).");
+      return;
+    }
+    if (file.size > 1024 * 1024) {
+      alert(locale === "pt" ? "A logo deve ter no máximo 1 MB." : "Logo must be at most 1 MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || "");
+      setEditingBrandStyle((prev) => (prev ? { ...prev, logo_data_url: dataUrl } : prev));
+    };
+    reader.readAsDataURL(file);
+  };
 
   // Fase O: each orchestrator field already saves itself on change/blur (handleSavePlatformSettings)
   // - this doesn't change that mechanism, it only gives explicit visual confirmation, since the
@@ -2519,6 +2597,105 @@ export default function AdminConsole({
                         <p className="font-bold">{brandingSettings?.company_name || (locale === "pt" ? "Pré-visualização da identidade visual" : "Brand preview")}</p>
                         <p className="text-xs opacity-90">{tx("Pre-Sales Compliance Platform", "Plataforma de Compliance de Pré-Vendas")}</p>
                       </div>
+                    </div>
+
+                    <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4 xl:col-span-2">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
+                          {locale === "pt" ? "Estilos de Marca Reutilizáveis" : "Reusable Brand Styles"}
+                        </h3>
+                        <button
+                          onClick={() => setEditingBrandStyle({ name: "", primary_color: "#10b981" })}
+                          className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-3 py-1.5 rounded cursor-pointer"
+                        >
+                          + {locale === "pt" ? "Novo Estilo" : "New Style"}
+                        </button>
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        {locale === "pt"
+                          ? "Um projeto pode adotar um destes estilos em vez da identidade visual padrão acima, para propostas com a marca do próprio cliente."
+                          : "A project can adopt one of these instead of the default branding above, for proposals co-branded with the client's own identity."}
+                      </p>
+                      {brandStyles.length === 0 ? (
+                        <p className="text-xs text-slate-400 italic">{locale === "pt" ? "Nenhum estilo cadastrado." : "No styles registered."}</p>
+                      ) : (
+                        <div className="divide-y divide-slate-100">
+                          {brandStyles.map((style) => (
+                            <div key={style.id} className="flex items-center justify-between py-2">
+                              <div className="flex items-center gap-2">
+                                <div className="w-5 h-5 rounded border border-slate-200 shrink-0" style={{ backgroundColor: style.primary_color || "#cccccc" }} />
+                                <span className="text-sm font-semibold text-slate-700">{style.name}</span>
+                                {style.company_name && <span className="text-xs text-slate-400">({style.company_name})</span>}
+                              </div>
+                              <div className="flex gap-2">
+                                <button onClick={() => setEditingBrandStyle(style)} className="text-slate-400 hover:text-slate-700 cursor-pointer" title={locale === "pt" ? "Editar" : "Edit"}>
+                                  <Pencil size={14} />
+                                </button>
+                                <button onClick={() => deleteBrandStyle(style.id)} className="text-slate-400 hover:text-red-600 cursor-pointer" title={locale === "pt" ? "Remover" : "Delete"}>
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {editingBrandStyle && (
+                        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
+                          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-5 space-y-3">
+                            <div className="flex justify-between items-center">
+                              <h4 className="text-sm font-bold text-slate-800">
+                                {editingBrandStyle.id ? (locale === "pt" ? "Editar Estilo" : "Edit Style") : (locale === "pt" ? "Novo Estilo" : "New Style")}
+                              </h4>
+                              <button onClick={() => setEditingBrandStyle(null)} className="text-slate-400 hover:text-slate-700 cursor-pointer">
+                                <X size={16} />
+                              </button>
+                            </div>
+                            <input
+                              type="text"
+                              placeholder={locale === "pt" ? "Nome do estilo (ex: Cliente XYZ)" : "Style name (e.g. Client XYZ)"}
+                              value={editingBrandStyle.name || ""}
+                              onChange={(e) => setEditingBrandStyle((prev) => (prev ? { ...prev, name: e.target.value } : prev))}
+                              className="w-full border border-slate-200 rounded px-2 py-1.5 text-sm"
+                            />
+                            <input
+                              type="text"
+                              placeholder={locale === "pt" ? "Nome da empresa exibido na proposta" : "Company name shown on the proposal"}
+                              value={editingBrandStyle.company_name || ""}
+                              onChange={(e) => setEditingBrandStyle((prev) => (prev ? { ...prev, company_name: e.target.value } : prev))}
+                              className="w-full border border-slate-200 rounded px-2 py-1.5 text-sm"
+                            />
+                            <div className="flex items-center gap-2">
+                              <label className="text-xs text-slate-500">{locale === "pt" ? "Cor primária" : "Primary color"}</label>
+                              <input
+                                type="color"
+                                value={editingBrandStyle.primary_color || "#10b981"}
+                                onChange={(e) => setEditingBrandStyle((prev) => (prev ? { ...prev, primary_color: e.target.value } : prev))}
+                                className="h-8 w-16"
+                              />
+                            </div>
+                            <div>
+                              <label className="inline-flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
+                                {locale === "pt" ? "Selecionar logo (PNG/JPG)" : "Select logo (PNG/JPG)"}
+                                <input type="file" accept="image/png,image/jpeg" onChange={(e) => handleBrandStyleLogoUpload(e.target.files?.[0])} className="hidden" />
+                              </label>
+                              {editingBrandStyle.logo_data_url && <img src={editingBrandStyle.logo_data_url} alt="Logo preview" className="h-10 mt-1 object-contain" />}
+                            </div>
+                            <div className="flex justify-end gap-2 pt-2">
+                              <button onClick={() => setEditingBrandStyle(null)} className="text-xs font-bold uppercase text-slate-500 px-3 py-1.5 rounded hover:bg-slate-100 cursor-pointer">
+                                {locale === "pt" ? "Cancelar" : "Cancel"}
+                              </button>
+                              <button
+                                onClick={saveBrandStyle}
+                                disabled={savingBrandStyle}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold uppercase px-3 py-1.5 rounded disabled:opacity-50 cursor-pointer"
+                              >
+                                {savingBrandStyle ? (locale === "pt" ? "Salvando..." : "Saving...") : (locale === "pt" ? "Salvar" : "Save")}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}

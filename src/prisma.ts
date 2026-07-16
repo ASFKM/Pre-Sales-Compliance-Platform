@@ -23,12 +23,13 @@ import { getTenantContext, TenantContext } from "./tenantContext";
 // bug) go unscoped for most of this project's history.
 export const TENANT_SCOPED_MODELS = new Set([
   "aIAnalysisJob", "aiProviderConfig", "aiUsageLog", "analysisResult", "approvalDecision",
-  "approvalWorkflow", "approvalStage", "auditLog", "backgroundTask", "brandingSettings",
+  "approvalWorkflow", "approvalStage", "auditLog", "backgroundTask", "brandingSettings", "brandStyle",
   "conversationMessage", "debugLog", "document", "documentContent", "iaKbBillingSnapshot",
   "iaKbTaskConfig", "integrationConnector",
   "knowledgeBaseDocument", "knowledgeBaseEntry", "platformSettings", "poc", "pocAcceptance",
   "pocEquipmentItem", "pocFinalReportQuestion", "pocSuccessCriterion", "pocTask", "pocTestCase",
-  "project", "promptTemplate", "proposal", "proposalTemplate", "role", "systemMessage", "task",
+  "project", "promptTemplate", "proposal", "proposalTemplate", "proposalOpinionRun",
+  "proposalAiOpinionItem", "role", "systemMessage", "task",
   "user", "teamMembership", "vertical",
 ]);
 
@@ -80,6 +81,32 @@ function buildVisibilityFilter(model: string, context: TenantContext): Record<st
         { proposal: { project: { owner: { teamMemberships: { some: { managerId: userId } } } } } },
         { approverUserId: userId },
         { stage: approverOr },
+      ],
+    };
+  }
+
+  // Same inherited-visibility rule as Proposal/ApprovalDecision above, relation path adjusted to
+  // reach the project from these two models (ProposalOpinionRun -> Proposal -> Project,
+  // ProposalAiOpinionItem -> ProposalOpinionRun -> Proposal -> Project) - neither has its own
+  // ownership, a user who can't see the proposal shouldn't see its AI opinion panel either.
+  if (model === "ProposalOpinionRun") {
+    return {
+      OR: [
+        { proposal: { project: { ownerUserId: userId } } },
+        { proposal: { project: { owner: { teamMemberships: { some: { managerId: userId } } } } } },
+        { proposal: { decisions: { some: { approverUserId: userId } } } },
+        { proposal: { approvalWorkflow: { stages: { some: approverOr } } } },
+      ],
+    };
+  }
+
+  if (model === "ProposalAiOpinionItem") {
+    return {
+      OR: [
+        { run: { proposal: { project: { ownerUserId: userId } } } },
+        { run: { proposal: { project: { owner: { teamMemberships: { some: { managerId: userId } } } } } } },
+        { run: { proposal: { decisions: { some: { approverUserId: userId } } } } },
+        { run: { proposal: { approvalWorkflow: { stages: { some: approverOr } } } } },
       ],
     };
   }

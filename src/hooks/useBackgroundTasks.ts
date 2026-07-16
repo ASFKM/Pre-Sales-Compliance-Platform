@@ -4,7 +4,7 @@ export interface BackgroundTask {
   id: string;
   tenant_id: string;
   user_id: string;
-  type: "document_analysis" | "proposal_generation" | "project_intake_analysis" | "knowledge_base_analysis" | "poc_test_generation" | "poc_schedule_generation";
+  type: "document_analysis" | "proposal_generation" | "project_intake_analysis" | "knowledge_base_analysis" | "poc_test_generation" | "poc_schedule_generation" | "section_reanalysis" | "proposal_opinion_panel";
   status: "queued" | "running" | "completed" | "failed";
   current_step: string;
   progress_pct: number | null;
@@ -57,7 +57,30 @@ export function useBackgroundTasks(isAuthenticated: boolean) {
     syncActiveSnapshot();
 
     const es = new EventSource(`/api/tasks/stream?token=${encodeURIComponent(token)}`);
-    es.onopen = syncActiveSnapshot;
+    es.onopen = () => {
+      syncActiveSnapshot();
+      // A task's terminal message (completed/failed) can be missed during the exact disconnect
+      // window (confirmed in production: a job finished right as the server restarted, and the
+      // user had to hit F5 to see the result) - the raw SSE onmessage push below is the ONLY
+      // thing that resolves waitForTask's promise via listenersRef, and syncActiveSnapshot alone
+      // can't recover a missed completion because /api/tasks/active deliberately never re-lists
+      // a terminal task (see its own comment above) - there is nothing in that response to
+      // resolve the promise with. Re-fetch the specific current state of any task someone is
+      // still actively awaiting, so a reconnect (not just a full page reload) resolves it.
+      for (const taskId of Object.keys(listenersRef.current)) {
+        fetch(`/api/tasks/${taskId}`, { headers: { Authorization: `Bearer ${token}` } })
+          .then((r) => r.json())
+          .then((data) => {
+            if (cancelled || !data.success) return;
+            const task: BackgroundTask = data.task;
+            setTasks((prev) => ({ ...prev, [task.id]: task }));
+            if (task.status === "completed" || task.status === "failed") {
+              listenersRef.current[task.id]?.(task);
+            }
+          })
+          .catch(() => {});
+      }
+    };
     es.onmessage = (ev) => {
       try {
         const task: BackgroundTask = JSON.parse(ev.data);

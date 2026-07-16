@@ -302,8 +302,62 @@ router.put("/branding", requirePermission("branding:manage"), async (req: Reques
   }
 });
 
+// Roadmap item (customer_request): "Identidade Visual em DOCX" Fase 4b - reusable named brand
+// styles a project can opt into instead of the tenant-wide BrandingSettings above (see
+// Project.brand_style_id, wired into DOCX generation in server/routes/proposals.ts). Simple
+// tenant-scoped CRUD, same permission as the tenant-wide branding settings.
+router.get("/brand-styles", requirePermission("branding:manage"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    res.json(await dbStore.getBrandStyles());
+  } catch (err) {
+    next(err);
+  }
+});
 
+router.post("/brand-styles", requirePermission("branding:manage"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { name, company_name, logo_data_url, primary_color } = req.body || {};
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ success: false, message: "Name is required." });
+    }
+    if (primary_color !== undefined && !/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(String(primary_color).trim())) {
+      return res.status(400).json({ success: false, message: "primary_color must be a valid HEX color." });
+    }
+    const userId = requireUserId(req);
+    const style = await dbStore.createBrandStyle({ name, company_name, logo_data_url, primary_color, created_by: userId });
+    await auditSettingsChange(req, "Create Brand Style", "BrandStyle", style.id, { name });
+    res.status(201).json(style);
+  } catch (err) {
+    next(err);
+  }
+});
 
+router.put("/brand-styles/:id", requirePermission("branding:manage"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { name, company_name, logo_data_url, primary_color } = req.body || {};
+    if (primary_color !== undefined && !/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(String(primary_color).trim())) {
+      return res.status(400).json({ success: false, message: "primary_color must be a valid HEX color." });
+    }
+    const style = await dbStore.updateBrandStyle(req.params.id, { name, company_name, logo_data_url, primary_color });
+    if (!style) {
+      return res.status(404).json({ success: false, message: "Brand style not found." });
+    }
+    await auditSettingsChange(req, "Update Brand Style", "BrandStyle", style.id, { name, company_name, primary_color });
+    res.json(style);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/brand-styles/:id", requirePermission("branding:manage"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await dbStore.deleteBrandStyle(req.params.id);
+    await auditSettingsChange(req, "Delete Brand Style", "BrandStyle", req.params.id, {});
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // Built-in providers only - was a hardcoded 4-item snapshot ("gemini", "anthropic", "openai",
 // "deepseek") completely disconnected from the real, tenant-managed list of custom providers in
@@ -325,7 +379,8 @@ function validateAISettingsUpdates(updates: any, customProviderKeys: string[] = 
     "document_classification_model",
     "poc_test_generation_model",
     "poc_schedule_generation_model",
-    "poc_final_report_generation_model"
+    "poc_final_report_generation_model",
+    "proposal_opinion_panel_model"
   ];
   const providerFields = [
     "document_analysis_provider",
@@ -336,7 +391,8 @@ function validateAISettingsUpdates(updates: any, customProviderKeys: string[] = 
     "document_classification_provider",
     "poc_test_generation_provider",
     "poc_schedule_generation_provider",
-    "poc_final_report_generation_provider"
+    "poc_final_report_generation_provider",
+    "proposal_opinion_panel_provider"
   ];
   const allowedLanguages = ["Portuguese", "English", "Spanish"];
   const allowedLogLevels = ["DEBUG", "INFO", "WARN", "ERROR"];
@@ -422,6 +478,8 @@ router.put("/settings/ai", requirePermission("ai:settings"), async (req: Request
       "poc_schedule_generation_provider",
       "poc_final_report_generation_model",
       "poc_final_report_generation_provider",
+      "proposal_opinion_panel_model",
+      "proposal_opinion_panel_provider",
       "monthly_cost_cap_usd",
       "default_language",
       "default_log_level"

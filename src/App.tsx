@@ -1193,6 +1193,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               tx={tx}
               t={t}
               hasPermission={hasPermission}
+              activeTasks={activeTasks}
               selectedProjectId={selectedProjectId}
               projectName={activeProject?.name || ""}
               documents={documents}
@@ -1244,6 +1245,8 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               hasPermission={hasPermission}
               proposals={proposals}
               selectedProjectId={selectedProjectId}
+              activeTasks={activeTasks}
+              waitForTask={waitForTask}
               fetchGlobalConfigs={fetchGlobalConfigs}
               fetchProjectDetails={fetchProjectDetails}
               handleReleaseProposal={handleReleaseProposal}
