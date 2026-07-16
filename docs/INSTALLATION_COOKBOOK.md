@@ -7,6 +7,34 @@ module/data layout, see [../ARCHITECTURE.md](../ARCHITECTURE.md).
 
 ---
 
+## Fast path for real installations: `npm run setup`
+
+For standing up a **real** installation (not a local evaluation), `scripts/setup-installation.ts`
+automates everything below: it asks for the same connection details interactively, generates
+`SECRET_ENCRYPTION_KEY`/`JWT_SESSION_SECRET`, writes `.env` in production mode, applies migrations,
+creates the real first tenant/admin/role (with full permissions) and the required
+`PlatformSettings`/`BrandingSettings` rows — there's no self-service signup flow in the product, so
+this replaces what used to be a one-off throwaway script per installation — and builds the app.
+Optional prompts for AI provider keys and the CMSaaS (Fleet Manager) connection can be skipped and
+configured later from the Admin Console.
+
+```bash
+git clone git@github.com:ASFKM/Pre-Sales-Compliance-Platform.git
+cd Pre-Sales-Compliance-Platform
+npm install
+npm run setup
+```
+
+Bring up PostgreSQL and Redis first (see Option A/B in step 2 below) and have their connection
+strings ready — the wizard asks for `DATABASE_URL`/`REDIS_URL` directly rather than assembling them
+from parts. Once it finishes, follow step 6 (production checklist) and the process-manager step in
+[../DEPLOYMENT.md](../DEPLOYMENT.md) to actually start the server.
+
+The sections below are the manual, step-by-step version of the same process — useful for local
+evaluation with the seeded demo tenant, or as a reference for exactly what the wizard automates.
+
+---
+
 ## 0. Before you start
 
 You need:
