@@ -124,6 +124,7 @@ ${JSON.stringify(sanitizedData.auditLogs, null, 2)}
 
 router.get("/admin/logs/debug", requirePermission("admin:debug"), async (req: Request, res: Response, next: NextFunction) => {
   try {
+    setNoStoreHeaders(res);
     const logs = await dbStore.getDebugLogs(req.headers["x-tenant-id"] as string);
     const safeLogs = logs.map(log => sanitizeAndMaskObject(log));
     res.json(safeLogs);
@@ -134,6 +135,7 @@ router.get("/admin/logs/debug", requirePermission("admin:debug"), async (req: Re
 
 router.get("/admin/system/status", requirePermission("admin:diagnostics"), async (req: Request, res: Response, next: NextFunction) => {
   try {
+    setNoStoreHeaders(res);
     const [settings, integrations, auditLogsCount, debugLogsCount] = await Promise.all([
       dbStore.getSettings(),
       dbStore.getIntegrations(),
@@ -164,6 +166,7 @@ router.get("/admin/system/status", requirePermission("admin:diagnostics"), async
 
 router.post("/admin/diagnostics/package", requirePermission("admin:diagnostics"), async (req: Request, res: Response, next: NextFunction) => {
   try {
+    setNoStoreHeaders(res);
     const payload = await getDiagnosticPayload(req);
     res.json(payload);
   } catch (err) {
@@ -173,6 +176,7 @@ router.post("/admin/diagnostics/package", requirePermission("admin:diagnostics")
 
 router.get("/admin/diagnostics/package/download", requirePermission("admin:diagnostics"), async (req: Request, res: Response, next: NextFunction) => {
   try {
+    setNoStoreHeaders(res);
     const payload = await getDiagnosticPayload(req);
 
     res.setHeader("Content-Type", "text/plain; charset=utf-8");

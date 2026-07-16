@@ -1,4 +1,4 @@
-import express, { Response, NextFunction } from "express";
+import express, { Response } from "express";
 import type { Request } from "./server/types/express";
 import path from "path";
 import fs from "fs";
@@ -212,9 +212,15 @@ async function bootstrap() {
   // Phase 7 (fleet/license management): reports to the vendor's fleet manager and picks up any
   // pending admin commands - client-initiated, since on-prem installs sit behind NAT/firewalls
   // that block inbound but allow outbound. Runs once shortly after boot, then every 20 minutes.
-  const { runHeartbeatForAllEnabledTenants } = await import("./server/utils/fleetLicense");
+  const { runHeartbeatForAllEnabledTenants, runLicenseStatusPollForAllEnabledTenants } = await import("./server/utils/fleetLicense");
   setTimeout(() => runHeartbeatForAllEnabledTenants().catch((err) => logger.error({ err }, "Initial fleet heartbeat failed")), 30000);
   setInterval(() => runHeartbeatForAllEnabledTenants().catch((err) => logger.error({ err }, "Fleet heartbeat failed")), 20 * 60 * 1000);
+
+  // Lightweight companion poll, every 45s - only refreshes the cached license status (no logs/
+  // vuln-scan/KB sync), so a block/unblock applied in the Fleet Manager takes effect here almost
+  // immediately instead of waiting up to 20 minutes for the next full heartbeat.
+  setTimeout(() => runLicenseStatusPollForAllEnabledTenants().catch((err) => logger.error({ err }, "Initial license status poll failed")), 10000);
+  setInterval(() => runLicenseStatusPollForAllEnabledTenants().catch((err) => logger.error({ err }, "License status poll failed")), 45 * 1000);
 }
 
 bootstrap().catch((err) => {

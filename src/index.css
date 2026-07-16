@@ -14,3 +14,17 @@ input[type="date"]::-webkit-datetime-edit-day-field,
 input[type="date"]::-webkit-datetime-edit-year-field {
   font-family: inherit;
 }
+
+/* Diagnostic footer's background-task phase label (App.tsx) - the footer already packs session/
+   DB/storage/provider info into one row with overflow-x-auto, so there's no room to widen the
+   task-progress slot enough to show a full phase description without pushing everything else off
+   screen. Scrolls the text within its own fixed-width box instead (reported directly, 2026-07-15)
+   - same technique as SystemMessageBanner's ticker, but bounded to the slot's own width (100% to
+   -100%) rather than the whole viewport, since this isn't a page-wide banner. */
+@keyframes footer-task-ticker {
+  0% { transform: translateX(100%); }
+  100% { transform: translateX(-100%); }
+}
+.animate-footer-task-ticker {
+  animation: footer-task-ticker 9s linear infinite;
+}

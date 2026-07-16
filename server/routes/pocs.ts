@@ -1069,8 +1069,8 @@ não depende de nenhuma outra.`;
 
         await updateTaskProgress(task.id, { currentStep: "Gerando cronograma com IA", progressPct: 50 });
 
-        const { text, inputTokens, outputTokens } = await generateJsonWithProvider(resolution.provider, resolution.model, prompt);
-        const realEstimatedCostUsd = estimateCostUsd(resolution.model, inputTokens, outputTokens);
+        const { text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(resolution.provider, resolution.model, prompt);
+        const realEstimatedCostUsd = billedCostUsd ?? estimateCostUsd(resolution.model, inputTokens, outputTokens);
 
         await recordAiUsage({
           tenantId,
@@ -1348,8 +1348,8 @@ provedores exigem um objeto no nível superior), sem markdown, sem texto extra, 
 
         await updateTaskProgress(task.id, { currentStep: "Gerando casos de teste com IA", progressPct: 50 });
 
-        const { text, inputTokens, outputTokens } = await generateJsonWithProvider(resolution.provider, resolution.model, prompt);
-        const realEstimatedCostUsd = estimateCostUsd(resolution.model, inputTokens, outputTokens);
+        const { text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(resolution.provider, resolution.model, prompt);
+        const realEstimatedCostUsd = billedCostUsd ?? estimateCostUsd(resolution.model, inputTokens, outputTokens);
 
         await recordAiUsage({
           tenantId,
@@ -1520,9 +1520,9 @@ extra, no formato:
       await recordProviderFallback({ tenantId, taskType: "poc_final_report_generation", intendedProvider: resolution.intendedProvider, userId: requireUserId(req) });
     }
 
-    let text: string, inputTokens: number, outputTokens: number;
+    let text: string, inputTokens: number, outputTokens: number, billedCostUsd: number | undefined;
     try {
-      ({ text, inputTokens, outputTokens } = await generateJsonWithProvider(resolution.provider, resolution.model, prompt));
+      ({ text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(resolution.provider, resolution.model, prompt));
     } catch (aiErr: any) {
       return res.status(502).json({ success: false, message: friendlyAiErrorMessage(aiErr, resolution.provider) });
     }
@@ -1532,7 +1532,7 @@ extra, no formato:
       taskType: "poc_final_report_generation",
       provider: resolution.provider,
       model: resolution.model,
-      estimatedCostUsd: estimateCostUsd(resolution.model, inputTokens, outputTokens),
+      estimatedCostUsd: billedCostUsd ?? estimateCostUsd(resolution.model, inputTokens, outputTokens),
     });
 
     let parsed: any[];

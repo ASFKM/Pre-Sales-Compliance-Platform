@@ -212,8 +212,8 @@ Respond with ONLY a strictly parsable JSON object, no markdown, matching this sh
   "procurement_subtype": "A subtype consistent with the chosen modality, in Portuguese"
 }`;
 
-        const { text: rawText, inputTokens, outputTokens } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);
-        const realEstimatedCostUsd = estimateCostUsd(providerResolution.model, inputTokens, outputTokens);
+        const { text: rawText, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);
+        const realEstimatedCostUsd = billedCostUsd ?? estimateCostUsd(providerResolution.model, inputTokens, outputTokens);
 
         const parsed = JSON.parse(rawText.trim());
         const validated = SuggestedFieldsSchema.parse(parsed);

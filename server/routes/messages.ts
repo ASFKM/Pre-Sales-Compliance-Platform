@@ -80,4 +80,68 @@ router.post("/messages", requirePermission("admin:settings"), async (req: Reques
   }
 });
 
+// Partial update - only fields actually present in the body are changed.
+const UpdateMessageSchema = z.object({
+  audience: z.enum(["admin_only", "all_users"]).optional(),
+  body: z.string().min(1).optional(),
+  expires_in_minutes: z.number().int().positive().nullable().optional(),
+});
+
+router.put("/messages/:id", requirePermission("admin:settings"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const validated = UpdateMessageSchema.parse(req.body);
+
+    const existing = await prisma.systemMessage.findFirst({ where: { id: req.params.id } });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "Mensagem não encontrada." });
+    }
+    // fleet_manager messages are relayed from the Fleet Manager's own queue and re-delivered on
+    // every heartbeat until acked there - editing the local copy wouldn't stick, it'd just be
+    // overwritten (or resurrected) on the next sync. Only locally-composed broadcasts are editable.
+    if (existing.source !== "local") {
+      return res.status(403).json({ success: false, message: "Mensagens recebidas do Fleet Manager não podem ser editadas aqui." });
+    }
+
+    const data: Record<string, any> = {};
+    if (validated.audience !== undefined) data.audience = validated.audience;
+    if (validated.body !== undefined) data.body = validated.body;
+    if (validated.expires_in_minutes !== undefined) {
+      data.expiresAt = validated.expires_in_minutes ? new Date(Date.now() + validated.expires_in_minutes * 60_000) : null;
+    }
+
+    const message = await prisma.systemMessage.update({ where: { id: req.params.id }, data });
+    res.json({
+      id: message.id,
+      source: message.source,
+      audience: message.audience,
+      body: message.body,
+      created_by: message.createdBy,
+      created_at: message.createdAt,
+      expires_at: message.expiresAt,
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ success: false, message: err.issues[0].message });
+    }
+    next(err);
+  }
+});
+
+router.delete("/messages/:id", requirePermission("admin:settings"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const existing = await prisma.systemMessage.findFirst({ where: { id: req.params.id } });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "Mensagem não encontrada." });
+    }
+    if (existing.source !== "local") {
+      return res.status(403).json({ success: false, message: "Mensagens recebidas do Fleet Manager não podem ser excluídas aqui." });
+    }
+
+    await prisma.systemMessage.delete({ where: { id: req.params.id } });
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;
