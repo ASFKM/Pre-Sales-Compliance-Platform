@@ -204,6 +204,14 @@ export default function App() {
   const hasModule = (moduleName: string) =>
     Array.isArray(currentSessionUser.enabled_modules) && currentSessionUser.enabled_modules.includes(moduleName);
 
+  // Resolves what will actually run a task: iaKbTaskConfig (CMSaaS-managed) once the add-on is
+  // active, platformSettings' own field otherwise - same distinction AdminConsole.tsx's
+  // orchestrator map already draws, just needed here too for the "Powered by" captions.
+  const effectiveTaskProvider = (taskType: string, settingsField: string | undefined) =>
+    (hasModule("ia_kb") ? iaKbTaskConfig[taskType]?.provider : undefined) || settingsField || "gemini";
+  const effectiveTaskModel = (taskType: string, settingsField: string | undefined) =>
+    (hasModule("ia_kb") ? iaKbTaskConfig[taskType]?.model : undefined) || settingsField || "";
+
   const adminSectionPermissions: Record<string, string[]> = {
     overview: [
       "admin:users",
@@ -348,6 +356,12 @@ export default function App() {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [debugLogs, setDebugLogs] = useState<DebugLog[]>([]);
   const [platformSettings, setPlatformSettings] = useState<PlatformSettings | null>(null);
+  // ia_kb add-on: once active, this is the actual source of truth for provider/model per task -
+  // platformSettings' own fields stop being read (see AdminConsole's own comment on this same
+  // distinction). Bug found during the Presales Demo rehearsal (2026-07-17): the "Powered by"
+  // captions below kept reading platformSettings directly even with the add-on active, always
+  // showing the stale/default value instead of what's actually configured via the CMSaaS.
+  const [iaKbTaskConfig, setIaKbTaskConfig] = useState<Record<string, { provider: string; model: string }>>({});
   const [brandingSettings, setBrandingSettings] = useState<BrandingSettings | null>(null);
   const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>([]);
   const [aiProviderConfigs, setAiProviderConfigs] = useState<any[]>([]);
@@ -398,6 +412,22 @@ export default function App() {
               const res = await fetch("/api/settings");
               const data = await res.json();
               if (res.ok) setPlatformSettings(data.platform ?? data ?? null);
+            })()
+          ]
+        : []),
+      // Same permission the backend route itself requires (ai:settings) - matches
+      // platformSettings' own gating just above, so a role without either permission still just
+      // falls back to the generic default caption, same as it always has.
+      ...(hasPermission("ai:settings")
+        ? [
+            (async () => {
+              const res = await fetch("/api/settings/iakb-task-config");
+              const data = await res.json();
+              if (res.ok && Array.isArray(data)) {
+                const map: Record<string, { provider: string; model: string }> = {};
+                for (const row of data) map[row.task_type] = { provider: row.provider, model: row.model };
+                setIaKbTaskConfig(map);
+              }
             })()
           ]
         : []),
@@ -1206,8 +1236,8 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               </span>
             </button>
             <p className="text-[9px] text-slate-400 text-center mt-1.5 leading-tight font-mono">
-              {tx("Powered by", "Executado por")} {PROVIDER_DISPLAY_NAME[platformSettings?.document_analysis_provider || "gemini"] || platformSettings?.document_analysis_provider}
-              {platformSettings?.document_analysis_model ? ` (${platformSettings.document_analysis_model})` : ""}
+              {tx("Powered by", "Executado por")} {PROVIDER_DISPLAY_NAME[effectiveTaskProvider("document_analysis", platformSettings?.document_analysis_provider)] || effectiveTaskProvider("document_analysis", platformSettings?.document_analysis_provider)}
+              {effectiveTaskModel("document_analysis", platformSettings?.document_analysis_model) ? ` (${effectiveTaskModel("document_analysis", platformSettings?.document_analysis_model)})` : ""}
             </p>
           </section>
         </aside>
@@ -1396,10 +1426,10 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
           </span></span>
           <span className="flex items-center gap-1.5 border-l border-slate-700 pl-6">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            LLM Análise: <span className="text-emerald-400 font-bold uppercase">{PROVIDER_DISPLAY_NAME[platformSettings?.document_analysis_provider || "gemini"] || platformSettings?.document_analysis_provider}</span>
+            LLM Análise: <span className="text-emerald-400 font-bold uppercase">{PROVIDER_DISPLAY_NAME[effectiveTaskProvider("document_analysis", platformSettings?.document_analysis_provider)] || effectiveTaskProvider("document_analysis", platformSettings?.document_analysis_provider)}</span>
           </span>
           <span className="flex items-center gap-1.5">
-            LLM Propostas: <span className="text-emerald-400 font-bold uppercase">{PROVIDER_DISPLAY_NAME[platformSettings?.proposal_generation_provider || "gemini"] || platformSettings?.proposal_generation_provider}</span>
+            LLM Propostas: <span className="text-emerald-400 font-bold uppercase">{PROVIDER_DISPLAY_NAME[effectiveTaskProvider("proposal_generation", platformSettings?.proposal_generation_provider)] || effectiveTaskProvider("proposal_generation", platformSettings?.proposal_generation_provider)}</span>
           </span>
           {(() => {
             // Single fixed-width slot for ALL active job types (was two separate shrink-0

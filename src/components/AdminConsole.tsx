@@ -1678,6 +1678,13 @@ export default function AdminConsole({
                             const validCustomProviders = customProvidersForCapability(capability, aiProviderConfigs);
                             const modelOptions = modelOptionsFor(currentProvider, capability, aiProviderConfigs);
                             const currentModel = (platformSettings as any)?.[modelField] || "";
+                            // Bug real encontrado durante o ensaio no Presales Demo (2026-07-17): a
+                            // checagem de "é a configuração recomendada?" comparava sempre contra
+                            // platformSettings, mesmo com o ia_kb ativo - nesse caso o texto exibido
+                            // já lia iaKbTaskConfig (a config de verdade, sincronizada do CMSaaS),
+                            // mas a comparação continuava olhando pro campo local desatualizado.
+                            const effectiveProvider = iaKbModuleEnabled ? (iaKbTaskConfig[taskKey]?.provider || currentProvider) : currentProvider;
+                            const effectiveModel = iaKbModuleEnabled ? (iaKbTaskConfig[taskKey]?.model || currentModel) : currentModel;
                             return (
                               <div key={field}>
                                 <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{label}</label>
@@ -1738,7 +1745,7 @@ export default function AdminConsole({
                                 )}
                                 {RECOMMENDED_MODEL[taskKey] && (() => {
                                   const rec = RECOMMENDED_MODEL[taskKey];
-                                  const isRecommended = currentProvider === rec.provider && currentModel === rec.model;
+                                  const isRecommended = effectiveProvider === rec.provider && effectiveModel === rec.model;
                                   return isRecommended ? (
                                     <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
                                       <Check size={10} />
