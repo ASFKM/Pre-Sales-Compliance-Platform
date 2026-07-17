@@ -338,6 +338,12 @@ export default function AdminConsole({
     const token = localStorage.getItem("ca_session_token");
     if (!token) return;
     const es = new EventSource(`/api/admin/system-updates/stream?token=${encodeURIComponent(token)}`);
+    // Redis pub/sub has no replay - a message published exactly while this connection is down
+    // (the server-side app restart mid-update is the textbook case) is lost for good, not just
+    // delayed. Reconciling with a normal fetch on every (re)connect - not just the first one -
+    // is what makes a dropped connection self-heal instead of leaving the panel stuck on
+    // whatever the last received event said. Same pattern useBackgroundTasks.ts already uses.
+    es.onopen = () => loadSystemUpdateState();
     es.onmessage = (ev) => {
       try {
         const data: { status: string; current_step?: string | null } = JSON.parse(ev.data);
