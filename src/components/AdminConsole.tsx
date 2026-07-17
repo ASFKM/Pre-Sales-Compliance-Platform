@@ -2676,31 +2676,47 @@ export default function AdminConsole({
                             {locale === "pt" ? "Nenhuma atualização detectada ainda - verificado a cada heartbeat (até 20 min)." : "No update detected yet - checked on every heartbeat (up to 20 min)."}
                           </p>
                         )}
-                        {systemUpdateState?.latest_release && (
-                          <>
-                            <p className="text-sm font-bold text-emerald-600">{systemUpdateState.latest_release.version}</p>
-                            <p className="text-[11px] font-mono text-slate-400">ref {systemUpdateState.latest_release.code_ref} · canal {systemUpdateState.latest_release.channel}</p>
-                            <button
-                              onClick={fetchReleaseNotes}
-                              disabled={systemUpdateNotesLoading}
-                              className="text-xs font-bold text-slate-600 underline disabled:opacity-50"
-                            >
-                              {systemUpdateNotesLoading ? (locale === "pt" ? "Carregando..." : "Loading...") : (locale === "pt" ? "Ver notas de versão" : "View release notes")}
-                            </button>
-                            {systemUpdateNotesMd !== null && (
-                              <div className="text-xs whitespace-pre-wrap bg-slate-50 border border-slate-100 rounded p-3 max-h-48 overflow-y-auto">{systemUpdateNotesMd}</div>
-                            )}
-                            <div className="flex gap-2 flex-wrap pt-1">
+                        {systemUpdateState?.latest_release && (() => {
+                          // Mesma lógica do lado CMSaaS (Installations.tsx/computeUpdateStatus):
+                          // current_version é sempre a forma longa do `git describe` (com sufixo
+                          // -N-g<sha>, mesmo exatamente em cima de uma tag), então comparação
+                          // exata nunca bate - startsWith("<code_ref>-") cobre o caso comum de
+                          // code_ref ser uma tag real.
+                          const codeRef = systemUpdateState.latest_release!.code_ref;
+                          const upToDate = !!systemUpdateState.current_version?.startsWith(`${codeRef}-`) || systemUpdateState.current_version === codeRef;
+                          return (
+                            <>
+                              <p className="text-sm font-bold text-emerald-600">{systemUpdateState.latest_release!.version}</p>
+                              <p className="text-[11px] font-mono text-slate-400">ref {codeRef} · canal {systemUpdateState.latest_release!.channel}</p>
+                              {upToDate && (
+                                <span className="inline-block text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-600 border border-emerald-100">
+                                  {locale === "pt" ? "Já instalada" : "Already installed"}
+                                </span>
+                              )}
                               <button
-                                onClick={runUpdateNow}
-                                disabled={systemUpdateState.last_attempt_status === "in_progress"}
-                                className="text-xs font-bold px-3 py-1.5 rounded-lg text-white bg-slate-900 disabled:opacity-50"
+                                onClick={fetchReleaseNotes}
+                                disabled={systemUpdateNotesLoading}
+                                className="text-xs font-bold text-slate-600 underline disabled:opacity-50 block"
                               >
-                                {locale === "pt" ? "Atualizar Agora" : "Update Now"}
+                                {systemUpdateNotesLoading ? (locale === "pt" ? "Carregando..." : "Loading...") : (locale === "pt" ? "Ver notas de versão" : "View release notes")}
                               </button>
-                            </div>
-                          </>
-                        )}
+                              {systemUpdateNotesMd !== null && (
+                                <div className="text-xs whitespace-pre-wrap bg-slate-50 border border-slate-100 rounded p-3 max-h-48 overflow-y-auto">{systemUpdateNotesMd}</div>
+                              )}
+                              {!upToDate && (
+                                <div className="flex gap-2 flex-wrap pt-1">
+                                  <button
+                                    onClick={runUpdateNow}
+                                    disabled={systemUpdateState.last_attempt_status === "in_progress"}
+                                    className="text-xs font-bold px-3 py-1.5 rounded-lg text-white bg-slate-900 disabled:opacity-50"
+                                  >
+                                    {locale === "pt" ? "Atualizar Agora" : "Update Now"}
+                                  </button>
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
                       </div>
                     </div>
 
