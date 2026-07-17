@@ -7,7 +7,7 @@ import fs from "fs";
 import { prisma } from "../src/prisma";
 import { runWithTenant } from "../src/tenantContext";
 import { dbStore } from "../src/dbStore";
-import { markAttemptFailed, markAttemptSucceeded } from "../server/utils/updateScheduler";
+import { markAttemptFailed, markAttemptSucceeded, publishSystemUpdateEvent } from "../server/utils/updateScheduler";
 import { runHeartbeatForTenant } from "../server/utils/fleetLicense";
 import { logger } from "../server/utils/logger";
 
@@ -48,6 +48,7 @@ async function main() {
         if (args["task-id"]) {
           await prisma.backgroundTask.update({ where: { id: args["task-id"] }, data: { currentStep: args["message"] || "" } });
         }
+        await publishSystemUpdateEvent(tenantId, { status: "in_progress", current_step: args["message"] || null });
         break;
       }
       case "success": {

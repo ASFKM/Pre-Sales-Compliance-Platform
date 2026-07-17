@@ -329,15 +329,30 @@ export default function AdminConsole({
     loadSystemUpdateState();
   }, []);
 
-  // Barra de progresso: enquanto uma atualização estiver em andamento, reconsulta o estado a
-  // cada 3s para refletir a etapa atual - fora desse caso não há custo de polling nenhum.
+  // Barra de progresso ao vivo - mesma técnica (SSE) já usada pelo resto do app para
+  // acompanhar tarefas em segundo plano (useBackgroundTasks.ts/tasks/stream), num canal próprio
+  // por instalação em vez de por usuário (ver o comentário de subscribeToSystemUpdateProgress no
+  // backend) - uma atualização agendada ou disparada remotamente pelo CMSaaS não tem um usuário
+  // "dono" para direcionar o evento. Conexão única, aberta uma vez, sem polling.
   useEffect(() => {
-    if (systemUpdateState?.last_attempt_status !== "in_progress") return;
-    const interval = setInterval(() => {
-      ApiClient.get<SystemUpdateState | null>("/api/admin/system-updates/state").then(setSystemUpdateState).catch(() => {});
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [systemUpdateState?.last_attempt_status]);
+    const token = localStorage.getItem("ca_session_token");
+    if (!token) return;
+    const es = new EventSource(`/api/admin/system-updates/stream?token=${encodeURIComponent(token)}`);
+    es.onmessage = (ev) => {
+      try {
+        const data: { status: string; current_step?: string | null } = JSON.parse(ev.data);
+        setSystemUpdateState((prev) => (prev ? { ...prev, last_attempt_status: data.status as any, current_step: data.current_step ?? prev.current_step } : prev));
+        if (data.status !== "in_progress") {
+          // Estados terminais trazem mais campos do que o evento carrega (versão atual, histórico
+          // novo) - uma busca completa pega o resto.
+          loadSystemUpdateState();
+        }
+      } catch {
+        // ignora mensagem malformada
+      }
+    };
+    return () => es.close();
+  }, []);
 
   const fetchReleaseNotes = async () => {
     setSystemUpdateNotesLoading(true);

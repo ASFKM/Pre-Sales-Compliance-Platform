@@ -4,8 +4,44 @@ import { prisma } from "../../src/prisma";
 import { runWithTenant } from "../../src/tenantContext";
 import { dbStore } from "../../src/dbStore";
 import { randomId } from "../../src/idGenerator";
+import { redis } from "../../src/redis";
 import { getAppVersion } from "./appVersion";
 import { logger } from "./logger";
+
+// Live progress for the Admin Console's Atualizações do Sistema panel - deliberately its own
+// tenant-wide channel, not a reuse of src/backgroundTasks.ts's per-(tenant,user) `tasks:*`
+// channel/SSE stream. That existing mechanism is scoped to "my own tasks I personally kicked
+// off" (channel keyed by userId, snapshot query filtered by userId) - a system_update triggered
+// by a schedule or a remote CMSaaS command has no acting user at all (userId is null, see
+// BackgroundTask.userId's own comment), and any admin looking at this panel should see it
+// regardless of who/what triggered it. A small dedicated channel avoids bending that per-user
+// model to fit an install-wide concern.
+export interface SystemUpdateProgressEvent {
+  status: "in_progress" | "success" | "failed" | "rolled_back";
+  current_step?: string | null;
+}
+function systemUpdateChannel(tenantId: string): string {
+  return `system_update:${tenantId}`;
+}
+export async function publishSystemUpdateEvent(tenantId: string, event: SystemUpdateProgressEvent): Promise<void> {
+  await redis.publish(systemUpdateChannel(tenantId), JSON.stringify(event)).catch((err) => logger.warn({ err, tenantId }, "Failed to publish system_update progress event"));
+}
+export function subscribeToSystemUpdateProgress(tenantId: string, onMessage: (event: SystemUpdateProgressEvent) => void): () => void {
+  const subscriber = redis.duplicate();
+  const channel = systemUpdateChannel(tenantId);
+  subscriber.subscribe(channel).catch((err) => logger.error({ err, tenantId }, "Failed to subscribe to system_update channel"));
+  subscriber.on("message", (_channel, message) => {
+    try {
+      onMessage(JSON.parse(message));
+    } catch {
+      // ignore malformed message
+    }
+  });
+  return () => {
+    subscriber.unsubscribe(channel).catch(() => {});
+    subscriber.quit().catch(() => {});
+  };
+}
 
 // Sistema de Atualização de Produção (Ponto 5/6 do plano). Deliberately does NOT import
 // fleetLicense.ts (which imports this module to call persistLatestRelease/triggerImmediateUpdate
@@ -173,6 +209,8 @@ export async function triggerImmediateUpdate(tenantId: string, params: TriggerUp
   );
   child.unref();
 
+  await publishSystemUpdateEvent(tenantId, { status: "in_progress", current_step: "Preparando atualização (backup)" });
+
   return { started: true, historyId, taskId };
 }
 
@@ -195,6 +233,7 @@ export async function markAttemptFailed(
   if (opts?.taskId) {
     await prisma.backgroundTask.update({ where: { id: opts.taskId }, data: { status: "failed", errorMessage: errorLog } });
   }
+  await publishSystemUpdateEvent(tenantId, { status });
 }
 
 export async function markAttemptSucceeded(tenantId: string, opts: { historyId: string; taskId: string; backupRef?: string }): Promise<void> {
@@ -221,6 +260,7 @@ export async function markAttemptSucceeded(tenantId: string, opts: { historyId: 
     where: { id: opts.taskId },
     data: { status: "completed", currentStep: "Atualização concluída", progressPct: 100 },
   });
+  await publishSystemUpdateEvent(tenantId, { status: "success" });
 }
 
 // Runs at boot and every SCHEDULE_CHECK_INTERVAL_MS afterwards - reaps a system_update that's

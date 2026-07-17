@@ -5,7 +5,7 @@ import { requirePermission } from "./auth";
 import { requireUserId } from "../middleware/security";
 import { getCurrentTenantId } from "../../src/tenantContext";
 import { prisma } from "../../src/prisma";
-import { scheduleUpdate, cancelScheduledUpdate, triggerImmediateUpdate } from "../utils/updateScheduler";
+import { scheduleUpdate, cancelScheduledUpdate, triggerImmediateUpdate, subscribeToSystemUpdateProgress } from "../utils/updateScheduler";
 import { dbStore } from "../../src/dbStore";
 import { decryptSecret } from "../utils/security";
 
@@ -209,6 +209,37 @@ router.get("/admin/system-updates/release-notes", requirePermission("admin:syste
   } catch (err) {
     next(err);
   }
+});
+
+// Real-time progress stream for the panel above - mirrors server/routes/tasks.ts's own
+// /tasks/stream SSE endpoint (same Content-Type/headers, same query-param token fallback for
+// EventSource, which can't set custom headers), but on a tenant-wide channel instead of a
+// per-user one - see subscribeToSystemUpdateProgress's own comment for why.
+router.get("/admin/system-updates/stream", requirePermission("admin:system_updates"), (req: Request, res: Response) => {
+  const tenantId = getCurrentTenantId();
+  if (!tenantId) {
+    res.status(400).json({ success: false, message: "No tenant context." });
+    return;
+  }
+
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+  res.write(":ok\n\n");
+
+  const unsubscribe = subscribeToSystemUpdateProgress(tenantId, (event) => {
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+  });
+
+  const heartbeat = setInterval(() => res.write(":heartbeat\n\n"), 25000);
+
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+  });
 });
 
 export default router;
