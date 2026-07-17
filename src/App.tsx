@@ -178,6 +178,7 @@ export default function App() {
       "admin:roles",
       "admin:settings",
       "admin:audit",
+      "admin:system_updates",
       "ai:settings",
       "template:manage",
       "approval:manage",
@@ -190,6 +191,7 @@ export default function App() {
     templates: ["template:manage"],
     approval_flow: ["approval:manage"],
     subscription: ["admin:settings"],
+    system_updates: ["admin:system_updates"],
     branding: ["branding:manage"],
     integrations: ["integrations:manage"],
     storage: ["storage:manage"],
@@ -274,7 +276,7 @@ export default function App() {
 
   // Navigation / Views
   const [activeTab, setActiveTab] = useState<"home" | "workspace" | "projectsList" | "proposals" | "approval" | "knowledgeBase" | "admin" | "pocManagement">("home");
-  const [activeAdminSection, setActiveAdminSection] = useState<"overview" | "users" | "ai" | "templates" | "approval_flow" | "subscription" | "branding" | "integrations" | "storage" | "audit">("overview");
+  const [activeAdminSection, setActiveAdminSection] = useState<"overview" | "users" | "ai" | "templates" | "approval_flow" | "subscription" | "system_updates" | "branding" | "integrations" | "storage" | "audit">("overview");
 
   // Shared with fetchGlobalConfigs (auto-selects defaults) and Workspace's proposal builder -
   // one entry per proposal type (see server/utils/proposalTypes.ts) rather than a separate

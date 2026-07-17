@@ -9,6 +9,7 @@ import { redis } from "./src/redis";
 import { dbStore } from "./src/dbStore";
 import { createStorageAdapter } from "./server/utils/storage";
 import { logger } from "./server/utils/logger";
+import { getAppVersion } from "./server/utils/appVersion";
 
 // Middleware Imports
 import {
@@ -57,6 +58,7 @@ import projectIntakeRouter from "./server/routes/projectIntake";
 import verticalsRouter from "./server/routes/verticals";
 import messagesRouter from "./server/routes/messages";
 import knowledgeBaseRouter from "./server/routes/knowledgeBase";
+import systemUpdatesRouter from "./server/routes/systemUpdates";
 import pocsRouter from "./server/routes/pocs";
 
 const app = express();
@@ -120,6 +122,7 @@ app.use("/api", projectIntakeRouter);
 app.use("/api", verticalsRouter);
 app.use("/api", messagesRouter);
 app.use("/api", knowledgeBaseRouter);
+app.use("/api", systemUpdatesRouter);
 app.use("/api/pocs", pocsRouter);
 
 // 5. Basic Observability / Health Endpoints
@@ -128,7 +131,10 @@ app.get("/api/health", (req: Request, res: Response) => {
     success: true, 
     status: "healthy", 
     service: "Commercial Assistant AI Core API", 
-    uptime: process.uptime() 
+    uptime: process.uptime(),
+    version: getAppVersion().version,
+    git_sha: getAppVersion().gitShaShort,
+    dirty: getAppVersion().dirty,
   });
 });
 
@@ -219,8 +225,14 @@ async function bootstrap() {
   (async () => {
     try {
       const { prisma } = await import("./src/prisma");
+      // system_update is deliberately excluded: unlike every other task type, a restart mid-run
+      // is often the EXPECTED middle of a successful update (scripts/update.sh itself calls `pm2
+      // restart` as one of its own steps, from a detached child process that survives this
+      // process going down and back up) - see server/utils/updateScheduler.ts's own boot
+      // reconciliation, which is the one that gets to decide if a still-"running" system_update
+      // row means "mid-flight, carry on" or "genuinely orphaned".
       const orphaned = await prisma.backgroundTask.updateMany({
-        where: { status: { in: ["running", "queued"] } },
+        where: { status: { in: ["running", "queued"] }, type: { not: "system_update" } },
         data: { status: "failed", errorMessage: "Interrompido por reinicialização do servidor durante a execução." },
       });
       if (orphaned.count > 0) {
@@ -243,6 +255,13 @@ async function bootstrap() {
   // immediately instead of waiting up to 20 minutes for the next full heartbeat.
   setTimeout(() => runLicenseStatusPollForAllEnabledTenants().catch((err) => logger.error({ err }, "Initial license status poll failed")), 10000);
   setInterval(() => runLicenseStatusPollForAllEnabledTenants().catch((err) => logger.error({ err }, "License status poll failed")), 45 * 1000);
+
+  // Sistema de Atualização de Produção: boot-time reconciliation (a scheduled update due while
+  // this process was down, or a previous run's detached child that never reported back) plus a
+  // 5-minute recheck loop - see server/utils/updateScheduler.ts's own comments for why this is a
+  // periodic interval rather than a single setTimeout per schedule.
+  const { startUpdateSchedulerInterval } = await import("./server/utils/updateScheduler");
+  startUpdateSchedulerInterval();
 }
 
 bootstrap().catch((err) => {

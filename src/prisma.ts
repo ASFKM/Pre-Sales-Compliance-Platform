@@ -29,7 +29,7 @@ export const TENANT_SCOPED_MODELS = new Set([
   "knowledgeBaseDocument", "knowledgeBaseEntry", "platformSettings", "poc", "pocAcceptance",
   "pocEquipmentItem", "pocFinalReportQuestion", "pocSuccessCriterion", "pocTask", "pocTestCase",
   "project", "promptTemplate", "proposal", "proposalTemplate", "proposalOpinionRun",
-  "proposalAiOpinionItem", "role", "systemMessage", "task",
+  "proposalAiOpinionItem", "role", "systemMessage", "systemUpdateState", "systemUpdateHistory", "task",
   "user", "teamMembership", "vertical",
 ]);
 

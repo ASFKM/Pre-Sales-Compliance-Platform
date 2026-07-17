@@ -118,6 +118,13 @@ enum BackgroundTaskType {
   // persisted in ProposalOpinionRun/ProposalAiOpinionItem (unlike the synchronous, unpersisted
   // sla-risk-check) so the panel survives a page reload, attached to the proposal.
   proposal_opinion_panel
+  // Sistema de Atualização de Produção: the actual scripts/update.sh run, tracked here so the
+  // Admin Console's history reuses the same progress-tracking UI as every other background task.
+  // NOT tenant-scoped in spirit (a real update restarts the whole server process, affecting every
+  // tenant) even though the column is still required - see the comment on SystemUpdateState for
+  // why tenantId is kept anyway. triggered by schedule or a CMSaaS apply_update command, not a
+  // live HTTP request, so userId is null for those - see BackgroundTask.userId's own comment.
+  system_update
 }
 
 enum BackgroundTaskStatus {
@@ -265,6 +272,8 @@ model Tenant {
   pocFinalReportQuestions PocFinalReportQuestion[]
   iaKbBillingSnapshot     IaKbBillingSnapshot?
   iaKbTaskConfigs         IaKbTaskConfig[]
+  systemUpdateState       SystemUpdateState?
+  systemUpdateHistory     SystemUpdateHistory[]
 
   @@map("tenants")
 }
@@ -654,7 +663,11 @@ model BackgroundTask {
   id                 String               @id
   tenantId           String               @map("tenant_id")
   tenant             Tenant               @relation(fields: [tenantId], references: [id])
-  userId             String               @map("user_id")
+  // Nullable only for type=system_update triggered by a schedule or a CMSaaS apply_update
+  // command - neither has a live HTTP request/session behind it, unlike every other task type
+  // (and every other trigger of a system_update itself: an admin clicking "Atualizar Agora" still
+  // sets this normally).
+  userId             String?              @map("user_id")
   type               BackgroundTaskType
   status             BackgroundTaskStatus @default(queued)
   currentStep        String               @map("current_step")
@@ -938,6 +951,98 @@ model PlatformSettings {
 
   @@unique([tenantId])
   @@map("platform_settings")
+}
+
+enum SystemUpdateAttemptStatus {
+  none
+  in_progress
+  success
+  failed
+  rolled_back
+}
+
+enum SystemUpdateTrigger {
+  scheduled
+  manual
+  remote_command
+}
+
+// Sistema de Atualização de Produção: one row per tenant (singleton, like PlatformSettings just
+// above) even though a real update restarts the whole server process and affects every tenant on
+// it - kept tenant-scoped anyway because that's the same unit the CMSaaS connection itself is
+// keyed to (see runHeartbeatForTenant in fleetLicense.ts: apiKey, latest_release, and apply_update
+// commands all arrive per-tenant, not per-process). In the common case there's exactly one enabled
+// tenant per Presales installation, so this is a singleton in practice.
+model SystemUpdateState {
+  id       String @id
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  currentVersion String? @map("current_version")
+  currentGitSha  String? @map("current_git_sha")
+  lastCheckedAt  DateTime? @map("last_checked_at")
+
+  // Cached from the heartbeat's latest_release field (see heartbeat handling in fleetLicense.ts) -
+  // release_notes_md is fetched separately, on demand, only when an admin opens the Atualizações
+  // screen (GET /api/releases/:id on the CMSaaS side), not on every heartbeat.
+  latestReleaseId          String?   @map("latest_release_id")
+  latestReleaseVersion     String?   @map("latest_release_version")
+  latestReleaseChannel     String?   @map("latest_release_channel")
+  latestReleaseCodeRef     String?   @map("latest_release_code_ref")
+  latestReleasePublishedAt DateTime? @map("latest_release_published_at")
+  latestReleaseNotesMd     String?   @db.Text @map("latest_release_notes_md")
+
+  // Frozen at the moment of scheduling - does NOT silently follow a newer release that appears
+  // later; rescheduling to pick up a newer release is an explicit admin action.
+  scheduledUpdateAt  DateTime? @map("scheduled_update_at")
+  scheduledReleaseId String?   @map("scheduled_release_id")
+  scheduledCodeRef   String?   @map("scheduled_code_ref")
+
+  lastAttemptStatus          SystemUpdateAttemptStatus @default(none) @map("last_attempt_status")
+  lastAttemptStartedAt       DateTime?                 @map("last_attempt_started_at")
+  lastAttemptFinishedAt      DateTime?                 @map("last_attempt_finished_at")
+  lastAttemptFromVersion     String?                   @map("last_attempt_from_version")
+  lastAttemptToVersion       String?                   @map("last_attempt_to_version")
+  lastAttemptErrorLog        String?                   @db.Text @map("last_attempt_error_log")
+  lastAttemptErrorReportedAt DateTime?                 @map("last_attempt_error_reported_at")
+  backupRef                  String?                   @map("backup_ref")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId])
+  @@map("system_update_state")
+}
+
+// Append-only, one row per attempt (mirrors InstallationMetric's own append-only convention on
+// the CMSaaS side) - SystemUpdateState above only ever holds the LATEST attempt, this is the full
+// ledger the Admin Console's history panel reads.
+model SystemUpdateHistory {
+  id       String @id
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  fromVersion String? @map("from_version")
+  toVersion   String  @map("to_version")
+  fromCodeRef String? @map("from_code_ref")
+  toCodeRef   String  @map("to_code_ref")
+  releaseId   String? @map("release_id")
+
+  startedAt  DateTime  @map("started_at")
+  finishedAt DateTime? @map("finished_at")
+  status     SystemUpdateAttemptStatus
+  triggeredBy SystemUpdateTrigger @map("triggered_by")
+
+  errorLog String? @db.Text @map("error_log")
+  backupRef String? @map("backup_ref")
+  // Points at the BackgroundTask row driving the actual scripts/update.sh run, so the Admin
+  // Console can reuse the same generic progress-tracking UI/polling every other task type uses.
+  backgroundTaskId String? @map("background_task_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt])
+  @@map("system_update_history")
 }
 
 model PromptTemplate {

@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { getAppVersion } from "./appVersion";
 import os from "os";
 import { dbStore } from "../../src/dbStore";
 import { redis } from "../../src/redis";
@@ -8,6 +9,7 @@ import { decryptSecret } from "./security";
 import { randomId } from "../../src/idGenerator";
 import { logger } from "./logger";
 import { reconcileIncomingKnowledgeEntry, IncomingGlobalKbEntry } from "./knowledgeBaseReconciliation";
+import { persistLatestRelease, triggerImmediateUpdate } from "./updateScheduler";
 
 // Phase 7 (fleet/license management): the public half of the fleet manager's Ed25519 signing
 // keypair, baked into this build (not fetched at runtime - a compromised heartbeat response
@@ -191,6 +193,8 @@ function collectSystemInfo() {
     total_memory_mb: totalMemoryMb,
     memory_used_mb: usedMemoryMb,
     node_version: process.version,
+    app_version: getAppVersion().version,
+    app_git_sha: getAppVersion().gitShaShort,
   };
 }
 
@@ -324,6 +328,13 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
       }
       await redis.set(lastLogSyncKey(tenantId), new Date().toISOString());
 
+      // Sistema de Atualização de Produção: caches this heartbeat's latest_release (sibling of
+      // license/commands/messages, not signed - see heartbeat.ts on the Fleet Manager side for
+      // why) alongside a fresh snapshot of the version this process is actually running.
+      await persistLatestRelease(tenantId, data.latest_release || null).catch((err) =>
+        logger.warn({ err, tenantId }, "Failed to persist latest_release from heartbeat")
+      );
+
       // ia_kb add-on: on the exact heartbeat where the entitlement transitions from absent/off to
       // enabled, this tenant's own AI provider keys are cleared - from this point on every AI call
       // routes through the Fleet Manager's proxy instead (see server/utils/aiProviders.ts), and a
@@ -373,6 +384,17 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
         // built before this response arrived) rather than only newly-approved ones.
         if (command.type === "force_kb_sync") {
           await dbStore.resetKnowledgeBaseSyncCursor().catch((err) => logger.warn({ err, tenantId }, "Failed to reset knowledge base sync cursor for force_kb_sync"));
+        }
+        // Remote "force update now" push (Sistema de Atualização de Produção) - ack'd below same
+        // as every other command regardless of whether the trigger itself actually started (e.g.
+        // an update already running for this tenant just means this ack simply confirms delivery,
+        // the CMSaaS admin still sees the in-progress one in the Atualizações tab either way).
+        if (command.type === "apply_update" && command.payload?.release_id && command.payload?.code_ref) {
+          await triggerImmediateUpdate(tenantId, {
+            releaseId: command.payload.release_id,
+            codeRef: command.payload.code_ref,
+            triggeredBy: "remote_command",
+          }).catch((err) => logger.error({ err, tenantId }, "Failed to trigger remote apply_update command"));
         }
         await fetch(`${settings.fleet_manager_url}/api/heartbeat/commands/${command.id}/ack`, {
           method: "POST",

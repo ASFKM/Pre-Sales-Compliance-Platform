@@ -99,7 +99,7 @@ interface WorkspaceProps {
   fetchGlobalConfigs: () => Promise<void> | void;
   fetchProjectDetails: (projectId: string) => Promise<void> | void;
   setActiveTab: (tab: "home" | "workspace" | "projectsList" | "proposals" | "approval" | "knowledgeBase" | "admin") => void;
-  setActiveAdminSection: Dispatch<SetStateAction<"overview" | "users" | "ai" | "templates" | "approval_flow" | "subscription" | "branding" | "integrations" | "storage" | "audit">>;
+  setActiveAdminSection: Dispatch<SetStateAction<"overview" | "users" | "ai" | "templates" | "approval_flow" | "subscription" | "system_updates" | "branding" | "integrations" | "storage" | "audit">>;
   canAccessAdminSection: (section: string) => boolean;
   handleDeleteDocument: (id: string) => void;
   getDocTag: (filename: string) => { label: string; style: string };

@@ -42,7 +42,7 @@ async function main() {
         "analysis:run", "analysis:read", "analysis:edit", "analysis:approve",
         "proposal:generate", "proposal:edit", "proposal:approve", "proposal:export",
         "template:manage", "approval:manage", "admin:users", "admin:roles", "admin:settings",
-        "admin:audit", "admin:debug", "admin:diagnostics", "ai:settings", "branding:manage",
+        "admin:audit", "admin:debug", "admin:diagnostics", "admin:system_updates", "ai:settings", "branding:manage",
         "storage:manage", "integrations:manage", "knowledge_base:read", "knowledge_base:write",
         "poc:read", "poc:manage"
       ]

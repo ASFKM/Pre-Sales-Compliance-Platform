@@ -30,6 +30,38 @@ interface FleetLicenseStatus {
   customer_logo_base64: string | null;
 }
 
+interface SystemUpdateState {
+  current_version: string | null;
+  current_git_sha: string | null;
+  last_checked_at: string | null;
+  latest_release: { id: string; version: string; channel: string; code_ref: string; published_at: string | null; notes_md: string | null } | null;
+  scheduled_update_at: string | null;
+  scheduled_release_id: string | null;
+  scheduled_code_ref: string | null;
+  last_attempt_status: "none" | "in_progress" | "success" | "failed" | "rolled_back";
+  last_attempt_started_at: string | null;
+  last_attempt_finished_at: string | null;
+  last_attempt_from_version: string | null;
+  last_attempt_to_version: string | null;
+  last_attempt_error_log: string | null;
+  backup_ref: string | null;
+}
+
+interface SystemUpdateHistoryRow {
+  id: string;
+  from_version: string | null;
+  to_version: string;
+  from_code_ref: string | null;
+  to_code_ref: string;
+  release_id: string | null;
+  started_at: string;
+  finished_at: string | null;
+  status: "none" | "in_progress" | "success" | "failed" | "rolled_back";
+  triggered_by: "scheduled" | "manual" | "remote_command";
+  error_log: string | null;
+  backup_ref: string | null;
+}
+
 interface SystemMessageRow {
   id: string;
   source: "fleet_manager" | "local";
@@ -190,7 +222,7 @@ const MODULE_PERMISSION_MAP: Record<string, string[]> = {
   proposals: ["proposal:generate", "proposal:read", "proposal:approve"],
   templates: ["template:manage"],
   approval: ["approval:manage"],
-  admin: ["admin:users", "admin:roles", "admin:settings"],
+  admin: ["admin:users", "admin:roles", "admin:settings", "admin:system_updates"],
   integrations: ["integrations:manage"],
   branding: ["branding:manage"],
   audit: ["admin:audit", "admin:debug", "admin:diagnostics"],
@@ -198,7 +230,7 @@ const MODULE_PERMISSION_MAP: Record<string, string[]> = {
 
 type AdminSection =
   | "overview" | "users" | "ai" | "templates" | "approval_flow"
-  | "subscription" | "branding" | "integrations" | "storage" | "audit";
+  | "subscription" | "system_updates" | "branding" | "integrations" | "storage" | "audit";
 
 interface AdminConsoleProps {
   locale: "en" | "pt";
@@ -256,6 +288,73 @@ export default function AdminConsole({
   // has no way to "activate" itself, plan/status/contract term are only ever set on the Fleet
   // Manager side.
   const [fleetLicenseStatus, setFleetLicenseStatus] = useState<FleetLicenseStatus | null>(null);
+
+  // Sistema de Atualização de Produção: state/history from server/routes/systemUpdates.ts -
+  // fetched once on mount like fleetLicenseStatus just above, not gated on activeAdminSection
+  // (the payload is small and this mirrors every other section's own fetch-on-mount convention).
+  const [systemUpdateState, setSystemUpdateState] = useState<SystemUpdateState | null>(null);
+  const [systemUpdateHistory, setSystemUpdateHistory] = useState<SystemUpdateHistoryRow[]>([]);
+  const [systemUpdateNotesMd, setSystemUpdateNotesMd] = useState<string | null>(null);
+  const [systemUpdateNotesLoading, setSystemUpdateNotesLoading] = useState(false);
+  const [systemUpdateMessage, setSystemUpdateMessage] = useState("");
+  const [scheduleDraft, setScheduleDraft] = useState("");
+  const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
+
+  const loadSystemUpdateState = () => {
+    ApiClient.get<SystemUpdateState | null>("/api/admin/system-updates/state").then(setSystemUpdateState).catch(() => setSystemUpdateState(null));
+    ApiClient.get<SystemUpdateHistoryRow[]>("/api/admin/system-updates/history").then(setSystemUpdateHistory).catch(() => setSystemUpdateHistory([]));
+  };
+
+  useEffect(() => {
+    loadSystemUpdateState();
+  }, []);
+
+  const fetchReleaseNotes = async () => {
+    setSystemUpdateNotesLoading(true);
+    setSystemUpdateMessage("");
+    try {
+      const result = await ApiClient.get<{ notes_md: string }>("/api/admin/system-updates/release-notes");
+      setSystemUpdateNotesMd(result.notes_md);
+    } catch (err: any) {
+      setSystemUpdateMessage(err.message || "Não foi possível buscar as notas de versão.");
+    } finally {
+      setSystemUpdateNotesLoading(false);
+    }
+  };
+
+  const submitSchedule = async () => {
+    if (!scheduleDraft) return;
+    setSystemUpdateMessage("");
+    try {
+      await ApiClient.post("/api/admin/system-updates/schedule", { update_at: new Date(scheduleDraft).toISOString() });
+      setScheduleDraft("");
+      loadSystemUpdateState();
+    } catch (err: any) {
+      setSystemUpdateMessage(err.message || "Não foi possível agendar a atualização.");
+    }
+  };
+
+  const cancelSchedule = async () => {
+    setSystemUpdateMessage("");
+    try {
+      await ApiClient.post("/api/admin/system-updates/cancel", {});
+      loadSystemUpdateState();
+    } catch (err: any) {
+      setSystemUpdateMessage(err.message || "Não foi possível cancelar o agendamento.");
+    }
+  };
+
+  const runUpdateNow = async () => {
+    if (!confirm(locale === "pt" ? "Atualizar agora? O sistema fará backup e reiniciará sozinho." : "Update now? The system will back up and restart on its own.")) return;
+    setSystemUpdateMessage("");
+    try {
+      await ApiClient.post("/api/admin/system-updates/run-now", {});
+      setSystemUpdateMessage(locale === "pt" ? "Atualização iniciada." : "Update started.");
+      loadSystemUpdateState();
+    } catch (err: any) {
+      setSystemUpdateMessage(err.message || "Não foi possível iniciar a atualização.");
+    }
+  };
 
   // Roadmap item (customer_request): "Identidade Visual em DOCX" Fase 4b - reusable named brand
   // styles a project can opt into instead of the tenant-wide branding above (Fase 4a). Own local
@@ -665,6 +764,7 @@ export default function AdminConsole({
                     ["templates", locale === "pt" ? "Templates de Propostas" : "Proposal Templates", locale === "pt" ? "Upload, preview e versionamento" : "Upload, preview and versioning"],
                     ["approval_flow", locale === "pt" ? "Fluxo de Aprovação" : "Approval Workflow", locale === "pt" ? "Etapas, responsáveis e regras" : "Stages, owners and rules"],
                     ["subscription", locale === "pt" ? "Subscrição e Licença" : "Subscription & License", locale === "pt" ? "Plano, chave e limites" : "Plan, key and limits"],
+                    ["system_updates", locale === "pt" ? "Atualizações do Sistema" : "System Updates", locale === "pt" ? "Versão, agendamento e histórico" : "Version, scheduling and history"],
                     ["branding", locale === "pt" ? "Identidade Visual" : "Branding", locale === "pt" ? "Logo, cores e aparência" : "Logo, colors and appearance"],
                     ["integrations", locale === "pt" ? "Integrações e APIs" : "Integrations & APIs", locale === "pt" ? "CRM, ERP e conectores externos" : "CRM, ERP and external connectors"],
                     ["storage", locale === "pt" ? "Armazenamento" : "Storage", locale === "pt" ? "Arquivos, buckets e documentos" : "Files, buckets and documents"],
@@ -700,6 +800,7 @@ export default function AdminConsole({
 
                 {activeAdminSection === "approval_flow" && canAccessAdminSection("approval_flow") && (locale === "pt" ? "Fluxo de Aprovação de Propostas" : "Proposal Approval Workflow")}
                       {activeAdminSection === "subscription" && canAccessAdminSection("subscription") && (locale === "pt" ? "Subscrição e Licença" : "Subscription & License")}
+                      {activeAdminSection === "system_updates" && canAccessAdminSection("system_updates") && (locale === "pt" ? "Atualizações do Sistema" : "System Updates")}
                       {activeAdminSection === "branding" && canAccessAdminSection("branding") && (locale === "pt" ? "Personalização e Identidade Visual" : "Branding & Visual Identity")}
                       {activeAdminSection === "integrations" && canAccessAdminSection("integrations") && (locale === "pt" ? "Integrações, CRMs, ERPs e APIs" : "Integrations, CRMs, ERPs and APIs")}
                       {activeAdminSection === "storage" && canAccessAdminSection("storage") && (locale === "pt" ? "Armazenamento e Documentos" : "Storage & Documents")}
@@ -2489,6 +2590,154 @@ export default function AdminConsole({
                         }}
                         className="w-full p-2 rounded bg-slate-50 border border-slate-200 text-xs font-mono"
                       />
+                    </div>
+                  </div>
+                )}
+
+                {activeAdminSection === "system_updates" && canAccessAdminSection("system_updates") && (
+                  <div className="w-full space-y-4">
+                    {systemUpdateMessage && (
+                      <div className="text-xs rounded p-3 bg-sky-50 border border-sky-100 text-sky-700">{systemUpdateMessage}</div>
+                    )}
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+                      <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-3">
+                        <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
+                          {locale === "pt" ? "Versão Atual" : "Current Version"}
+                        </h3>
+                        <p className="text-sm font-mono text-slate-800">{systemUpdateState?.current_version || (locale === "pt" ? "desconhecida" : "unknown")}</p>
+                        {systemUpdateState?.current_git_sha && (
+                          <p className="text-[11px] font-mono text-slate-400">SHA {systemUpdateState.current_git_sha}</p>
+                        )}
+                        {systemUpdateState?.current_version?.endsWith("-dirty") && (
+                          <span className="inline-block text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-amber-50 text-amber-600 border border-amber-100">
+                            {locale === "pt" ? "Alterações locais não commitadas" : "Uncommitted local changes"}
+                          </span>
+                        )}
+                        {systemUpdateState?.last_attempt_status === "in_progress" && (
+                          <p className="text-xs font-bold text-sky-600">{locale === "pt" ? "Atualização em andamento..." : "Update in progress..."}</p>
+                        )}
+                        {(systemUpdateState?.last_attempt_status === "failed" || systemUpdateState?.last_attempt_status === "rolled_back") && (
+                          <p className="text-xs font-bold text-red-600">
+                            {locale === "pt" ? "Última tentativa falhou" : "Last attempt failed"}
+                            {systemUpdateState.last_attempt_status === "rolled_back" ? ` (${locale === "pt" ? "revertida automaticamente" : "auto rolled back"})` : ""}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-3">
+                        <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
+                          {locale === "pt" ? "Última Release Disponível" : "Latest Available Release"}
+                        </h3>
+                        {!systemUpdateState?.latest_release && (
+                          <p className="text-xs text-slate-400">
+                            {locale === "pt" ? "Nenhuma atualização detectada ainda - verificado a cada heartbeat (até 20 min)." : "No update detected yet - checked on every heartbeat (up to 20 min)."}
+                          </p>
+                        )}
+                        {systemUpdateState?.latest_release && (
+                          <>
+                            <p className="text-sm font-bold text-emerald-600">{systemUpdateState.latest_release.version}</p>
+                            <p className="text-[11px] font-mono text-slate-400">ref {systemUpdateState.latest_release.code_ref} · canal {systemUpdateState.latest_release.channel}</p>
+                            <button
+                              onClick={fetchReleaseNotes}
+                              disabled={systemUpdateNotesLoading}
+                              className="text-xs font-bold text-slate-600 underline disabled:opacity-50"
+                            >
+                              {systemUpdateNotesLoading ? (locale === "pt" ? "Carregando..." : "Loading...") : (locale === "pt" ? "Ver notas de versão" : "View release notes")}
+                            </button>
+                            {systemUpdateNotesMd !== null && (
+                              <div className="text-xs whitespace-pre-wrap bg-slate-50 border border-slate-100 rounded p-3 max-h-48 overflow-y-auto">{systemUpdateNotesMd}</div>
+                            )}
+                            <div className="flex gap-2 flex-wrap pt-1">
+                              <button
+                                onClick={runUpdateNow}
+                                disabled={systemUpdateState.last_attempt_status === "in_progress"}
+                                className="text-xs font-bold px-3 py-1.5 rounded-lg text-white bg-slate-900 disabled:opacity-50"
+                              >
+                                {locale === "pt" ? "Atualizar Agora" : "Update Now"}
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-3">
+                      <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
+                        {locale === "pt" ? "Agendar Atualização" : "Schedule Update"}
+                      </h3>
+                      {systemUpdateState?.scheduled_update_at ? (
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <p className="text-xs text-slate-700">
+                            {locale === "pt" ? "Agendada para " : "Scheduled for "}
+                            <span className="font-bold">{new Date(systemUpdateState.scheduled_update_at).toLocaleString(locale === "pt" ? "pt-BR" : "en-US")}</span>
+                          </p>
+                          <button onClick={cancelSchedule} className="text-xs font-bold text-red-600 underline">
+                            {locale === "pt" ? "Cancelar agendamento" : "Cancel schedule"}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <input
+                            type="datetime-local"
+                            value={scheduleDraft}
+                            onChange={(e) => setScheduleDraft(e.target.value)}
+                            className="p-2 rounded bg-slate-50 border border-slate-200 text-xs font-mono"
+                          />
+                          <button
+                            onClick={submitSchedule}
+                            disabled={!scheduleDraft || !systemUpdateState?.latest_release}
+                            className="text-xs font-bold px-3 py-1.5 rounded-lg text-white bg-slate-900 disabled:opacity-50"
+                          >
+                            {locale === "pt" ? "Agendar" : "Schedule"}
+                          </button>
+                        </div>
+                      )}
+                      <p className="text-[10px] text-slate-400">
+                        {locale === "pt"
+                          ? "Um agendamento perdido por até 15 minutos roda automaticamente; além disso, exige reagendamento manual."
+                          : "A schedule missed by up to 15 minutes runs automatically; beyond that, it requires manual rescheduling."}
+                      </p>
+                    </div>
+
+                    <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-2">
+                      <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
+                        {locale === "pt" ? "Histórico de Atualizações" : "Update History"}
+                      </h3>
+                      {systemUpdateHistory.length === 0 && (
+                        <p className="text-xs text-slate-400">{locale === "pt" ? "Nenhuma atualização registrada ainda." : "No updates recorded yet."}</p>
+                      )}
+                      {systemUpdateHistory.map((h) => (
+                        <div key={h.id} className="border-t border-slate-100 py-2">
+                          <button
+                            onClick={() => setExpandedHistoryId(expandedHistoryId === h.id ? null : h.id)}
+                            className="w-full flex items-center justify-between text-xs text-left"
+                          >
+                            <span className="font-mono text-slate-700">{h.from_version || "?"} → {h.to_version}</span>
+                            <span className="flex items-center gap-2">
+                              <span
+                                className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
+                                  h.status === "success" ? "bg-emerald-50 text-emerald-600" :
+                                  h.status === "in_progress" ? "bg-sky-50 text-sky-600" :
+                                  "bg-red-50 text-red-600"
+                                }`}
+                              >
+                                {h.status}
+                              </span>
+                              <span className="text-slate-400">{new Date(h.started_at).toLocaleString(locale === "pt" ? "pt-BR" : "en-US")}</span>
+                            </span>
+                          </button>
+                          {expandedHistoryId === h.id && (
+                            <div className="mt-2 text-[11px] space-y-1">
+                              <p className="text-slate-500">{locale === "pt" ? "Disparado por" : "Triggered by"}: {h.triggered_by}</p>
+                              {h.backup_ref && <p className="text-slate-500">{locale === "pt" ? "Backup" : "Backup"}: {h.backup_ref}</p>}
+                              {h.error_log && (
+                                <pre className="whitespace-pre-wrap bg-slate-50 border border-slate-100 rounded p-2 max-h-48 overflow-y-auto font-mono">{h.error_log}</pre>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
