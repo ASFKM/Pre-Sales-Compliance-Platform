@@ -59,6 +59,7 @@ function mapUser(u: any): User {
     name: u.name,
     email: u.email,
     mfa_enabled: u.mfaEnabled,
+    must_change_password: u.mustChangePassword,
     status: u.status,
     role_id: u.roleId,
     created_at: u.createdAt.toISOString(),
@@ -665,6 +666,9 @@ class DBStore {
         status: data.status || UserStatus.ACTIVE,
         mfaEnabled: data.mfa_enabled ?? false,
         passwordHash: data.password_hash,
+        // Roadmap (segurança): sempre true na criação, sem opção de desligar - o admin sempre
+        // define/aceita a senha inicial, então o usuário sempre precisa trocá-la no primeiro login.
+        mustChangePassword: true,
       },
     });
     return mapUser(u);
@@ -683,6 +687,7 @@ class DBStore {
         status: updates.status,
         mfaEnabled: updates.mfa_enabled,
         passwordHash: updates.password_hash,
+        mustChangePassword: updates.must_change_password,
       },
     });
     return mapUser(u);

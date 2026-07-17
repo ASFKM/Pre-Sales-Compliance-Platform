@@ -160,6 +160,19 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       return res.status(403).json({ success: false, code: "LICENSE_READ_ONLY", message: enforcement.message });
     }
 
+    // Roadmap (segurança): true right after creation or after an admin resets the password -
+    // blocks every requireAuth-protected route uniformly, same as MFA_REQUIRED above. No escape
+    // hatch option here on purpose - the one route that must stay reachable
+    // (POST /api/auth/change-password) doesn't go through requireAuth at all, it reads the login
+    // token directly out of the request body, mirroring /mfa/enroll and /mfa/verify's own design.
+    if (user.must_change_password) {
+      return res.status(403).json({
+        success: false,
+        code: "PASSWORD_CHANGE_REQUIRED",
+        message: "A senha precisa ser trocada antes de continuar."
+      });
+    }
+
     // Bind session info to request headers for downstream endpoint use
     req.headers["x-user-id"] = session.userId;
     req.headers["x-role-id"] = session.roleId;
@@ -368,6 +381,7 @@ router.post("/login", loginRateLimiter, async (req: Request, res: Response, next
       res.json({
         success: true,
         mfa_required: mfaRequired,
+        must_change_password: user.must_change_password,
         token: session.token,
         user: await buildSessionUser(user, role)
       });
@@ -434,6 +448,63 @@ router.post("/mfa/enroll", async (req: Request, res: Response, next: NextFunctio
       });
 
       res.json({ success: true, secret, otpauth_url: otpauthUrl, qr_code: qrCode });
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PASSWORD CHANGE ENDPOINT (roadmap, segurança) - self-service, covers both the mandatory
+// first-change flow (new user or admin password reset) and a user voluntarily changing their own
+// password later. Uses the login token directly (like /mfa/enroll and /mfa/verify above), not
+// requireAuth, since a user with must_change_password=true cannot pass requireAuth at all - this
+// is the one route that stays reachable in that state.
+router.post("/change-password", async (req: Request, res: Response, next: NextFunction) => {
+  const correlationId = (req.headers["x-correlation-id"] as string) || "corr-auth";
+  try {
+    const { token, current_password, new_password } = req.body;
+
+    if (!token || !current_password || !new_password) {
+      return res.status(400).json({ success: false, message: "Token, senha atual e nova senha são obrigatórios." });
+    }
+    if (typeof new_password !== "string" || new_password.length < 8) {
+      return res.status(400).json({ success: false, message: "A nova senha precisa ter pelo menos 8 caracteres." });
+    }
+
+    const session = await getSession(token);
+    if (!session) {
+      return res.status(401).json({ success: false, message: "Invalid or expired session token.", correlationId });
+    }
+
+    const user = await dbStore.getUserById(session.userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+
+    await runWithTenant({ tenantId: user.tenant_id }, async () => {
+      const passwordHash = await dbStore.getUserPasswordHash(user.id);
+      if (!comparePasswords(current_password, passwordHash || "")) {
+        res.status(401).json({ success: false, message: "Senha atual incorreta." });
+        return;
+      }
+      if (comparePasswords(new_password, passwordHash || "")) {
+        res.status(400).json({ success: false, message: "A nova senha precisa ser diferente da senha atual." });
+        return;
+      }
+
+      await dbStore.updateUser(user.id, { password_hash: hashPassword(new_password), must_change_password: false });
+
+      await dbStore.addAuditLog({
+        user_id: user.id,
+        action: "Password Changed",
+        entity_type: "User",
+        entity_id: user.id,
+        ip_address: req.ip || "127.0.0.1",
+        user_agent: req.headers["user-agent"] || "unknown",
+        metadata: JSON.stringify({})
+      });
+
+      res.json({ success: true });
     });
   } catch (err) {
     next(err);
@@ -535,6 +606,7 @@ router.post("/mfa/verify", async (req: Request, res: Response, next: NextFunctio
       return res.json({
         success: true,
         verified: true,
+        must_change_password: user?.must_change_password,
         user: result
       });
     }

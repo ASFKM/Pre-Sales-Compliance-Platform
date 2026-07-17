@@ -287,6 +287,10 @@ model User {
   passwordHash  String?    @map("password_hash")
   mfaEnabled    Boolean    @default(false) @map("mfa_enabled")
   mfaTotpSecret String?    @map("mfa_totp_secret")
+  // Roadmap (segurança): sempre true na criação, ou quando o admin redefine a senha de um usuário
+  // que a perdeu - bloqueia todas as rotas exceto POST /api/auth/change-password até ser zerado.
+  // Mesmo padrão estrutural de gate que mfaEnabled/session.mfaVerified já usa (ver requireAuth).
+  mustChangePassword Boolean @default(false) @map("must_change_password")
   status        UserStatus @default(ACTIVE)
   roleId        String     @map("role_id")
   role          Role       @relation(fields: [roleId], references: [id])

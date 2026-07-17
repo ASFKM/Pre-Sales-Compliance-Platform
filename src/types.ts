@@ -10,6 +10,9 @@ export interface User {
   name: string;
   email: string;
   mfa_enabled: boolean;
+  // Roadmap (segurança): true na criação e sempre que o admin redefine a senha - bloqueia toda
+  // rota autenticada (via requireAuth) exceto POST /api/auth/change-password até ser zerado.
+  must_change_password: boolean;
   status: UserStatus;
   role_id: string;
   created_at: string;

@@ -30,6 +30,9 @@ const UpdateUserSchema = z.object({
   status: z.nativeEnum(UserStatus).optional(),
   mfa_enabled: z.boolean().optional(),
   password: z.string().min(8, "Password must be at least 8 characters long").optional(),
+  // Roadmap (segurança): só tem efeito junto de `password` - default true (força a troca), o
+  // admin desmarca conscientemente na tela se não quiser. Ignorado se nenhuma senha for enviada.
+  force_password_change: z.boolean().optional(),
 });
 
 // Protect with users admin permissions
@@ -110,11 +113,11 @@ router.put("/:id", requirePermission("admin:users"), async (req: Request, res: R
       }
     }
 
-    const { password, ...safeUpdates } = validated;
+    const { password, force_password_change, ...safeUpdates } = validated;
     const updatedUser = await dbStore.updateUser(req.params.id, {
       ...safeUpdates,
       email: normalizedEmail,
-      ...(password ? { password_hash: hashPassword(password) } : {}),
+      ...(password ? { password_hash: hashPassword(password), must_change_password: force_password_change !== false } : {}),
     });
 
     // Disabling MFA also clears the enrolled TOTP secret so a future re-enable starts fresh

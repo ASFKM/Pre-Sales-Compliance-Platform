@@ -679,6 +679,9 @@ export default function AdminConsole({
   const [newUserPassword, setNewUserPassword] = useState<string>("ChangeMe123!");
   const [editingUserId, setEditingUserId] = useState<string>("");
   const [editingUserPassword, setEditingUserPassword] = useState<string>("");
+  // Roadmap (segurança): marcado por padrão sempre que o admin define uma senha nova para um
+  // usuário existente - o admin desmarca conscientemente se não quiser forçar a troca.
+  const [forcePasswordChangeOnReset, setForcePasswordChangeOnReset] = useState<boolean>(true);
 
   const [showNewConnectorForm, setShowNewConnectorForm] = useState<boolean>(false);
   const [newConnectorName, setNewConnectorName] = useState<string>("");
@@ -1405,29 +1408,40 @@ export default function AdminConsole({
                                     </button>
                                   </div>
                                   {editingUserId === u.id && (
-                                    <div className="flex gap-1">
-                                      <input
-                                        type="password"
-                                        value={editingUserPassword}
-                                        onChange={(e) => setEditingUserPassword(e.target.value)}
-                                        placeholder={locale === "pt" ? "Nova senha" : "New password"}
-                                        className="w-28 p-1 border border-slate-200 rounded text-[10px]"
-                                      />
-                                      <button
-                                        onClick={async () => {
-                                          if (editingUserPassword.length < 8) {
-                                            alert(locale === "pt" ? "A senha deve ter pelo menos 8 caracteres." : "Password must have at least 8 characters.");
-                                            return;
-                                          }
-                                          await handleUpdateUser(u.id, { password: editingUserPassword });
-                                          setEditingUserId("");
-                                          setEditingUserPassword("");
-                                          alert(locale === "pt" ? "Senha atualizada." : "Password updated.");
-                                        }}
-                                        className="bg-emerald-600 text-white px-2 py-1 rounded text-[10px] font-bold"
-                                      >
-                                        OK
-                                      </button>
+                                    <div className="flex flex-col gap-1">
+                                      <div className="flex gap-1">
+                                        <input
+                                          type="password"
+                                          value={editingUserPassword}
+                                          onChange={(e) => setEditingUserPassword(e.target.value)}
+                                          placeholder={locale === "pt" ? "Nova senha" : "New password"}
+                                          className="w-28 p-1 border border-slate-200 rounded text-[10px]"
+                                        />
+                                        <button
+                                          onClick={async () => {
+                                            if (editingUserPassword.length < 8) {
+                                              alert(locale === "pt" ? "A senha deve ter pelo menos 8 caracteres." : "Password must have at least 8 characters.");
+                                              return;
+                                            }
+                                            await handleUpdateUser(u.id, { password: editingUserPassword, force_password_change: forcePasswordChangeOnReset });
+                                            setEditingUserId("");
+                                            setEditingUserPassword("");
+                                            setForcePasswordChangeOnReset(true);
+                                            alert(locale === "pt" ? "Senha atualizada." : "Password updated.");
+                                          }}
+                                          className="bg-emerald-600 text-white px-2 py-1 rounded text-[10px] font-bold"
+                                        >
+                                          OK
+                                        </button>
+                                      </div>
+                                      <label className="flex items-center gap-1 text-[9px] text-slate-500">
+                                        <input
+                                          type="checkbox"
+                                          checked={forcePasswordChangeOnReset}
+                                          onChange={(e) => setForcePasswordChangeOnReset(e.target.checked)}
+                                        />
+                                        {locale === "pt" ? "Forçar troca de senha no próximo login" : "Force password change on next login"}
+                                      </label>
                                     </div>
                                   )}
                                 </div>
