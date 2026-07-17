@@ -44,11 +44,41 @@ BACKUP_DIR="$REPO_ROOT/backups/system_update"
 BACKUP_RETENTION_DAYS=7
 BACKUP_REF="update_$(date -u +%Y%m%d%H%M%S)"
 ERROR_LOG_FILE="$(mktemp)"
-DOCKER_POSTGRES_CONTAINER="commercial-assistant-ai-postgres-1"
-DB_NAME="commercial_assistant"
-DB_USER="app_user"
 HEALTH_URL="http://localhost:3000/api/health"
 READINESS_URL="http://localhost:3000/api/health/readiness"
+
+# Container name and DB user/name are NOT standardized across installations - the dev host was
+# provisioned via docker-compose (container "commercial-assistant-ai-postgres-1"), while a real
+# customer install via scripts/install.sh uses a plain `docker run --name presales-postgres`
+# instead. Detected at runtime rather than hardcoded, same reasoning for parsing DB_USER/DB_NAME
+# out of DATABASE_URL instead of assuming a fixed value.
+DOCKER_POSTGRES_CONTAINER="$(docker ps --filter "name=postgres" --format "{{.Names}}" | head -1)"
+if [[ -z "$DOCKER_POSTGRES_CONTAINER" ]]; then
+  echo "Não foi possível identificar o container do Postgres (nenhum container com 'postgres' no nome está rodando)." >&2
+  exit 1
+fi
+DB_URL="$(grep -E '^DATABASE_URL=' .env | head -1 | cut -d'=' -f2- | tr -d '"')"
+DB_USER="$(echo "$DB_URL" | sed -E 's#^[a-zA-Z]+://([^:]+):.*#\1#')"
+DB_NAME="$(echo "$DB_URL" | sed -E 's#.*/([a-zA-Z0-9_]+)(\?.*)?$#\1#')"
+if [[ -z "$DB_USER" || -z "$DB_NAME" ]]; then
+  echo "Não foi possível extrair usuário/nome do banco de DATABASE_URL em .env." >&2
+  exit 1
+fi
+
+# Same reasoning: the dev host runs under systemd ("commercial-assistant-ai" unit), a real
+# customer install via scripts/install.sh runs under PM2 (process "presales", always that literal
+# name - see install.sh's own `pm2 start dist/server.cjs --name presales`). Detected once here and
+# reused by every restart call below (normal update path and rollback path both call this).
+restart_app() {
+  if pm2 describe presales >/dev/null 2>&1; then
+    pm2 restart presales
+  elif systemctl is-enabled commercial-assistant-ai >/dev/null 2>&1; then
+    sudo systemctl restart commercial-assistant-ai
+  else
+    echo "Não foi possível identificar o mecanismo de restart (nem PM2 'presales' nem systemd 'commercial-assistant-ai')." >&2
+    return 1
+  fi
+}
 
 # Set right before the backup actually completes - a failure BEFORE this point (bad ref, no disk
 # space) has nothing to roll back yet, so the exit trap below only attempts rollback once this is
@@ -88,7 +118,7 @@ rollback() {
     docker exec -i "$DOCKER_POSTGRES_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" < "$BACKUP_DIR/$BACKUP_REF.sql"
     npm ci
     npm run build
-    sudo systemctl restart commercial-assistant-ai
+    restart_app
     sleep 5
   } >> "$ERROR_LOG_FILE" 2>&1
 
@@ -163,7 +193,7 @@ step "Compilando build de produção"
 npm run build >> "$ERROR_LOG_FILE" 2>&1
 
 step "Reiniciando serviço"
-sudo systemctl restart commercial-assistant-ai >> "$ERROR_LOG_FILE" 2>&1
+restart_app >> "$ERROR_LOG_FILE" 2>&1
 
 step "Verificando saúde pós-atualização"
 if ! health_check; then
