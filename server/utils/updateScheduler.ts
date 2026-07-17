@@ -159,9 +159,16 @@ export async function triggerImmediateUpdate(tenantId: string, params: TriggerUp
     },
   });
 
+  // Caught by the real Presales Demo rehearsal (2026-07-17): plain `detached: true` isn't enough
+  // to survive `pm2 restart` - PM2 (via the treekill package) walks the OS process tree by PPID
+  // and kills every descendant of the app it's restarting, which still includes this child at the
+  // moment restart_app() runs inside update.sh, even though Node's own event loop had already
+  // detached from it. `setsid` puts the child in a brand-new session before bash even starts,
+  // which is what actually breaks the PPID chain treekill walks - `detached: true` alone only
+  // asks Node not to wait on it, it doesn't reparent the process immediately.
   const child = spawn(
-    "bash",
-    [UPDATE_SCRIPT_PATH, "--ref", params.codeRef, "--release-id", params.releaseId, "--tenant-id", tenantId, "--history-id", historyId, "--task-id", taskId],
+    "setsid",
+    ["bash", UPDATE_SCRIPT_PATH, "--ref", params.codeRef, "--release-id", params.releaseId, "--tenant-id", tenantId, "--history-id", historyId, "--task-id", taskId],
     { detached: true, stdio: "ignore", cwd: REPO_ROOT }
   );
   child.unref();

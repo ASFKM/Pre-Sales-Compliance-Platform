@@ -49,7 +49,19 @@ router.get("/admin/system-updates/state", requirePermission("admin:system_update
       return res.status(400).json({ success: false, message: "No tenant context." });
     }
     const state = await prisma.systemUpdateState.findUnique({ where: { tenantId } });
-    res.json(mapState(state));
+    const mapped = mapState(state);
+    // Barra de progresso: while an attempt is in_progress, update.sh calls
+    // `systemUpdateRunner.ts step` at each named step, which updates the driving
+    // BackgroundTask's currentStep - surfaced here so the Admin Console can poll and show it,
+    // instead of only learning the final outcome once it's done.
+    if (mapped && state?.lastAttemptStatus === "in_progress") {
+      const task = await prisma.backgroundTask.findFirst({
+        where: { tenantId, type: "system_update", status: { in: ["queued", "running"] } },
+        orderBy: { createdAt: "desc" },
+      });
+      (mapped as any).current_step = task?.currentStep || null;
+    }
+    res.json(mapped);
   } catch (err) {
     next(err);
   }

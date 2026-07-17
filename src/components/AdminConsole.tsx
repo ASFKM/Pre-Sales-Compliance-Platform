@@ -30,10 +30,30 @@ interface FleetLicenseStatus {
   customer_logo_base64: string | null;
 }
 
+// Mirrors scripts/update.sh's own step() calls, in order - used only to compute a rough
+// percentage for the progress bar (steps take very different amounts of time, so this is a
+// "which stage" indicator, not a time-accurate progress meter).
+const UPDATE_STEPS = [
+  "Verificando pré-requisitos",
+  "Buscando referência",
+  "Fazendo backup (banco de dados + .env)",
+  "Aplicando atualização: checkout",
+  "Instalando dependências (npm ci)",
+  "Aplicando migrações",
+  "Compilando build de produção",
+  "Reiniciando serviço",
+  "Verificando saúde pós-atualização",
+];
+function updateStepIndex(currentStep: string | null): number {
+  if (!currentStep) return -1;
+  return UPDATE_STEPS.findIndex((s) => currentStep.startsWith(s));
+}
+
 interface SystemUpdateState {
   current_version: string | null;
   current_git_sha: string | null;
   last_checked_at: string | null;
+  current_step?: string | null;
   latest_release: { id: string; version: string; channel: string; code_ref: string; published_at: string | null; notes_md: string | null } | null;
   scheduled_update_at: string | null;
   scheduled_release_id: string | null;
@@ -308,6 +328,16 @@ export default function AdminConsole({
   useEffect(() => {
     loadSystemUpdateState();
   }, []);
+
+  // Barra de progresso: enquanto uma atualização estiver em andamento, reconsulta o estado a
+  // cada 3s para refletir a etapa atual - fora desse caso não há custo de polling nenhum.
+  useEffect(() => {
+    if (systemUpdateState?.last_attempt_status !== "in_progress") return;
+    const interval = setInterval(() => {
+      ApiClient.get<SystemUpdateState | null>("/api/admin/system-updates/state").then(setSystemUpdateState).catch(() => {});
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [systemUpdateState?.last_attempt_status]);
 
   const fetchReleaseNotes = async () => {
     setSystemUpdateNotesLoading(true);
@@ -2614,9 +2644,21 @@ export default function AdminConsole({
                             {locale === "pt" ? "Alterações locais não commitadas" : "Uncommitted local changes"}
                           </span>
                         )}
-                        {systemUpdateState?.last_attempt_status === "in_progress" && (
-                          <p className="text-xs font-bold text-sky-600">{locale === "pt" ? "Atualização em andamento..." : "Update in progress..."}</p>
-                        )}
+                        {systemUpdateState?.last_attempt_status === "in_progress" && (() => {
+                          const stepIdx = updateStepIndex(systemUpdateState.current_step ?? null);
+                          const pct = stepIdx >= 0 ? Math.round(((stepIdx + 1) / UPDATE_STEPS.length) * 100) : 5;
+                          return (
+                            <div className="space-y-1.5">
+                              <p className="text-xs font-bold text-sky-600">
+                                {systemUpdateState.current_step || (locale === "pt" ? "Atualização em andamento..." : "Update in progress...")}
+                              </p>
+                              <div className="w-full h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                                <div className="h-full bg-sky-500 transition-all duration-500" style={{ width: `${pct}%` }} />
+                              </div>
+                              <p className="text-[10px] text-slate-400">{pct}%</p>
+                            </div>
+                          );
+                        })()}
                         {(systemUpdateState?.last_attempt_status === "failed" || systemUpdateState?.last_attempt_status === "rolled_back") && (
                           <p className="text-xs font-bold text-red-600">
                             {locale === "pt" ? "Última tentativa falhou" : "Last attempt failed"}
