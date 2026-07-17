@@ -153,6 +153,38 @@ export default function App() {
   // refresh cookie - same "unauthorized" event every other 401 already triggers if it fails.
   useSilentRefresh(isAuthenticated, () => window.dispatchEvent(new Event("unauthorized")));
 
+  // Aviso de nova versão: reaproveita o /api/health que já existe (nenhum endpoint novo) -
+  // captura o git_sha servido no carregamento da aba e compara periodicamente. Uma atualização
+  // do sistema (agendada, manual ou empurrada pelo CMSaaS) troca o processo no servidor sem
+  // avisar as abas já abertas - decisão do usuário durante o ensaio no Presales Demo
+  // (2026-07-17): quem está numa aba aberta deve ser avisado, não descobrir sozinho recarregando
+  // manualmente. Não recarrega sozinho (evitaria perder trabalho não salvo em algum formulário) -
+  // só mostra o aviso, quem decide quando recarregar é o usuário.
+  const [newVersionAvailable, setNewVersionAvailable] = useState(false);
+  useEffect(() => {
+    let loadedGitSha: string | null = null;
+    let cancelled = false;
+    const check = () => {
+      fetch("/api/health")
+        .then((r) => r.json())
+        .then((data) => {
+          if (cancelled || !data.git_sha) return;
+          if (loadedGitSha === null) {
+            loadedGitSha = data.git_sha;
+          } else if (data.git_sha !== loadedGitSha) {
+            setNewVersionAvailable(true);
+          }
+        })
+        .catch(() => {});
+    };
+    check();
+    const interval = setInterval(check, 60000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
   const [currentSessionUser, setCurrentSessionUser] = useState({
     id: "",
     name: "",
@@ -838,6 +870,15 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
 
   return (
     <div className="flex flex-col h-screen w-full bg-[#f8fafc] text-slate-900 font-sans overflow-hidden">
+
+      {newVersionAvailable && (
+        <div className="shrink-0 z-20 bg-amber-500 text-amber-950 text-xs font-bold px-4 py-2 flex items-center justify-center gap-3">
+          <span>{tx("A new version was installed on the server.", "Uma nova versão foi instalada no servidor.")}</span>
+          <button onClick={() => window.location.reload()} className="underline">
+            {tx("Reload page", "Recarregar página")}
+          </button>
+        </div>
+      )}
 
       {/* 1. TOP NAV BAR */}
       <nav className="h-auto min-h-14 bg-slate-900 text-white flex items-center justify-between px-3 lg:px-6 shrink-0 z-10 shadow-md flex-wrap lg:flex-nowrap gap-2">
