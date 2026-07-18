@@ -1,7 +1,8 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Download, Upload, Loader2, TriangleAlert, ChevronDown, ChevronRight, Pencil, Check, X, RefreshCw } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import ApiClient from "../lib/api";
+import PricingFileUploadModal from "./PricingFileUploadModal";
 
 interface PriceCatalogItem {
   id: string;
@@ -13,16 +14,11 @@ interface PriceCatalogItem {
   currentListPrice: number;
   currentListPriceUsd: number | null;
   currency: string;
+  lastUpdateSource: "spreadsheet" | "supplier_quote";
+  lastUpdateSupplierName: string | null;
   markupMin: number;
   markupMax: number;
   active: boolean;
-}
-
-interface UploadResult {
-  uploadId: string;
-  created: number;
-  updated: number;
-  errors: { rowNumber: number; message: string }[];
 }
 
 interface PriceHistoryEntry {
@@ -192,14 +188,12 @@ function PriceHistoryChart({ itemId }: { itemId: string }) {
   );
 }
 
-export default function PricingCatalog() {
+export default function PricingCatalog({ onFilesProcessed }: { onFilesProcessed?: () => void }) {
   const [items, setItems] = useState<PriceCatalogItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
-  const [lastUpload, setLastUpload] = useState<UploadResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showUploadModal, setShowUploadModal] = useState(false);
 
   const loadItems = async () => {
     setLoading(true);
@@ -236,24 +230,6 @@ export default function PricingCatalog() {
     URL.revokeObjectURL(url);
   };
 
-  const handleFileSelected = async (file: File) => {
-    setUploading(true);
-    setError(null);
-    setLastUpload(null);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await ApiClient.post<UploadResult & { success: boolean }>("/api/pricing/catalog/upload", formData);
-      setLastUpload(res);
-      await loadItems();
-    } catch (e: any) {
-      setError(e.message || "Falha ao enviar a planilha.");
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  };
-
   return (
     <div className="flex-1 overflow-y-auto p-6">
       <div className="flex items-center justify-between mb-6">
@@ -273,23 +249,12 @@ export default function PricingCatalog() {
             Baixar modelo
           </button>
           <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-white bg-emerald-600 rounded-lg px-3 py-2 hover:bg-emerald-700 disabled:opacity-60"
+            onClick={() => setShowUploadModal(true)}
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-white bg-emerald-600 rounded-lg px-3 py-2 hover:bg-emerald-700"
           >
-            {uploading ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
-            {uploading ? "Enviando..." : "Enviar planilha"}
+            <Upload size={15} />
+            Enviar Arquivos
           </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) handleFileSelected(file);
-            }}
-          />
         </div>
       </div>
 
@@ -297,25 +262,6 @@ export default function PricingCatalog() {
         <div className="mb-4 flex items-start gap-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
           <TriangleAlert size={15} className="mt-0.5 shrink-0" />
           {error}
-        </div>
-      )}
-
-      {lastUpload && (
-        <div className="mb-4 text-sm bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg px-3 py-2">
-          Planilha processada: {lastUpload.created} item(ns) novo(s), {lastUpload.updated} atualizado(s)
-          {lastUpload.errors.length > 0 && (
-            <>
-              , {lastUpload.errors.length} linha(s) com erro:
-              <ul className="mt-1 list-disc list-inside text-amber-800">
-                {lastUpload.errors.map((err) => (
-                  <li key={err.rowNumber}>
-                    Linha {err.rowNumber}: {err.message}
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-          {lastUpload.errors.length === 0 && "."}
         </div>
       )}
 
@@ -363,7 +309,14 @@ export default function PricingCatalog() {
                     </td>
                     <td className="px-3 py-2 text-slate-600">{item.category}</td>
                     <td className="px-3 py-2 font-mono text-xs text-slate-600">{item.pn}</td>
-                    <td className="px-3 py-2 text-slate-700">{item.description}</td>
+                    <td className="px-3 py-2 text-slate-700">
+                      <div>{item.description}</div>
+                      <div className="text-[10px] text-slate-400">
+                        {item.lastUpdateSource === "supplier_quote"
+                          ? `via cotação${item.lastUpdateSupplierName ? ` — ${item.lastUpdateSupplierName}` : ""}`
+                          : "via planilha"}
+                      </div>
+                    </td>
                     <td className="px-3 py-2 text-right text-slate-700">{currencyFormatter.format(item.currentListPrice)}</td>
                     <td className="px-3 py-2 text-right text-slate-500">
                       {item.currentListPriceUsd != null ? usdFormatter.format(item.currentListPriceUsd) : "—"}
@@ -385,6 +338,16 @@ export default function PricingCatalog() {
           </tbody>
         </table>
       </div>
+
+      {showUploadModal && (
+        <PricingFileUploadModal
+          onClose={() => setShowUploadModal(false)}
+          onDone={() => {
+            loadItems();
+            onFilesProcessed?.();
+          }}
+        />
+      )}
     </div>
   );
 }

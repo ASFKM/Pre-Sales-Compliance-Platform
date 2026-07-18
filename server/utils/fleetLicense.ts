@@ -283,7 +283,7 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
       const AI_TASK_TYPES = [
         "document_analysis", "web_grounding", "spec_copilot", "document_classification",
         "poc_test_generation", "poc_schedule_generation", "poc_final_report_generation",
-        "pricing_budget_optimization",
+        "pricing_budget_optimization", "pricing_catalog_extraction",
       ] as const;
       const aiTaskConfig = AI_TASK_TYPES.map((taskType) => ({
         task_type: taskType,

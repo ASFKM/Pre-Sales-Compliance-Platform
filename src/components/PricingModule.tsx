@@ -1,11 +1,24 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import PricingCatalog from "./PricingCatalog";
 import PricingProjectSheet from "./PricingProjectSheet";
 import PricingPendingItems from "./PricingPendingItems";
+import PricingExtractionReview from "./PricingExtractionReview";
 import PricingTaxSettings from "./PricingTaxSettings";
+import ApiClient from "../lib/api";
 
 export default function PricingModule() {
-  const [tab, setTab] = useState<"catalog" | "project" | "pending" | "tax">("catalog");
+  const [tab, setTab] = useState<"catalog" | "project" | "pending" | "extraction" | "tax">("catalog");
+  const [extractionCount, setExtractionCount] = useState(0);
+
+  const refreshExtractionCount = () => {
+    ApiClient.get<{ success: boolean; drafts: unknown[] }>("/api/pricing/catalog/extraction-drafts")
+      .then((res) => setExtractionCount(res.drafts.length))
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    refreshExtractionCount();
+  }, []);
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
@@ -29,15 +42,25 @@ export default function PricingModule() {
           Itens sem preço
         </button>
         <button
+          onClick={() => setTab("extraction")}
+          className={`pb-3 text-sm font-medium border-b-2 flex items-center gap-1.5 ${tab === "extraction" ? "border-emerald-500 text-slate-800" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+        >
+          Extrações pendentes
+          {extractionCount > 0 && (
+            <span className="text-[10px] font-bold text-white bg-emerald-600 rounded-full px-1.5 py-0.5 leading-none">{extractionCount}</span>
+          )}
+        </button>
+        <button
           onClick={() => setTab("tax")}
           className={`pb-3 text-sm font-medium border-b-2 ${tab === "tax" ? "border-emerald-500 text-slate-800" : "border-transparent text-slate-500 hover:text-slate-700"}`}
         >
           Motor fiscal
         </button>
       </div>
-      {tab === "catalog" && <PricingCatalog />}
+      {tab === "catalog" && <PricingCatalog onFilesProcessed={refreshExtractionCount} />}
       {tab === "project" && <PricingProjectSheet />}
       {tab === "pending" && <PricingPendingItems />}
+      {tab === "extraction" && <PricingExtractionReview onCountChange={setExtractionCount} />}
       {tab === "tax" && <PricingTaxSettings />}
     </div>
   );

@@ -125,6 +125,10 @@ enum BackgroundTaskType {
   // why tenantId is kept anyway. triggered by schedule or a CMSaaS apply_update command, not a
   // live HTTP request, so userId is null for those - see BackgroundTask.userId's own comment.
   system_update
+  // "Enviar Arquivos" (Módulo de Precificação): extração por IA de uma cotação de fornecedor
+  // (PDF/imagem/planilha fora do template) enviada no upload multi-arquivo do catálogo de preços -
+  // uma tarefa por arquivo, pra dar visão de progresso por documento na barra de tarefas.
+  pricing_catalog_extraction
 }
 
 enum BackgroundTaskStatus {
@@ -276,15 +280,16 @@ model Tenant {
   systemUpdateHistory     SystemUpdateHistory[]
 
   // Módulo de Precificação (add-on)
-  priceCatalogItems      PriceCatalogItem[]
-  priceListUploads       PriceListUpload[]
-  priceHistoryEntries    PriceHistoryEntry[]
-  itemAliasMappings      ItemAliasMapping[]
-  projectPricingSheets   ProjectPricingSheet[]
-  projectPricingLines    ProjectPricingLine[]
-  budgetOptimizationRuns BudgetOptimizationRun[]
-  tenantPricingSettings  TenantPricingSettings?
-  tenantTaxProfile       TenantTaxProfile?
+  priceCatalogItems            PriceCatalogItem[]
+  priceListUploads             PriceListUpload[]
+  priceHistoryEntries          PriceHistoryEntry[]
+  itemAliasMappings            ItemAliasMapping[]
+  projectPricingSheets         ProjectPricingSheet[]
+  projectPricingLines          ProjectPricingLine[]
+  budgetOptimizationRuns       BudgetOptimizationRun[]
+  tenantPricingSettings        TenantPricingSettings?
+  tenantTaxProfile             TenantTaxProfile?
+  priceCatalogExtractionDrafts PriceCatalogExtractionDraft[]
 
   @@map("tenants")
 }
@@ -949,6 +954,11 @@ model PlatformSettings {
   proposalOpinionPanelProvider      String          @default("gemini") @map("proposal_opinion_panel_provider")
   pricingBudgetOptimizationModel    String          @default("gemini-3.5-flash") @map("pricing_budget_optimization_model")
   pricingBudgetOptimizationProvider String          @default("gemini") @map("pricing_budget_optimization_provider")
+  // "Enviar Arquivos" (upload multi-arquivo do catálogo de preços): extrai linhas de preço de
+  // cotações de fornecedor em PDF/imagem/planilha fora do template - precisa de capacidade de
+  // visão (mesma categoria de document_analysis/spec_copilot), não só texto.
+  pricingCatalogExtractionModel     String          @default("gemini-3.5-flash") @map("pricing_catalog_extraction_model")
+  pricingCatalogExtractionProvider  String          @default("gemini") @map("pricing_catalog_extraction_provider")
   // Per-tenant monthly AI spend cap - null means uncapped. Enforced (hard block once reached,
   // not just tracked), with an 80%-of-cap warning logged before that point.
   monthlyCostCapUsd                 Float?          @map("monthly_cost_cap_usd")
@@ -1575,6 +1585,22 @@ enum PriceListUploadStatus {
   processing
   completed
   failed
+  // Arquivo processado (extração por IA rodou), mas as linhas ainda são rascunho aguardando
+  // confirmação humana na aba "Extrações pendentes" - distinto de "processing", que é só o
+  // intervalo síncrono dentro do próprio request de upload.
+  pending_review
+}
+
+enum PriceUpdateSource {
+  spreadsheet
+  supplier_quote
+}
+
+enum PriceCatalogExtractionDraftStatus {
+  pending
+  edited
+  confirmed
+  rejected
 }
 
 enum PricingMatchStatus {
@@ -1591,38 +1617,45 @@ enum PricingSheetStatus {
 // O cadastro "vivo" de um item - sempre reflete o preço/markup atual. Histórico real fica em
 // PriceHistoryEntry (ledger append-only), nunca sobrescrito.
 model PriceCatalogItem {
-  id                  String         @id
-  tenantId            String         @map("tenant_id")
-  tenant              Tenant         @relation(fields: [tenantId], references: [id])
-  itemCode            String         @map("item_code")
+  id                     String            @id
+  tenantId               String            @map("tenant_id")
+  tenant                 Tenant            @relation(fields: [tenantId], references: [id])
+  itemCode               String            @map("item_code")
   // Código no ERP/SAP do cliente - referência genérica pra integração futura, não usado em
   // nenhum matching interno hoje (pedido explícito do usuário, distinto do itemCode interno).
-  erpCode             String?        @map("erp_code")
+  erpCode                String?           @map("erp_code")
   // Classificação fiscal (NCM) - só relevante com o motor fiscal da Fase 7 ligado.
-  ncmCode             String?        @map("ncm_code")
-  itemType            PriceItemType? @map("item_type")
-  category            String
-  pn                  String
-  description         String         @db.Text
+  ncmCode                String?           @map("ncm_code")
+  itemType               PriceItemType?    @map("item_type")
+  category               String
+  pn                     String
+  description            String            @db.Text
   // Canônico - todo cálculo de markup/imposto/proposta usa este campo (sempre em BRL). Preenchido
   // direto se a linha da planilha veio em R$, ou convertido a partir de currentListPriceUsd (pela
   // cotação de TenantPricingSettings.usdBrlExchangeRate no momento do import) se veio em US$.
-  currentListPrice    Float          @map("current_list_price")
+  currentListPrice       Float             @map("current_list_price")
   // Espelho em dólar - preenchido direto se a linha veio em US$, ou convertido a partir de
   // currentListPrice se veio em R$. Sempre populado após o import, nas duas direções.
-  currentListPriceUsd Float?         @map("current_list_price_usd")
+  currentListPriceUsd    Float?            @map("current_list_price_usd")
   // Moeda em que o item foi informado no último envio de planilha (R$ ou US$) - só informativo,
   // currentListPrice continua sendo a fonte de verdade em BRL independente disso.
-  currency            String         @default("BRL")
-  markupMin           Float          @map("markup_min")
-  markupMax           Float          @map("markup_max")
-  ipiRatePercent      Float?         @map("ipi_rate_percent")
-  issRatePercent      Float?         @map("iss_rate_percent")
-  stApplicable        Boolean        @default(false) @map("st_applicable")
-  vendor              String?
-  active              Boolean        @default(true)
-  createdAt           DateTime       @default(now()) @map("created_at")
-  updatedAt           DateTime       @updatedAt @map("updated_at")
+  currency               String            @default("BRL")
+  // Fonte da última atualização - exibida pequena/discreta no catálogo, pra que o usuário saiba de
+  // onde veio o preço atual. Todo item pré-existente a este campo assume "spreadsheet" (única
+  // origem possível antes da extração por IA existir). supplierName só é preenchido quando a fonte
+  // é supplier_quote, e sempre é o nome que o usuário confirmou na tela de revisão - nunca o que a
+  // IA sugeriu sem confirmação humana.
+  lastUpdateSource       PriceUpdateSource @default(spreadsheet) @map("last_update_source")
+  lastUpdateSupplierName String?           @map("last_update_supplier_name")
+  markupMin              Float             @map("markup_min")
+  markupMax              Float             @map("markup_max")
+  ipiRatePercent         Float?            @map("ipi_rate_percent")
+  issRatePercent         Float?            @map("iss_rate_percent")
+  stApplicable           Boolean           @default(false) @map("st_applicable")
+  vendor                 String?
+  active                 Boolean           @default(true)
+  createdAt              DateTime          @default(now()) @map("created_at")
+  updatedAt              DateTime          @updatedAt @map("updated_at")
 
   priceHistoryEntries PriceHistoryEntry[]
   aliasMappings       ItemAliasMapping[]
@@ -1648,7 +1681,8 @@ model PriceListUpload {
   status           PriceListUploadStatus @default(processing)
   sourceLabel      String?               @map("source_label")
 
-  historyEntries PriceHistoryEntry[]
+  historyEntries   PriceHistoryEntry[]
+  extractionDrafts PriceCatalogExtractionDraft[]
 
   @@index([tenantId])
   @@map("price_list_uploads")
@@ -1657,24 +1691,67 @@ model PriceListUpload {
 // Ledger append-only por item/upload - nunca é atualizado depois de criado, é isso que alimenta
 // o gráfico de evolução de preço por linha.
 model PriceHistoryEntry {
-  id                String           @id
-  tenantId          String           @map("tenant_id")
-  tenant            Tenant           @relation(fields: [tenantId], references: [id])
-  priceListUploadId String           @map("price_list_upload_id")
-  priceListUpload   PriceListUpload  @relation(fields: [priceListUploadId], references: [id], onDelete: Cascade)
-  itemId            String           @map("item_id")
-  item              PriceCatalogItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  listPrice         Float            @map("list_price")
-  listPriceUsd      Float?           @map("list_price_usd")
+  id                String            @id
+  tenantId          String            @map("tenant_id")
+  tenant            Tenant            @relation(fields: [tenantId], references: [id])
+  priceListUploadId String            @map("price_list_upload_id")
+  priceListUpload   PriceListUpload   @relation(fields: [priceListUploadId], references: [id], onDelete: Cascade)
+  itemId            String            @map("item_id")
+  item              PriceCatalogItem  @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  listPrice         Float             @map("list_price")
+  listPriceUsd      Float?            @map("list_price_usd")
   currency          String
-  markupMin         Float            @map("markup_min")
-  markupMax         Float            @map("markup_max")
-  effectiveDate     DateTime         @map("effective_date")
-  createdAt         DateTime         @default(now()) @map("created_at")
+  // Mesma semântica de PriceCatalogItem.lastUpdateSource/lastUpdateSupplierName, mas por versão -
+  // o ledger precisa saber a fonte de CADA envio, não só a mais recente.
+  updateSource      PriceUpdateSource @default(spreadsheet) @map("update_source")
+  supplierName      String?           @map("supplier_name")
+  markupMin         Float             @map("markup_min")
+  markupMax         Float             @map("markup_max")
+  effectiveDate     DateTime          @map("effective_date")
+  createdAt         DateTime          @default(now()) @map("created_at")
 
   @@index([tenantId])
   @@index([itemId])
   @@map("price_history_entries")
+}
+
+// Linha rascunho produzida pela extração por IA de uma cotação de fornecedor (PDF/imagem/planilha
+// fora do template) - nunca vira PriceCatalogItem/PriceHistoryEntry diretamente. Fica "pending" até
+// o usuário revisar na aba "Extrações pendentes", editar o que precisar, e confirmar em lote - só a
+// confirmação grava no catálogo de verdade (mesmo espírito de
+// server/utils/knowledgeBaseReconciliation.ts: dado incerto de IA nunca vira fato sozinho).
+model PriceCatalogExtractionDraft {
+  id                String                            @id
+  tenantId          String                            @map("tenant_id")
+  tenant            Tenant                            @relation(fields: [tenantId], references: [id])
+  priceListUploadId String                            @map("price_list_upload_id")
+  priceListUpload   PriceListUpload                   @relation(fields: [priceListUploadId], references: [id], onDelete: Cascade)
+  rowIndexInFile    Int                               @map("row_index_in_file")
+  itemCode          String?                           @map("item_code")
+  category          String?
+  pn                String
+  erpCode           String?                           @map("erp_code")
+  description       String                            @db.Text
+  // Nulos de propósito - cotação de fornecedor nem sempre traz tudo. Uma linha com preço ou markup
+  // nulo não pode ser confirmada até o usuário preencher (ver server/routes/pricing.ts).
+  listPriceBrl      Float?                            @map("list_price_brl")
+  listPriceUsd      Float?                            @map("list_price_usd")
+  sourceCurrency    String                            @map("source_currency")
+  markupMin         Float?                            @map("markup_min")
+  markupMax         Float?                            @map("markup_max")
+  // A IA tenta identificar o fornecedor pelo cabeçalho/remetente do documento - é só uma sugestão
+  // inicial, o usuário sempre confirma/edita antes de confirmar a linha.
+  supplierName      String?                           @map("supplier_name")
+  // Observação da própria IA sobre o que ficou incerto nesta linha (ex: "preço ambíguo entre duas
+  // colunas", "moeda presumida por falta de símbolo") - mostrado como aviso na tela de revisão.
+  confidenceNote    String?                           @map("confidence_note") @db.Text
+  status            PriceCatalogExtractionDraftStatus @default(pending)
+  createdAt         DateTime                          @default(now()) @map("created_at")
+  updatedAt         DateTime                          @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@index([priceListUploadId])
+  @@map("price_catalog_extraction_drafts")
 }
 
 // Resolve PN -> item cadastrado, e funciona como fila de pendências: enquanto resolvedItemId for

@@ -15,14 +15,19 @@ import { generateJsonWithProvider, ConnectedProvider } from "../utils/aiProvider
 import { estimateCostUsd } from "../utils/aiPricing";
 import { parseAiJson } from "./analysis";
 import { requireUserId } from "../middleware/security";
-import { generatePricingTemplate, extractPricingRows } from "../utils/pricingImport";
+import { generatePricingTemplate, extractPricingRows, isTemplateWorkbook } from "../utils/pricingImport";
+import { extractPricingRowsWithAi } from "../utils/pricingAiExtraction";
 import { computeLinePricing } from "../utils/pricingMath";
 import { optimizeForBudget } from "../utils/pricingBudgetOptimizer";
 import { calculateTax } from "../utils/taxCalculation";
 import { fetchUsdBrlExchangeRateFromBcb } from "../utils/exchangeRateFetch";
+import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
+import { runWithTenant } from "../../src/tenantContext";
 
 const router = express.Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+// Limite subiu de 10MB pra 20MB com "Enviar Arquivos": fotos/scans de cotação de fornecedor pesam
+// mais que uma planilha de texto. `files: 10` é o teto de arquivos por lote de uma vez.
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 10 } });
 
 router.get("/health", requirePermission("pricing:read"), requireModule("pricing"), (req: Request, res: Response) => {
   res.json({ success: true, module: "pricing", status: "ok" });
@@ -209,114 +214,310 @@ router.get("/catalog/template", requirePermission("pricing:read"), requireModule
   }
 });
 
+// Grava as linhas do caminho determinístico (planilha modelo) - extraído pra função porque
+// "Enviar Arquivos" chama isso por arquivo dentro de um lote, além do uso direto de antes.
+async function commitTemplateFile(
+  tenantId: string,
+  userId: string,
+  file: { buffer: Buffer; originalname: string },
+  exchangeRate: number
+) {
+  const { rows, errors } = await extractPricingRows(file.buffer, exchangeRate);
+
+  const priceListUpload = await prisma.priceListUpload.create({
+    data: {
+      id: randomId("plu"),
+      tenantId,
+      uploadedByUserId: userId,
+      fileName: file.originalname,
+      effectiveDate: new Date(),
+      status: rows.length > 0 ? "processing" : "failed",
+      sourceLabel: "planilha-modelo",
+    },
+  });
+
+  let created = 0;
+  let updated = 0;
+
+  for (const row of rows) {
+    const existing = await prisma.priceCatalogItem.findUnique({
+      where: { tenantId_itemCode: { tenantId, itemCode: row.itemCode } },
+    });
+
+    const item = existing
+      ? await prisma.priceCatalogItem.update({
+          where: { id: existing.id },
+          data: {
+            category: row.category,
+            pn: row.pn,
+            erpCode: row.erpCode,
+            description: row.description,
+            currentListPrice: row.listPriceBrl,
+            currentListPriceUsd: row.listPriceUsd,
+            currency: row.sourceCurrency,
+            lastUpdateSource: "spreadsheet",
+            lastUpdateSupplierName: null,
+            markupMax: row.markupMax,
+            markupMin: row.markupMin,
+          },
+        })
+      : await prisma.priceCatalogItem.create({
+          data: {
+            id: randomId("pci"),
+            tenantId,
+            itemCode: row.itemCode,
+            category: row.category,
+            pn: row.pn,
+            erpCode: row.erpCode,
+            description: row.description,
+            currentListPrice: row.listPriceBrl,
+            currentListPriceUsd: row.listPriceUsd,
+            currency: row.sourceCurrency,
+            lastUpdateSource: "spreadsheet",
+            markupMax: row.markupMax,
+            markupMin: row.markupMin,
+          },
+        });
+
+    existing ? updated++ : created++;
+
+    await prisma.priceHistoryEntry.create({
+      data: {
+        id: randomId("phe"),
+        tenantId,
+        priceListUploadId: priceListUpload.id,
+        itemId: item.id,
+        listPrice: row.listPriceBrl,
+        listPriceUsd: row.listPriceUsd,
+        currency: row.sourceCurrency,
+        updateSource: "spreadsheet",
+        markupMax: row.markupMax,
+        markupMin: row.markupMin,
+        effectiveDate: priceListUpload.effectiveDate,
+      },
+    });
+
+    // Fase 5 (ciclo de itens sem cadastro): resolve qualquer pendência em ItemAliasMapping
+    // cujo PN bata com o item recém-cadastrado/atualizado - futuros imports de BOM com esse
+    // PN casam automaticamente a partir daqui, sem precisar reprocessar o BOM original.
+    await prisma.itemAliasMapping.updateMany({
+      where: { tenantId, rawPN: row.pn, resolvedItemId: null },
+      data: { resolvedItemId: item.id },
+    });
+  }
+
+  await prisma.priceListUpload.update({
+    where: { id: priceListUpload.id },
+    data: { status: rows.length > 0 ? "completed" : "failed" },
+  });
+
+  return { fileName: file.originalname, uploadId: priceListUpload.id, created, updated, errors, mode: "template" as const };
+}
+
+// Caminho de IA (cotação de fornecedor em qualquer formato) - nunca commita direto no catálogo,
+// só cria rascunhos em PriceCatalogExtractionDraft pra revisão humana (aba "Extrações pendentes").
+// Roda como uma BackgroundTask (mesmo padrão de document_analysis em server/routes/analysis.ts) -
+// taskId opcional só pra manter a função testável isoladamente sem precisar de uma tarefa real.
+async function commitAiExtractionFile(
+  tenantId: string,
+  userId: string,
+  file: { buffer: Buffer; originalname: string; mimetype: string },
+  exchangeRate: number,
+  provider: ConnectedProvider,
+  model: string,
+  taskId?: string
+) {
+  const priceListUpload = await prisma.priceListUpload.create({
+    data: {
+      id: randomId("plu"),
+      tenantId,
+      uploadedByUserId: userId,
+      fileName: file.originalname,
+      effectiveDate: new Date(),
+      status: "processing",
+      sourceLabel: "extração por IA",
+    },
+  });
+
+  if (taskId) await updateTaskProgress(taskId, { status: "running", currentStep: `Lendo ${file.originalname}`, progressPct: 15 });
+
+  try {
+    if (taskId) await updateTaskProgress(taskId, { currentStep: `Analisando ${file.originalname} com IA`, progressPct: 40 });
+
+    const extraction = await extractPricingRowsWithAi(
+      { buffer: file.buffer, filename: file.originalname, mimeType: file.mimetype },
+      exchangeRate,
+      provider,
+      model
+    );
+
+    await recordAiUsage({
+      tenantId,
+      taskType: "pricing_catalog_extraction",
+      provider,
+      model,
+      estimatedCostUsd: extraction.billedCostUsd ?? estimateCostUsd(model, extraction.inputTokens, extraction.outputTokens),
+    });
+
+    if (taskId) await updateTaskProgress(taskId, { currentStep: "Salvando itens para revisão", progressPct: 80 });
+
+    let draftCount = 0;
+    for (let i = 0; i < extraction.rows.length; i++) {
+      const row = extraction.rows[i];
+
+      // Cotação de fornecedor quase nunca traz markup - herda do catálogo existente pelo PN se
+      // achar um item já cadastrado, pra não deixar toda linha travada pedindo preenchimento manual.
+      let markupMin = row.markupMin;
+      let markupMax = row.markupMax;
+      if (markupMin == null || markupMax == null) {
+        const existingByPn = await prisma.priceCatalogItem.findFirst({ where: { tenantId, pn: row.pn } });
+        if (existingByPn) {
+          markupMin = markupMin ?? existingByPn.markupMin;
+          markupMax = markupMax ?? existingByPn.markupMax;
+        }
+      }
+
+      await prisma.priceCatalogExtractionDraft.create({
+        data: {
+          id: randomId("pced"),
+          tenantId,
+          priceListUploadId: priceListUpload.id,
+          rowIndexInFile: i,
+          itemCode: row.itemCode,
+          category: row.category,
+          pn: row.pn,
+          erpCode: row.erpCode,
+          description: row.description,
+          listPriceBrl: row.listPriceBrl,
+          listPriceUsd: row.listPriceUsd,
+          sourceCurrency: row.sourceCurrency,
+          markupMin,
+          markupMax,
+          supplierName: extraction.supplierName,
+          confidenceNote: row.confidenceNote,
+        },
+      });
+      draftCount++;
+    }
+
+    await prisma.priceListUpload.update({
+      where: { id: priceListUpload.id },
+      data: { status: draftCount > 0 ? "pending_review" : "failed" },
+    });
+
+    if (taskId) {
+      await completeTask(taskId, {
+        resultType: "price_list_upload",
+        resultId: priceListUpload.id,
+        estimatedCostUsd: extraction.billedCostUsd ?? undefined,
+        aiProvider: provider,
+        warningMessage: draftCount === 0 ? "Nenhum item reconhecível encontrado neste arquivo." : null,
+      });
+    }
+
+    return { fileName: file.originalname, uploadId: priceListUpload.id, draftCount, supplierName: extraction.supplierName, mode: "ai_extraction" as const };
+  } catch (err: any) {
+    await prisma.priceListUpload.update({ where: { id: priceListUpload.id }, data: { status: "failed" } });
+    if (taskId) await failTask(taskId, err.message || "Falha na extração por IA.");
+    return { fileName: file.originalname, uploadId: priceListUpload.id, draftCount: 0, error: err.message || "Falha na extração por IA.", mode: "ai_extraction" as const };
+  }
+}
+
 router.post(
   "/catalog/upload",
   requirePermission("pricing:manage"),
   requireModule("pricing"),
-  upload.single("file"),
+  upload.array("files", 10),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const tenantId = req.headers["x-tenant-id"] as string;
       const userId = req.headers["x-user-id"] as string;
+      const files = (req.files as Express.Multer.File[]) || [];
 
-      if (!req.file) {
+      if (files.length === 0) {
         return res.status(400).json({ success: false, message: "Nenhum arquivo enviado." });
       }
 
-      const settings = await prisma.tenantPricingSettings.findUnique({ where: { tenantId } });
-      const exchangeRate = settings?.usdBrlExchangeRate ?? 5.0;
+      const pricingSettings = await prisma.tenantPricingSettings.findUnique({ where: { tenantId } });
+      const exchangeRate = pricingSettings?.usdBrlExchangeRate ?? 5.0;
 
-      const { rows, errors } = await extractPricingRows(req.file.buffer, exchangeRate);
+      // Detecção automática por arquivo: bate com o cabeçalho da planilha modelo -> caminho
+      // determinístico de sempre; qualquer outra coisa (PDF, imagem, docx, csv, xlsx fora do
+      // template) -> extração por IA. O usuário não classifica nada, só solta os arquivos.
+      const isXlsx =
+        (f: Express.Multer.File) =>
+          f.mimetype === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" || f.originalname.toLowerCase().endsWith(".xlsx");
 
-      const priceListUpload = await prisma.priceListUpload.create({
-        data: {
-          id: randomId("plu"),
-          tenantId,
-          uploadedByUserId: userId,
-          fileName: req.file.originalname,
-          effectiveDate: new Date(),
-          status: rows.length > 0 ? "processing" : "failed",
-        },
-      });
-
-      let created = 0;
-      let updated = 0;
-
-      for (const row of rows) {
-        const existing = await prisma.priceCatalogItem.findUnique({
-          where: { tenantId_itemCode: { tenantId, itemCode: row.itemCode } },
-        });
-
-        const item = existing
-          ? await prisma.priceCatalogItem.update({
-              where: { id: existing.id },
-              data: {
-                category: row.category,
-                pn: row.pn,
-                erpCode: row.erpCode,
-                description: row.description,
-                currentListPrice: row.listPriceBrl,
-                currentListPriceUsd: row.listPriceUsd,
-                currency: row.sourceCurrency,
-                markupMax: row.markupMax,
-                markupMin: row.markupMin,
-              },
-            })
-          : await prisma.priceCatalogItem.create({
-              data: {
-                id: randomId("pci"),
-                tenantId,
-                itemCode: row.itemCode,
-                category: row.category,
-                pn: row.pn,
-                erpCode: row.erpCode,
-                description: row.description,
-                currentListPrice: row.listPriceBrl,
-                currentListPriceUsd: row.listPriceUsd,
-                currency: row.sourceCurrency,
-                markupMax: row.markupMax,
-                markupMin: row.markupMin,
-              },
-            });
-
-        existing ? updated++ : created++;
-
-        await prisma.priceHistoryEntry.create({
-          data: {
-            id: randomId("phe"),
-            tenantId,
-            priceListUploadId: priceListUpload.id,
-            itemId: item.id,
-            listPrice: row.listPriceBrl,
-            listPriceUsd: row.listPriceUsd,
-            currency: row.sourceCurrency,
-            markupMax: row.markupMax,
-            markupMin: row.markupMin,
-            effectiveDate: priceListUpload.effectiveDate,
-          },
-        });
-
-        // Fase 5 (ciclo de itens sem cadastro): resolve qualquer pendência em ItemAliasMapping
-        // cujo PN bata com o item recém-cadastrado/atualizado - futuros imports de BOM com esse
-        // PN casam automaticamente a partir daqui, sem precisar reprocessar o BOM original.
-        await prisma.itemAliasMapping.updateMany({
-          where: { tenantId, rawPN: row.pn, resolvedItemId: null },
-          data: { resolvedItemId: item.id },
-        });
+      const templateFiles: Express.Multer.File[] = [];
+      const aiFiles: Express.Multer.File[] = [];
+      for (const file of files) {
+        if (isXlsx(file) && (await isTemplateWorkbook(file.buffer))) {
+          templateFiles.push(file);
+        } else {
+          aiFiles.push(file);
+        }
       }
 
-      await prisma.priceListUpload.update({
-        where: { id: priceListUpload.id },
-        data: { status: rows.length > 0 ? "completed" : "failed" },
-      });
+      // Planilha modelo: síncrono, rápido, sem IA - resultado já sai na resposta.
+      const templateResults: Awaited<ReturnType<typeof commitTemplateFile>>[] = [];
+      for (const file of templateFiles) {
+        templateResults.push(await commitTemplateFile(tenantId, userId, file, exchangeRate));
+      }
 
-      res.json({
-        success: true,
-        uploadId: priceListUpload.id,
-        created,
-        updated,
-        errors,
-      });
+      // Arquivos que precisam de IA: cada um vira uma BackgroundTask própria, com progresso
+      // visível na barra de tarefas do rodapé (mesmo padrão de document_analysis) - a resposta
+      // não espera a IA terminar, só confirma que a tarefa foi criada.
+      const aiTasks: { taskId: string; fileName: string }[] = [];
+      const cappedFiles: { fileName: string; error: string }[] = [];
+
+      if (aiFiles.length > 0) {
+        const settings = await dbStore.getSettings();
+        const costCap = await checkCostCap(tenantId, settings.monthly_cost_cap_usd ?? null);
+        if (costCap.blocked) {
+          for (const file of aiFiles) {
+            cappedFiles.push({
+              fileName: file.originalname,
+              error: `Limite mensal de custo de IA atingido ($${costCap.currentSpendUsd.toFixed(2)} de $${costCap.capUsd?.toFixed(2)}) - este arquivo precisa de IA pra ser processado.`,
+            });
+          }
+        } else {
+          const providerResolution = await resolveProvider("pricing_catalog_extraction", settings as any);
+          if (providerResolution.isFallback) {
+            await recordProviderFallback({ tenantId, taskType: "pricing_catalog_extraction", intendedProvider: providerResolution.intendedProvider, userId });
+          }
+
+          const tenantContext = { tenantId };
+          for (const file of aiFiles) {
+            const task = await createTask({ userId, type: "pricing_catalog_extraction", currentStep: `Na fila: ${file.originalname}` });
+            aiTasks.push({ taskId: task.id, fileName: file.originalname });
+
+            // Cópia própria do buffer - req.files pode ser liberado pelo multer assim que a
+            // resposta desta rota for enviada, mas este arquivo continua sendo processado depois
+            // disso, em segundo plano.
+            const fileBuffer = Buffer.from(file.buffer);
+            const originalname = file.originalname;
+            const mimetype = file.mimetype;
+
+            void runWithTenant(tenantContext, async () => {
+              try {
+                await commitAiExtractionFile(
+                  tenantId,
+                  userId,
+                  { buffer: fileBuffer, originalname, mimetype },
+                  exchangeRate,
+                  providerResolution.provider as ConnectedProvider,
+                  providerResolution.model,
+                  task.id
+                );
+              } catch (err: any) {
+                await failTask(task.id, err.message || "Falha na extração por IA.");
+              }
+            });
+          }
+        }
+      }
+
+      res.json({ success: true, templateResults, aiTasks, cappedFiles });
     } catch (err) {
       next(err);
     }
@@ -336,6 +537,193 @@ router.get("/catalog/:id/history", requirePermission("pricing:read"), requireMod
     next(err);
   }
 });
+
+// "Enviar Arquivos" - aba "Extrações pendentes": rascunhos de cotações de fornecedor extraídas
+// por IA, aguardando revisão humana antes de virarem PriceCatalogItem de verdade. Nunca commita
+// sozinho (mesmo espírito de server/utils/knowledgeBaseReconciliation.ts).
+router.get(
+  "/catalog/extraction-drafts",
+  requirePermission("pricing:read"),
+  requireModule("pricing"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const drafts = await prisma.priceCatalogExtractionDraft.findMany({
+        where: { status: { in: ["pending", "edited"] } },
+        include: { priceListUpload: { select: { fileName: true, uploadedAt: true } } },
+        orderBy: [{ priceListUploadId: "asc" }, { rowIndexInFile: "asc" }],
+      });
+      res.json({ success: true, drafts });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+const DraftEditSchema = z.object({
+  itemCode: z.string().nullable().optional(),
+  category: z.string().nullable().optional(),
+  pn: z.string().min(1).optional(),
+  erpCode: z.string().nullable().optional(),
+  description: z.string().min(1).optional(),
+  listPriceBrl: z.number().positive().nullable().optional(),
+  listPriceUsd: z.number().positive().nullable().optional(),
+  markupMin: z.number().nullable().optional(),
+  markupMax: z.number().nullable().optional(),
+  supplierName: z.string().nullable().optional(),
+});
+
+router.put(
+  "/catalog/extraction-drafts/:id",
+  requirePermission("pricing:manage"),
+  requireModule("pricing"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const body = DraftEditSchema.parse(req.body);
+      const draft = await prisma.priceCatalogExtractionDraft.findUnique({ where: { id: req.params.id } });
+      if (!draft) {
+        return res.status(404).json({ success: false, message: "Rascunho não encontrado." });
+      }
+      const updated = await prisma.priceCatalogExtractionDraft.update({
+        where: { id: draft.id },
+        data: { ...body, status: "edited" },
+      });
+      res.json({ success: true, draft: updated });
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ success: false, message: err.issues[0].message });
+      }
+      next(err);
+    }
+  }
+);
+
+router.post(
+  "/catalog/extraction-drafts/:id/reject",
+  requirePermission("pricing:manage"),
+  requireModule("pricing"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const draft = await prisma.priceCatalogExtractionDraft.findUnique({ where: { id: req.params.id } });
+      if (!draft) {
+        return res.status(404).json({ success: false, message: "Rascunho não encontrado." });
+      }
+      await prisma.priceCatalogExtractionDraft.update({ where: { id: draft.id }, data: { status: "rejected" } });
+      res.json({ success: true });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// Confirma um ou mais rascunhos em lote - só aqui os dados viram PriceCatalogItem/
+// PriceHistoryEntry de verdade. Cada linha precisa ter preço (BRL ou USD) e markup min/máx
+// preenchidos (herdados automaticamente na extração quando possível, ou preenchidos manualmente
+// na revisão) - sem isso a linha é rejeitada com erro em vez de criar um item incompleto.
+router.post(
+  "/catalog/extraction-drafts/confirm",
+  requirePermission("pricing:manage"),
+  requireModule("pricing"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenantId = req.headers["x-tenant-id"] as string;
+      const ids = z.array(z.string().min(1)).min(1).parse(req.body?.draftIds);
+
+      const drafts = await prisma.priceCatalogExtractionDraft.findMany({
+        where: { id: { in: ids }, status: { in: ["pending", "edited"] } },
+      });
+
+      let confirmed = 0;
+      const errors: { id: string; message: string }[] = [];
+
+      for (const draft of drafts) {
+        if (draft.listPriceBrl == null || draft.listPriceUsd == null) {
+          errors.push({ id: draft.id, message: "Preencha o preço (R$ e US$) antes de confirmar." });
+          continue;
+        }
+        if (draft.markupMin == null || draft.markupMax == null) {
+          errors.push({ id: draft.id, message: "Preencha o markup mínimo e máximo antes de confirmar." });
+          continue;
+        }
+        if (!draft.itemCode) {
+          errors.push({ id: draft.id, message: "Preencha o código do item antes de confirmar." });
+          continue;
+        }
+
+        const existing = await prisma.priceCatalogItem.findUnique({
+          where: { tenantId_itemCode: { tenantId, itemCode: draft.itemCode } },
+        });
+
+        const item = existing
+          ? await prisma.priceCatalogItem.update({
+              where: { id: existing.id },
+              data: {
+                category: draft.category || existing.category,
+                pn: draft.pn,
+                erpCode: draft.erpCode,
+                description: draft.description,
+                currentListPrice: draft.listPriceBrl,
+                currentListPriceUsd: draft.listPriceUsd,
+                currency: draft.sourceCurrency,
+                lastUpdateSource: "supplier_quote",
+                lastUpdateSupplierName: draft.supplierName,
+                markupMax: draft.markupMax,
+                markupMin: draft.markupMin,
+              },
+            })
+          : await prisma.priceCatalogItem.create({
+              data: {
+                id: randomId("pci"),
+                tenantId,
+                itemCode: draft.itemCode,
+                category: draft.category || "Não categorizado",
+                pn: draft.pn,
+                erpCode: draft.erpCode,
+                description: draft.description,
+                currentListPrice: draft.listPriceBrl,
+                currentListPriceUsd: draft.listPriceUsd,
+                currency: draft.sourceCurrency,
+                lastUpdateSource: "supplier_quote",
+                lastUpdateSupplierName: draft.supplierName,
+                markupMax: draft.markupMax,
+                markupMin: draft.markupMin,
+              },
+            });
+
+        await prisma.priceHistoryEntry.create({
+          data: {
+            id: randomId("phe"),
+            tenantId,
+            priceListUploadId: draft.priceListUploadId,
+            itemId: item.id,
+            listPrice: draft.listPriceBrl,
+            listPriceUsd: draft.listPriceUsd,
+            currency: draft.sourceCurrency,
+            updateSource: "supplier_quote",
+            supplierName: draft.supplierName,
+            markupMax: draft.markupMax,
+            markupMin: draft.markupMin,
+            effectiveDate: new Date(),
+          },
+        });
+
+        await prisma.itemAliasMapping.updateMany({
+          where: { tenantId, rawPN: draft.pn, resolvedItemId: null },
+          data: { resolvedItemId: item.id },
+        });
+
+        await prisma.priceCatalogExtractionDraft.update({ where: { id: draft.id }, data: { status: "confirmed" } });
+        confirmed++;
+      }
+
+      res.json({ success: true, confirmed, errors });
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ success: false, message: err.issues[0].message });
+      }
+      next(err);
+    }
+  }
+);
 
 // Fase 4: import de BOM para dentro de uma sessão de precificação do projeto, com matching
 // automático contra o catálogo. AnalysisResult é único por projeto (@@unique([projectId]) no

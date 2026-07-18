@@ -10,7 +10,7 @@ import { isIaKbActive } from "../server/utils/aiProviders";
 // document_analysis call, not separate steps. document_classification was hardcoded to Gemini in
 // server/utils/documentClassification.ts before this - now routed through here like the other
 // real task types.
-export type AiTaskType = "document_analysis" | "web_grounding" | "spec_copilot" | "document_classification" | "poc_test_generation" | "poc_schedule_generation" | "poc_final_report_generation" | "proposal_opinion_panel" | "pricing_budget_optimization";
+export type AiTaskType = "document_analysis" | "web_grounding" | "spec_copilot" | "document_classification" | "poc_test_generation" | "poc_schedule_generation" | "poc_final_report_generation" | "proposal_opinion_panel" | "pricing_budget_optimization" | "pricing_catalog_extraction";
 
 export interface ProviderResolution {
   provider: string;
@@ -39,6 +39,8 @@ interface TaskProviderSettings {
   proposal_opinion_panel_provider: string;
   pricing_budget_optimization_model: string;
   pricing_budget_optimization_provider: string;
+  pricing_catalog_extraction_model: string;
+  pricing_catalog_extraction_provider: string;
   openai_api_key_encrypted?: string;
   anthropic_api_key_encrypted?: string;
 }
@@ -128,6 +130,7 @@ export const AI_SPENDING_TASK_TYPES = [
   "poc_final_report_generation",
   "proposal_opinion_panel",
   "pricing_budget_optimization",
+  "pricing_catalog_extraction",
 ] as const;
 export type AiSpendingTaskType = (typeof AI_SPENDING_TASK_TYPES)[number];
 

@@ -1470,6 +1470,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                 case "proposal_generation": return "Proposta";
                 case "project_intake_analysis": return "Triagem";
                 case "knowledge_base_analysis": return "Base de Conhecimento";
+                case "pricing_catalog_extraction": return "Extração de Cotação";
                 default: return type;
               }
             };

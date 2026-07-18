@@ -142,3 +142,28 @@ export async function extractPricingRows(buffer: Buffer, exchangeRate: number): 
 
   return { rows, errors };
 }
+
+// "Enviar Arquivos" (upload multi-arquivo): decide, por arquivo, se ele deve ir pelo caminho
+// determinístico (este arquivo) ou pela extração por IA (server/utils/pricingAiExtraction.ts).
+// Checa só o cabeçalho (linha 1) contra TEMPLATE_HEADERS - não tenta processar as linhas, porque
+// extractPricingRows já lê por POSIÇÃO de coluna, não por nome, então uma cotação de fornecedor
+// com colunas parecidas por coincidência poderia "passar" silenciosamente sem essa checagem
+// explícita de cabeçalho.
+export async function isTemplateWorkbook(buffer: Buffer): Promise<boolean> {
+  try {
+    const workbook = new ExcelJS.Workbook();
+    // Cópia própria do buffer - este mesmo arquivo pode ser lido de novo logo em seguida (por
+    // extractPricingRows, ou por extractTextFromDocument no caminho de IA se não for template),
+    // e cada leitura deve ser independente.
+    await workbook.xlsx.load(Buffer.from(buffer) as any);
+    const sheet = workbook.worksheets[0];
+    if (!sheet) return false;
+    const headerRow = sheet.getRow(1);
+    const values = (headerRow.values as any[]).slice(1).map((v) => String(v ?? "").trim().toLowerCase());
+    if (values.length < TEMPLATE_HEADERS.length) return false;
+    return TEMPLATE_HEADERS.every((expected, idx) => values[idx] === expected.trim().toLowerCase());
+  } catch {
+    // Não é um .xlsx válido (ou está corrompido) - definitivamente não é o template.
+    return false;
+  }
+}

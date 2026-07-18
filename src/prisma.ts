@@ -29,7 +29,7 @@ export const TENANT_SCOPED_MODELS = new Set([
   "iaKbTaskConfig", "integrationConnector", "itemAliasMapping",
   "knowledgeBaseDocument", "knowledgeBaseEntry", "platformSettings", "poc", "pocAcceptance",
   "pocEquipmentItem", "pocFinalReportQuestion", "pocSuccessCriterion", "pocTask", "pocTestCase",
-  "priceCatalogItem", "priceHistoryEntry", "priceListUpload",
+  "priceCatalogExtractionDraft", "priceCatalogItem", "priceHistoryEntry", "priceListUpload",
   "project", "projectPricingLine", "projectPricingSheet",
   "promptTemplate", "proposal", "proposalTemplate", "proposalOpinionRun",
   "proposalAiOpinionItem", "role", "systemMessage", "systemUpdateState", "systemUpdateHistory", "task",
