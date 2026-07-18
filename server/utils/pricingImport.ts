@@ -28,6 +28,27 @@ export interface PricingRowError {
   message: string;
 }
 
+// Linha com algum campo obrigatório ausente/inválido - NUNCA descartada (achado real, reportado
+// pelo usuário: a linha tinha PN/descrição/preço válidos e era jogada fora inteira só porque
+// faltava markup ou código do item). server/routes/pricing.ts's commitTemplateFile tenta
+// completar os campos ausentes casando com um item já cadastrado (por código do item, ou por PN
+// quando o código não veio na planilha); só vira PriceCatalogExtractionDraft pra revisão manual
+// o que realmente não dá pra resolver sozinho.
+export interface PricingRowPartial {
+  rowNumber: number;
+  itemCode: string | null;
+  category: string | null;
+  pn: string;
+  erpCode: string | null;
+  description: string;
+  listPriceBrl: number | null;
+  listPriceUsd: number | null;
+  sourceCurrency: "BRL" | "USD" | null;
+  markupMax: number | null;
+  markupMin: number | null;
+  missingFields: string[];
+}
+
 const TEMPLATE_HEADERS = [
   "Código do item",
   "Categoria",
@@ -70,15 +91,16 @@ export async function generatePricingTemplate(prefillRows: Array<{ pn: string; d
 // quando a linha preenche apenas uma das duas colunas de preço, pra calcular a outra
 // automaticamente. Se as duas vierem preenchidas, nenhuma conversão acontece - o valor informado
 // em cada moeda é aceito como está.
-export async function extractPricingRows(buffer: Buffer, exchangeRate: number): Promise<{ rows: PricingRow[]; errors: PricingRowError[] }> {
+export async function extractPricingRows(buffer: Buffer, exchangeRate: number): Promise<{ rows: PricingRow[]; partialRows: PricingRowPartial[]; errors: PricingRowError[] }> {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer as any);
   const sheet = workbook.worksheets[0];
   const rows: PricingRow[] = [];
+  const partialRows: PricingRowPartial[] = [];
   const errors: PricingRowError[] = [];
 
   if (!sheet) {
-    return { rows, errors: [{ rowNumber: 0, message: "Planilha vazia ou sem abas." }] };
+    return { rows, partialRows, errors: [{ rowNumber: 0, message: "Planilha vazia ou sem abas." }] };
   }
 
   sheet.eachRow((row, rowNumber) => {
@@ -93,6 +115,8 @@ export async function extractPricingRows(buffer: Buffer, exchangeRate: number): 
 
     const hasBrl = listPriceBrlRaw != null && listPriceBrlRaw !== "" && !isNaN(Number(listPriceBrlRaw));
     const hasUsd = listPriceUsdRaw != null && listPriceUsdRaw !== "" && !isNaN(Number(listPriceUsdRaw));
+    const hasMarkupMax = markupMax != null && markupMax !== "" && !isNaN(Number(markupMax));
+    const hasMarkupMin = markupMin != null && markupMin !== "" && !isNaN(Number(markupMin));
 
     const missing: string[] = [];
     if (!itemCode) missing.push("Código do item");
@@ -100,11 +124,41 @@ export async function extractPricingRows(buffer: Buffer, exchangeRate: number): 
     if (!pn) missing.push("PN");
     if (!description) missing.push("Descrição");
     if (!hasBrl && !hasUsd) missing.push("Preço de lista (R$) ou Preço de lista (US$)");
-    if (markupMax == null || isNaN(Number(markupMax))) missing.push("Markup máximo");
-    if (markupMin == null || isNaN(Number(markupMin))) missing.push("Markup mínimo");
+    if (!hasMarkupMax) missing.push("Markup máximo");
+    if (!hasMarkupMin) missing.push("Markup mínimo");
 
     if (missing.length > 0) {
-      errors.push({ rowNumber, message: `Campos obrigatórios ausentes/inválidos: ${missing.join(", ")}` });
+      let listPriceBrl: number | null = null;
+      let listPriceUsd: number | null = null;
+      let sourceCurrency: "BRL" | "USD" | null = null;
+      if (hasBrl && hasUsd) {
+        listPriceBrl = Number(listPriceBrlRaw);
+        listPriceUsd = Number(listPriceUsdRaw);
+        sourceCurrency = "BRL";
+      } else if (hasBrl) {
+        listPriceBrl = Number(listPriceBrlRaw);
+        listPriceUsd = listPriceBrl / exchangeRate;
+        sourceCurrency = "BRL";
+      } else if (hasUsd) {
+        listPriceUsd = Number(listPriceUsdRaw);
+        listPriceBrl = listPriceUsd * exchangeRate;
+        sourceCurrency = "USD";
+      }
+
+      partialRows.push({
+        rowNumber,
+        itemCode: itemCode ? String(itemCode).trim() : null,
+        category: category ? String(category).trim() : null,
+        pn: pn ? String(pn).trim() : "",
+        erpCode: erpCode ? String(erpCode).trim() : null,
+        description: description ? String(description).trim() : "",
+        listPriceBrl,
+        listPriceUsd,
+        sourceCurrency,
+        markupMax: hasMarkupMax ? Number(markupMax) : null,
+        markupMin: hasMarkupMin ? Number(markupMin) : null,
+        missingFields: missing,
+      });
       return;
     }
 
@@ -140,7 +194,7 @@ export async function extractPricingRows(buffer: Buffer, exchangeRate: number): 
     });
   });
 
-  return { rows, errors };
+  return { rows, partialRows, errors };
 }
 
 // "Enviar Arquivos" (upload multi-arquivo): decide, por arquivo, se ele deve ir pelo caminho

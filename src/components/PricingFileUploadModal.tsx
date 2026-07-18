@@ -10,6 +10,11 @@ interface TemplateResult {
   uploadId: string;
   created: number;
   updated: number;
+  // Linha com campo faltando não é mais rejeitada - vira rascunho em "Extrações pendentes" pra
+  // revisão (com o que já foi possível herdar de um item já cadastrado). draftCount > 0 não é
+  // erro, é só um aviso de que sobrou revisão manual pra fazer.
+  draftCount: number;
+  // Só populado num caso realmente fatal (planilha ilegível/sem abas) - não mais por linha.
   errors: { rowNumber: number; message: string }[];
 }
 
@@ -79,9 +84,9 @@ export default function PricingFileUploadModal({
         prev.map((q) => {
           const templateResult = res.templateResults.find((r) => r.fileName === q.file.name);
           if (templateResult) {
-            // templateResult.errors traz o motivo real linha a linha (ex.: "Campos obrigatórios
-            // ausentes/inválidos: ...") - precisa virar errorMessage, senão o rótulo de status cai
-            // no branch genérico "Erro" sem detalhe nenhum (achado real, reportado pelo usuário).
+            // templateResult.errors só vem preenchido num caso fatal (planilha ilegível/sem
+            // abas) - linha com campo faltando não é mais erro, vira rascunho em "Extrações
+            // pendentes" (draftCount) com o que der pra revisar, nunca é descartada.
             const errorMessage = templateResult.errors.length > 0
               ? templateResult.errors
                   .slice(0, 3)
@@ -144,8 +149,8 @@ export default function PricingFileUploadModal({
       return `${step}${pct}`;
     }
     if (q.templateResult) {
-      const errs = q.templateResult.errors.length;
-      return `Modelo detectado: ${q.templateResult.created} novo(s), ${q.templateResult.updated} atualizado(s)${errs > 0 ? `, ${errs} linha(s) com erro` : ""}`;
+      const drafts = q.templateResult.draftCount;
+      return `Modelo detectado: ${q.templateResult.created} novo(s), ${q.templateResult.updated} atualizado(s)${drafts > 0 ? `, ${drafts} linha(s) em revisão — confira em "Extrações pendentes"` : ""}`;
     }
     return "";
   };

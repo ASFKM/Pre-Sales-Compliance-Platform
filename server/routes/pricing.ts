@@ -214,15 +214,98 @@ router.get("/catalog/template", requirePermission("pricing:read"), requireModule
   }
 });
 
+// Upsert compartilhado por linha completa da planilha modelo - usado tanto pra linha que já
+// veio completa do arquivo quanto pra linha incompleta que virou completa depois de herdar os
+// campos que faltavam de um item já cadastrado (ver commitTemplateFile).
+async function upsertCatalogRow(
+  tenantId: string,
+  priceListUploadId: string,
+  effectiveDate: Date,
+  row: { itemCode: string; category: string; pn: string; erpCode: string | null; description: string; listPriceBrl: number; listPriceUsd: number; sourceCurrency: "BRL" | "USD"; markupMax: number; markupMin: number }
+): Promise<"created" | "updated"> {
+  const existing = await prisma.priceCatalogItem.findUnique({
+    where: { tenantId_itemCode: { tenantId, itemCode: row.itemCode } },
+  });
+
+  const item = existing
+    ? await prisma.priceCatalogItem.update({
+        where: { id: existing.id },
+        data: {
+          category: row.category,
+          pn: row.pn,
+          erpCode: row.erpCode,
+          description: row.description,
+          currentListPrice: row.listPriceBrl,
+          currentListPriceUsd: row.listPriceUsd,
+          currency: row.sourceCurrency,
+          lastUpdateSource: "spreadsheet",
+          lastUpdateSupplierName: null,
+          markupMax: row.markupMax,
+          markupMin: row.markupMin,
+        },
+      })
+    : await prisma.priceCatalogItem.create({
+        data: {
+          id: randomId("pci"),
+          tenantId,
+          itemCode: row.itemCode,
+          category: row.category,
+          pn: row.pn,
+          erpCode: row.erpCode,
+          description: row.description,
+          currentListPrice: row.listPriceBrl,
+          currentListPriceUsd: row.listPriceUsd,
+          currency: row.sourceCurrency,
+          lastUpdateSource: "spreadsheet",
+          markupMax: row.markupMax,
+          markupMin: row.markupMin,
+        },
+      });
+
+  await prisma.priceHistoryEntry.create({
+    data: {
+      id: randomId("phe"),
+      tenantId,
+      priceListUploadId,
+      itemId: item.id,
+      listPrice: row.listPriceBrl,
+      listPriceUsd: row.listPriceUsd,
+      currency: row.sourceCurrency,
+      updateSource: "spreadsheet",
+      markupMax: row.markupMax,
+      markupMin: row.markupMin,
+      effectiveDate,
+    },
+  });
+
+  // Fase 5 (ciclo de itens sem cadastro): resolve qualquer pendência em ItemAliasMapping cujo PN
+  // bata com o item recém-cadastrado/atualizado - futuros imports de BOM com esse PN casam
+  // automaticamente a partir daqui, sem precisar reprocessar o BOM original.
+  await prisma.itemAliasMapping.updateMany({
+    where: { tenantId, rawPN: row.pn, resolvedItemId: null },
+    data: { resolvedItemId: item.id },
+  });
+
+  return existing ? "updated" : "created";
+}
+
 // Grava as linhas do caminho determinístico (planilha modelo) - extraído pra função porque
 // "Enviar Arquivos" chama isso por arquivo dentro de um lote, além do uso direto de antes.
+//
+// Linha com campo obrigatório faltando NUNCA é descartada (achado real, reportado pelo usuário:
+// PN/descrição/preço válidos eram jogados fora só por falta de markup ou código do item). Em vez
+// disso: 1) tenta casar com um item já cadastrado - por código do item se veio na planilha, senão
+// por PN - e herda dele o que faltar (nunca o preço, que sempre vem da planilha nova); 2) se
+// ficar completa, atualiza o catálogo direto, igual uma linha que já veio completa; 3) senão, vira
+// PriceCatalogExtractionDraft pra revisão manual em "Extrações pendentes", mesmo fluxo já usado
+// pela extração por IA (EditableCell/isDraftReadyToConfirm em PricingExtractionReview.tsx).
 async function commitTemplateFile(
   tenantId: string,
   userId: string,
   file: { buffer: Buffer; originalname: string },
   exchangeRate: number
 ) {
-  const { rows, errors } = await extractPricingRows(file.buffer, exchangeRate);
+  const { rows, partialRows, errors } = await extractPricingRows(file.buffer, exchangeRate);
 
   const priceListUpload = await prisma.priceListUpload.create({
     data: {
@@ -231,87 +314,86 @@ async function commitTemplateFile(
       uploadedByUserId: userId,
       fileName: file.originalname,
       effectiveDate: new Date(),
-      status: rows.length > 0 ? "processing" : "failed",
+      status: "processing",
       sourceLabel: "planilha-modelo",
     },
   });
 
   let created = 0;
   let updated = 0;
+  let draftCount = 0;
 
   for (const row of rows) {
-    const existing = await prisma.priceCatalogItem.findUnique({
-      where: { tenantId_itemCode: { tenantId, itemCode: row.itemCode } },
-    });
+    const outcome = await upsertCatalogRow(tenantId, priceListUpload.id, priceListUpload.effectiveDate, row);
+    outcome === "created" ? created++ : updated++;
+  }
 
-    const item = existing
-      ? await prisma.priceCatalogItem.update({
-          where: { id: existing.id },
-          data: {
-            category: row.category,
-            pn: row.pn,
-            erpCode: row.erpCode,
-            description: row.description,
-            currentListPrice: row.listPriceBrl,
-            currentListPriceUsd: row.listPriceUsd,
-            currency: row.sourceCurrency,
-            lastUpdateSource: "spreadsheet",
-            lastUpdateSupplierName: null,
-            markupMax: row.markupMax,
-            markupMin: row.markupMin,
-          },
-        })
-      : await prisma.priceCatalogItem.create({
-          data: {
-            id: randomId("pci"),
-            tenantId,
-            itemCode: row.itemCode,
-            category: row.category,
-            pn: row.pn,
-            erpCode: row.erpCode,
-            description: row.description,
-            currentListPrice: row.listPriceBrl,
-            currentListPriceUsd: row.listPriceUsd,
-            currency: row.sourceCurrency,
-            lastUpdateSource: "spreadsheet",
-            markupMax: row.markupMax,
-            markupMin: row.markupMin,
-          },
-        });
+  for (const partial of partialRows) {
+    const existingMatch = partial.itemCode
+      ? await prisma.priceCatalogItem.findUnique({ where: { tenantId_itemCode: { tenantId, itemCode: partial.itemCode } } })
+      : partial.pn
+        ? await prisma.priceCatalogItem.findFirst({ where: { tenantId, pn: partial.pn } })
+        : null;
 
-    existing ? updated++ : created++;
+    const itemCode = partial.itemCode ?? existingMatch?.itemCode ?? null;
+    const category = partial.category ?? existingMatch?.category ?? null;
+    const markupMin = partial.markupMin ?? existingMatch?.markupMin ?? null;
+    const markupMax = partial.markupMax ?? existingMatch?.markupMax ?? null;
 
-    await prisma.priceHistoryEntry.create({
+    if (itemCode && category && markupMin != null && markupMax != null && partial.listPriceBrl != null && partial.listPriceUsd != null && partial.sourceCurrency && partial.pn && partial.description) {
+      const outcome = await upsertCatalogRow(tenantId, priceListUpload.id, priceListUpload.effectiveDate, {
+        itemCode,
+        category,
+        pn: partial.pn,
+        erpCode: partial.erpCode,
+        description: partial.description,
+        listPriceBrl: partial.listPriceBrl,
+        listPriceUsd: partial.listPriceUsd,
+        sourceCurrency: partial.sourceCurrency,
+        markupMax,
+        markupMin,
+      });
+      outcome === "created" ? created++ : updated++;
+      continue;
+    }
+
+    const stillMissing: string[] = [];
+    if (!itemCode) stillMissing.push("Código do item");
+    if (!category) stillMissing.push("Categoria");
+    if (partial.listPriceBrl == null || partial.listPriceUsd == null) stillMissing.push("Preço de lista (R$ ou US$)");
+    if (markupMin == null) stillMissing.push("Markup mínimo");
+    if (markupMax == null) stillMissing.push("Markup máximo");
+    const matchNote = existingMatch ? ` Item já cadastrado encontrado por PN (${existingMatch.itemCode}) - alguns campos foram herdados dele.` : "";
+
+    await prisma.priceCatalogExtractionDraft.create({
       data: {
-        id: randomId("phe"),
+        id: randomId("pced"),
         tenantId,
         priceListUploadId: priceListUpload.id,
-        itemId: item.id,
-        listPrice: row.listPriceBrl,
-        listPriceUsd: row.listPriceUsd,
-        currency: row.sourceCurrency,
-        updateSource: "spreadsheet",
-        markupMax: row.markupMax,
-        markupMin: row.markupMin,
-        effectiveDate: priceListUpload.effectiveDate,
+        rowIndexInFile: partial.rowNumber,
+        itemCode,
+        category,
+        pn: partial.pn,
+        erpCode: partial.erpCode,
+        description: partial.description,
+        listPriceBrl: partial.listPriceBrl,
+        listPriceUsd: partial.listPriceUsd,
+        sourceCurrency: partial.sourceCurrency ?? "BRL",
+        markupMin,
+        markupMax,
+        supplierName: null,
+        confidenceNote: `Linha ${partial.rowNumber} da planilha: faltando ${stillMissing.join(", ")}.${matchNote}`,
       },
     });
-
-    // Fase 5 (ciclo de itens sem cadastro): resolve qualquer pendência em ItemAliasMapping
-    // cujo PN bata com o item recém-cadastrado/atualizado - futuros imports de BOM com esse
-    // PN casam automaticamente a partir daqui, sem precisar reprocessar o BOM original.
-    await prisma.itemAliasMapping.updateMany({
-      where: { tenantId, rawPN: row.pn, resolvedItemId: null },
-      data: { resolvedItemId: item.id },
-    });
+    draftCount++;
   }
 
   await prisma.priceListUpload.update({
     where: { id: priceListUpload.id },
-    data: { status: rows.length > 0 ? "completed" : "failed" },
+    data: { status: draftCount > 0 ? "pending_review" : created + updated > 0 ? "completed" : "failed" },
   });
 
-  return { fileName: file.originalname, uploadId: priceListUpload.id, created, updated, errors, mode: "template" as const };
+  return { fileName: file.originalname, uploadId: priceListUpload.id, created, updated, draftCount, errors, mode: "template" as const };
 }
 
 // Caminho de IA (cotação de fornecedor em qualquer formato) - nunca commita direto no catálogo,
@@ -639,6 +721,7 @@ router.post(
 
       const drafts = await prisma.priceCatalogExtractionDraft.findMany({
         where: { id: { in: ids }, status: { in: ["pending", "edited"] } },
+        include: { priceListUpload: { select: { sourceLabel: true } } },
       });
 
       let confirmed = 0;
@@ -658,6 +741,12 @@ router.post(
           continue;
         }
 
+        // Rascunho pode vir da extração por IA (cotação de fornecedor) OU de uma planilha-modelo
+        // com campos incompletos (server/routes/pricing.ts's commitTemplateFile) - a origem real
+        // decide lastUpdateSource/updateSource, em vez do "supplier_quote" fixo de antes (achava
+        // que todo rascunho vinha de cotação, o que não é mais verdade).
+        const updateSource = draft.priceListUpload.sourceLabel === "extração por IA" ? "supplier_quote" : "spreadsheet";
+
         const existing = await prisma.priceCatalogItem.findUnique({
           where: { tenantId_itemCode: { tenantId, itemCode: draft.itemCode } },
         });
@@ -673,7 +762,7 @@ router.post(
                 currentListPrice: draft.listPriceBrl,
                 currentListPriceUsd: draft.listPriceUsd,
                 currency: draft.sourceCurrency,
-                lastUpdateSource: "supplier_quote",
+                lastUpdateSource: updateSource,
                 lastUpdateSupplierName: draft.supplierName,
                 markupMax: draft.markupMax,
                 markupMin: draft.markupMin,
@@ -691,7 +780,7 @@ router.post(
                 currentListPrice: draft.listPriceBrl,
                 currentListPriceUsd: draft.listPriceUsd,
                 currency: draft.sourceCurrency,
-                lastUpdateSource: "supplier_quote",
+                lastUpdateSource: updateSource,
                 lastUpdateSupplierName: draft.supplierName,
                 markupMax: draft.markupMax,
                 markupMin: draft.markupMin,
@@ -707,7 +796,7 @@ router.post(
             listPrice: draft.listPriceBrl,
             listPriceUsd: draft.listPriceUsd,
             currency: draft.sourceCurrency,
-            updateSource: "supplier_quote",
+            updateSource,
             supplierName: draft.supplierName,
             markupMax: draft.markupMax,
             markupMin: draft.markupMin,
