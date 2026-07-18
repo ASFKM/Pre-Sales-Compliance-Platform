@@ -40,6 +40,19 @@ export interface DocxTemplateData {
     commercial_assumptions?: string;
     exclusions?: string;
   };
+  // Módulo de Precificação (add-on): linhas já precificadas de ProjectPricingSheet, quando o
+  // projeto tiver uma. Só os campos abaixo - NUNCA adicionar listPriceSnapshot/discountPercent/
+  // markupMin/markupMax aqui, mesmo que pareça útil pra alguma feature futura - isso exporia a
+  // margem/desconto ao cliente dentro da proposta gerada. A proteção fica na origem: o resolvedor
+  // de variáveis (docxTemplateEngine.ts) nunca tem acesso a nada além do que está declarado aqui.
+  pricing?: {
+    lines: Array<{
+      description: string;
+      quantity: number;
+      finalUnitPrice: number | null;
+      finalPriceWithTax: number | null;
+    }>;
+  };
 }
 
 function escapeXml(value: string): string {

@@ -86,20 +86,40 @@ function buildTemplateVariables(data: DocxTemplateData) {
     publico_alvo: q.target_audience || "",
   }));
 
-  const precificacao = (data.proposal?.manual_pricing_table || []).map((p: any) => {
-    const total = Number(p.total_price ?? Number(p.quantity || 0) * Number(p.unit_price || 0));
-    return {
-      item: p.product_or_service,
-      quantidade: p.quantity,
-      preco_unitario: Number(p.unit_price || 0).toFixed(2),
-      preco_total_item: total.toFixed(2),
-      moeda: p.currency || "USD",
-    };
-  });
+  // Módulo de Precificação (add-on): se o projeto tem uma sessão de precificação real com linhas
+  // já precificadas, ela tem prioridade sobre a tabela manual (mantém compatibilidade total com
+  // propostas/templates que nunca usaram o módulo - sem sessão, comportamento idêntico ao de
+  // sempre). NUNCA adicionar listPriceSnapshot/discountPercent/markupMin/markupMax aqui, mesmo
+  // que pareça útil - isso exporia a margem ao cliente na proposta. Os únicos campos disponíveis
+  // em data.pricing.lines já vêm filtrados desde server/routes/proposals.ts, de propósito - não
+  // tem como este resolvedor alcançar os campos sensíveis mesmo por engano.
+  const pricingLines = data.pricing?.lines ?? [];
+  const pricingUnitPrice = (l: { finalUnitPrice: number | null; finalPriceWithTax: number | null }) => l.finalPriceWithTax ?? l.finalUnitPrice ?? 0;
 
-  const precoTotal = (data.proposal?.manual_pricing_table || []).reduce((sum: number, p: any) => {
-    return sum + Number(p.total_price ?? Number(p.quantity || 0) * Number(p.unit_price || 0));
-  }, 0);
+  const precificacao = pricingLines.length > 0
+    ? pricingLines.map((l) => ({
+        item: l.description,
+        quantidade: l.quantity,
+        preco_unitario: pricingUnitPrice(l).toFixed(2),
+        preco_total_item: (pricingUnitPrice(l) * l.quantity).toFixed(2),
+        moeda: "BRL",
+      }))
+    : (data.proposal?.manual_pricing_table || []).map((p: any) => {
+        const total = Number(p.total_price ?? Number(p.quantity || 0) * Number(p.unit_price || 0));
+        return {
+          item: p.product_or_service,
+          quantidade: p.quantity,
+          preco_unitario: Number(p.unit_price || 0).toFixed(2),
+          preco_total_item: total.toFixed(2),
+          moeda: p.currency || "USD",
+        };
+      });
+
+  const precoTotal = pricingLines.length > 0
+    ? pricingLines.reduce((sum, l) => sum + pricingUnitPrice(l) * l.quantity, 0)
+    : (data.proposal?.manual_pricing_table || []).reduce((sum: number, p: any) => {
+        return sum + Number(p.total_price ?? Number(p.quantity || 0) * Number(p.unit_price || 0));
+      }, 0);
 
   const executiveSummary = data.analysis?.executive_summary || {};
 

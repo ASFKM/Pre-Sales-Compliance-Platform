@@ -11,6 +11,7 @@ import { ProposalTemplate, SlaRiskFlag, Proposal, Project, PlatformSettings } fr
 import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
 import { runWithTenant } from "../../src/tenantContext";
 import { PROPOSAL_TYPES, ProposalTypeValue } from "../utils/proposalTypes";
+import { getFleetLicenseStatus } from "../utils/fleetLicense";
 import { generateJsonWithProvider, ConnectedProvider } from "../utils/aiProviders";
 import { resolveProvider, checkCostCap, recordProviderFallback, recordAiUsage } from "../../src/aiOrchestrator";
 import { estimateCostUsd } from "../utils/aiPricing";
@@ -176,6 +177,30 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
     const userName = user ? user.name : "System User";
     const owner = await dbStore.getUserById(project.owner_user_id);
 
+    // Módulo de Precificação (add-on): busca opcional, nunca bloqueia a geração de proposta pra
+    // quem não tem o módulo (mesmo padrão de dado-opcional-de-add-on de server/routes/
+    // settings.ts:707, não requireModule - essa rota nunca foi gated por add-on). Quando existe
+    // mais de uma ProjectPricingSheet (BOM reimportado mais de uma vez), usa sempre a mais
+    // recente - não há flag de "sessão atual" no schema. Só os campos abaixo chegam a
+    // templateData.pricing - ver o comentário de aviso em server/utils/docx.ts sobre por que
+    // markup/preço de lista nunca podem entrar aqui.
+    const license = tenantId ? await getFleetLicenseStatus(tenantId) : { modules: [] as string[] };
+    const pricingSheet = license.modules.includes("pricing")
+      ? await prisma.projectPricingSheet.findFirst({
+          where: { projectId },
+          orderBy: { createdAt: "desc" },
+          include: { lines: { include: { matchedItem: true } } },
+        })
+      : null;
+    const pricingLines = (pricingSheet?.lines || [])
+      .filter((l) => l.matchStatus !== "unmatched" && (l.finalUnitPrice != null || l.finalPriceWithTax != null))
+      .map((l) => ({
+        description: l.matchedItem?.description || l.rawDescription || "",
+        quantity: l.quantity,
+        finalUnitPrice: l.finalUnitPrice,
+        finalPriceWithTax: l.finalPriceWithTax,
+      }));
+
     // 1. Compile template data from projects, analysis result, and manual pricings
     const templateData = {
       template: {
@@ -216,7 +241,8 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
         proposal_validity: validated.proposal_validity,
         commercial_assumptions: validated.commercial_assumptions,
         exclusions: validated.exclusions
-      }
+      },
+      pricing: { lines: pricingLines }
     };
 
     // Document generation runs in the background from here - respond immediately with the
