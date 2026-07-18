@@ -200,6 +200,10 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
         finalUnitPrice: l.finalUnitPrice,
         finalPriceWithTax: l.finalPriceWithTax,
       }));
+    // Linhas do BOM que ficaram de fora da tabela de preços da proposta por falta de preço
+    // cadastrado (sem match no catálogo, ou matched mas ainda sem preço final calculado) - só
+    // pra avisar o usuário na tela de geração, nunca chega em templateData/no documento.
+    const pricingExcludedCount = pricingSheet ? pricingSheet.lines.length - pricingLines.length : 0;
 
     // 1. Compile template data from projects, analysis result, and manual pricings
     const templateData = {
@@ -248,7 +252,7 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
     // Document generation runs in the background from here - respond immediately with the
     // task id, same pattern as document analysis (server/routes/analysis.ts).
     const task = await createTask({ userId, type: "proposal_generation", currentStep: "Gerando documento..." });
-    res.status(202).json({ success: true, task_id: task.id });
+    res.status(202).json({ success: true, task_id: task.id, pricing_excluded_count: pricingExcludedCount });
 
     // Wrapped in runWithTenant like every other detached background block in this codebase -
     // without it, updateTaskProgress/completeTask/failTask/addAuditLog/createProposal below (all
