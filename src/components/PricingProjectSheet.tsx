@@ -271,10 +271,10 @@ export default function PricingProjectSheet() {
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
                     <tr>
-                      <th className="text-left px-3 py-1.5 font-medium">Item</th>
-                      <th className="text-right px-3 py-1.5 font-medium">Desconto atual</th>
-                      <th className="text-right px-3 py-1.5 font-medium">Desconto sugerido</th>
-                      <th className="text-right px-3 py-1.5 font-medium">Preço final sugerido</th>
+                      <th className="text-left px-3 py-1.5 font-medium whitespace-nowrap">Item</th>
+                      <th className="text-right px-3 py-1.5 font-medium whitespace-nowrap">Desconto atual</th>
+                      <th className="text-right px-3 py-1.5 font-medium whitespace-nowrap">Desconto sugerido</th>
+                      <th className="text-right px-3 py-1.5 font-medium whitespace-nowrap">Preço final sugerido</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -321,14 +321,14 @@ export default function PricingProjectSheet() {
           <table className="w-full text-sm table-fixed">
             <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
               <tr>
-                <th className="text-left px-3 py-1.5 font-medium w-28">PN</th>
-                <th className="text-left px-3 py-1.5 font-medium">Descrição</th>
-                <th className="text-left px-3 py-1.5 font-medium w-40">Status</th>
-                <th className="text-right px-3 py-1.5 font-medium w-16">Qtd.</th>
-                <th className="text-right px-3 py-1.5 font-medium w-32">Preço de lista</th>
-                <th className="text-right px-3 py-1.5 font-medium w-24">Desconto %</th>
-                <th className="text-right px-3 py-1.5 font-medium w-28">Preço final</th>
-                <th className="text-right px-3 py-1.5 font-medium w-20">Margem</th>
+                <th className="text-left px-3 py-1.5 font-medium w-28 whitespace-nowrap">PN</th>
+                <th className="text-left px-3 py-1.5 font-medium whitespace-nowrap">Descrição</th>
+                <th className="text-left px-3 py-1.5 font-medium w-40 whitespace-nowrap">Status</th>
+                <th className="text-right px-3 py-1.5 font-medium w-16 whitespace-nowrap">Qtd.</th>
+                <th className="text-right px-3 py-1.5 font-medium w-32 whitespace-nowrap">Preço de lista</th>
+                <th className="text-right px-3 py-1.5 font-medium w-28 whitespace-nowrap">Desconto %</th>
+                <th className="text-right px-3 py-1.5 font-medium w-28 whitespace-nowrap">Preço final</th>
+                <th className="text-right px-3 py-1.5 font-medium w-20 whitespace-nowrap">Margem</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -355,18 +355,22 @@ export default function PricingProjectSheet() {
                       {line.matchStatus === "unmatched" ? (
                         <span className="text-slate-300">—</span>
                       ) : (
-                        <input
-                          type="number"
-                          min={0}
-                          max={100}
-                          defaultValue={line.discountPercent}
-                          disabled={savingLineId === line.id}
-                          onBlur={(e) => {
-                            const v = Number(e.target.value);
-                            if (!Number.isNaN(v) && v !== line.discountPercent) updateDiscount(line, v);
-                          }}
-                          className="w-16 text-right text-sm border border-slate-300 rounded px-1.5 py-0.5"
-                        />
+                        <div className="flex items-center justify-end gap-1">
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            step="0.01"
+                            defaultValue={line.discountPercent}
+                            disabled={savingLineId === line.id}
+                            onBlur={(e) => {
+                              const v = Number(e.target.value);
+                              if (!Number.isNaN(v) && v !== line.discountPercent) updateDiscount(line, v);
+                            }}
+                            className="w-14 text-right text-sm border border-slate-300 rounded px-1.5 py-0.5"
+                          />
+                          <span className="text-xs text-slate-400 shrink-0">%</span>
+                        </div>
                       )}
                     </td>
                     <td className="px-3 py-1 text-right text-slate-700">
