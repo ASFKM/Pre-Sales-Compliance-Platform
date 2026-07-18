@@ -63,7 +63,8 @@ export default function PricingTaxSettings() {
   }
 
   return (
-    <div className="p-6 max-w-2xl mx-auto">
+    <div className="flex-1 overflow-y-auto p-6">
+    <div className="max-w-2xl">
       <h2 className="text-lg font-semibold text-slate-800 mb-1">Motor fiscal</h2>
       <p className="text-sm text-slate-500 mb-6">
         Opcional e desligado por padrão — muitos tenants já calculam imposto direto no ERP. Quando ligado, calcula ICMS interestadual, PIS/COFINS por regime, ISS (itens de serviço) e IPI (se informado por item). Substituição tributária (ST) não é calculada — apenas sinalizada para revisão manual, já que depende de bases fiscais pagas mantidas por terceiros.
@@ -125,6 +126,7 @@ export default function PricingTaxSettings() {
         {saving ? <Loader2 size={15} className="animate-spin" /> : null}
         Salvar
       </button>
+    </div>
     </div>
   );
 }

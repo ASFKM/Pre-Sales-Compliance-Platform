@@ -51,7 +51,7 @@ export default function PricingPendingItems() {
   };
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="flex-1 overflow-y-auto p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-lg font-semibold text-slate-800">Itens sem preço</h2>

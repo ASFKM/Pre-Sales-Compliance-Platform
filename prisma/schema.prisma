@@ -1591,30 +1591,38 @@ enum PricingSheetStatus {
 // O cadastro "vivo" de um item - sempre reflete o preço/markup atual. Histórico real fica em
 // PriceHistoryEntry (ledger append-only), nunca sobrescrito.
 model PriceCatalogItem {
-  id               String         @id
-  tenantId         String         @map("tenant_id")
-  tenant           Tenant         @relation(fields: [tenantId], references: [id])
-  itemCode         String         @map("item_code")
+  id                  String         @id
+  tenantId            String         @map("tenant_id")
+  tenant              Tenant         @relation(fields: [tenantId], references: [id])
+  itemCode            String         @map("item_code")
   // Código no ERP/SAP do cliente - referência genérica pra integração futura, não usado em
   // nenhum matching interno hoje (pedido explícito do usuário, distinto do itemCode interno).
-  erpCode          String?        @map("erp_code")
+  erpCode             String?        @map("erp_code")
   // Classificação fiscal (NCM) - só relevante com o motor fiscal da Fase 7 ligado.
-  ncmCode          String?        @map("ncm_code")
-  itemType         PriceItemType? @map("item_type")
-  category         String
-  pn               String
-  description      String         @db.Text
-  currentListPrice Float          @map("current_list_price")
-  currency         String         @default("BRL")
-  markupMin        Float          @map("markup_min")
-  markupMax        Float          @map("markup_max")
-  ipiRatePercent   Float?         @map("ipi_rate_percent")
-  issRatePercent   Float?         @map("iss_rate_percent")
-  stApplicable     Boolean        @default(false) @map("st_applicable")
-  vendor           String?
-  active           Boolean        @default(true)
-  createdAt        DateTime       @default(now()) @map("created_at")
-  updatedAt        DateTime       @updatedAt @map("updated_at")
+  ncmCode             String?        @map("ncm_code")
+  itemType            PriceItemType? @map("item_type")
+  category            String
+  pn                  String
+  description         String         @db.Text
+  // Canônico - todo cálculo de markup/imposto/proposta usa este campo (sempre em BRL). Preenchido
+  // direto se a linha da planilha veio em R$, ou convertido a partir de currentListPriceUsd (pela
+  // cotação de TenantPricingSettings.usdBrlExchangeRate no momento do import) se veio em US$.
+  currentListPrice    Float          @map("current_list_price")
+  // Espelho em dólar - preenchido direto se a linha veio em US$, ou convertido a partir de
+  // currentListPrice se veio em R$. Sempre populado após o import, nas duas direções.
+  currentListPriceUsd Float?         @map("current_list_price_usd")
+  // Moeda em que o item foi informado no último envio de planilha (R$ ou US$) - só informativo,
+  // currentListPrice continua sendo a fonte de verdade em BRL independente disso.
+  currency            String         @default("BRL")
+  markupMin           Float          @map("markup_min")
+  markupMax           Float          @map("markup_max")
+  ipiRatePercent      Float?         @map("ipi_rate_percent")
+  issRatePercent      Float?         @map("iss_rate_percent")
+  stApplicable        Boolean        @default(false) @map("st_applicable")
+  vendor              String?
+  active              Boolean        @default(true)
+  createdAt           DateTime       @default(now()) @map("created_at")
+  updatedAt           DateTime       @updatedAt @map("updated_at")
 
   priceHistoryEntries PriceHistoryEntry[]
   aliasMappings       ItemAliasMapping[]
@@ -1657,6 +1665,7 @@ model PriceHistoryEntry {
   itemId            String           @map("item_id")
   item              PriceCatalogItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
   listPrice         Float            @map("list_price")
+  listPriceUsd      Float?           @map("list_price_usd")
   currency          String
   markupMin         Float            @map("markup_min")
   markupMax         Float            @map("markup_max")
@@ -1777,12 +1786,25 @@ model BudgetOptimizationRun {
 // Configuração do módulo por tenant. Hoje só o toggle do motor fiscal (Fase 7, default
 // desligado - muitos tenants já calculam imposto no próprio ERP, ver decisão do usuário).
 model TenantPricingSettings {
-  id                    String   @id
-  tenantId              String   @map("tenant_id")
-  tenant                Tenant   @relation(fields: [tenantId], references: [id])
-  taxCalculationEnabled Boolean  @default(false) @map("tax_calculation_enabled")
-  createdAt             DateTime @default(now()) @map("created_at")
-  updatedAt             DateTime @updatedAt @map("updated_at")
+  id                          String    @id
+  tenantId                    String    @map("tenant_id")
+  tenant                      Tenant    @relation(fields: [tenantId], references: [id])
+  taxCalculationEnabled       Boolean   @default(false) @map("tax_calculation_enabled")
+  // Conversão USD -> BRL usada ao importar a tabela de preços (quando só uma das duas colunas de
+  // preço vem preenchida) e exibida/editável no canto da tela de Tabela de Preços. Busca sozinha
+  // do Banco Central (PTAX) por padrão - ver server/utils/exchangeRateFetch.ts - o admin pode
+  // sobrescrever manualmente, o que fixa o rótulo de fonte como manual até a próxima janela de
+  // atualização automática.
+  usdBrlExchangeRate          Float     @default(5.0) @map("usd_brl_exchange_rate")
+  // Fonte é sempre uma de duas ("Banco Central do Brasil (PTAX)" ou "Ajustado manualmente pelo
+  // administrador", ver EXCHANGE_RATE_SOURCE_AUTO/_MANUAL em server/routes/pricing.ts) - nunca
+  // texto livre do usuário, pra manter o rótulo confiável.
+  usdBrlExchangeRateSource    String?   @map("usd_brl_exchange_rate_source")
+  // Rastreado à parte de updatedAt (que muda com qualquer alteração nesta linha, inclusive as de
+  // motor fiscal) - null significa "nunca ajustada manualmente, ainda no valor padrão".
+  usdBrlExchangeRateUpdatedAt DateTime? @map("usd_brl_exchange_rate_updated_at")
+  createdAt                   DateTime  @default(now()) @map("created_at")
+  updatedAt                   DateTime  @updatedAt @map("updated_at")
 
   @@unique([tenantId])
   @@map("tenant_pricing_settings")

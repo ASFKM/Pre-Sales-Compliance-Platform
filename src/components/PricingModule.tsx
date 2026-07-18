@@ -8,8 +8,8 @@ export default function PricingModule() {
   const [tab, setTab] = useState<"catalog" | "project" | "pending" | "tax">("catalog");
 
   return (
-    <div>
-      <div className="border-b border-slate-200 px-6 pt-4 flex gap-4">
+    <div className="flex-1 flex flex-col min-h-0">
+      <div className="border-b border-slate-200 px-6 pt-4 flex gap-4 shrink-0">
         <button
           onClick={() => setTab("catalog")}
           className={`pb-3 text-sm font-medium border-b-2 ${tab === "catalog" ? "border-emerald-500 text-slate-800" : "border-transparent text-slate-500 hover:text-slate-700"}`}

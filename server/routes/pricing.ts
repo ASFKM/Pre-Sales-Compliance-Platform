@@ -19,6 +19,7 @@ import { generatePricingTemplate, extractPricingRows } from "../utils/pricingImp
 import { computeLinePricing } from "../utils/pricingMath";
 import { optimizeForBudget } from "../utils/pricingBudgetOptimizer";
 import { calculateTax } from "../utils/taxCalculation";
+import { fetchUsdBrlExchangeRateFromBcb } from "../utils/exchangeRateFetch";
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -30,36 +31,139 @@ router.get("/health", requirePermission("pricing:read"), requireModule("pricing"
 // Fase 7: motor fiscal opcional. Desligado por padrão - muitos tenants já calculam imposto no
 // próprio ERP (decisão do usuário). Ligar exige também um TenantTaxProfile (UF de origem + regime
 // tributário), senão o cálculo não tem o que usar como origem.
-const TaxSettingsSchema = z.object({
-  taxCalculationEnabled: z.boolean(),
+// Todos os campos são opcionais aqui de propósito - esse mesmo endpoint é usado tanto pela tela
+// de motor fiscal (envia taxCalculationEnabled/originUF/taxRegime) quanto pelo canto da tela de
+// Tabela de Preços (envia só usdBrlExchangeRate) - cada chamada só atualiza o que enviar, o resto
+// fica como estava (ver PUT abaixo).
+const PricingSettingsSchema = z.object({
+  taxCalculationEnabled: z.boolean().optional(),
   originUF: z.string().length(2).optional(),
   taxRegime: z.enum(["simples_nacional", "lucro_presumido", "lucro_real"]).optional(),
+  // Conversão USD -> BRL usada pelo import da planilha (extractPricingRows) quando só uma das
+  // duas colunas de preço vem preenchida. Por padrão busca sozinha do Banco Central (PTAX) - ver
+  // refreshExchangeRateIfStale; o admin pode sobrescrever aqui, o que fixa o rótulo de fonte como
+  // manual até a próxima janela de atualização automática.
+  usdBrlExchangeRate: z.number().positive().optional(),
 });
+
+// Fonte é sempre uma destas duas - nunca texto livre do usuário, pra manter o rótulo confiável.
+const EXCHANGE_RATE_SOURCE_AUTO = "Banco Central do Brasil (PTAX)";
+const EXCHANGE_RATE_SOURCE_MANUAL = "Ajustado manualmente pelo administrador";
+const EXCHANGE_RATE_STALE_MS = 24 * 60 * 60 * 1000;
+
+type TenantPricingSettingsRow = Awaited<ReturnType<typeof prisma.tenantPricingSettings.findUnique>>;
+
+// Busca uma cotação nova do Banco Central quando a guardada tem mais de 1 dia (ou nunca foi
+// definida) - inclusive quando o valor atual veio de um ajuste manual do admin, que vale só até a
+// próxima janela de atualização automática. Fail-open: se o Banco Central não responder, mantém o
+// que já estava salvo em vez de travar a tela de preços por causa disso.
+async function refreshExchangeRateIfStale(tenantId: string, settings: TenantPricingSettingsRow): Promise<TenantPricingSettingsRow> {
+  const isStale = !settings?.usdBrlExchangeRateUpdatedAt || Date.now() - settings.usdBrlExchangeRateUpdatedAt.getTime() > EXCHANGE_RATE_STALE_MS;
+  if (!isStale) return settings;
+
+  const fetched = await fetchUsdBrlExchangeRateFromBcb();
+  if (!fetched) return settings;
+
+  return settings
+    ? prisma.tenantPricingSettings.update({
+        where: { id: settings.id },
+        data: { usdBrlExchangeRate: fetched.rate, usdBrlExchangeRateSource: EXCHANGE_RATE_SOURCE_AUTO, usdBrlExchangeRateUpdatedAt: new Date() },
+      })
+    : prisma.tenantPricingSettings.create({
+        data: {
+          id: randomId("tps"),
+          tenantId,
+          taxCalculationEnabled: false,
+          usdBrlExchangeRate: fetched.rate,
+          usdBrlExchangeRateSource: EXCHANGE_RATE_SOURCE_AUTO,
+          usdBrlExchangeRateUpdatedAt: new Date(),
+        },
+      });
+}
 
 router.get("/settings", requirePermission("pricing:read"), requireModule("pricing"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const tenantId = req.headers["x-tenant-id"] as string;
-    const settings = await prisma.tenantPricingSettings.findUnique({ where: { tenantId } });
+    let settings = await prisma.tenantPricingSettings.findUnique({ where: { tenantId } });
+    settings = await refreshExchangeRateIfStale(tenantId, settings);
     const taxProfile = await prisma.tenantTaxProfile.findUnique({ where: { tenantId } });
-    res.json({ success: true, taxCalculationEnabled: settings?.taxCalculationEnabled ?? false, taxProfile });
+    res.json({
+      success: true,
+      taxCalculationEnabled: settings?.taxCalculationEnabled ?? false,
+      usdBrlExchangeRate: settings?.usdBrlExchangeRate ?? 5.0,
+      usdBrlExchangeRateSource: settings?.usdBrlExchangeRateSource ?? null,
+      usdBrlExchangeRateUpdatedAt: settings?.usdBrlExchangeRateUpdatedAt ?? null,
+      taxProfile,
+    });
   } catch (err) {
     next(err);
   }
 });
 
+// Força uma nova busca no Banco Central agora, ignorando a janela de 1 dia - botão "atualizar"
+// no canto da tela de preços.
+router.post(
+  "/settings/refresh-exchange-rate",
+  requirePermission("pricing:manage"),
+  requireModule("pricing"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenantId = req.headers["x-tenant-id"] as string;
+      const fetched = await fetchUsdBrlExchangeRateFromBcb();
+      if (!fetched) {
+        return res.status(502).json({ success: false, message: "Não foi possível consultar a cotação no Banco Central agora. Tente novamente em instantes." });
+      }
+      const existingSettings = await prisma.tenantPricingSettings.findUnique({ where: { tenantId } });
+      const settings = existingSettings
+        ? await prisma.tenantPricingSettings.update({
+            where: { id: existingSettings.id },
+            data: { usdBrlExchangeRate: fetched.rate, usdBrlExchangeRateSource: EXCHANGE_RATE_SOURCE_AUTO, usdBrlExchangeRateUpdatedAt: new Date() },
+          })
+        : await prisma.tenantPricingSettings.create({
+            data: {
+              id: randomId("tps"),
+              tenantId,
+              taxCalculationEnabled: false,
+              usdBrlExchangeRate: fetched.rate,
+              usdBrlExchangeRateSource: EXCHANGE_RATE_SOURCE_AUTO,
+              usdBrlExchangeRateUpdatedAt: new Date(),
+            },
+          });
+      res.json({
+        success: true,
+        usdBrlExchangeRate: settings.usdBrlExchangeRate,
+        usdBrlExchangeRateSource: settings.usdBrlExchangeRateSource,
+        usdBrlExchangeRateUpdatedAt: settings.usdBrlExchangeRateUpdatedAt,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 router.put("/settings", requirePermission("pricing:manage"), requireModule("pricing"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const tenantId = req.headers["x-tenant-id"] as string;
-    const body = TaxSettingsSchema.parse(req.body);
+    const body = PricingSettingsSchema.parse(req.body);
 
     if (body.taxCalculationEnabled && (!body.originUF || !body.taxRegime)) {
       return res.status(400).json({ success: false, message: "Pra ligar o motor fiscal, informe UF de origem e regime tributário." });
     }
 
     const existingSettings = await prisma.tenantPricingSettings.findUnique({ where: { tenantId } });
+    const settingsUpdateData: { taxCalculationEnabled?: boolean; usdBrlExchangeRate?: number; usdBrlExchangeRateSource?: string; usdBrlExchangeRateUpdatedAt?: Date } = {};
+    if (body.taxCalculationEnabled !== undefined) settingsUpdateData.taxCalculationEnabled = body.taxCalculationEnabled;
+    if (body.usdBrlExchangeRate !== undefined) {
+      settingsUpdateData.usdBrlExchangeRate = body.usdBrlExchangeRate;
+      settingsUpdateData.usdBrlExchangeRateSource = EXCHANGE_RATE_SOURCE_MANUAL;
+      settingsUpdateData.usdBrlExchangeRateUpdatedAt = new Date();
+    }
+
     const settings = existingSettings
-      ? await prisma.tenantPricingSettings.update({ where: { id: existingSettings.id }, data: { taxCalculationEnabled: body.taxCalculationEnabled } })
-      : await prisma.tenantPricingSettings.create({ data: { id: randomId("tps"), tenantId, taxCalculationEnabled: body.taxCalculationEnabled } });
+      ? await prisma.tenantPricingSettings.update({ where: { id: existingSettings.id }, data: settingsUpdateData })
+      : await prisma.tenantPricingSettings.create({
+          data: { id: randomId("tps"), tenantId, taxCalculationEnabled: body.taxCalculationEnabled ?? false, ...settingsUpdateData },
+        });
 
     if (body.originUF && body.taxRegime) {
       const existingProfile = await prisma.tenantTaxProfile.findUnique({ where: { tenantId } });
@@ -68,7 +172,13 @@ router.put("/settings", requirePermission("pricing:manage"), requireModule("pric
         : prisma.tenantTaxProfile.create({ data: { id: randomId("ttp"), tenantId, originUF: body.originUF, taxRegime: body.taxRegime } }));
     }
 
-    res.json({ success: true, taxCalculationEnabled: settings.taxCalculationEnabled });
+    res.json({
+      success: true,
+      taxCalculationEnabled: settings.taxCalculationEnabled,
+      usdBrlExchangeRate: settings.usdBrlExchangeRate,
+      usdBrlExchangeRateSource: settings.usdBrlExchangeRateSource,
+      usdBrlExchangeRateUpdatedAt: settings.usdBrlExchangeRateUpdatedAt,
+    });
   } catch (err) {
     if (err instanceof z.ZodError) {
       return res.status(400).json({ success: false, message: err.issues[0].message });
@@ -113,7 +223,10 @@ router.post(
         return res.status(400).json({ success: false, message: "Nenhum arquivo enviado." });
       }
 
-      const { rows, errors } = await extractPricingRows(req.file.buffer);
+      const settings = await prisma.tenantPricingSettings.findUnique({ where: { tenantId } });
+      const exchangeRate = settings?.usdBrlExchangeRate ?? 5.0;
+
+      const { rows, errors } = await extractPricingRows(req.file.buffer, exchangeRate);
 
       const priceListUpload = await prisma.priceListUpload.create({
         data: {
@@ -142,7 +255,9 @@ router.post(
                 pn: row.pn,
                 erpCode: row.erpCode,
                 description: row.description,
-                currentListPrice: row.listPrice,
+                currentListPrice: row.listPriceBrl,
+                currentListPriceUsd: row.listPriceUsd,
+                currency: row.sourceCurrency,
                 markupMax: row.markupMax,
                 markupMin: row.markupMin,
               },
@@ -156,7 +271,9 @@ router.post(
                 pn: row.pn,
                 erpCode: row.erpCode,
                 description: row.description,
-                currentListPrice: row.listPrice,
+                currentListPrice: row.listPriceBrl,
+                currentListPriceUsd: row.listPriceUsd,
+                currency: row.sourceCurrency,
                 markupMax: row.markupMax,
                 markupMin: row.markupMin,
               },
@@ -170,8 +287,9 @@ router.post(
             tenantId,
             priceListUploadId: priceListUpload.id,
             itemId: item.id,
-            listPrice: row.listPrice,
-            currency: item.currency,
+            listPrice: row.listPriceBrl,
+            listPriceUsd: row.listPriceUsd,
+            currency: row.sourceCurrency,
             markupMax: row.markupMax,
             markupMin: row.markupMin,
             effectiveDate: priceListUpload.effectiveDate,

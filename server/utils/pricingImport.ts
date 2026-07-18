@@ -11,7 +11,14 @@ export interface PricingRow {
   pn: string;
   erpCode: string | null;
   description: string;
-  listPrice: number;
+  // Canônico (BRL) e espelho (USD) - sempre os dois preenchidos na saída, independente de qual
+  // coluna o usuário de fato preencheu na planilha (ver conversão em extractPricingRows).
+  listPriceBrl: number;
+  listPriceUsd: number;
+  // Moeda que o usuário de fato informou nesta linha - só informativo (qual das duas colunas
+  // veio preenchida "de origem"); se as duas vierem preenchidas, fica "BRL" por convenção (nenhuma
+  // conversão acontece nesse caso, os dois valores são aceitos como informados).
+  sourceCurrency: "BRL" | "USD";
   markupMax: number;
   markupMin: number;
 }
@@ -27,7 +34,8 @@ const TEMPLATE_HEADERS = [
   "PN",
   "Código ERP/SAP",
   "Descrição",
-  "Preço de lista",
+  "Preço de lista (R$)",
+  "Preço de lista (US$)",
   "Markup máximo (%)",
   "Markup mínimo (%)",
 ];
@@ -41,9 +49,10 @@ export async function generatePricingTemplate(prefillRows: Array<{ pn: string; d
     { header: TEMPLATE_HEADERS[2], key: "pn", width: 18 },
     { header: TEMPLATE_HEADERS[3], key: "erpCode", width: 18 },
     { header: TEMPLATE_HEADERS[4], key: "description", width: 40 },
-    { header: TEMPLATE_HEADERS[5], key: "listPrice", width: 16 },
-    { header: TEMPLATE_HEADERS[6], key: "markupMax", width: 18 },
-    { header: TEMPLATE_HEADERS[7], key: "markupMin", width: 18 },
+    { header: TEMPLATE_HEADERS[5], key: "listPriceBrl", width: 18 },
+    { header: TEMPLATE_HEADERS[6], key: "listPriceUsd", width: 18 },
+    { header: TEMPLATE_HEADERS[7], key: "markupMax", width: 18 },
+    { header: TEMPLATE_HEADERS[8], key: "markupMin", width: 18 },
   ];
   sheet.getRow(1).font = { bold: true };
 
@@ -57,7 +66,11 @@ export async function generatePricingTemplate(prefillRows: Array<{ pn: string; d
   return Buffer.from(arrayBuffer);
 }
 
-export async function extractPricingRows(buffer: Buffer): Promise<{ rows: PricingRow[]; errors: PricingRowError[] }> {
+// exchangeRate: quantos R$ vale 1 US$ (TenantPricingSettings.usdBrlExchangeRate) - usado só
+// quando a linha preenche apenas uma das duas colunas de preço, pra calcular a outra
+// automaticamente. Se as duas vierem preenchidas, nenhuma conversão acontece - o valor informado
+// em cada moeda é aceito como está.
+export async function extractPricingRows(buffer: Buffer, exchangeRate: number): Promise<{ rows: PricingRow[]; errors: PricingRowError[] }> {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer as any);
   const sheet = workbook.worksheets[0];
@@ -74,22 +87,42 @@ export async function extractPricingRows(buffer: Buffer): Promise<{ rows: Pricin
     // row.values is 1-indexed with an empty slot at index 0 (same quirk extraction.ts's
     // extractXlsx already works around).
     const values = (row.values as any[]).slice(1);
-    const [itemCode, category, pn, erpCode, description, listPrice, markupMax, markupMin] = values;
+    const [itemCode, category, pn, erpCode, description, listPriceBrlRaw, listPriceUsdRaw, markupMax, markupMin] = values;
 
     if (!itemCode && !pn && !description) return; // fully blank row, skip silently
+
+    const hasBrl = listPriceBrlRaw != null && listPriceBrlRaw !== "" && !isNaN(Number(listPriceBrlRaw));
+    const hasUsd = listPriceUsdRaw != null && listPriceUsdRaw !== "" && !isNaN(Number(listPriceUsdRaw));
 
     const missing: string[] = [];
     if (!itemCode) missing.push("Código do item");
     if (!category) missing.push("Categoria");
     if (!pn) missing.push("PN");
     if (!description) missing.push("Descrição");
-    if (listPrice == null || isNaN(Number(listPrice))) missing.push("Preço de lista");
+    if (!hasBrl && !hasUsd) missing.push("Preço de lista (R$) ou Preço de lista (US$)");
     if (markupMax == null || isNaN(Number(markupMax))) missing.push("Markup máximo");
     if (markupMin == null || isNaN(Number(markupMin))) missing.push("Markup mínimo");
 
     if (missing.length > 0) {
       errors.push({ rowNumber, message: `Campos obrigatórios ausentes/inválidos: ${missing.join(", ")}` });
       return;
+    }
+
+    let listPriceBrl: number;
+    let listPriceUsd: number;
+    let sourceCurrency: "BRL" | "USD";
+    if (hasBrl && hasUsd) {
+      listPriceBrl = Number(listPriceBrlRaw);
+      listPriceUsd = Number(listPriceUsdRaw);
+      sourceCurrency = "BRL";
+    } else if (hasBrl) {
+      listPriceBrl = Number(listPriceBrlRaw);
+      listPriceUsd = listPriceBrl / exchangeRate;
+      sourceCurrency = "BRL";
+    } else {
+      listPriceUsd = Number(listPriceUsdRaw);
+      listPriceBrl = listPriceUsd * exchangeRate;
+      sourceCurrency = "USD";
     }
 
     rows.push({
@@ -99,7 +132,9 @@ export async function extractPricingRows(buffer: Buffer): Promise<{ rows: Pricin
       pn: String(pn).trim(),
       erpCode: erpCode ? String(erpCode).trim() : null,
       description: String(description).trim(),
-      listPrice: Number(listPrice),
+      listPriceBrl,
+      listPriceUsd,
+      sourceCurrency,
       markupMax: Number(markupMax),
       markupMin: Number(markupMin),
     });

@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import { Download, Upload, Loader2, TriangleAlert, ChevronDown, ChevronRight } from "lucide-react";
+import { Download, Upload, Loader2, TriangleAlert, ChevronDown, ChevronRight, Pencil, Check, X, RefreshCw } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import ApiClient from "../lib/api";
 
@@ -11,6 +11,7 @@ interface PriceCatalogItem {
   pn: string;
   description: string;
   currentListPrice: number;
+  currentListPriceUsd: number | null;
   currency: string;
   markupMin: number;
   markupMax: number;
@@ -31,7 +32,128 @@ interface PriceHistoryEntry {
 }
 
 const currencyFormatter = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+const usdFormatter = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const dateFormatter = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit" });
+
+const rateDateFormatter = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
+
+function ExchangeRateBadge() {
+  const [rate, setRate] = useState<number | null>(null);
+  const [source, setSource] = useState<string | null>(null);
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const applyResponse = (res: { usdBrlExchangeRate: number; usdBrlExchangeRateSource?: string | null; usdBrlExchangeRateUpdatedAt: string | null }) => {
+    setRate(res.usdBrlExchangeRate);
+    setSource(res.usdBrlExchangeRateSource ?? null);
+    setUpdatedAt(res.usdBrlExchangeRateUpdatedAt);
+  };
+
+  const load = () =>
+    ApiClient.get<{ success: boolean; usdBrlExchangeRate: number; usdBrlExchangeRateSource: string | null; usdBrlExchangeRateUpdatedAt: string | null }>(
+      "/api/pricing/settings"
+    )
+      .then(applyResponse)
+      .catch(() => setRate(null));
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const save = async () => {
+    const value = Number(draft.replace(",", "."));
+    if (!value || value <= 0) return;
+    setSaving(true);
+    try {
+      const res = await ApiClient.put<{ success: boolean; usdBrlExchangeRate: number; usdBrlExchangeRateSource: string | null; usdBrlExchangeRateUpdatedAt: string | null }>(
+        "/api/pricing/settings",
+        { usdBrlExchangeRate: value }
+      );
+      applyResponse(res);
+      setEditing(false);
+    } catch {
+      // silencioso - o badge simplesmente mantém a cotação anterior visível
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const refresh = async () => {
+    setRefreshing(true);
+    try {
+      const res = await ApiClient.post<{ success: boolean; usdBrlExchangeRate: number; usdBrlExchangeRateSource: string | null; usdBrlExchangeRateUpdatedAt: string | null }>(
+        "/api/pricing/settings/refresh-exchange-rate",
+        {}
+      );
+      applyResponse(res);
+    } catch {
+      // silencioso - fail-open, mantém a cotação anterior visível
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  if (rate == null) return null;
+
+  const sourceCaption = `Fonte: ${source || "Banco Central do Brasil (PTAX)"}${
+    updatedAt ? ` · atualizada em ${rateDateFormatter.format(new Date(updatedAt))}` : " · ainda não atualizada"
+  }`;
+
+  if (editing) {
+    return (
+      <div className="flex flex-col items-end gap-0.5">
+        <div className="flex items-center gap-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg px-2 py-1.5">
+          <span className="text-slate-500">US$ 1 =</span>
+          <input
+            type="text"
+            autoFocus
+            defaultValue={rate.toFixed(2)}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && save()}
+            className="w-16 text-right border border-slate-300 rounded px-1 py-0.5"
+          />
+          <button onClick={save} disabled={saving} className="text-emerald-600 hover:text-emerald-700 disabled:opacity-50">
+            <Check size={14} />
+          </button>
+          <button onClick={() => setEditing(false)} disabled={saving} className="text-slate-400 hover:text-slate-600">
+            <X size={14} />
+          </button>
+        </div>
+        <span className="text-[10px] text-slate-400">{sourceCaption}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-0.5">
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => {
+            setDraft(rate.toFixed(2));
+            setEditing(true);
+          }}
+          title="Cotação usada para converter preços entre R$ e US$ ao importar a planilha"
+          className="inline-flex items-center gap-1.5 text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 hover:bg-slate-100"
+        >
+          Cotação: US$ 1 = {currencyFormatter.format(rate)}
+          <Pencil size={11} />
+        </button>
+        <button
+          onClick={refresh}
+          disabled={refreshing}
+          title="Buscar cotação atual no Banco Central agora"
+          className="text-slate-400 hover:text-slate-600 disabled:opacity-50 p-1.5"
+        >
+          <RefreshCw size={12} className={refreshing ? "animate-spin" : ""} />
+        </button>
+      </div>
+      <span className="text-[10px] text-slate-400">{sourceCaption}</span>
+    </div>
+  );
+}
 
 function PriceHistoryChart({ itemId }: { itemId: string }) {
   const [entries, setEntries] = useState<PriceHistoryEntry[] | null>(null);
@@ -133,7 +255,7 @@ export default function PricingCatalog() {
   };
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="flex-1 overflow-y-auto p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-lg font-semibold text-slate-800">Tabela de preços</h2>
@@ -142,6 +264,7 @@ export default function PricingCatalog() {
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          <ExchangeRateBadge />
           <button
             onClick={downloadTemplate}
             className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-600 border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-50"
@@ -204,21 +327,22 @@ export default function PricingCatalog() {
               <th className="text-left px-3 py-2 font-medium">Categoria</th>
               <th className="text-left px-3 py-2 font-medium">PN</th>
               <th className="text-left px-3 py-2 font-medium">Descrição</th>
-              <th className="text-right px-3 py-2 font-medium">Preço de lista</th>
+              <th className="text-right px-3 py-2 font-medium">Preço de lista (R$)</th>
+              <th className="text-right px-3 py-2 font-medium">Preço de lista (US$)</th>
               <th className="text-right px-3 py-2 font-medium">Markup mín / máx</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {loading && (
               <tr>
-                <td colSpan={6} className="px-3 py-8 text-center text-slate-400">
+                <td colSpan={7} className="px-3 py-8 text-center text-slate-400">
                   Carregando...
                 </td>
               </tr>
             )}
             {!loading && items.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-3 py-8 text-center text-slate-400">
+                <td colSpan={7} className="px-3 py-8 text-center text-slate-400">
                   Nenhum item cadastrado ainda. Baixe o modelo, preencha e envie a planilha.
                 </td>
               </tr>
@@ -242,12 +366,15 @@ export default function PricingCatalog() {
                     <td className="px-3 py-2 text-slate-700">{item.description}</td>
                     <td className="px-3 py-2 text-right text-slate-700">{currencyFormatter.format(item.currentListPrice)}</td>
                     <td className="px-3 py-2 text-right text-slate-500">
+                      {item.currentListPriceUsd != null ? usdFormatter.format(item.currentListPriceUsd) : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-right text-slate-500">
                       {item.markupMin}% / {item.markupMax}%
                     </td>
                   </tr>
                   {expanded && (
                     <tr>
-                      <td colSpan={6} className="bg-slate-50/60 border-t border-slate-100">
+                      <td colSpan={7} className="bg-slate-50/60 border-t border-slate-100">
                         <PriceHistoryChart itemId={item.id} />
                       </td>
                     </tr>

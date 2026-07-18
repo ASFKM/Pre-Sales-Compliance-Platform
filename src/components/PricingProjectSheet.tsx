@@ -168,7 +168,7 @@ export default function PricingProjectSheet() {
   const lineById = new Map((sheet?.lines || []).map((l) => [l.id, l]));
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="flex-1 overflow-y-auto p-6">
       <div className="mb-6">
         <h2 className="text-lg font-semibold text-slate-800">Precificação de projeto</h2>
         <p className="text-sm text-slate-500 mt-0.5">
@@ -271,10 +271,10 @@ export default function PricingProjectSheet() {
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
                     <tr>
-                      <th className="text-left px-3 py-2 font-medium">Item</th>
-                      <th className="text-right px-3 py-2 font-medium">Desconto atual</th>
-                      <th className="text-right px-3 py-2 font-medium">Desconto sugerido</th>
-                      <th className="text-right px-3 py-2 font-medium">Preço final sugerido</th>
+                      <th className="text-left px-3 py-1.5 font-medium">Item</th>
+                      <th className="text-right px-3 py-1.5 font-medium">Desconto atual</th>
+                      <th className="text-right px-3 py-1.5 font-medium">Desconto sugerido</th>
+                      <th className="text-right px-3 py-1.5 font-medium">Preço final sugerido</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -282,10 +282,10 @@ export default function PricingProjectSheet() {
                       const line = lineById.get(s.id);
                       return (
                         <tr key={s.id}>
-                          <td className="px-3 py-2 text-slate-700">{line?.rawDescription || s.id}</td>
-                          <td className="px-3 py-2 text-right text-slate-500">{line?.discountPercent ?? 0}%</td>
-                          <td className="px-3 py-2 text-right font-medium text-emerald-700">{s.discountPercent}%</td>
-                          <td className="px-3 py-2 text-right text-slate-700">{currencyFormatter.format(s.finalUnitPrice)}</td>
+                          <td className="px-3 py-1 text-slate-700 whitespace-nowrap">{line?.rawDescription || s.id}</td>
+                          <td className="px-3 py-1 text-right text-slate-500">{line?.discountPercent ?? 0}%</td>
+                          <td className="px-3 py-1 text-right font-medium text-emerald-700">{s.discountPercent}%</td>
+                          <td className="px-3 py-1 text-right text-slate-700">{currencyFormatter.format(s.finalUnitPrice)}</td>
                         </tr>
                       );
                     })}
@@ -318,16 +318,17 @@ export default function PricingProjectSheet() {
 
       {sheet && (
         <div className="border border-slate-200 rounded-lg overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm table-fixed">
             <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
               <tr>
-                <th className="text-left px-3 py-2 font-medium">Item</th>
-                <th className="text-left px-3 py-2 font-medium">Status</th>
-                <th className="text-right px-3 py-2 font-medium">Qtd.</th>
-                <th className="text-right px-3 py-2 font-medium">Preço de lista</th>
-                <th className="text-right px-3 py-2 font-medium">Desconto %</th>
-                <th className="text-right px-3 py-2 font-medium">Preço final</th>
-                <th className="text-right px-3 py-2 font-medium">Margem</th>
+                <th className="text-left px-3 py-1.5 font-medium w-28">PN</th>
+                <th className="text-left px-3 py-1.5 font-medium">Descrição</th>
+                <th className="text-left px-3 py-1.5 font-medium w-40">Status</th>
+                <th className="text-right px-3 py-1.5 font-medium w-16">Qtd.</th>
+                <th className="text-right px-3 py-1.5 font-medium w-32">Preço de lista</th>
+                <th className="text-right px-3 py-1.5 font-medium w-24">Desconto %</th>
+                <th className="text-right px-3 py-1.5 font-medium w-28">Preço final</th>
+                <th className="text-right px-3 py-1.5 font-medium w-20">Margem</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -335,20 +336,22 @@ export default function PricingProjectSheet() {
                 const outOfRange = outOfRangeLineIds.has(line.id);
                 return (
                   <tr key={line.id} className="hover:bg-slate-50">
-                    <td className="px-3 py-2 text-slate-700">
-                      <div>{line.rawDescription || "—"}</div>
-                      <div className="text-xs font-mono text-slate-400">{line.rawPartNumber || "sem PN"}</div>
+                    <td className="px-3 py-1 text-xs font-mono text-slate-500 truncate" title={line.rawPartNumber || undefined}>
+                      {line.rawPartNumber || "sem PN"}
                     </td>
-                    <td className="px-3 py-2">
-                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${MATCH_COLOR[line.matchStatus]}`}>
+                    <td className="px-3 py-1 text-slate-700 truncate" title={line.rawDescription || undefined}>
+                      {line.rawDescription || "—"}
+                    </td>
+                    <td className="px-3 py-1">
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${MATCH_COLOR[line.matchStatus]}`}>
                         {MATCH_LABEL[line.matchStatus]}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-right text-slate-600">{line.quantity}</td>
-                    <td className="px-3 py-2 text-right text-slate-600">
+                    <td className="px-3 py-1 text-right text-slate-600">{line.quantity}</td>
+                    <td className="px-3 py-1 text-right text-slate-600">
                       {line.listPriceSnapshot != null ? currencyFormatter.format(line.listPriceSnapshot) : "—"}
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-3 py-1 text-right">
                       {line.matchStatus === "unmatched" ? (
                         <span className="text-slate-300">—</span>
                       ) : (
@@ -362,16 +365,16 @@ export default function PricingProjectSheet() {
                             const v = Number(e.target.value);
                             if (!Number.isNaN(v) && v !== line.discountPercent) updateDiscount(line, v);
                           }}
-                          className="w-16 text-right text-sm border border-slate-300 rounded px-1.5 py-1"
+                          className="w-16 text-right text-sm border border-slate-300 rounded px-1.5 py-0.5"
                         />
                       )}
                     </td>
-                    <td className="px-3 py-2 text-right text-slate-700">
+                    <td className="px-3 py-1 text-right text-slate-700">
                       {line.finalUnitPrice != null ? currencyFormatter.format(line.finalUnitPrice) : "—"}
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-3 py-1 text-right">
                       {line.marginPercent != null ? (
-                        <span className={`inline-flex items-center gap-1 ${outOfRange ? "text-amber-600" : "text-slate-600"}`}>
+                        <span className={`inline-flex items-center gap-1 whitespace-nowrap ${outOfRange ? "text-amber-600" : "text-slate-600"}`}>
                           {outOfRange ? <CircleAlert size={13} /> : <CheckCircle2 size={13} className="text-emerald-500" />}
                           {line.marginPercent.toFixed(1)}%
                         </span>
