@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { TriangleAlert, Download, PenLine, ShieldAlert, Sparkles, X } from "lucide-react";
+import { TriangleAlert, Download, PenLine, ShieldAlert, Sparkles, X, Wrench, Handshake, CircleDollarSign, type LucideIcon } from "lucide-react";
 import { Proposal, SlaRiskFlag } from "../types";
 import { useProposals } from "../hooks/useProposals";
 import { BackgroundTask } from "../hooks/useBackgroundTasks";
@@ -11,6 +11,21 @@ const OPINION_PERSPECTIVE_LABEL: Record<OpinionPerspective, { pt: string; en: st
   commercial: { pt: "Comercial", en: "Commercial" },
   legal: { pt: "Jurídico", en: "Legal" },
   financial: { pt: "Financeiro", en: "Financial" },
+};
+// Identidade visual por perspectiva (ícone + cor), separada da severidade (crítico/atenção) do
+// conteúdo em si - as duas informações precisam ficar visíveis ao mesmo tempo num card, sem uma
+// sobrescrever a outra (antes, só a severidade colorida o card inteiro e todo card tinha a mesma
+// aparência entre si).
+const OPINION_PERSPECTIVE_STYLE: Record<OpinionPerspective, { icon: LucideIcon; iconBg: string; iconColor: string }> = {
+  technical: { icon: Wrench, iconBg: "bg-blue-100", iconColor: "text-blue-700" },
+  commercial: { icon: Handshake, iconBg: "bg-emerald-100", iconColor: "text-emerald-700" },
+  financial: { icon: CircleDollarSign, iconBg: "bg-amber-100", iconColor: "text-amber-700" },
+  legal: { icon: ShieldAlert, iconBg: "bg-purple-100", iconColor: "text-purple-700" },
+};
+const OPINION_SEVERITY_BORDER: Record<"critical" | "warning" | "none", string> = {
+  critical: "border-l-4 border-l-red-500",
+  warning: "border-l-4 border-l-amber-500",
+  none: "border-l-4 border-l-transparent",
 };
 interface OpinionItem {
   perspective: OpinionPerspective;
@@ -446,21 +461,45 @@ export default function Proposals({
                             {OPINION_PERSPECTIVES.map((perspective) => {
                               const item = opinionRuns[prop.id]!.opinions.find((o) => o.perspective === perspective);
                               const label = OPINION_PERSPECTIVE_LABEL[perspective][locale];
+                              const { icon: PerspectiveIcon, iconBg, iconColor } = OPINION_PERSPECTIVE_STYLE[perspective];
                               if (!item || item.status === "failed") {
                                 return (
-                                  <div key={perspective} className="text-xs rounded-lg p-3 border bg-slate-50 border-slate-200 text-slate-400 italic">
-                                    <p className="font-bold uppercase text-[10px] tracking-wider mb-1 not-italic text-slate-500">{label}</p>
-                                    {locale === "pt" ? "Indisponível" : "Unavailable"}
+                                  <div key={perspective} className="text-xs rounded-lg p-3 border bg-slate-50 border-slate-200 text-slate-400 italic flex items-start gap-2">
+                                    <span className="shrink-0 rounded-full p-1.5 bg-slate-100 text-slate-400">
+                                      <PerspectiveIcon size={14} />
+                                    </span>
+                                    <div>
+                                      <p className="font-bold uppercase text-[10px] tracking-wider mb-1 not-italic text-slate-500">{label}</p>
+                                      {locale === "pt" ? "Indisponível" : "Unavailable"}
+                                    </div>
                                   </div>
                                 );
                               }
-                              const severityStyle = item.severity === "critical" ? "bg-red-50 border-red-200 text-red-800"
-                                : item.severity === "warning" ? "bg-amber-50 border-amber-200 text-amber-800"
-                                : "bg-slate-50 border-slate-200 text-slate-700";
+                              const severityKey = item.severity === "critical" ? "critical" : item.severity === "warning" ? "warning" : "none";
+                              const severityLabel = item.severity === "critical"
+                                ? (locale === "pt" ? "crítico" : "critical")
+                                : item.severity === "warning"
+                                  ? (locale === "pt" ? "atenção" : "warning")
+                                  : null;
                               return (
-                                <details key={perspective} className={`text-xs rounded-lg p-3 border ${severityStyle}`}>
-                                  <summary className="cursor-pointer font-bold uppercase text-[10px] tracking-wider">{label}: {item.summary}</summary>
-                                  <p className="mt-2 whitespace-pre-wrap">{item.content}</p>
+                                <details key={perspective} className={`text-xs rounded-lg p-3 border bg-white border-slate-200 text-slate-700 ${OPINION_SEVERITY_BORDER[severityKey]}`}>
+                                  <summary className="cursor-pointer flex items-start gap-2">
+                                    <span className={`shrink-0 rounded-full p-1.5 ${iconBg} ${iconColor}`}>
+                                      <PerspectiveIcon size={14} />
+                                    </span>
+                                    <span className="flex-1">
+                                      <span className="font-bold uppercase text-[10px] tracking-wider flex items-center gap-1.5">
+                                        {label}
+                                        {severityLabel && (
+                                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full normal-case tracking-normal ${severityKey === "critical" ? "bg-red-50 text-red-700 border border-red-200" : "bg-amber-50 text-amber-700 border border-amber-200"}`}>
+                                            {severityLabel}
+                                          </span>
+                                        )}
+                                      </span>
+                                      <span className="block mt-0.5 font-normal normal-case tracking-normal">{item.summary}</span>
+                                    </span>
+                                  </summary>
+                                  <p className="mt-2 whitespace-pre-wrap pl-8">{item.content}</p>
                                 </details>
                               );
                             })}
