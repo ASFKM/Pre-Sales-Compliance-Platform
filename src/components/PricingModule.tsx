@@ -5,8 +5,14 @@ import PricingPendingItems from "./PricingPendingItems";
 import PricingExtractionReview from "./PricingExtractionReview";
 import PricingTaxSettings from "./PricingTaxSettings";
 import ApiClient from "../lib/api";
+import type { BackgroundTask } from "../hooks/useBackgroundTasks";
 
-export default function PricingModule() {
+interface PricingModuleProps {
+  waitForTask: (taskId: string) => Promise<BackgroundTask>;
+  tasksById: Record<string, BackgroundTask>;
+}
+
+export default function PricingModule({ waitForTask, tasksById }: PricingModuleProps) {
   const [tab, setTab] = useState<"catalog" | "project" | "pending" | "extraction" | "tax">("catalog");
   const [extractionCount, setExtractionCount] = useState(0);
 
@@ -57,7 +63,7 @@ export default function PricingModule() {
           Motor fiscal
         </button>
       </div>
-      {tab === "catalog" && <PricingCatalog onFilesProcessed={refreshExtractionCount} />}
+      {tab === "catalog" && <PricingCatalog onFilesProcessed={refreshExtractionCount} waitForTask={waitForTask} tasksById={tasksById} />}
       {tab === "project" && <PricingProjectSheet />}
       {tab === "pending" && <PricingPendingItems />}
       {tab === "extraction" && <PricingExtractionReview onCountChange={setExtractionCount} />}

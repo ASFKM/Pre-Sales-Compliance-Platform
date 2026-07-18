@@ -429,9 +429,18 @@ router.post(
   requireModule("pricing"),
   upload.array("files", 10),
   async (req: Request, res: Response, next: NextFunction) => {
+    // multer's upload.array() middleware above breaks the AsyncLocalStorage continuation that
+    // requireAuth's runWithTenant(ctx, () => next()) set up (confirmed live: createTask() failed
+    // with "No tenant context set" on this route specifically - every OTHER route calling
+    // createTask synchronously, like document_analysis, never goes through a multer middleware
+    // first). Re-establishing the context explicitly here, instead of relying on it surviving
+    // through multer, fixes it for this whole handler.
+    const tenantId = req.headers["x-tenant-id"] as string;
+    const userId = req.headers["x-user-id"] as string;
+    const tenantContext = { tenantId };
+
+    await runWithTenant(tenantContext, async () => {
     try {
-      const tenantId = req.headers["x-tenant-id"] as string;
-      const userId = req.headers["x-user-id"] as string;
       const files = (req.files as Express.Multer.File[]) || [];
 
       if (files.length === 0) {
@@ -486,7 +495,6 @@ router.post(
             await recordProviderFallback({ tenantId, taskType: "pricing_catalog_extraction", intendedProvider: providerResolution.intendedProvider, userId });
           }
 
-          const tenantContext = { tenantId };
           for (const file of aiFiles) {
             const task = await createTask({ userId, type: "pricing_catalog_extraction", currentStep: `Na fila: ${file.originalname}` });
             aiTasks.push({ taskId: task.id, fileName: file.originalname });
@@ -521,6 +529,7 @@ router.post(
     } catch (err) {
       next(err);
     }
+    });
   }
 );
 

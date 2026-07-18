@@ -3,6 +3,7 @@ import { Download, Upload, Loader2, TriangleAlert, ChevronDown, ChevronRight, Pe
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import ApiClient from "../lib/api";
 import PricingFileUploadModal from "./PricingFileUploadModal";
+import type { BackgroundTask } from "../hooks/useBackgroundTasks";
 
 interface PriceCatalogItem {
   id: string;
@@ -188,7 +189,13 @@ function PriceHistoryChart({ itemId }: { itemId: string }) {
   );
 }
 
-export default function PricingCatalog({ onFilesProcessed }: { onFilesProcessed?: () => void }) {
+interface PricingCatalogProps {
+  onFilesProcessed?: () => void;
+  waitForTask: (taskId: string) => Promise<BackgroundTask>;
+  tasksById: Record<string, BackgroundTask>;
+}
+
+export default function PricingCatalog({ onFilesProcessed, waitForTask, tasksById }: PricingCatalogProps) {
   const [items, setItems] = useState<PriceCatalogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -346,6 +353,8 @@ export default function PricingCatalog({ onFilesProcessed }: { onFilesProcessed?
             loadItems();
             onFilesProcessed?.();
           }}
+          waitForTask={waitForTask}
+          tasksById={tasksById}
         />
       )}
     </div>

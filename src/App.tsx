@@ -148,7 +148,7 @@ export default function App() {
   const [authChecking, setAuthChecking] = useState<boolean>(true);
 
   // Phase 1: real-time background task progress (analysis, proposal generation, ...)
-  const { activeTasks, waitForTask } = useBackgroundTasks(isAuthenticated);
+  const { activeTasks, waitForTask, tasks } = useBackgroundTasks(isAuthenticated);
 
   // Phase 2: keeps the short-lived access token renewed in the background via the httpOnly
   // refresh cookie - same "unauthorized" event every other 401 already triggers if it fails.
@@ -1385,7 +1385,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
           {/* Módulo de Precificação (add-on) - Fase 2: cadastro de tabela de preços. Precificação
               de BOM/projeto e "chegar no budget" chegam nas próximas fases do plano. */}
           {activeTab === "pricing" && hasModule("pricing") && hasAnyPermission(["pricing:read", "pricing:manage"]) && (
-            <PricingModule />
+            <PricingModule waitForTask={waitForTask} tasksById={tasks} />
           )}
 
           {/* TAB 5: ADMIN CONSOLE */}
@@ -1474,8 +1474,30 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                 default: return type;
               }
             };
-            const primary = activeTasks[0];
-            const extra = activeTasks.slice(1);
+            // "Enviar Arquivos" cria uma BackgroundTask por arquivo (pra progresso granular por
+            // documento dentro do popup de upload) - mas listar cada uma separadamente aqui
+            // poluiria o rodapé com N entradas quase idênticas. Colapsa em uma única entrada
+            // sintética "Analisando N cotações..." quando há mais de uma ativa ao mesmo tempo; com
+            // só uma, mostra ela normalmente (mesmo padrão de qualquer outro tipo de tarefa).
+            const pricingExtractionTasks = activeTasks.filter((t) => t.type === "pricing_catalog_extraction");
+            const otherTasks = activeTasks.filter((t) => t.type !== "pricing_catalog_extraction");
+            const displayTasks =
+              pricingExtractionTasks.length > 1
+                ? [
+                    {
+                      ...pricingExtractionTasks[0],
+                      id: "pricing-catalog-extraction-aggregate",
+                      current_step: `Analisando ${pricingExtractionTasks.length} cotações de fornecedor...`,
+                      progress_pct: Math.round(
+                        pricingExtractionTasks.reduce((sum, t) => sum + (typeof t.progress_pct === "number" ? t.progress_pct : 10), 0) /
+                          pricingExtractionTasks.length
+                      ),
+                    },
+                    ...otherTasks,
+                  ]
+                : activeTasks;
+            const primary = displayTasks[0];
+            const extra = displayTasks.slice(1);
             return (
               <span className="flex items-center gap-2 border-l border-slate-700 pl-6 w-[260px] shrink-0">
                 <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0"></span>

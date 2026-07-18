@@ -120,5 +120,10 @@ export function useBackgroundTasks(isAuthenticated: boolean) {
     });
   }, [tasks]);
 
-  return { activeTasks, waitForTask };
+  // Mapa cru (não filtrado por status, ao contrário de activeTasks) - "Enviar Arquivos" no módulo
+  // de Precificação precisa acompanhar o progresso INTERMEDIÁRIO (current_step/progress_pct) de
+  // tarefas específicas que ela mesma criou, exibindo por arquivo dentro do próprio popup -
+  // waitForTask só resolve no estado terminal, não dá pra desenhar uma barra de progresso com ele
+  // sozinho.
+  return { activeTasks, waitForTask, tasks };
 }

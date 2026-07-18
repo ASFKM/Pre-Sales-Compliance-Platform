@@ -83,12 +83,17 @@ Extraia cada item de preço mencionado no documento. Responda com um único obje
 Regras importantes:
 - "pn" e "description" são sempre obrigatórios em cada item.
 - Preencha list_price_brl OU list_price_usd com o valor exatamente como está escrito no documento, na moeda em que está escrito. NÃO converta entre R$ e US$ você mesmo - isso é feito depois, de forma determinística, com a cotação oficial do dia.
-- markup_min/markup_max quase nunca aparecem numa cotação de fornecedor (isso é uma decisão comercial do vendedor, não do fornecedor) - deixe null se não estiverem EXPLICITAMENTE informados no documento. Nunca invente um valor de markup.
+- markup_min/markup_max quase nunca aparecem numa cotação de fornecedor (isso é uma decisão comercial do vendedor, não do fornecedor) - deixe null se não estiverem EXPLICITAMENTE informados no documento. Nunca invente um valor de markup. Quando estiverem informados, use SEMPRE o número em pontos percentuais inteiros/decimais (ex: markup de 18% vira 18, NUNCA 0.18).
 - Nunca invente preços, códigos ou nomes que não estejam no documento. Se um campo não puder ser determinado com confiança razoável, use null.`;
 
 function stripToJsonObject(text: string): any {
   const parsed = parseAiJson(text);
   return parsed;
+}
+
+function normalizeMarkupPercent(value: number | null | undefined): number | null {
+  if (value == null) return null;
+  return value > 0 && value < 1 ? Math.round(value * 100 * 100) / 100 : value;
 }
 
 export async function extractPricingRowsWithAi(
@@ -142,8 +147,12 @@ export async function extractPricingRowsWithAi(
       listPriceBrl,
       listPriceUsd,
       sourceCurrency,
-      markupMin: item.markup_min ?? null,
-      markupMax: item.markup_max ?? null,
+      // Normalização defensiva: apesar da instrução no prompt, a IA às vezes ainda retorna markup
+      // como fração (0.18) em vez de pontos percentuais (18) - achado real com dados de produção.
+      // Um markup real abaixo de 1% é essencialmente inexistente neste negócio, então qualquer
+      // valor > 0 e < 1 é quase certamente uma fração mal interpretada, não um markup genuíno.
+      markupMin: normalizeMarkupPercent(item.markup_min),
+      markupMax: normalizeMarkupPercent(item.markup_max),
       confidenceNote: item.confidence_note ?? null,
     };
   });
