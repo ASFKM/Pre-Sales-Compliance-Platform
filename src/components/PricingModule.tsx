@@ -26,6 +26,19 @@ export default function PricingModule({ waitForTask, tasksById }: PricingModuleP
     refreshExtractionCount();
   }, []);
 
+  // Atualização em tempo real do contador, independente do popup de upload estar aberto ou
+  // fechado - tasksById já chega atualizado via SSE/Redis pub/sub (useBackgroundTasks em
+  // App.tsx). Sem isso, o contador só reflete tarefas concluídas na próxima vez que o popup
+  // dispara onFilesProcessed (no submit, antes de qualquer extração terminar de verdade).
+  const completedExtractionTaskIds = Object.values(tasksById)
+    .filter((t) => t.type === "pricing_catalog_extraction" && t.status === "completed")
+    .map((t) => t.id)
+    .join(",");
+  useEffect(() => {
+    if (completedExtractionTaskIds) refreshExtractionCount();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [completedExtractionTaskIds]);
+
   return (
     <div className="flex-1 flex flex-col min-h-0">
       <div className="border-b border-slate-200 px-6 pt-4 flex gap-4 shrink-0">
