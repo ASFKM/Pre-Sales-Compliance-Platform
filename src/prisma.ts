@@ -24,13 +24,16 @@ import { getTenantContext, TenantContext } from "./tenantContext";
 export const TENANT_SCOPED_MODELS = new Set([
   "aIAnalysisJob", "aiProviderConfig", "aiUsageLog", "analysisResult", "approvalDecision",
   "approvalWorkflow", "approvalStage", "auditLog", "backgroundTask", "brandingSettings", "brandStyle",
+  "budgetOptimizationRun",
   "conversationMessage", "debugLog", "document", "documentContent", "iaKbBillingSnapshot",
-  "iaKbTaskConfig", "integrationConnector",
+  "iaKbTaskConfig", "integrationConnector", "itemAliasMapping",
   "knowledgeBaseDocument", "knowledgeBaseEntry", "platformSettings", "poc", "pocAcceptance",
   "pocEquipmentItem", "pocFinalReportQuestion", "pocSuccessCriterion", "pocTask", "pocTestCase",
-  "project", "promptTemplate", "proposal", "proposalTemplate", "proposalOpinionRun",
+  "priceCatalogItem", "priceHistoryEntry", "priceListUpload",
+  "project", "projectPricingLine", "projectPricingSheet",
+  "promptTemplate", "proposal", "proposalTemplate", "proposalOpinionRun",
   "proposalAiOpinionItem", "role", "systemMessage", "systemUpdateState", "systemUpdateHistory", "task",
-  "user", "teamMembership", "vertical",
+  "tenantPricingSettings", "tenantTaxProfile", "user", "teamMembership", "vertical",
 ]);
 
 const READ_OPS = new Set(["findFirst", "findFirstOrThrow", "findUnique", "findUniqueOrThrow", "findMany", "count", "aggregate", "groupBy"]);

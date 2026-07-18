@@ -10,6 +10,7 @@ import Home from "./components/Home";
 import Proposals from "./components/Proposals";
 import Approval from "./components/Approval";
 import PocManagement from "./components/PocManagement";
+import PricingModule from "./components/PricingModule";
 import NewProjectWizard from "./components/modals/NewProjectWizard";
 import { useBackgroundTasks } from "./hooks/useBackgroundTasks";
 import { useSilentRefresh } from "./hooks/useSilentRefresh";
@@ -315,7 +316,7 @@ export default function App() {
 
 
   // Navigation / Views
-  const [activeTab, setActiveTab] = useState<"home" | "workspace" | "projectsList" | "proposals" | "approval" | "knowledgeBase" | "admin" | "pocManagement">("home");
+  const [activeTab, setActiveTab] = useState<"home" | "workspace" | "projectsList" | "proposals" | "approval" | "knowledgeBase" | "admin" | "pocManagement" | "pricing">("home");
   const [activeAdminSection, setActiveAdminSection] = useState<"overview" | "users" | "ai" | "templates" | "approval_flow" | "subscription" | "system_updates" | "branding" | "integrations" | "storage" | "audit">("overview");
 
   // Shared with fetchGlobalConfigs (auto-selects defaults) and Workspace's proposal builder -
@@ -1010,6 +1011,20 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
             </div>
           )}
 
+          {hasModule("pricing") && hasAnyPermission(["pricing:read", "pricing:manage"]) && (
+            <div className="flex items-center">
+              <button
+                onClick={() => setActiveTab("pricing")}
+                className={`py-4 px-1 border-b-2 transition-all flex items-center gap-2 ${activeTab === "pricing" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
+              >
+                Precificação
+                <span className="text-[9px] font-bold tracking-wide uppercase text-emerald-400 bg-emerald-400/10 border border-emerald-400/40 rounded-full px-1.5 py-0.5">
+                  Add-on
+                </span>
+              </button>
+            </div>
+          )}
+
           {canAccessAdminConsole() && (
             <div className="flex items-center">
               <button
@@ -1058,7 +1073,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
           Not on Gestão de POC either (Fase 6 add-on) - a POC's own project (if any) is shown in
           its own detail view, and this sub-header showing an unrelated *other* project's
           status/deadline/owner while managing a POC was confusing (reported directly). */}
-      {activeTab !== "home" && activeTab !== "admin" && activeTab !== "projectsList" && activeTab !== "knowledgeBase" && activeTab !== "pocManagement" && (
+      {activeTab !== "home" && activeTab !== "admin" && activeTab !== "projectsList" && activeTab !== "knowledgeBase" && activeTab !== "pocManagement" && activeTab !== "pricing" && (
         <div className="h-11 bg-white border-b border-slate-200 flex items-center px-6 gap-2 text-xs font-medium shrink-0 shadow-sm">
           <span className="text-slate-400 font-mono">{locale === "pt" ? "Projetos" : "Projects"}</span>
           <span className="text-slate-400">/</span>
@@ -1365,6 +1380,12 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               activeTasks={activeTasks}
               waitForTask={waitForTask}
             />
+          )}
+
+          {/* Módulo de Precificação (add-on) - Fase 2: cadastro de tabela de preços. Precificação
+              de BOM/projeto e "chegar no budget" chegam nas próximas fases do plano. */}
+          {activeTab === "pricing" && hasModule("pricing") && hasAnyPermission(["pricing:read", "pricing:manage"]) && (
+            <PricingModule />
           )}
 
           {/* TAB 5: ADMIN CONSOLE */}

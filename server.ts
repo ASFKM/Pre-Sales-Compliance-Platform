@@ -60,6 +60,7 @@ import messagesRouter from "./server/routes/messages";
 import knowledgeBaseRouter from "./server/routes/knowledgeBase";
 import systemUpdatesRouter from "./server/routes/systemUpdates";
 import pocsRouter from "./server/routes/pocs";
+import pricingRouter from "./server/routes/pricing";
 
 const app = express();
 
@@ -124,6 +125,7 @@ app.use("/api", messagesRouter);
 app.use("/api", knowledgeBaseRouter);
 app.use("/api", systemUpdatesRouter);
 app.use("/api/pocs", pocsRouter);
+app.use("/api/pricing", pricingRouter);
 
 // 5. Basic Observability / Health Endpoints
 app.get("/api/health", (req: Request, res: Response) => {

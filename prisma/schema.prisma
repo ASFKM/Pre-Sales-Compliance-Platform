@@ -275,33 +275,48 @@ model Tenant {
   systemUpdateState       SystemUpdateState?
   systemUpdateHistory     SystemUpdateHistory[]
 
+  // Módulo de Precificação (add-on)
+  priceCatalogItems      PriceCatalogItem[]
+  priceListUploads       PriceListUpload[]
+  priceHistoryEntries    PriceHistoryEntry[]
+  itemAliasMappings      ItemAliasMapping[]
+  projectPricingSheets   ProjectPricingSheet[]
+  projectPricingLines    ProjectPricingLine[]
+  budgetOptimizationRuns BudgetOptimizationRun[]
+  tenantPricingSettings  TenantPricingSettings?
+  tenantTaxProfile       TenantTaxProfile?
+
   @@map("tenants")
 }
 
 model User {
-  id            String     @id
-  tenantId      String     @map("tenant_id")
-  tenant        Tenant     @relation(fields: [tenantId], references: [id])
-  name          String
-  email         String     @unique
-  passwordHash  String?    @map("password_hash")
-  mfaEnabled    Boolean    @default(false) @map("mfa_enabled")
-  mfaTotpSecret String?    @map("mfa_totp_secret")
+  id                 String     @id
+  tenantId           String     @map("tenant_id")
+  tenant             Tenant     @relation(fields: [tenantId], references: [id])
+  name               String
+  email              String     @unique
+  passwordHash       String?    @map("password_hash")
+  mfaEnabled         Boolean    @default(false) @map("mfa_enabled")
+  mfaTotpSecret      String?    @map("mfa_totp_secret")
   // Roadmap (segurança): sempre true na criação, ou quando o admin redefine a senha de um usuário
   // que a perdeu - bloqueia todas as rotas exceto POST /api/auth/change-password até ser zerado.
   // Mesmo padrão estrutural de gate que mfaEnabled/session.mfaVerified já usa (ver requireAuth).
-  mustChangePassword Boolean @default(false) @map("must_change_password")
-  status        UserStatus @default(ACTIVE)
-  roleId        String     @map("role_id")
-  role          Role       @relation(fields: [roleId], references: [id])
-  createdAt     DateTime   @default(now()) @map("created_at")
-  updatedAt     DateTime   @updatedAt @map("updated_at")
-  lastLoginAt   DateTime?  @map("last_login_at")
+  mustChangePassword Boolean    @default(false) @map("must_change_password")
+  status             UserStatus @default(ACTIVE)
+  roleId             String     @map("role_id")
+  role               Role       @relation(fields: [roleId], references: [id])
+  createdAt          DateTime   @default(now()) @map("created_at")
+  updatedAt          DateTime   @updatedAt @map("updated_at")
+  lastLoginAt        DateTime?  @map("last_login_at")
 
   ownedProjects    Project[]        @relation("ProjectOwner")
   managedEngineers TeamMembership[] @relation("TeamManager")
   teamMemberships  TeamMembership[] @relation("TeamEngineer")
   ownedPocs        Poc[]            @relation("PocOwner")
+
+  // Módulo de Precificação (add-on)
+  priceListUploads       PriceListUpload[]
+  budgetOptimizationRuns BudgetOptimizationRun[]
 
   @@index([tenantId])
   @@map("users")
@@ -374,6 +389,7 @@ model Project {
   tasks               Task[]
   conversationHistory ConversationMessage[]
   pocs                Poc[]
+  pricingSheets       ProjectPricingSheet[]
 
   @@index([tenantId])
   @@map("projects")
@@ -766,6 +782,8 @@ model AnalysisResult {
   createdAt               DateTime     @default(now()) @map("created_at")
   updatedAt               DateTime     @updatedAt @map("updated_at")
 
+  pricingSheets ProjectPricingSheet[]
+
   @@unique([projectId])
   @@index([tenantId])
   @@map("analysis_results")
@@ -886,72 +904,74 @@ model IaKbTaskConfig {
 }
 
 model PlatformSettings {
-  id                               String          @id
-  tenantId                         String          @map("tenant_id")
-  tenant                           Tenant          @relation(fields: [tenantId], references: [id])
-  aiProvider                       String          @map("ai_provider")
-  defaultModel                     String          @map("default_model")
-  documentAnalysisModel            String          @map("document_analysis_model")
-  proposalGenerationModel          String          @map("proposal_generation_model")
-  aiApiKeyEncrypted                String?         @map("ai_api_key_encrypted") @db.Text
-  openaiApiKeyEncrypted            String?         @map("openai_api_key_encrypted") @db.Text
-  anthropicApiKeyEncrypted         String?         @map("anthropic_api_key_encrypted") @db.Text
+  id                                String          @id
+  tenantId                          String          @map("tenant_id")
+  tenant                            Tenant          @relation(fields: [tenantId], references: [id])
+  aiProvider                        String          @map("ai_provider")
+  defaultModel                      String          @map("default_model")
+  documentAnalysisModel             String          @map("document_analysis_model")
+  proposalGenerationModel           String          @map("proposal_generation_model")
+  aiApiKeyEncrypted                 String?         @map("ai_api_key_encrypted") @db.Text
+  openaiApiKeyEncrypted             String?         @map("openai_api_key_encrypted") @db.Text
+  anthropicApiKeyEncrypted          String?         @map("anthropic_api_key_encrypted") @db.Text
   // Phase 5 (AI orchestrator): which provider is the intended target for each task type,
   // researched per-task (docs/roadmap/REDESIGN_ROADMAP_2026-07.md). gemini/openai/anthropic are
   // all really connected (see resolveProvider in src/aiOrchestrator.ts) - a task still falls back
   // to gemini, logged as such, only if its intended provider's key isn't actually configured.
-  documentAnalysisProvider         String          @default("gemini") @map("document_analysis_provider")
-  criticalExtractionModel          String          @default("gemini-3.5-flash") @map("critical_extraction_model")
-  criticalExtractionProvider       String          @default("anthropic") @map("critical_extraction_provider")
-  webGroundingModel                String          @default("gemini-3.5-flash") @map("web_grounding_model")
-  webGroundingProvider             String          @default("gemini") @map("web_grounding_provider")
-  proposalGenerationProvider       String          @default("anthropic") @map("proposal_generation_provider")
-  specCopilotModel                 String          @default("gemini-3.5-flash") @map("spec_copilot_model")
-  specCopilotProvider              String          @default("gemini") @map("spec_copilot_provider")
+  documentAnalysisProvider          String          @default("gemini") @map("document_analysis_provider")
+  criticalExtractionModel           String          @default("gemini-3.5-flash") @map("critical_extraction_model")
+  criticalExtractionProvider        String          @default("anthropic") @map("critical_extraction_provider")
+  webGroundingModel                 String          @default("gemini-3.5-flash") @map("web_grounding_model")
+  webGroundingProvider              String          @default("gemini") @map("web_grounding_provider")
+  proposalGenerationProvider        String          @default("anthropic") @map("proposal_generation_provider")
+  specCopilotModel                  String          @default("gemini-3.5-flash") @map("spec_copilot_model")
+  specCopilotProvider               String          @default("gemini") @map("spec_copilot_provider")
   // AI Orchestrator UI redesign (2026-07): document_classification was previously hardcoded to
   // Gemini in server/utils/documentClassification.ts, bypassing the orchestrator entirely - now
   // routed through resolveProvider() like the other real task types.
-  documentClassificationModel      String          @default("gemini-3.5-flash") @map("document_classification_model")
-  documentClassificationProvider   String          @default("gemini") @map("document_classification_provider")
+  documentClassificationModel       String          @default("gemini-3.5-flash") @map("document_classification_model")
+  documentClassificationProvider    String          @default("gemini") @map("document_classification_provider")
   // Fase 6 (add-on), Fase E: test scripts generated from a POC's objective/success criteria -
   // pure text-in/text-out, same orchestrator pattern as the 4 task types above.
-  pocTestGenerationModel           String          @default("gemini-3.5-flash") @map("poc_test_generation_model")
-  pocTestGenerationProvider        String          @default("gemini") @map("poc_test_generation_provider")
+  pocTestGenerationModel            String          @default("gemini-3.5-flash") @map("poc_test_generation_model")
+  pocTestGenerationProvider         String          @default("gemini") @map("poc_test_generation_provider")
   // Fase H (add-on): schedule suggestion from a POC's objective + linked equipment's Knowledge
   // Base grounding - same orchestrator pattern as poc_test_generation above.
-  pocScheduleGenerationModel       String          @default("gemini-3.5-flash") @map("poc_schedule_generation_model")
-  pocScheduleGenerationProvider    String          @default("gemini") @map("poc_schedule_generation_provider")
+  pocScheduleGenerationModel        String          @default("gemini-3.5-flash") @map("poc_schedule_generation_model")
+  pocScheduleGenerationProvider     String          @default("gemini") @map("poc_schedule_generation_provider")
   // Fase M (add-on): mandatory final-report questionnaire generation - same orchestrator pattern.
-  pocFinalReportGenerationModel    String          @default("gemini-3.5-flash") @map("poc_final_report_generation_model")
-  pocFinalReportGenerationProvider String          @default("gemini") @map("poc_final_report_generation_provider")
+  pocFinalReportGenerationModel     String          @default("gemini-3.5-flash") @map("poc_final_report_generation_model")
+  pocFinalReportGenerationProvider  String          @default("gemini") @map("poc_final_report_generation_provider")
   // Item 3 roadmap (official): "Pareceres de IA Multi-Perspectiva em Propostas" - one shared
   // provider/model slot for all 4 opinion perspectives (not 4 separate slots) - see the roadmap
   // decision already confirmed: 1 task type, not 4, to minimize sync points.
-  proposalOpinionPanelModel        String          @default("gemini-3.5-flash") @map("proposal_opinion_panel_model")
-  proposalOpinionPanelProvider     String          @default("gemini") @map("proposal_opinion_panel_provider")
+  proposalOpinionPanelModel         String          @default("gemini-3.5-flash") @map("proposal_opinion_panel_model")
+  proposalOpinionPanelProvider      String          @default("gemini") @map("proposal_opinion_panel_provider")
+  pricingBudgetOptimizationModel    String          @default("gemini-3.5-flash") @map("pricing_budget_optimization_model")
+  pricingBudgetOptimizationProvider String          @default("gemini") @map("pricing_budget_optimization_provider")
   // Per-tenant monthly AI spend cap - null means uncapped. Enforced (hard block once reached,
   // not just tracked), with an 80%-of-cap warning logged before that point.
-  monthlyCostCapUsd                Float?          @map("monthly_cost_cap_usd")
+  monthlyCostCapUsd                 Float?          @map("monthly_cost_cap_usd")
   // Phase 7 (fleet/license management): this installation's connection to the vendor's fleet
   // manager (a separate server - see docs/roadmap). Empty/disabled means no heartbeat runs and
   // the installation is always treated as active (fail-open) - matches the on-prem reality of
   // not every install necessarily being registered yet.
-  fleetManagerUrl                  String?         @map("fleet_manager_url")
-  fleetManagerApiKeyEncrypted      String?         @map("fleet_manager_api_key_encrypted") @db.Text
-  fleetManagerEnabled              Boolean         @default(false) @map("fleet_manager_enabled")
-  storageMode                      StorageProvider @default(local) @map("storage_mode")
-  localStoragePath                 String          @map("local_storage_path")
-  s3Bucket                         String          @map("s3_bucket")
-  s3Region                         String?         @map("s3_region")
-  s3AccessKeyId                    String?         @map("s3_access_key_id")
-  s3SecretAccessKeyEncrypted       String?         @map("s3_secret_access_key_encrypted") @db.Text
-  gcsBucket                        String          @map("gcs_bucket")
-  gcsProjectId                     String?         @map("gcs_project_id")
-  gcsServiceAccountKeyEncrypted    String?         @map("gcs_service_account_key_encrypted") @db.Text
-  defaultLanguage                  Language        @map("default_language")
-  defaultLogLevel                  LogLevel        @map("default_log_level")
-  createdAt                        DateTime        @default(now()) @map("created_at")
-  updatedAt                        DateTime        @updatedAt @map("updated_at")
+  fleetManagerUrl                   String?         @map("fleet_manager_url")
+  fleetManagerApiKeyEncrypted       String?         @map("fleet_manager_api_key_encrypted") @db.Text
+  fleetManagerEnabled               Boolean         @default(false) @map("fleet_manager_enabled")
+  storageMode                       StorageProvider @default(local) @map("storage_mode")
+  localStoragePath                  String          @map("local_storage_path")
+  s3Bucket                          String          @map("s3_bucket")
+  s3Region                          String?         @map("s3_region")
+  s3AccessKeyId                     String?         @map("s3_access_key_id")
+  s3SecretAccessKeyEncrypted        String?         @map("s3_secret_access_key_encrypted") @db.Text
+  gcsBucket                         String          @map("gcs_bucket")
+  gcsProjectId                      String?         @map("gcs_project_id")
+  gcsServiceAccountKeyEncrypted     String?         @map("gcs_service_account_key_encrypted") @db.Text
+  defaultLanguage                   Language        @map("default_language")
+  defaultLogLevel                   LogLevel        @map("default_log_level")
+  createdAt                         DateTime        @default(now()) @map("created_at")
+  updatedAt                         DateTime        @updatedAt @map("updated_at")
 
   @@unique([tenantId])
   @@map("platform_settings")
@@ -982,8 +1002,8 @@ model SystemUpdateState {
   tenantId String @map("tenant_id")
   tenant   Tenant @relation(fields: [tenantId], references: [id])
 
-  currentVersion String? @map("current_version")
-  currentGitSha  String? @map("current_git_sha")
+  currentVersion String?   @map("current_version")
+  currentGitSha  String?   @map("current_git_sha")
   lastCheckedAt  DateTime? @map("last_checked_at")
 
   // Cached from the heartbeat's latest_release field (see heartbeat handling in fleetLicense.ts) -
@@ -994,7 +1014,7 @@ model SystemUpdateState {
   latestReleaseChannel     String?   @map("latest_release_channel")
   latestReleaseCodeRef     String?   @map("latest_release_code_ref")
   latestReleasePublishedAt DateTime? @map("latest_release_published_at")
-  latestReleaseNotesMd     String?   @db.Text @map("latest_release_notes_md")
+  latestReleaseNotesMd     String?   @map("latest_release_notes_md") @db.Text
 
   // Frozen at the moment of scheduling - does NOT silently follow a newer release that appears
   // later; rescheduling to pick up a newer release is an explicit admin action.
@@ -1007,7 +1027,7 @@ model SystemUpdateState {
   lastAttemptFinishedAt      DateTime?                 @map("last_attempt_finished_at")
   lastAttemptFromVersion     String?                   @map("last_attempt_from_version")
   lastAttemptToVersion       String?                   @map("last_attempt_to_version")
-  lastAttemptErrorLog        String?                   @db.Text @map("last_attempt_error_log")
+  lastAttemptErrorLog        String?                   @map("last_attempt_error_log") @db.Text
   lastAttemptErrorReportedAt DateTime?                 @map("last_attempt_error_reported_at")
   backupRef                  String?                   @map("backup_ref")
 
@@ -1032,13 +1052,13 @@ model SystemUpdateHistory {
   toCodeRef   String  @map("to_code_ref")
   releaseId   String? @map("release_id")
 
-  startedAt  DateTime  @map("started_at")
-  finishedAt DateTime? @map("finished_at")
-  status     SystemUpdateAttemptStatus
-  triggeredBy SystemUpdateTrigger @map("triggered_by")
+  startedAt   DateTime                  @map("started_at")
+  finishedAt  DateTime?                 @map("finished_at")
+  status      SystemUpdateAttemptStatus
+  triggeredBy SystemUpdateTrigger       @map("triggered_by")
 
-  errorLog String? @db.Text @map("error_log")
-  backupRef String? @map("backup_ref")
+  errorLog         String? @map("error_log") @db.Text
+  backupRef        String? @map("backup_ref")
   // Points at the BackgroundTask row driving the actual scripts/update.sh run, so the Admin
   // Console can reuse the same generic progress-tracking UI/polling every other task type uses.
   backgroundTaskId String? @map("background_task_id")
@@ -1179,7 +1199,7 @@ model Proposal {
   // read. Nullable: most proposals will never have a run.
   latestOpinionRunId    String?          @map("latest_opinion_run_id")
 
-  decisions ApprovalDecision[]
+  decisions   ApprovalDecision[]
   opinionRuns ProposalOpinionRun[]
 
   @@index([tenantId])
@@ -1201,7 +1221,7 @@ model ProposalOpinionRun {
   proposalId        String                  @map("proposal_id")
   proposal          Proposal                @relation(fields: [proposalId], references: [id], onDelete: Cascade)
   backgroundTaskId  String?                 @map("background_task_id")
-  status            String                  // "pending" | "running" | "completed" | "partial" | "failed"
+  status            String // "pending" | "running" | "completed" | "partial" | "failed"
   requestedByUserId String                  @map("requested_by_user_id")
   // Same staleness-versioning pattern as AnalysisResult.logicVersions (src/aiLogicVersions.ts) -
   // this run's prompts are hardcoded logic too, so a saved run can go stale the same way.
@@ -1221,9 +1241,9 @@ model ProposalAiOpinionItem {
   tenant       Tenant             @relation(fields: [tenantId], references: [id])
   runId        String             @map("run_id")
   run          ProposalOpinionRun @relation(fields: [runId], references: [id], onDelete: Cascade)
-  perspective  String             // "technical" | "commercial" | "legal" | "financial"
-  status       String             // "completed" | "failed"
-  severity     String?            // "info" | "warning" | "critical"
+  perspective  String // "technical" | "commercial" | "legal" | "financial"
+  status       String // "completed" | "failed"
+  severity     String? // "info" | "warning" | "critical"
   summary      String             @db.Text
   content      String             @db.Text
   raw          Json?
@@ -1527,4 +1547,268 @@ model AiProviderConfig {
 
   @@unique([tenantId, providerKey])
   @@map("ai_provider_configs")
+}
+
+// ---------------------------------------------------------------------------------------------
+// Módulo de Precificação (add-on) - Fase 1 do plano de implementação. Ver o desenho completo em
+// Basic Memory (presales/pricing-module) e no plano em /home/sakae/.claude/plans/velvet-soaring-
+// hearth.md. Campos do motor fiscal (icmsRatePercent etc.) já existem aqui mas ficam sempre null/
+// não usados até a Fase 7 (TenantPricingSettings.taxCalculationEnabled) implementar o cálculo -
+// evita uma segunda migration nas mesmas tabelas quando essa fase chegar.
+// ---------------------------------------------------------------------------------------------
+
+enum PriceItemType {
+  merchandise
+  service
+}
+
+enum PriceListUploadStatus {
+  processing
+  completed
+  failed
+}
+
+enum PricingMatchStatus {
+  matched
+  manual
+  unmatched
+}
+
+enum PricingSheetStatus {
+  draft
+  finalized
+}
+
+// O cadastro "vivo" de um item - sempre reflete o preço/markup atual. Histórico real fica em
+// PriceHistoryEntry (ledger append-only), nunca sobrescrito.
+model PriceCatalogItem {
+  id               String         @id
+  tenantId         String         @map("tenant_id")
+  tenant           Tenant         @relation(fields: [tenantId], references: [id])
+  itemCode         String         @map("item_code")
+  // Código no ERP/SAP do cliente - referência genérica pra integração futura, não usado em
+  // nenhum matching interno hoje (pedido explícito do usuário, distinto do itemCode interno).
+  erpCode          String?        @map("erp_code")
+  // Classificação fiscal (NCM) - só relevante com o motor fiscal da Fase 7 ligado.
+  ncmCode          String?        @map("ncm_code")
+  itemType         PriceItemType? @map("item_type")
+  category         String
+  pn               String
+  description      String         @db.Text
+  currentListPrice Float          @map("current_list_price")
+  currency         String         @default("BRL")
+  markupMin        Float          @map("markup_min")
+  markupMax        Float          @map("markup_max")
+  ipiRatePercent   Float?         @map("ipi_rate_percent")
+  issRatePercent   Float?         @map("iss_rate_percent")
+  stApplicable     Boolean        @default(false) @map("st_applicable")
+  vendor           String?
+  active           Boolean        @default(true)
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+
+  priceHistoryEntries PriceHistoryEntry[]
+  aliasMappings       ItemAliasMapping[]
+  pricingLines        ProjectPricingLine[]
+
+  @@unique([tenantId, itemCode])
+  @@index([tenantId])
+  @@index([tenantId, pn])
+  @@map("price_catalog_items")
+}
+
+// Cada envio de planilha vira um lote com vigência própria - a tabela de preços nunca é
+// "substituída", só ganha um novo lote (ver PriceHistoryEntry).
+model PriceListUpload {
+  id               String                @id
+  tenantId         String                @map("tenant_id")
+  tenant           Tenant                @relation(fields: [tenantId], references: [id])
+  uploadedByUserId String                @map("uploaded_by_user_id")
+  uploadedBy       User                  @relation(fields: [uploadedByUserId], references: [id])
+  uploadedAt       DateTime              @default(now()) @map("uploaded_at")
+  fileName         String                @map("file_name")
+  effectiveDate    DateTime              @map("effective_date")
+  status           PriceListUploadStatus @default(processing)
+  sourceLabel      String?               @map("source_label")
+
+  historyEntries PriceHistoryEntry[]
+
+  @@index([tenantId])
+  @@map("price_list_uploads")
+}
+
+// Ledger append-only por item/upload - nunca é atualizado depois de criado, é isso que alimenta
+// o gráfico de evolução de preço por linha.
+model PriceHistoryEntry {
+  id                String           @id
+  tenantId          String           @map("tenant_id")
+  tenant            Tenant           @relation(fields: [tenantId], references: [id])
+  priceListUploadId String           @map("price_list_upload_id")
+  priceListUpload   PriceListUpload  @relation(fields: [priceListUploadId], references: [id], onDelete: Cascade)
+  itemId            String           @map("item_id")
+  item              PriceCatalogItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  listPrice         Float            @map("list_price")
+  currency          String
+  markupMin         Float            @map("markup_min")
+  markupMax         Float            @map("markup_max")
+  effectiveDate     DateTime         @map("effective_date")
+  createdAt         DateTime         @default(now()) @map("created_at")
+
+  @@index([tenantId])
+  @@index([itemId])
+  @@map("price_history_entries")
+}
+
+// Resolve PN -> item cadastrado, e funciona como fila de pendências: enquanto resolvedItemId for
+// null, é um item visto num BOM que ainda não tem preço cadastrado (ver Fase 5 - ciclo de
+// exportação/reenvio). timesSeen prioriza o que mais aparece em BOMs diferentes.
+model ItemAliasMapping {
+  id             String            @id
+  tenantId       String            @map("tenant_id")
+  tenant         Tenant            @relation(fields: [tenantId], references: [id])
+  rawPN          String            @map("raw_pn")
+  rawDescription String?           @map("raw_description")
+  resolvedItemId String?           @map("resolved_item_id")
+  resolvedItem   PriceCatalogItem? @relation(fields: [resolvedItemId], references: [id], onDelete: SetNull)
+  firstSeenAt    DateTime          @default(now()) @map("first_seen_at")
+  lastSeenAt     DateTime          @updatedAt @map("last_seen_at")
+  timesSeen      Int               @default(1) @map("times_seen")
+
+  @@unique([tenantId, rawPN])
+  @@index([tenantId])
+  @@map("item_alias_mappings")
+}
+
+// A "sessão de precificação" de um projeto - criada ao importar o BOM da AnalysisResult do
+// projeto (Fase 4). destinationUF/destinationTaxpayerType/targetBudgetBasis só são usados com o
+// motor fiscal da Fase 7 ligado.
+model ProjectPricingSheet {
+  id                      String             @id
+  tenantId                String             @map("tenant_id")
+  tenant                  Tenant             @relation(fields: [tenantId], references: [id])
+  projectId               String             @map("project_id")
+  project                 Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceAnalysisResultId  String             @map("source_analysis_result_id")
+  sourceAnalysisResult    AnalysisResult     @relation(fields: [sourceAnalysisResultId], references: [id])
+  targetBudget            Float?             @map("target_budget")
+  targetBudgetBasis       String?            @map("target_budget_basis")
+  destinationUF           String?            @map("destination_uf")
+  destinationTaxpayerType String?            @map("destination_taxpayer_type")
+  status                  PricingSheetStatus @default(draft)
+  createdAt               DateTime           @default(now()) @map("created_at")
+  updatedAt               DateTime           @updatedAt @map("updated_at")
+
+  lines      ProjectPricingLine[]
+  budgetRuns BudgetOptimizationRun[]
+
+  @@index([tenantId])
+  @@index([projectId])
+  @@map("project_pricing_sheets")
+}
+
+// Cada linha do BOM importado dentro da sessão. bomItemId referencia BOMItem.item_id do JSON em
+// AnalysisResult.bom - SEM FK real, mesmo padrão já usado por
+// PocEquipmentItem.sourceBomItemId (a BOM é um blob JSON, não uma tabela).
+model ProjectPricingLine {
+  id                String              @id
+  tenantId          String              @map("tenant_id")
+  tenant            Tenant              @relation(fields: [tenantId], references: [id])
+  pricingSheetId    String              @map("pricing_sheet_id")
+  pricingSheet      ProjectPricingSheet @relation(fields: [pricingSheetId], references: [id], onDelete: Cascade)
+  bomItemId         String              @map("bom_item_id")
+  rawPartNumber     String?             @map("raw_part_number")
+  rawDescription    String?             @map("raw_description")
+  matchedItemId     String?             @map("matched_item_id")
+  matchedItem       PriceCatalogItem?   @relation(fields: [matchedItemId], references: [id], onDelete: SetNull)
+  matchStatus       PricingMatchStatus  @default(unmatched) @map("match_status")
+  quantity          Float
+  listPriceSnapshot Float?              @map("list_price_snapshot")
+  discountPercent   Float               @default(0) @map("discount_percent")
+  finalUnitPrice    Float?              @map("final_unit_price")
+  marginPercent     Float?              @map("margin_percent")
+
+  // Motor fiscal (Fase 7) - null/não usados enquanto TenantPricingSettings.taxCalculationEnabled
+  // for false.
+  icmsRatePercent      Float?  @map("icms_rate_percent")
+  ipiRatePercent       Float?  @map("ipi_rate_percent")
+  pisCofinsRatePercent Float?  @map("pis_cofins_rate_percent")
+  issRatePercent       Float?  @map("iss_rate_percent")
+  stFlag               Boolean @default(false) @map("st_flag")
+  totalTaxPercent      Float?  @map("total_tax_percent")
+  finalPriceWithTax    Float?  @map("final_price_with_tax")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@index([pricingSheetId])
+  @@map("project_pricing_lines")
+}
+
+// Auditoria de cada rodada de "chegar no budget" (Fase 6) - separa ajuste automático (IA) de
+// ajuste manual subsequente do usuário. resultSummary guarda o antes/depois por linha.
+model BudgetOptimizationRun {
+  id                String              @id
+  tenantId          String              @map("tenant_id")
+  tenant            Tenant              @relation(fields: [tenantId], references: [id])
+  pricingSheetId    String              @map("pricing_sheet_id")
+  pricingSheet      ProjectPricingSheet @relation(fields: [pricingSheetId], references: [id], onDelete: Cascade)
+  targetBudget      Float               @map("target_budget")
+  strategy          String
+  requestedByUserId String              @map("requested_by_user_id")
+  requestedBy       User                @relation(fields: [requestedByUserId], references: [id])
+  createdAt         DateTime            @default(now()) @map("created_at")
+  resultSummary     Json                @map("result_summary")
+
+  @@index([tenantId])
+  @@index([pricingSheetId])
+  @@map("budget_optimization_runs")
+}
+
+// Configuração do módulo por tenant. Hoje só o toggle do motor fiscal (Fase 7, default
+// desligado - muitos tenants já calculam imposto no próprio ERP, ver decisão do usuário).
+model TenantPricingSettings {
+  id                    String   @id
+  tenantId              String   @map("tenant_id")
+  tenant                Tenant   @relation(fields: [tenantId], references: [id])
+  taxCalculationEnabled Boolean  @default(false) @map("tax_calculation_enabled")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId])
+  @@map("tenant_pricing_settings")
+}
+
+enum TaxRegime {
+  simples_nacional
+  lucro_presumido
+  lucro_real
+}
+
+// Fase 7: perfil fiscal do vendedor - só relevante com TenantPricingSettings.taxCalculationEnabled
+// ligado.
+model TenantTaxProfile {
+  id                    String    @id
+  tenantId              String    @unique @map("tenant_id")
+  tenant                Tenant    @relation(fields: [tenantId], references: [id])
+  originUF              String    @map("origin_uf")
+  taxRegime             TaxRegime @map("tax_regime")
+  simplesAnexo          String?   @map("simples_anexo")
+  simplesRevenueBracket String?   @map("simples_revenue_bracket")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  @@map("tenant_tax_profiles")
+}
+
+// Fase 7: tabela de referência CONFAZ (alíquota interestadual de ICMS) - NÃO é por tenant, é regra
+// federal. Mantida como tabela editável em vez de constante no código porque legislação muda.
+model IcmsInterstateRateTable {
+  id            String @id
+  originUF      String @map("origin_uf")
+  destinationUF String @map("destination_uf")
+  ratePercent   Float  @map("rate_percent")
+
+  @@unique([originUF, destinationUF])
+  @@map("icms_interstate_rate_table")
 }

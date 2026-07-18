@@ -277,11 +277,13 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
       // heartbeat regardless of add-on status - the Fleet Manager only actually mirrors these
       // while ia_kb is disabled for this installation (see heartbeat.ts), so sending them
       // unconditionally is harmless and simpler than tracking the transition on this end too.
-      // Same 7 task types as src/aiOrchestrator.ts's AiTaskType and AdminConsole.tsx's own
-      // orchestrator map.
+      // Same task types as src/aiOrchestrator.ts's AiTaskType and AdminConsole.tsx's own
+      // orchestrator map (not the full AiTaskType union - proposal_opinion_panel was never added
+      // here, pre-existing gap, not touched by the Fase 6 pricing_budget_optimization addition).
       const AI_TASK_TYPES = [
         "document_analysis", "web_grounding", "spec_copilot", "document_classification",
         "poc_test_generation", "poc_schedule_generation", "poc_final_report_generation",
+        "pricing_budget_optimization",
       ] as const;
       const aiTaskConfig = AI_TASK_TYPES.map((taskType) => ({
         task_type: taskType,

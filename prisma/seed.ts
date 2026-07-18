@@ -44,7 +44,8 @@ async function main() {
         "template:manage", "approval:manage", "admin:users", "admin:roles", "admin:settings",
         "admin:audit", "admin:debug", "admin:diagnostics", "admin:system_updates", "ai:settings", "branding:manage",
         "storage:manage", "integrations:manage", "knowledge_base:read", "knowledge_base:write",
-        "poc:read", "poc:manage"
+        "poc:read", "poc:manage",
+        "pricing:read", "pricing:manage"
       ]
     },
     {
@@ -303,6 +304,26 @@ async function main() {
         legalText: "CONFIDENTIALITY NOTICE: This system handles proprietary and sensitive customer bidding documentation. Unauthorized disclosure of technical specification summaries or commercial tables is strictly prohibited."
       }
     });
+  }
+
+  // Fase 7 (módulo de Precificação, motor fiscal opcional): tabela de referência CONFAZ de ICMS
+  // interestadual - NÃO é tenant-scoped, upsert é permitido. Regra simplificada (Resolução do
+  // Senado 22/89): 7% de Sul/Sudeste (exceto ES) para o restante do país; 12% em qualquer outra
+  // combinação interestadual. Alíquota interna (mesma UF origem/destino) varia por estado e fica
+  // de fora de propósito - não é uma regra federal única, precisa de entrada manual.
+  console.log("Seeding ICMS interstate rate table...");
+  const ALL_UFS = ["AC","AL","AM","AP","BA","CE","DF","ES","GO","MA","MG","MS","MT","PA","PB","PE","PI","PR","RJ","RN","RO","RR","RS","SC","SE","SP","TO"];
+  const SUDESTE_SUL = new Set(["SP","RJ","MG","PR","SC","RS"]);
+  for (const origin of ALL_UFS) {
+    for (const destination of ALL_UFS) {
+      if (origin === destination) continue;
+      const ratePercent = SUDESTE_SUL.has(origin) && !SUDESTE_SUL.has(destination) ? 7 : 12;
+      await prisma.icmsInterstateRateTable.upsert({
+        where: { originUF_destinationUF: { originUF: origin, destinationUF: destination } },
+        create: { id: `icms_${origin}_${destination}`, originUF: origin, destinationUF: destination, ratePercent },
+        update: { ratePercent },
+      });
+    }
   }
 
   console.log("Seed complete.");

@@ -108,6 +108,7 @@ const TASK_CAPABILITY: Record<string, TaskCapability> = {
   poc_test_generation: "text",
   poc_schedule_generation: "text",
   poc_final_report_generation: "text",
+  pricing_budget_optimization: "text",
 };
 
 // Curated, not exhaustive - especially for OpenAI, whose model lineup changes fast across several
@@ -168,6 +169,10 @@ const RECOMMENDED_MODEL: Record<string, { provider: string; model: string }> = {
   poc_test_generation: { provider: "anthropic", model: "claude-sonnet-5" },
   poc_schedule_generation: { provider: "anthropic", model: "claude-sonnet-5" },
   poc_final_report_generation: { provider: "anthropic", model: "claude-sonnet-5" },
+  // Módulo de Precificação, Fase 6 (add-on): escolhe a estratégia de distribuição de desconto
+  // (equal_percent/equal_amount) e explica o porquê - julgamento estruturado com racional em
+  // texto, mesma categoria dos 3 task types de POC acima, não classificação simples.
+  pricing_budget_optimization: { provider: "anthropic", model: "claude-sonnet-5" },
 };
 
 type CustomProviderCapabilities = { provider_key: string; display_name: string; default_model: string; supports_vision: boolean; supports_web_search: boolean };
@@ -222,6 +227,7 @@ const AI_TASK_TYPE_LABEL: Record<string, { pt: string; en: string }> = {
   poc_schedule_generation: { pt: "Sugestão de Cronograma (POC)", en: "Schedule Suggestion (POC)" },
   poc_final_report_generation: { pt: "Relatório Final (POC)", en: "Final Report (POC)" },
   proposal_opinion_panel: { pt: "Pareceres de IA Multi-Perspectiva (Propostas)", en: "Multi-Perspective AI Opinions (Proposals)" },
+  pricing_budget_optimization: { pt: "Otimização de Budget (Precificação)", en: "Budget Optimization (Pricing)" },
 };
 
 // Column order for the per-provider cost breakdown table - the 3 providers this platform has
@@ -499,6 +505,7 @@ export default function AdminConsole({
   // makes sense once the tenant's Fleet Manager entitlement actually includes "poc" - same
   // signature-verified source as "Assinatura e Licença" above, not a local guess.
   const pocModuleEnabled = fleetLicenseStatus?.modules?.includes("poc") ?? false;
+  const pricingModuleEnabled = fleetLicenseStatus?.modules?.includes("pricing") ?? false;
 
   // ia_kb add-on: when active, this tenant's AI calls route through the Fleet Manager's own
   // managed-key proxy (server/utils/aiProviders.ts) - the key-configuration UI below has nothing
@@ -1692,6 +1699,8 @@ export default function AdminConsole({
                             ...(pocModuleEnabled ? [{ field: "poc_test_generation_provider", modelField: "poc_test_generation_model", taskKey: "poc_test_generation", label: locale === "pt" ? "Geração de Cadernos de Teste (POC)" : "Test Script Generation (POC)" }] : []),
                             ...(pocModuleEnabled ? [{ field: "poc_schedule_generation_provider", modelField: "poc_schedule_generation_model", taskKey: "poc_schedule_generation", label: locale === "pt" ? "Sugestão de Cronograma (POC)" : "Schedule Suggestion (POC)" }] : []),
                             ...(pocModuleEnabled ? [{ field: "poc_final_report_generation_provider", modelField: "poc_final_report_generation_model", taskKey: "poc_final_report_generation", label: locale === "pt" ? "Relatório Final (POC)" : "Final Report (POC)" }] : []),
+                            // Add-on (Módulo de Precificação): only shown once the tenant's Fleet Manager entitlement includes "pricing".
+                            ...(pricingModuleEnabled ? [{ field: "pricing_budget_optimization_provider", modelField: "pricing_budget_optimization_model", taskKey: "pricing_budget_optimization", label: locale === "pt" ? "Otimização de Budget (Precificação)" : "Budget Optimization (Pricing)" }] : []),
                           ].map(({ field, modelField, taskKey, label }) => {
                             const capability = TASK_CAPABILITY[taskKey];
                             const currentProvider = (platformSettings as any)?.[field] || "gemini";

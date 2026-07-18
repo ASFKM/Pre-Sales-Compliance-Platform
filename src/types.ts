@@ -524,6 +524,8 @@ export interface PlatformSettings {
   poc_final_report_generation_provider: string;
   proposal_opinion_panel_model: string;
   proposal_opinion_panel_provider: string;
+  pricing_budget_optimization_model: string;
+  pricing_budget_optimization_provider: string;
   monthly_cost_cap_usd?: number | null;
   // Phase 7 (fleet/license management): this tenant's registration with the vendor's fleet
   // manager (a separate server). See src/fleetLicense.ts.

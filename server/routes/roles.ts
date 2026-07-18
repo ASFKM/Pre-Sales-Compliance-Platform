@@ -26,7 +26,10 @@ const ALLOWED_PERMISSIONS = new Set<string>([
   "integrations:manage",
   // Add-on (Fase 6) - only actually usable when the tenant also has the "poc" module
   // entitlement (checked separately by requireModule); this is just the RBAC half.
-  "poc:read", "poc:manage"
+  "poc:read", "poc:manage",
+  // Add-on (Módulo de Precificação) - same shape as poc:read/poc:manage above, paired with
+  // requireModule("pricing").
+  "pricing:read", "pricing:manage"
 ]);
 
 function validatePermissions(permissions: string[]) {
