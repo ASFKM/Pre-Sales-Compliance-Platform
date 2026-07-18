@@ -79,7 +79,16 @@ export default function PricingFileUploadModal({
         prev.map((q) => {
           const templateResult = res.templateResults.find((r) => r.fileName === q.file.name);
           if (templateResult) {
-            return { ...q, status: templateResult.errors.length > 0 ? "error" : "done", templateResult, errorMessage: undefined };
+            // templateResult.errors traz o motivo real linha a linha (ex.: "Campos obrigatórios
+            // ausentes/inválidos: ...") - precisa virar errorMessage, senão o rótulo de status cai
+            // no branch genérico "Erro" sem detalhe nenhum (achado real, reportado pelo usuário).
+            const errorMessage = templateResult.errors.length > 0
+              ? templateResult.errors
+                  .slice(0, 3)
+                  .map((e) => `Linha ${e.rowNumber}: ${e.message}`)
+                  .join("; ") + (templateResult.errors.length > 3 ? ` e mais ${templateResult.errors.length - 3} linha(s)` : "")
+              : undefined;
+            return { ...q, status: templateResult.errors.length > 0 ? "error" : "done", templateResult, errorMessage };
           }
           const aiTask = res.aiTasks.find((t) => t.fileName === q.file.name);
           if (aiTask) {
