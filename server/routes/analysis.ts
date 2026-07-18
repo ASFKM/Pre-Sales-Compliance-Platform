@@ -624,6 +624,45 @@ export function computeBrandPolicyCrossCheck<T extends { category?: string; manu
   });
 }
 
+// Mesmo padrão de corroboração estatística determinística (sem IA, dentro do mesmo BOM) de
+// computeBrandPolicyCrossCheck acima, mas pra correspondência de equipamento em geral - a única
+// validação cruzada que existia antes era exclusiva de política de marca. Sinaliza quando o
+// fabricante de um item destoa da maioria dos itens da mesma categoria neste BOM; nunca eleva
+// confiança sozinho, só rebaixa (nunca sobrescreve um "high" já vindo do prompt).
+const MIN_GROUP_SIZE_FOR_MATCH_CROSSCHECK = 3;
+export function computeEquipmentMatchCrossCheck<T extends { category?: string; manufacturer?: string; match_confidence?: "high" | "medium" | "low" | null }>(items: T[]): (T & { manufacturer_outlier?: boolean })[] {
+  const groups = new Map<string, T[]>();
+  for (const item of items) {
+    const key = (item.category || "").trim().toLowerCase();
+    const group = groups.get(key);
+    if (group) group.push(item);
+    else groups.set(key, [item]);
+  }
+
+  return items.map((item) => {
+    const key = (item.category || "").trim().toLowerCase();
+    const group = groups.get(key) || [item];
+    if (group.length < MIN_GROUP_SIZE_FOR_MATCH_CROSSCHECK || !item.manufacturer?.trim()) {
+      return { ...item, manufacturer_outlier: false };
+    }
+
+    const manufacturerCounts = new Map<string, number>();
+    for (const g of group) {
+      const m = (g.manufacturer || "").trim().toLowerCase();
+      if (m) manufacturerCounts.set(m, (manufacturerCounts.get(m) || 0) + 1);
+    }
+    const itemManufacturer = item.manufacturer.trim().toLowerCase();
+    const itemCount = manufacturerCounts.get(itemManufacturer) || 0;
+    const majorityCount = Math.max(...manufacturerCounts.values());
+    // Só marca outlier quando a maioria é de fato maioria (mais da metade do grupo) - evita
+    // sinalizar um BOM legitimamente multi-marca (câmeras de um fabricante + switches de outro)
+    // como suspeito.
+    const isOutlier = itemCount < majorityCount && majorityCount > group.length / 2;
+    const downgraded = isOutlier && item.match_confidence === "high" ? "medium" : item.match_confidence;
+    return { ...item, manufacturer_outlier: isOutlier, match_confidence: downgraded };
+  });
+}
+
 async function enrichBomWithWebSearch(bom: any[], platformSettings: any, proposalLanguage: string, tenantId: string, orientationText: string): Promise<any[]> {
   // Only a missing part_number is treated as "needs lookup" here. A part_number already present
   // (e.g. filled from an approved Knowledge Base entry) but missing manufacturer used to also
@@ -758,8 +797,10 @@ async function enrichBomWithWebSearch(bom: any[], platformSettings: any, proposa
 ITEMS TO LOOK UP:
 ${JSON.stringify(chunk, null, 2)}
 
+For each item, also self-report "match_confidence" for the equipment match itself (independent of the brand policy fields above): "high" if the source (known_knowledge or web search) explicitly and unambiguously names this exact product/part number for this exact use case; "medium" if you're confident about the manufacturer/product family but had to infer the specific part number/variant, or the match required judgment calls on ambiguous specs; "low" if you found a plausible but not clearly confirmed match (e.g. only a category/family match, conflicting information between sources, or a stretch on the "meets or exceeds" spec reasoning). If source is "not_found", set match_confidence to "low".
+
 Respond with ONLY a JSON array (no markdown, no extra text), one object per item_id above, in this exact shape:
-[{ "item_id": "...", "sku": "real SKU or empty string", "part_number": "real part number or empty string", "manufacturer": "real manufacturer name or empty string", "source": "knowledge_base" | "web_search" | "not_found", "note": "one short sentence in ${proposalLanguage} - what you found and its source, or why nothing confident was found", "brand_policy_applicable": true or false, "brand_policy_compliant": true or false, "brand_policy_note": "one short sentence in ${proposalLanguage}" }]`;
+[{ "item_id": "...", "sku": "real SKU or empty string", "part_number": "real part number or empty string", "manufacturer": "real manufacturer name or empty string", "source": "knowledge_base" | "web_search" | "not_found", "match_confidence": "high" | "medium" | "low", "note": "one short sentence in ${proposalLanguage} - what you found and its source, or why nothing confident was found", "brand_policy_applicable": true or false, "brand_policy_compliant": true or false, "brand_policy_note": "one short sentence in ${proposalLanguage}" }]`;
 
     // Sent as one request per chunk (not the whole BOM at once) - see the 57k-token/6000-TPM
     // incident above. Chunk boundaries are picked by a rough token estimate (chars/4) against a
@@ -783,7 +824,7 @@ Respond with ONLY a JSON array (no markdown, no extra text), one object per item
     }
     if (current.length > 0) chunks.push(current);
 
-    const resultsByItemId = new Map<string, { item_id: string; sku: string; part_number: string; manufacturer: string; source?: string; note: string; brand_policy_applicable?: boolean; brand_policy_compliant?: boolean; brand_policy_note?: string }>();
+    const resultsByItemId = new Map<string, { item_id: string; sku: string; part_number: string; manufacturer: string; source?: string; match_confidence?: "high" | "medium" | "low"; note: string; brand_policy_applicable?: boolean; brand_policy_compliant?: boolean; brand_policy_note?: string }>();
     for (const chunk of chunks) {
       // One retry on an actual rate-limit error, after a delay long enough to clear a per-minute
       // window - anything else (a real parsing/auth/network failure) fails this chunk immediately,
@@ -830,7 +871,7 @@ Respond with ONLY a JSON array (no markdown, no extra text), one object per item
           }
           if (arrayEnd === -1) throw new Error("Web search response JSON array was not properly closed");
           const rawJsonText = source.slice(arrayStart, arrayEnd + 1).trim();
-          let chunkResults: Array<{ item_id: string; sku: string; part_number: string; manufacturer: string; source?: string; note: string; brand_policy_applicable?: boolean; brand_policy_compliant?: boolean; brand_policy_note?: string }>;
+          let chunkResults: Array<{ item_id: string; sku: string; part_number: string; manufacturer: string; source?: string; match_confidence?: "high" | "medium" | "low"; note: string; brand_policy_applicable?: boolean; brand_policy_compliant?: boolean; brand_policy_note?: string }>;
           try {
             chunkResults = JSON.parse(rawJsonText);
           } catch (firstParseErr) {
@@ -867,13 +908,18 @@ Respond with ONLY a JSON array (no markdown, no extra text), one object per item
         brand_policy_compliant: found.brand_policy_applicable ? (found.brand_policy_compliant ?? null) : null,
         brand_policy_note: found.brand_policy_note ?? null,
       };
+      // Auto-reportado pelo mesmo prompt/chamada que já roda acima - sem custo de IA adicional,
+      // mesma ideia do brand_policy_confidence, mas sobre a correspondência do equipamento em si
+      // (não existia nenhum sinal de confiança pra isso antes, só as flags binárias de origem).
+      const matchConfidence = found.match_confidence ?? null;
       if (!found.part_number?.trim() && !found.manufacturer?.trim()) {
-        return { ...item, ...brandPolicyFields };
+        return { ...item, ...brandPolicyFields, match_confidence: matchConfidence ?? "low" };
       }
       const fromKnowledgeBase = found.source === "knowledge_base";
       return {
         ...item,
         ...brandPolicyFields,
+        match_confidence: matchConfidence,
         sku: item.sku?.trim() || found.sku || item.sku,
         part_number: item.part_number?.trim() || found.part_number || item.part_number,
         // manufacturer is DIFFERENT from sku/part_number above: an item only enters
@@ -892,7 +938,7 @@ Respond with ONLY a JSON array (no markdown, no extra text), one object per item
         sourced_via_web_search: !fromKnowledgeBase,
       };
     });
-    return computeBrandPolicyCrossCheck(enrichedItems);
+    return computeEquipmentMatchCrossCheck(computeBrandPolicyCrossCheck(enrichedItems));
   } catch (err: any) {
     logger.warn({ err, tenantId }, "BOM web search enrichment failed, keeping original BOM");
     return bom;

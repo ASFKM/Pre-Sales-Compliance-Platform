@@ -324,6 +324,15 @@ export interface BOMItem {
   brand_policy_compliant?: boolean | null;
   brand_policy_note?: string | null;
   brand_policy_confidence?: "high" | "medium" | "low" | null;
+  // Confiança na correspondência do equipamento em si (fabricante/PN/SKU), auto-reportada pelo
+  // mesmo prompt de enriquecimento - sem custo de IA adicional. Diferente de
+  // brand_policy_confidence, que é só sobre um achado de violação de política de marca ser
+  // confiável, não sobre se o match em si está certo. Ausente em itens não enriquecidos (BOM
+  // salvo antes desse campo existir, ou item que já tinha part_number preenchido).
+  match_confidence?: "high" | "medium" | "low" | null;
+  // Corroboração estatística determinística (computeEquipmentMatchCrossCheck) - true quando o
+  // fabricante deste item destoa da maioria dos itens da mesma categoria neste BOM.
+  manufacturer_outlier?: boolean;
 }
 
 export interface DynamicMatrixColumn {
@@ -751,5 +760,6 @@ export interface KnowledgeBaseDocument {
   storage_path: string;
   uploaded_by: string;
   analyzed_at?: string;
+  content_hash?: string;
   created_at: string;
 }

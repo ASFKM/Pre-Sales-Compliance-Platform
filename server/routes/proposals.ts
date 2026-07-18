@@ -94,8 +94,30 @@ const CreateProposalSchema = z.object({
   proposal_validity: z.string().optional(),
   commercial_assumptions: z.string().optional(),
   exclusions: z.string().optional(),
-  editable_content: z.string().optional()
+  editable_content: z.string().optional(),
+  // Item 3 (confiança no enriquecimento de BOM): permite prosseguir mesmo com itens de baixa
+  // confiança/fabricante destoante na proposta comercial - ver checkBomConfidenceForCommercial.
+  force_low_confidence_bom: z.boolean().optional().default(false)
 });
+
+// Item 3: item vindo de busca web com confiança baixa (ou fabricante destoante do resto da
+// categoria no mesmo BOM) é sinalizado antes de uma proposta COMERCIAL ser gerada - o rascunho
+// técnico nunca é bloqueado, só o tipo de proposta que efetivamente vira compromisso de preço/
+// especificação com o cliente. Não é uma segunda chamada de IA - usa só os campos já calculados
+// por enrichBomWithWebSearch/computeEquipmentMatchCrossCheck no momento da análise.
+const COMMERCIAL_PROPOSAL_TYPES = new Set<ProposalTypeValue>(["commercial", "technical_commercial"]);
+function checkBomConfidenceForCommercial(bom: unknown): { item_id: string; equipment_name: string; reason: string }[] {
+  if (!Array.isArray(bom)) return [];
+  return bom
+    .filter((item: any) => item.sourced_via_web_search && !item.edited_by && (item.match_confidence === "low" || item.manufacturer_outlier === true))
+    .map((item: any) => ({
+      item_id: item.item_id,
+      equipment_name: item.equipment_name,
+      reason: item.manufacturer_outlier
+        ? "Fabricante destoa dos demais itens da mesma categoria neste BOM"
+        : "Correspondência de baixa confiança encontrada via busca web",
+    }));
+}
 
 // GET all proposals for a project
 router.get("/projects/:projectId/proposals", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
@@ -125,6 +147,18 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
 
     if (!project) {
       return res.status(404).json({ success: false, message: "Project not found." });
+    }
+
+    if (COMMERCIAL_PROPOSAL_TYPES.has(proposalType) && !validated.force_low_confidence_bom) {
+      const flaggedItems = checkBomConfidenceForCommercial(analysis?.bom);
+      if (flaggedItems.length > 0) {
+        return res.status(422).json({
+          success: false,
+          code: "BOM_NEEDS_REVIEW",
+          message: "Há itens do BOM com correspondência de baixa confiança - revise antes de gerar a proposta comercial, ou confirme para prosseguir mesmo assim.",
+          flagged_items: flaggedItems,
+        });
+      }
     }
 
     const templateResolution = await resolveRegisteredTemplate(validated.template_id, proposalType);

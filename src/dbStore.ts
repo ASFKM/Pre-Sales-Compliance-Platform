@@ -296,6 +296,7 @@ function mapKnowledgeBaseDocument(d: any): KnowledgeBaseDocument {
     storage_path: d.storagePath,
     uploaded_by: d.uploadedBy,
     analyzed_at: d.analyzedAt ? d.analyzedAt.toISOString() : undefined,
+    content_hash: d.contentHash ?? undefined,
     created_at: d.createdAt.toISOString(),
   };
 }
@@ -441,6 +442,8 @@ function mapSettings(s: any): PlatformSettings {
     poc_final_report_generation_provider: s.pocFinalReportGenerationProvider,
     proposal_opinion_panel_model: s.proposalOpinionPanelModel,
     proposal_opinion_panel_provider: s.proposalOpinionPanelProvider,
+    pricing_budget_optimization_model: s.pricingBudgetOptimizationModel,
+    pricing_budget_optimization_provider: s.pricingBudgetOptimizationProvider,
     monthly_cost_cap_usd: s.monthlyCostCapUsd ?? null,
     fleet_manager_url: s.fleetManagerUrl ?? null,
     fleet_manager_api_key_encrypted: s.fleetManagerApiKeyEncrypted ?? undefined,
@@ -1972,6 +1975,8 @@ class DBStore {
         pocFinalReportGenerationProvider: updates.poc_final_report_generation_provider,
         proposalOpinionPanelModel: updates.proposal_opinion_panel_model,
         proposalOpinionPanelProvider: updates.proposal_opinion_panel_provider,
+        pricingBudgetOptimizationModel: updates.pricing_budget_optimization_model,
+        pricingBudgetOptimizationProvider: updates.pricing_budget_optimization_provider,
         monthlyCostCapUsd: updates.monthly_cost_cap_usd,
         fleetManagerUrl: updates.fleet_manager_url,
         fleetManagerApiKeyEncrypted: updates.fleet_manager_api_key_encrypted,
@@ -2701,7 +2706,21 @@ class DBStore {
       return { row, score };
     });
     scored.sort((a, b) => b.score - a.score);
-    return scored.slice(0, limit).map((s) => mapKnowledgeBaseEntry(s.row));
+    const top = scored.slice(0, limit);
+
+    // Métrica leve de uso - só sobre as linhas que de fato voltaram no resultado, não sobre todo
+    // candidato considerado. Fire-and-forget: não atrasa a resposta da busca, e uma falha aqui
+    // não deve derrubar a análise que está chamando isso.
+    if (top.length > 0) {
+      prisma.knowledgeBaseEntry
+        .updateMany({
+          where: { id: { in: top.map((s) => s.row.id) } },
+          data: { matchCount: { increment: 1 }, lastMatchedAt: new Date() },
+        })
+        .catch((err) => console.warn("Failed to update knowledge base entry match metrics", err));
+    }
+
+    return top.map((s) => mapKnowledgeBaseEntry(s.row));
   }
 
   // Used by BOM enrichment's context-mismatch check (see enrichBomWithWebSearch) to see a
@@ -2823,6 +2842,11 @@ class DBStore {
     return d ? mapKnowledgeBaseDocument(d) : undefined;
   }
 
+  public async findKnowledgeBaseDocumentByHash(contentHash: string): Promise<KnowledgeBaseDocument | undefined> {
+    const d = await prisma.knowledgeBaseDocument.findFirst({ where: { contentHash }, orderBy: { createdAt: "desc" } });
+    return d ? mapKnowledgeBaseDocument(d) : undefined;
+  }
+
   public async createKnowledgeBaseDocument(doc: Omit<KnowledgeBaseDocument, "id" | "created_at">): Promise<KnowledgeBaseDocument> {
     const d = await prisma.knowledgeBaseDocument.create({
       data: {
@@ -2835,6 +2859,7 @@ class DBStore {
         storageProvider: doc.storage_provider as any,
         storagePath: doc.storage_path,
         uploadedBy: doc.uploaded_by,
+        contentHash: doc.content_hash,
       },
     });
     return mapKnowledgeBaseDocument(d);

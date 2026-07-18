@@ -1449,11 +1449,15 @@ model KnowledgeBaseDocument {
   storagePath      String          @map("storage_path")
   uploadedBy       String          @map("uploaded_by")
   analyzedAt       DateTime?       @map("analyzed_at")
+  // sha256 do conteúdo do arquivo - detecta reupload do mesmo documento (caso real observado: o
+  // mesmo datasheet enviado 4 vezes) para avisar antes de gerar entries redundantes de novo.
+  contentHash      String?         @map("content_hash")
   createdAt        DateTime        @default(now()) @map("created_at")
 
   pocEquipmentItems PocEquipmentItem[]
 
   @@index([tenantId])
+  @@index([tenantId, contentHash])
   @@map("knowledge_base_documents")
 }
 
@@ -1494,6 +1498,11 @@ model KnowledgeBaseEntry {
   // uploaded to the Fleet Manager on a heartbeat - see server/utils/fleetLicense.ts. Never set for
   // fleet_manager_global entries, which never sync back up.
   syncedToFleetAt    DateTime?                  @map("synced_to_fleet_at")
+  // Métrica leve de uso - incrementada em searchApprovedKnowledgeBase sempre que a entry aparece
+  // num resultado. Sem isso não dá pra identificar entries órfãs (nunca de fato aproveitadas por
+  // nenhuma análise) entre as 587+ já cadastradas.
+  matchCount         Int                        @default(0) @map("match_count")
+  lastMatchedAt      DateTime?                  @map("last_matched_at")
 
   @@index([tenantId])
   @@index([status])
