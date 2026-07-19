@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from "react";
-import { Download, Upload, Loader2, TriangleAlert, ChevronDown, ChevronRight, Pencil, Check, X, RefreshCw } from "lucide-react";
+import { Download, Upload, Loader2, TriangleAlert, ChevronDown, ChevronRight, Pencil, Check, X, RefreshCw, Trash2 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import ApiClient from "../lib/api";
 import PricingFileUploadModal from "./PricingFileUploadModal";
@@ -202,6 +202,76 @@ export default function PricingCatalog({ onFilesProcessed, waitForTask, tasksByI
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
 
+  // Edição/exclusão direta de uma linha do catálogo - inline na própria tabela, mesmo espírito do
+  // EditableCell de PricingExtractionReview.tsx (draft), mas aqui já é o item de verdade
+  // (PUT/DELETE /api/pricing/catalog/:id).
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<Record<string, string> | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [rowError, setRowError] = useState<string | null>(null);
+
+  const startEdit = (item: PriceCatalogItem, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingId(item.id);
+    setEditDraft({
+      itemCode: item.itemCode,
+      category: item.category,
+      pn: item.pn,
+      description: item.description,
+      currentListPrice: String(item.currentListPrice),
+      currentListPriceUsd: item.currentListPriceUsd != null ? String(item.currentListPriceUsd) : "",
+      markupMin: String(item.markupMin),
+      markupMax: String(item.markupMax),
+    });
+    setRowError(null);
+  };
+
+  const cancelEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingId(null);
+    setEditDraft(null);
+    setRowError(null);
+  };
+
+  const saveEdit = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!editDraft) return;
+    setSavingEdit(true);
+    setRowError(null);
+    try {
+      const body = {
+        itemCode: editDraft.itemCode.trim(),
+        category: editDraft.category.trim(),
+        pn: editDraft.pn.trim(),
+        description: editDraft.description.trim(),
+        currentListPrice: Number(editDraft.currentListPrice.replace(",", ".")),
+        currentListPriceUsd: editDraft.currentListPriceUsd.trim() ? Number(editDraft.currentListPriceUsd.replace(",", ".")) : null,
+        markupMin: Number(editDraft.markupMin.replace(",", ".")),
+        markupMax: Number(editDraft.markupMax.replace(",", ".")),
+      };
+      const res = await ApiClient.put<{ success: boolean; item: PriceCatalogItem }>(`/api/pricing/catalog/${id}`, body);
+      setItems((prev) => prev.map((it) => (it.id === id ? res.item : it)));
+      setEditingId(null);
+      setEditDraft(null);
+    } catch (e: any) {
+      setRowError(e.message || "Não foi possível salvar as alterações.");
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const deleteItem = async (item: PriceCatalogItem, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm(`Excluir "${item.description}" (${item.itemCode}) do catálogo? Projetos que já usaram este item pra precificar mantêm os valores, mas perdem o vínculo com o catálogo.`)) return;
+    try {
+      await ApiClient.delete(`/api/pricing/catalog/${item.id}`);
+      setItems((prev) => prev.filter((it) => it.id !== item.id));
+      if (expandedId === item.id) setExpandedId(null);
+    } catch (e: any) {
+      setError(e.message || "Não foi possível excluir o item.");
+    }
+  };
+
   const loadItems = async () => {
     setLoading(true);
     setError(null);
@@ -283,58 +353,131 @@ export default function PricingCatalog({ onFilesProcessed, waitForTask, tasksByI
               <th className="text-right px-3 py-2 font-medium">Preço de lista (R$)</th>
               <th className="text-right px-3 py-2 font-medium">Preço de lista (US$)</th>
               <th className="text-right px-3 py-2 font-medium">Markup mín / máx</th>
+              <th className="text-right px-3 py-2 font-medium">Ações</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {loading && (
               <tr>
-                <td colSpan={7} className="px-3 py-8 text-center text-slate-400">
+                <td colSpan={8} className="px-3 py-8 text-center text-slate-400">
                   Carregando...
                 </td>
               </tr>
             )}
             {!loading && items.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-3 py-8 text-center text-slate-400">
+                <td colSpan={8} className="px-3 py-8 text-center text-slate-400">
                   Nenhum item cadastrado ainda. Baixe o modelo, preencha e envie a planilha.
                 </td>
               </tr>
             )}
             {items.map((item) => {
               const expanded = expandedId === item.id;
+              const isEditing = editingId === item.id;
+              const inputClass = "w-full text-xs border border-slate-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-emerald-500";
               return (
                 <Fragment key={item.id}>
                   <tr
-                    onClick={() => setExpandedId(expanded ? null : item.id)}
-                    className="hover:bg-slate-50 cursor-pointer"
+                    onClick={() => !isEditing && setExpandedId(expanded ? null : item.id)}
+                    className={isEditing ? "bg-emerald-50/40" : "hover:bg-slate-50 cursor-pointer"}
                   >
                     <td className="px-3 py-2 font-mono text-xs text-slate-700">
-                      <span className="inline-flex items-center gap-1">
-                        {expanded ? <ChevronDown size={13} className="text-slate-400" /> : <ChevronRight size={13} className="text-slate-400" />}
-                        {item.itemCode}
-                      </span>
+                      {isEditing ? (
+                        <input className={inputClass} value={editDraft?.itemCode ?? ""} onChange={(e) => setEditDraft((d) => (d ? { ...d, itemCode: e.target.value } : d))} onClick={(e) => e.stopPropagation()} />
+                      ) : (
+                        <span className="inline-flex items-center gap-1">
+                          {expanded ? <ChevronDown size={13} className="text-slate-400" /> : <ChevronRight size={13} className="text-slate-400" />}
+                          {item.itemCode}
+                        </span>
+                      )}
                     </td>
-                    <td className="px-3 py-2 text-slate-600">{item.category}</td>
-                    <td className="px-3 py-2 font-mono text-xs text-slate-600">{item.pn}</td>
+                    <td className="px-3 py-2 text-slate-600">
+                      {isEditing ? (
+                        <input className={inputClass} value={editDraft?.category ?? ""} onChange={(e) => setEditDraft((d) => (d ? { ...d, category: e.target.value } : d))} onClick={(e) => e.stopPropagation()} />
+                      ) : (
+                        item.category
+                      )}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs text-slate-600">
+                      {isEditing ? (
+                        <input className={inputClass} value={editDraft?.pn ?? ""} onChange={(e) => setEditDraft((d) => (d ? { ...d, pn: e.target.value } : d))} onClick={(e) => e.stopPropagation()} />
+                      ) : (
+                        item.pn
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-slate-700">
-                      <div>{item.description}</div>
-                      <div className="text-[10px] text-slate-400">
-                        {item.lastUpdateSource === "supplier_quote"
-                          ? `via cotação${item.lastUpdateSupplierName ? ` — ${item.lastUpdateSupplierName}` : ""}`
-                          : "via planilha"}
-                      </div>
+                      {isEditing ? (
+                        <input className={inputClass} value={editDraft?.description ?? ""} onChange={(e) => setEditDraft((d) => (d ? { ...d, description: e.target.value } : d))} onClick={(e) => e.stopPropagation()} />
+                      ) : (
+                        <>
+                          <div>{item.description}</div>
+                          <div className="text-[10px] text-slate-400">
+                            {item.lastUpdateSource === "supplier_quote"
+                              ? `via cotação${item.lastUpdateSupplierName ? ` — ${item.lastUpdateSupplierName}` : ""}`
+                              : "via planilha"}
+                          </div>
+                        </>
+                      )}
                     </td>
-                    <td className="px-3 py-2 text-right text-slate-700">{currencyFormatter.format(item.currentListPrice)}</td>
-                    <td className="px-3 py-2 text-right text-slate-500">
-                      {item.currentListPriceUsd != null ? usdFormatter.format(item.currentListPriceUsd) : "—"}
+                    <td className="px-3 py-2 text-right text-slate-700">
+                      {isEditing ? (
+                        <input className={`${inputClass} text-right`} value={editDraft?.currentListPrice ?? ""} onChange={(e) => setEditDraft((d) => (d ? { ...d, currentListPrice: e.target.value } : d))} onClick={(e) => e.stopPropagation()} />
+                      ) : (
+                        currencyFormatter.format(item.currentListPrice)
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right text-slate-500">
-                      {item.markupMin}% / {item.markupMax}%
+                      {isEditing ? (
+                        <input className={`${inputClass} text-right`} placeholder="—" value={editDraft?.currentListPriceUsd ?? ""} onChange={(e) => setEditDraft((d) => (d ? { ...d, currentListPriceUsd: e.target.value } : d))} onClick={(e) => e.stopPropagation()} />
+                      ) : item.currentListPriceUsd != null ? (
+                        usdFormatter.format(item.currentListPriceUsd)
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right text-slate-500">
+                      {isEditing ? (
+                        <div className="flex items-center gap-1 justify-end">
+                          <input className={`${inputClass} text-right w-14`} value={editDraft?.markupMin ?? ""} onChange={(e) => setEditDraft((d) => (d ? { ...d, markupMin: e.target.value } : d))} onClick={(e) => e.stopPropagation()} />
+                          <span>/</span>
+                          <input className={`${inputClass} text-right w-14`} value={editDraft?.markupMax ?? ""} onChange={(e) => setEditDraft((d) => (d ? { ...d, markupMax: e.target.value } : d))} onClick={(e) => e.stopPropagation()} />
+                        </div>
+                      ) : (
+                        `${item.markupMin}% / ${item.markupMax}%`
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {isEditing ? (
+                        <div className="flex items-center gap-1.5 justify-end">
+                          <button onClick={(e) => saveEdit(item.id, e)} disabled={savingEdit} className="text-emerald-600 hover:text-emerald-700 disabled:opacity-50" title="Salvar">
+                            <Check size={15} />
+                          </button>
+                          <button onClick={cancelEdit} disabled={savingEdit} className="text-slate-400 hover:text-slate-600" title="Cancelar">
+                            <X size={15} />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 justify-end">
+                          <button onClick={(e) => startEdit(item, e)} className="text-slate-400 hover:text-emerald-600" title="Editar">
+                            <Pencil size={14} />
+                          </button>
+                          <button onClick={(e) => deleteItem(item, e)} className="text-slate-400 hover:text-red-600" title="Excluir">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
-                  {expanded && (
+                  {isEditing && rowError && (
                     <tr>
-                      <td colSpan={7} className="bg-slate-50/60 border-t border-slate-100">
+                      <td colSpan={8} className="px-3 pb-2 text-xs text-red-600 bg-emerald-50/40">
+                        {rowError}
+                      </td>
+                    </tr>
+                  )}
+                  {expanded && !isEditing && (
+                    <tr>
+                      <td colSpan={8} className="bg-slate-50/60 border-t border-slate-100">
                         <PriceHistoryChart itemId={item.id} />
                       </td>
                     </tr>

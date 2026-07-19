@@ -203,6 +203,98 @@ router.get("/catalog", requirePermission("pricing:read"), requireModule("pricing
   }
 });
 
+const CatalogItemEditSchema = z.object({
+  itemCode: z.string().min(1).optional(),
+  category: z.string().min(1).optional(),
+  pn: z.string().min(1).optional(),
+  erpCode: z.string().nullable().optional(),
+  description: z.string().min(1).optional(),
+  currentListPrice: z.number().positive().optional(),
+  currentListPriceUsd: z.number().positive().nullable().optional(),
+  currency: z.enum(["BRL", "USD"]).optional(),
+  markupMin: z.number().optional(),
+  markupMax: z.number().optional(),
+});
+
+// Edição direta de uma linha já cadastrada no catálogo (diferente da edição de rascunho em
+// "Extrações pendentes", que é PriceCatalogExtractionDraft - aqui já é o item de verdade). Preço
+// ou markup alterados manualmente também geram um PriceHistoryEntry, senão o gráfico de evolução
+// de preço (GET /catalog/:id/history) ficaria com um buraco toda vez que alguém corrige um valor
+// direto na tabela em vez de reenviar a planilha inteira.
+router.put("/catalog/:id", requirePermission("pricing:manage"), requireModule("pricing"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.headers["x-tenant-id"] as string;
+    const userId = requireUserId(req);
+    const body = CatalogItemEditSchema.parse(req.body);
+
+    const existing = await prisma.priceCatalogItem.findUnique({ where: { id: req.params.id } });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "Item não encontrado." });
+    }
+
+    const updated = await prisma.priceCatalogItem.update({ where: { id: existing.id }, data: body });
+
+    const priceOrMarkupChanged =
+      (body.currentListPrice != null && body.currentListPrice !== existing.currentListPrice) ||
+      (body.markupMin != null && body.markupMin !== existing.markupMin) ||
+      (body.markupMax != null && body.markupMax !== existing.markupMax);
+
+    if (priceOrMarkupChanged) {
+      const priceListUpload = await prisma.priceListUpload.create({
+        data: {
+          id: randomId("plu"),
+          tenantId,
+          uploadedByUserId: userId,
+          fileName: "Edição manual na tabela de preços",
+          effectiveDate: new Date(),
+          status: "completed",
+          sourceLabel: "edição manual",
+        },
+      });
+      await prisma.priceHistoryEntry.create({
+        data: {
+          id: randomId("phe"),
+          tenantId,
+          priceListUploadId: priceListUpload.id,
+          itemId: updated.id,
+          listPrice: updated.currentListPrice,
+          listPriceUsd: updated.currentListPriceUsd,
+          currency: updated.currency,
+          updateSource: "spreadsheet",
+          markupMax: updated.markupMax,
+          markupMin: updated.markupMin,
+          effectiveDate: new Date(),
+        },
+      });
+    }
+
+    res.json({ success: true, item: updated });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ success: false, message: err.issues[0].message });
+    }
+    next(err);
+  }
+});
+
+// Exclusão direta de uma linha do catálogo. Seguro por design de schema, não por checagem manual
+// aqui: PriceHistoryEntry cai em cascata (histórico de um item que não existe mais não faz
+// sentido), ItemAliasMapping.resolvedItemId e ProjectPricingLine.matchedItemId viram null (a
+// linha de um BOM/pricing sheet já precificado não é apagada, só perde o vínculo com o catálogo -
+// ver onDelete: SetNull em prisma/schema.prisma).
+router.delete("/catalog/:id", requirePermission("pricing:manage"), requireModule("pricing"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const existing = await prisma.priceCatalogItem.findUnique({ where: { id: req.params.id } });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "Item não encontrado." });
+    }
+    await prisma.priceCatalogItem.delete({ where: { id: existing.id } });
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get("/catalog/template", requirePermission("pricing:read"), requireModule("pricing"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const buffer = await generatePricingTemplate();
@@ -447,13 +539,22 @@ async function commitAiExtractionFile(
     for (let i = 0; i < extraction.rows.length; i++) {
       const row = extraction.rows[i];
 
-      // Cotação de fornecedor quase nunca traz markup - herda do catálogo existente pelo PN se
-      // achar um item já cadastrado, pra não deixar toda linha travada pedindo preenchimento manual.
+      // Cotação de fornecedor quase nunca traz o código interno do item, categoria ou markup -
+      // herda do catálogo existente pelo PN se achar um item já cadastrado, pra não deixar toda
+      // linha travada pedindo preenchimento manual do que já se sabe. Preço NUNCA é herdado -
+      // sempre vem do documento/IA, é o próprio motivo do upload. A linha continua exigindo
+      // confirmação manual em "Extrações pendentes" mesmo assim (dado de IA nunca vira fato no
+      // catálogo sozinho, diferente da planilha-modelo que o próprio usuário preencheu à mão -
+      // ver commitTemplateFile).
+      let itemCode = row.itemCode;
+      let category = row.category;
       let markupMin = row.markupMin;
       let markupMax = row.markupMax;
-      if (markupMin == null || markupMax == null) {
+      if (!itemCode || !category || markupMin == null || markupMax == null) {
         const existingByPn = await prisma.priceCatalogItem.findFirst({ where: { tenantId, pn: row.pn } });
         if (existingByPn) {
+          itemCode = itemCode || existingByPn.itemCode;
+          category = category || existingByPn.category;
           markupMin = markupMin ?? existingByPn.markupMin;
           markupMax = markupMax ?? existingByPn.markupMax;
         }
@@ -465,8 +566,8 @@ async function commitAiExtractionFile(
           tenantId,
           priceListUploadId: priceListUpload.id,
           rowIndexInFile: i,
-          itemCode: row.itemCode,
-          category: row.category,
+          itemCode,
+          category,
           pn: row.pn,
           erpCode: row.erpCode,
           description: row.description,
