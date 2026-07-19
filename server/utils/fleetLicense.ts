@@ -60,6 +60,42 @@ function verifyPayload(payload: LicenseStatusPayload, signature: string): boolea
   }
 }
 
+interface HeartbeatCommand {
+  id: string;
+  type: string;
+  payload?: unknown;
+}
+
+interface HeartbeatLatestRelease {
+  id: string;
+  version: string;
+  channel: string;
+  code_ref: string;
+  published_at: string | null;
+}
+
+// CMS-001 / AUD-001 (auditoria de segurança, 2026-07-19): commands (inclusive apply_update, que
+// dispara git checkout + build + restart real nesta própria instalação) e latest_release vinham
+// como siblings de license no heartbeat, protegidos só por TLS + API key - qualquer resposta
+// adulterada (Fleet Manager comprometido, MITM, bug num proxy) podia injetar um apply_update
+// arbitrário sem essa checagem. Assinatura separada da de license (mesma chave, ver
+// signCommandsEnvelope em licenseSigning.ts do lado CMSaaS) - falha fechado: sem assinatura válida,
+// nem commands nem latest_release são processados nesta rodada de heartbeat (mas o heartbeat em si
+// não falha - CMSaaS antigo/não atualizado simplesmente não tem commands/latest_release confiáveis
+// até ser atualizado, mesmo espírito fail-open já usado no resto deste arquivo pra não derrubar a
+// instalação por causa do Fleet Manager).
+function verifyCommandsSignature(commands: HeartbeatCommand[], latestRelease: HeartbeatLatestRelease | null, signature: string | undefined): boolean {
+  if (!signature) return false;
+  try {
+    const publicKey = crypto.createPublicKey({ key: Buffer.from(FLEET_MANAGER_PUBLIC_KEY, "base64"), format: "der", type: "spki" });
+    const payload = { commands, latest_release: latestRelease };
+    const data = Buffer.from(JSON.stringify(payload, Object.keys(payload).sort()), "utf8");
+    return crypto.verify(null, data, publicKey, Buffer.from(signature, "base64"));
+  } catch {
+    return false;
+  }
+}
+
 // Additive payload only: correlation_id/user_id/safe_metadata are new fields alongside the
 // original timestamp/operation/level/message - a Fleet Manager build that only reads the
 // original 4 keeps working unchanged.
@@ -330,12 +366,24 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
       }
       await redis.set(lastLogSyncKey(tenantId), new Date().toISOString());
 
+      // CMS-001 / AUD-001: commands e latest_release só são processados com uma assinatura Ed25519
+      // válida cobrindo os dois juntos - falha fechado (nem persiste latest_release, nem age em
+      // nenhum command, nem faz ack deles) se a assinatura estiver ausente ou não bater, sem
+      // derrubar o resto do heartbeat (license/ia_kb/mensagens continuam funcionando normalmente).
+      const commandsVerified = verifyCommandsSignature(data.commands || [], data.latest_release || null, data.commands_signature);
+      if (!commandsVerified) {
+        logger.error({ tenantId }, "Fleet manager commands/latest_release signature verification FAILED - ignoring commands and latest_release for this heartbeat");
+      }
+
       // Sistema de Atualização de Produção: caches this heartbeat's latest_release (sibling of
-      // license/commands/messages, not signed - see heartbeat.ts on the Fleet Manager side for
-      // why) alongside a fresh snapshot of the version this process is actually running.
-      await persistLatestRelease(tenantId, data.latest_release || null).catch((err) =>
-        logger.warn({ err, tenantId }, "Failed to persist latest_release from heartbeat")
-      );
+      // license/commands/messages, signed together via commands_signature - see
+      // signCommandsEnvelope on the Fleet Manager side and CMS-001 above) alongside a fresh
+      // snapshot of the version this process is actually running.
+      if (commandsVerified) {
+        await persistLatestRelease(tenantId, data.latest_release || null).catch((err) =>
+          logger.warn({ err, tenantId }, "Failed to persist latest_release from heartbeat")
+        );
+      }
 
       // ia_kb add-on: on the exact heartbeat where the entitlement transitions from absent/off to
       // enabled, this tenant's own AI provider keys are cleared - from this point on every AI call
@@ -378,31 +426,37 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
         await dbStore.replaceIaKbTaskConfig(data.ia_kb_task_config).catch((err) => logger.warn({ err, tenantId }, "Failed to persist ia_kb task config"));
       }
 
-      for (const command of data.commands || []) {
-        // force_log_collection/force_vulnerability_scan already happened above (this heartbeat
-        // always sends both) - acknowledging just tells the fleet manager it was delivered.
-        // force_kb_sync is different: it clears every locally-approved entry's "already synced"
-        // marker so a full resync goes up on the NEXT heartbeat (this one's body was already
-        // built before this response arrived) rather than only newly-approved ones.
-        if (command.type === "force_kb_sync") {
-          await dbStore.resetKnowledgeBaseSyncCursor().catch((err) => logger.warn({ err, tenantId }, "Failed to reset knowledge base sync cursor for force_kb_sync"));
+      // CMS-001 / AUD-001: sem assinatura válida (commandsVerified acima), nenhum command é
+      // processado NEM confirmado (sem ack) - o Fleet Manager reenvia no próximo heartbeat em vez
+      // de marcar como entregue, então um bug transitório se autocorrige e uma adulteração de
+      // verdade nunca progride silenciosamente.
+      if (commandsVerified) {
+        for (const command of data.commands || []) {
+          // force_log_collection/force_vulnerability_scan already happened above (this heartbeat
+          // always sends both) - acknowledging just tells the fleet manager it was delivered.
+          // force_kb_sync is different: it clears every locally-approved entry's "already synced"
+          // marker so a full resync goes up on the NEXT heartbeat (this one's body was already
+          // built before this response arrived) rather than only newly-approved ones.
+          if (command.type === "force_kb_sync") {
+            await dbStore.resetKnowledgeBaseSyncCursor().catch((err) => logger.warn({ err, tenantId }, "Failed to reset knowledge base sync cursor for force_kb_sync"));
+          }
+          // Remote "force update now" push (Sistema de Atualização de Produção) - ack'd below same
+          // as every other command regardless of whether the trigger itself actually started (e.g.
+          // an update already running for this tenant just means this ack simply confirms delivery,
+          // the CMSaaS admin still sees the in-progress one in the Atualizações tab either way).
+          if (command.type === "apply_update" && command.payload?.release_id && command.payload?.code_ref) {
+            await triggerImmediateUpdate(tenantId, {
+              releaseId: command.payload.release_id,
+              codeRef: command.payload.code_ref,
+              triggeredBy: "remote_command",
+            }).catch((err) => logger.error({ err, tenantId }, "Failed to trigger remote apply_update command"));
+          }
+          await fetch(`${settings.fleet_manager_url}/api/heartbeat/commands/${command.id}/ack`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${apiKey}` },
+            signal: AbortSignal.timeout(10000),
+          }).catch(() => {});
         }
-        // Remote "force update now" push (Sistema de Atualização de Produção) - ack'd below same
-        // as every other command regardless of whether the trigger itself actually started (e.g.
-        // an update already running for this tenant just means this ack simply confirms delivery,
-        // the CMSaaS admin still sees the in-progress one in the Atualizações tab either way).
-        if (command.type === "apply_update" && command.payload?.release_id && command.payload?.code_ref) {
-          await triggerImmediateUpdate(tenantId, {
-            releaseId: command.payload.release_id,
-            codeRef: command.payload.code_ref,
-            triggeredBy: "remote_command",
-          }).catch((err) => logger.error({ err, tenantId }, "Failed to trigger remote apply_update command"));
-        }
-        await fetch(`${settings.fleet_manager_url}/api/heartbeat/commands/${command.id}/ack`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${apiKey}` },
-          signal: AbortSignal.timeout(10000),
-        }).catch(() => {});
       }
 
       for (const msg of data.messages || []) {
