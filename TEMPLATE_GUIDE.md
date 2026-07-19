@@ -50,7 +50,7 @@ Place a variable anywhere in the document body using `{{variable_name}}`.
 ### Comercial
 | Variable | What it brings |
 |---|---|
-| `{{preco_total}}` | Sum of the manual pricing table (2 decimal places). |
+| `{{preco_total}}` | Sum of the pricing table — real Módulo de Precificação data when the project has one, otherwise the manually-typed table (2 decimal places). See `{{#precificacao}}` below. |
 | `{{termos_pagamento}}` | Payment terms for this proposal. |
 | `{{termos_entrega}}` | Delivery terms for this proposal. |
 | `{{validade_proposta}}` | Commercial validity text entered when generating this specific proposal. |
@@ -97,9 +97,23 @@ that discipline's table, one row per line, columns separated by ` | `).
 `{{pergunta}}`, `{{motivo}}`, `{{prioridade}}`, `{{publico_alvo}}` (e.g. customer vs. internal
 technical team).
 
-### `{{#precificacao}}` — Manual Pricing Table
+### `{{#precificacao}}` — Pricing Table
 `{{item}}`, `{{quantidade}}`, `{{preco_unitario}}` (2 decimals), `{{preco_total_item}}` (2
 decimals), `{{moeda}}`.
+
+Two possible sources, resolved automatically in `docxTemplateEngine.ts` — a template author never
+picks one, it's whichever the project actually has:
+- **Módulo de Precificação (add-on)**: when the project has a real pricing sheet with priced
+  lines, those win — `{{moeda}}` is always `BRL` (the catalog's canonical currency), and BOM lines
+  without a catalog match or without a final price are silently left out of the table (not an
+  error — the proposal can still be generated with a partial table).
+- **Manual pricing table**: the fallback when there's no real pricing sheet — the table typed
+  directly into the proposal-generation form, `{{moeda}}` is whatever currency was chosen per row.
+
+Either way, only `{{item}}`/`{{quantidade}}`/`{{preco_unitario}}`/`{{preco_total_item}}`/
+`{{moeda}}` are ever available — markup and list price are a deliberate, enforced omission (never
+copied into the data structure the template resolver receives in the first place, not just
+"not mapped"), so a proposal template can never expose your margin to the customer.
 
 ---
 

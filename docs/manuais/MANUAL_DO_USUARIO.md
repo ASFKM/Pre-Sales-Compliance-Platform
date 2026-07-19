@@ -19,7 +19,8 @@ integrações), veja o [Manual de Administração](./MANUAL_DE_ADMINISTRACAO.md)
 8. [Centro de Aprovação](#8-centro-de-aprovação)
 9. [Base de Conhecimento](#9-base-de-conhecimento)
 10. [Gestão de POC (Prova de Conceito)](#10-gestão-de-poc-prova-de-conceito)
-11. [Perguntas frequentes](#11-perguntas-frequentes)
+11. [Módulo de Precificação](#11-módulo-de-precificação)
+12. [Perguntas frequentes](#12-perguntas-frequentes)
 
 ---
 
@@ -249,6 +250,9 @@ Lista todas as propostas já geradas para o projeto selecionado. Ao abrir uma pr
 - O texto é **editável diretamente na tela** — o que você edita aqui é exatamente o que sai no
   arquivo exportado.
 - **Exportar DOCX** / **Exportar PDF** geram o arquivo final para download.
+- **Gerar Pareceres de IA** produz 4 cards de análise da proposta, um por perspectiva — Técnico,
+  Comercial, Financeiro e Jurídico — cada um com ícone e cor própria; um selo de "crítico" ou
+  "atenção" aparece quando a IA encontra algo que merece revisão antes de enviar ao cliente.
 - **Enviar para Aprovação de Fluxo** move a proposta para o Centro de Aprovação (seção 8).
 
 ---
@@ -351,7 +355,56 @@ Ao final da POC:
 
 ---
 
-## 11. Perguntas frequentes
+## 11. Módulo de Precificação
+
+> Esta seção só aparece se o módulo de Precificação estiver habilitado na sua instância.
+
+Aba de nível superior "Precificação", com 5 sub-abas.
+
+### Tabela de preços
+Seu catálogo de itens: código interno, categoria, PN, descrição, preço de lista (R$ e US$) e
+markup mínimo/máximo. A cotação R$/US$ usada nas conversões aparece no canto superior direito
+(Banco Central, atualizável na hora ou editável manualmente). Clique numa linha para ver o
+histórico de preço do item; use os ícones de lápis/lixeira ao lado de cada linha para editar ou
+excluir diretamente.
+
+**Enviar Arquivos** aceita dois tipos de arquivo ao mesmo tempo, num único envio:
+- A **planilha-modelo** (baixe em **Baixar modelo**) — colunas fixas, entra direto no catálogo.
+- **Qualquer outro formato** (PDF, foto, Word, planilha de fornecedor fora do padrão) — analisado
+  por IA, com progresso por arquivo em tempo real no próprio popup e um resumo no rodapé da tela.
+
+Nenhum arquivo é rejeitado por falta de um campo (código, categoria, markup): o sistema tenta
+completar sozinho a partir de um item que já exista no catálogo com o mesmo PN, e só pede pra você
+revisar manualmente o que realmente não deu pra resolver — na aba **Extrações pendentes**.
+
+### Extrações pendentes
+Linhas aguardando sua confirmação antes de entrarem de fato no catálogo — vindas tanto de
+planilhas quanto de extração por IA. Edite qualquer campo direto na tabela (cada alteração salva
+sozinha); linhas destacadas em âmbar ainda estão faltando algo obrigatório (preço, markup ou
+código do item) e não podem ser confirmadas até completar. Selecione as linhas prontas e clique em
+**Confirmar** para gravá-las no catálogo em lote, ou **Rejeitar** uma linha individualmente para
+descartá-la.
+
+### Precificação de projeto
+Dentro de um projeto: o BOM técnico é casado automaticamente contra o catálogo de preços (com um
+nível de confiança do match), e você aplica desconto por linha. Se o motor fiscal estiver
+configurado (sub-aba **Motor fiscal**), o imposto por linha (ICMS/IPI/ISS/ST conforme a UF de
+origem) também é calculado aqui.
+
+### Itens sem preço
+Itens do BOM que não casaram com nenhum item do catálogo — fila de pendência que se resolve
+sozinha assim que o item correspondente for cadastrado (por PN).
+
+### Ao gerar a proposta
+Quando o projeto já tem uma precificação real feita aqui, a proposta gerada usa esses valores
+automaticamente — você não precisa digitar a tabela de preços de novo na tela de geração. Markup e
+preço de lista nunca aparecem na proposta, só o preço final. Se algum item do BOM ficar de fora da
+tabela da proposta por falta de preço cadastrado, um aviso mostra quantos itens foram deixados de
+fora, sem impedir a geração.
+
+---
+
+## 12. Perguntas frequentes
 
 **Posso desfazer a exclusão de um projeto?**
 Não. A exclusão é permanente e pede confirmação antes — confira bem antes de excluir.

@@ -1,10 +1,10 @@
 # Manual de Administração — Pre-Sales Compliance Platform
 
 Este manual cobre a área **Configurações**, disponível para usuários com pelo menos uma permissão
-administrativa. Para o uso do dia a dia (projetos, propostas, POC), veja o
+administrativa. Para o uso do dia a dia (projetos, propostas, POC, Precificação), veja o
 [Manual do Usuário](./MANUAL_DO_USUARIO.md).
 
-A área de Configurações tem 10 seções na barra lateral. Cada seção só aparece para quem tem a(s)
+A área de Configurações tem 11 seções na barra lateral. Cada seção só aparece para quem tem a(s)
 permissão(ões) correspondente(s) — é normal um administrador não-técnico não ver, por exemplo,
 "Armazenamento e Documentos".
 
@@ -18,11 +18,12 @@ permissão(ões) correspondente(s) — é normal um administrador não-técnico 
 4. [Templates de Propostas](#4-templates-de-propostas)
 5. [Fluxo de Aprovação de Propostas](#5-fluxo-de-aprovação-de-propostas)
 6. [Subscrição e Licença](#6-subscrição-e-licença)
-7. [Personalização e Identidade Visual](#7-personalização-e-identidade-visual)
-8. [Integrações, CRMs, ERPs e APIs](#8-integrações-crms-erps-e-apis)
-9. [Armazenamento e Documentos](#9-armazenamento-e-documentos)
-10. [Auditoria e Diagnóstico](#10-auditoria-e-diagnóstico)
-11. [Boas práticas de administração](#11-boas-práticas-de-administração)
+7. [Sistema de Atualização de Produção](#7-sistema-de-atualização-de-produção)
+8. [Personalização e Identidade Visual](#8-personalização-e-identidade-visual)
+9. [Integrações, CRMs, ERPs e APIs](#9-integrações-crms-erps-e-apis)
+10. [Armazenamento e Documentos](#10-armazenamento-e-documentos)
+11. [Auditoria e Diagnóstico](#11-auditoria-e-diagnóstico)
+12. [Boas práticas de administração](#12-boas-práticas-de-administração)
 
 ---
 
@@ -73,6 +74,7 @@ Referência rápida das permissões disponíveis:
 | `document:upload` / `document:read` / `document:delete` | Documentos do projeto |
 | `knowledge_base:read` / `knowledge_base:write` | Base de Conhecimento |
 | `poc:read` / `poc:manage` | Módulo de Prova de Conceito |
+| `pricing:read` / `pricing:manage` | Módulo de Precificação (catálogo, extrações, precificação de projeto) |
 | `template:manage` | Templates de proposta e verticais |
 | `branding:manage` | Logo e cores da identidade visual |
 | `integrations:manage` | Conectores de CRM/ERP |
@@ -82,6 +84,7 @@ Referência rápida das permissões disponíveis:
 | `admin:settings` | Licença/assinatura e conexão com o CMSaaS |
 | `admin:audit` | Log de auditoria |
 | `admin:debug` / `admin:diagnostics` | Console de debug e pacote de diagnóstico |
+| `admin:system_updates` | Agendar/aplicar atualizações de versão (Sistema de Atualização de Produção) |
 
 ### 2.2 Diretório de Usuários
 
@@ -234,7 +237,35 @@ que liga esta instalação ao painel de licenciamento central.
 
 ---
 
-## 7. Personalização e Identidade Visual
+## 7. Sistema de Atualização de Produção
+
+**[PRINT: sistema-atualizacao.png]**
+
+**Permissão necessária:** `admin:system_updates`.
+
+Controla a versão desta instalação, entregue pelo CMSaaS (Fleet Manager) via `Release`
+(draft → publicada → retirada), em canal **canary** ou **stable**.
+
+- **Versão Atual**: versão instalada (`git describe`) e SHA do commit, com aviso se houver
+  alterações locais não commitadas (`-dirty`).
+- **Última Release Disponível**: versão mais recente para o canal desta instalação — verificado a
+  cada heartbeat (até 20 min). Mostra "Já instalada" quando não há nada novo, ou o botão
+  **Atualizar Agora** quando há. **Ver notas de versão** mostra o changelog da release direto do
+  CMSaaS.
+- **Agendar Atualização**: escolha data/hora para aplicar a próxima atualização automaticamente
+  (um agendamento perdido por até 15 minutos ainda roda sozinho; além disso, precisa ser
+  reagendado manualmente), ou cancele um agendamento já feito.
+- **Histórico de Atualizações**: cada tentativa (sucesso, falha, revertida automaticamente) com
+  quem/o que disparou (usuário, agendamento ou comando remoto do CMSaaS), referência do backup
+  feito antes da atualização, e o log de erro quando aplicável.
+
+O processo em si (backup do banco e do `.env` → atualização do código → migração do banco →
+build → reinício → verificação de saúde) é automático e reverte sozinho para o estado anterior se
+qualquer etapa falhar — não há passo manual de rollback a fazer.
+
+---
+
+## 8. Personalização e Identidade Visual
 
 **[PRINT: 34-admin-branding.png]**
 
@@ -246,7 +277,7 @@ que liga esta instalação ao painel de licenciamento central.
 
 ---
 
-## 8. Integrações, CRMs, ERPs e APIs
+## 9. Integrações, CRMs, ERPs e APIs
 
 **[PRINT: 35-admin-integracoes.png]**
 
@@ -258,7 +289,7 @@ sistema com API compatível.
 
 ---
 
-## 9. Armazenamento e Documentos
+## 10. Armazenamento e Documentos
 
 **[PRINT: 36-admin-armazenamento.png]**
 
@@ -282,7 +313,7 @@ bucket GCS).
 
 ---
 
-## 10. Auditoria e Diagnóstico
+## 11. Auditoria e Diagnóstico
 
 **[PRINT: 37-admin-auditoria.png]**
 
@@ -300,7 +331,7 @@ bucket GCS).
 
 ---
 
-## 11. Boas práticas de administração
+## 12. Boas práticas de administração
 
 - **Prefira perfis a exceções por pessoa.** Se duas ou três pessoas vão precisar do mesmo conjunto
   de permissões, crie um perfil em vez de lembrar manualmente quem tem o quê.

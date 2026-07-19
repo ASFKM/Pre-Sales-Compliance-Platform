@@ -72,6 +72,16 @@ layer (`requireModule`), not just hidden in the frontend.
   coverage instead of inventing specs), and a client-acceptance workflow with a real approval gate
   that locks the record once a POC is concluded. See `docs/roadmap/REDESIGN_ROADMAP_2026-07.md`
   (Fase 6) for the full build log of each phase.
+- **Módulo de Precificação (pricing)**: a price catalog with per-item markup range and an optional
+  tax engine (ICMS/IPI/ISS/ST by origin UF), fed either by the strict price-table template or by
+  AI extraction of a supplier quote in any format (PDF, photo, DOCX, spreadsheet) with real-time
+  per-file progress. A row missing a required field is never rejected outright — the import tries
+  to complete it first from an already-catalogued item (matched by item code or PN) and only falls
+  back to manual review in "Extrações pendentes" for what genuinely needs a human decision. Project
+  pricing matches the BOM against the catalog (with a confidence score), applies a per-line
+  discount and tax, and — when a project has real pricing — feeds it straight into proposal
+  generation instead of a manually-typed table, with an explicit guarantee that markup and list
+  price are never exposed in the generated document (see `server/utils/docxTemplateEngine.ts`).
 
 ---
 

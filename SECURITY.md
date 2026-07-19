@@ -102,3 +102,13 @@ matching permission.
 - **Cost governance**: `PlatformSettings.monthly_cost_cap_usd` blocks further AI calls once a
   tenant's configured monthly spend is reached, returning HTTP 402 rather than silently continuing
   to bill.
+- **Pricing data never becomes fact without review**: an AI-extracted supplier quote (Módulo de
+  Precificação's "Enviar Arquivos") never writes to the price catalog directly — it always lands
+  in `PriceCatalogExtractionDraft` for human review/confirmation first, same governance principle
+  as Knowledge Base entries above. A row missing a required field is completed from an
+  already-catalogued item when possible, never from AI guesswork.
+- **Margin is never exposed to the customer**: markup and list price are deliberately never copied
+  into the data structure the DOCX template resolver receives when a project's real pricing feeds
+  a generated proposal (`server/utils/docxTemplateEngine.ts`) — the protection lives at the
+  data-origin (`server/routes/proposals.ts`), not just at the template-variable mapping step, so a
+  future change to the resolver can't accidentally leak it.

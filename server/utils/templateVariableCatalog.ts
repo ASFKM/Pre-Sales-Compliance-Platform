@@ -136,7 +136,7 @@ export const TEMPLATE_VARIABLE_CATALOG: TemplateVariableEntry[] = [
 
   // ---- Comercial ----
   {
-    name: "precificacao", description: "Tabela de precificação manual informada na geração da proposta.", category: "Comercial", kind: "loop",
+    name: "precificacao", description: "Tabela de precificação do projeto (Módulo de Precificação, quando o projeto tiver uma) ou a tabela manual informada na geração da proposta, como alternativa.", category: "Comercial", kind: "loop",
     loopFields: [
       { name: "item", description: "Nome do produto/serviço precificado." },
       { name: "quantidade", description: "Quantidade." },
