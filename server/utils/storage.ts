@@ -33,17 +33,20 @@ export class LocalStorageAdapter implements StorageAdapter {
     // storage operation, not just the first one.
   }
 
+  // AUD-009 (auditoria de segurança, 2026-07-19): antes, um storagePath com prefixo "local://"
+  // era usado direto (sem nenhum confinamento), e o ramo sem prefixo só tirava barras/".." do
+  // INÍCIO da string via regex (não cobre algo como "foo/../../etc/passwd", que não começa
+  // literalmente com "../"). storagePath sempre vem do retorno das próprias funções deste
+  // adaptador hoje, não é explorável na prática - mas nada impede isso, e confinar de verdade
+  // (path.resolve + checagem de prefixo) é a defesa que deveria existir independente disso.
   private resolveStoragePath(storagePath: string): string {
-    if (storagePath.startsWith("local://")) {
-      return storagePath.replace("local://", "");
+    const raw = storagePath.startsWith("local://") ? storagePath.replace("local://", "") : storagePath;
+    const resolved = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(this.baseUploadDir, raw);
+    const base = path.resolve(this.baseUploadDir);
+    if (resolved !== base && !resolved.startsWith(base + path.sep)) {
+      throw new Error("Caminho de armazenamento fora do diretório permitido.");
     }
-
-    const normalized = path
-      .normalize(storagePath)
-      .replace(/^(\/|\\)+/, "")
-      .replace(/^(\.\.(\/|\\))+/, "");
-
-    return path.resolve(process.cwd(), normalized);
+    return resolved;
   }
 
   async uploadFile(projectId: string, fileBuffer: Buffer, originalFilename: string, mimeType: string): Promise<string> {
