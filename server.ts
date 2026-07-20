@@ -1,7 +1,6 @@
 import express, { Response } from "express";
 import type { Request } from "./server/types/express";
 import path from "path";
-import fs from "fs";
 import pinoHttp from "pino-http";
 import { createServer as createViteServer } from "vite";
 import { prisma } from "./src/prisma";
@@ -181,16 +180,6 @@ app.use(errorHandler);
 
 // 7. Vite Development Middleware / Production static file serving
 async function bootstrap() {
-  // Ensure template path in uploads directory exists for proposal generation
-  const templateDir = path.join(process.cwd(), "uploads", "templates");
-  if (!fs.existsSync(templateDir)) {
-    fs.mkdirSync(templateDir, { recursive: true });
-  }
-  const standardTemplatePath = path.join(templateDir, "standard.docx");
-  if (!fs.existsSync(standardTemplatePath)) {
-    fs.writeFileSync(standardTemplatePath, "Standard Commercial Proposal template schema v1.0", "utf8");
-  }
-
   if (process.env.NODE_ENV === "production") {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
@@ -209,13 +198,40 @@ async function bootstrap() {
     app.use(vite.middlewares);
   }
 
-  const PORT = 3000;
+  // AUD-014 (auditoria de segurança, 2026-07-19): porta era fixa em 3000 mesmo com PORT
+  // documentado no .env.example - hoje os dois valores batem (PORT=3000), mas mudar PORT no
+  // .env não teria efeito nenhum, silenciosamente.
+  const PORT = Number(process.env.PORT) || 3000;
   // Bound to loopback only - Caddy (Fase 1 of the Zero Trust rollout) is the only thing that
   // should reach this port now, terminating TLS on :443 and reverse-proxying here. Direct LAN
   // access to :3000 is removed from ufw once this is confirmed working end to end.
-  app.listen(PORT, "127.0.0.1", () => {
+  const server = app.listen(PORT, "127.0.0.1", () => {
     logger.info({ port: PORT }, "Enterprise App Server listening");
   });
+
+  // AUD-014: sem isso, um sinal de término do systemd matava o processo imediatamente, cortando
+  // conexões em andamento sem aviso - inclusive uma análise de IA ou geração de proposta em
+  // voo. server.close() para de aceitar conexões novas e deixa as abertas terminarem sozinhas,
+  // com timeout de segurança (mesmo padrão já aplicado no Fleet Manager, CMS-008).
+  const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 10_000;
+  function gracefulShutdown(signal: string) {
+    logger.info({ signal }, "Received termination signal - draining connections");
+    const forceExitTimer = setTimeout(() => {
+      logger.warn("Graceful shutdown timed out - forcing exit");
+      process.exit(1);
+    }, GRACEFUL_SHUTDOWN_TIMEOUT_MS);
+    forceExitTimer.unref();
+    server.close((err) => {
+      if (err) {
+        logger.error({ err }, "Error during server close");
+        process.exit(1);
+      }
+      logger.info("Server closed cleanly");
+      process.exit(0);
+    });
+  }
+  process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+  process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
   // A BackgroundTask's whole life lives in this process's memory (see src/backgroundTasks.ts) -
   // if the process restarts while one is "running"/"queued" (a deploy, a crash), that row is
