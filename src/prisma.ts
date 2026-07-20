@@ -55,15 +55,31 @@ function buildVisibilityFilter(model: string, context: TenantContext): Record<st
   const { userId, roleId } = context;
   const approverOr = { OR: [{ approverUserId: userId }, ...(roleId ? [{ approverRoleId: roleId }] : [])] };
 
+  // Same 4 conditions as "who can see a Project" (below) - extracted so every model that hangs
+  // directly off a project (Document, AIAnalysisJob, AnalysisResult, ConversationMessage) can
+  // reuse it wrapped in `project: { OR: ... }` instead of re-deriving it. Any of these 4 models
+  // reachable in the future the same way should be added to the AUD-002 case further down, not
+  // left to fall through to the tenant-only filter (that's the exact IDOR class this closes -
+  // was confirmed real via GET /projects/:projectId/documents returning any project's documents
+  // to any authenticated user of the same tenant, not just this project's team).
+  const projectVisibilityOr = [
+    { ownerUserId: userId },
+    { owner: { teamMemberships: { some: { managerId: userId } } } },
+    { proposals: { some: { decisions: { some: { approverUserId: userId } } } } },
+    { proposals: { some: { approvalWorkflow: { stages: { some: approverOr } } } } },
+  ];
+
   if (model === "Project") {
-    return {
-      OR: [
-        { ownerUserId: userId },
-        { owner: { teamMemberships: { some: { managerId: userId } } } },
-        { proposals: { some: { decisions: { some: { approverUserId: userId } } } } },
-        { proposals: { some: { approvalWorkflow: { stages: { some: approverOr } } } } },
-      ],
-    };
+    return { OR: projectVisibilityOr };
+  }
+
+  // AUD-002 (auditoria de segurança, 2026-07-19): estes 4 modelos ficavam de fora da visibilidade
+  // por projeto, recebendo só o filtro de tenant - qualquer usuário autenticado do tenant podia
+  // ler/alterar documentos, resultados de análise, jobs e mensagens de conversa de QUALQUER
+  // projeto do tenant, não só dos projetos que ele pode ver. Mesma regra de "quem vê o projeto",
+  // um nível abaixo via a relação project direta que os 4 já têm no schema.
+  if (model === "Document" || model === "AIAnalysisJob" || model === "AnalysisResult" || model === "ConversationMessage") {
+    return { project: { OR: projectVisibilityOr } };
   }
 
   if (model === "Proposal") {
