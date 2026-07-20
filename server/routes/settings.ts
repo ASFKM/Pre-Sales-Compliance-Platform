@@ -11,6 +11,7 @@ import { getFleetLicenseStatus, runHeartbeatForTenant, runLicenseStatusPollForTe
 import { getCurrentTenantId } from "../../src/tenantContext";
 import { FACTORY_DEFAULT_CLASSIFICATION_PROMPT, FACTORY_DEFAULT_ANALYSIS_PROMPT, FACTORY_DEFAULT_POC_TEST_GENERATION_PROMPT, FACTORY_DEFAULT_POC_SCHEDULE_GENERATION_PROMPT, FACTORY_DEFAULT_POC_FINAL_REPORT_GENERATION_PROMPT } from "../utils/promptDefaults";
 import { getCurrentMonthSpendUsd, getCurrentMonthSpendByTaskTypeAndProvider } from "../../src/aiOrchestrator";
+import { assertPublicHttpsUrl } from "../utils/ssrfGuard";
 
 const router = express.Router();
 
@@ -209,7 +210,7 @@ router.put("/settings", requirePermission("admin:settings"), async (req: Request
       return res.status(400).json({ success: false, message: "No valid global settings fields provided." });
     }
 
-    const settingsValidation = validateAISettingsUpdates(updates);
+    const settingsValidation = await validateAISettingsUpdates(updates);
     if (!settingsValidation.valid) {
       return res.status(400).json({ success: false, message: settingsValidation.message });
     }
@@ -367,7 +368,7 @@ router.delete("/brand-styles/:id", requirePermission("branding:manage"), async (
 // as a parameter instead.
 const BUILT_IN_PROVIDERS = ["gemini", "anthropic", "openai"];
 
-function validateAISettingsUpdates(updates: any, customProviderKeys: string[] = []) {
+async function validateAISettingsUpdates(updates: any, customProviderKeys: string[] = []) {
   const validProviders = [...BUILT_IN_PROVIDERS, ...customProviderKeys];
   const modelFields = [
     "default_model",
@@ -428,8 +429,17 @@ function validateAISettingsUpdates(updates: any, customProviderKeys: string[] = 
     return { valid: false, message: "Invalid default log level." };
   }
 
-  if (updates.fleet_manager_url !== undefined && updates.fleet_manager_url !== "" && !/^https?:\/\//.test(String(updates.fleet_manager_url))) {
-    return { valid: false, message: "CMSaaS URL must start with http:// or https://." };
+  // AUD-008 (auditoria de segurança, 2026-07-19): antes era só um regex checando o prefixo
+  // http(s):// - aceitava HTTP (a mesma URL cujo transporte protege o heartbeat assinado, ver
+  // CMS-001/AUD-001). allowPrivateNetwork: true de propósito - o Fleet Manager real desta
+  // instalação está na mesma LAN (IP de rede privada), topologia legítima e esperada aqui; exigir
+  // HTTPS já cobre a ameaça real (MITM em trânsito). Ver ssrfGuard.ts.
+  if (updates.fleet_manager_url !== undefined && updates.fleet_manager_url !== "") {
+    try {
+      await assertPublicHttpsUrl(String(updates.fleet_manager_url), { allowPrivateNetwork: true });
+    } catch (e: any) {
+      return { valid: false, message: e.message };
+    }
   }
 
   return { valid: true, message: "" };
@@ -515,7 +525,7 @@ router.put("/settings/ai", requirePermission("ai:settings"), async (req: Request
     }
 
     const customProviders = await dbStore.getAiProviderConfigs();
-    const aiValidation = validateAISettingsUpdates(updates, customProviders.map((p) => p.provider_key));
+    const aiValidation = await validateAISettingsUpdates(updates, customProviders.map((p) => p.provider_key));
     if (!aiValidation.valid) {
       return res.status(400).json({ success: false, message: aiValidation.message });
     }
@@ -870,8 +880,12 @@ router.post("/settings/ai-providers", requirePermission("ai:settings"), async (r
     } catch {
       return res.status(400).json({ success: false, message: "base_url must be a valid URL (e.g. https://api.x.ai/v1)." });
     }
-    if (parsedUrl.protocol !== "https:") {
-      return res.status(400).json({ success: false, message: "base_url must use https." });
+    // AUD-008 (auditoria de segurança, 2026-07-19): antes só checava protocolo https - nada
+    // impedia apontar pra rede interna/loopback/metadata de nuvem. Ver ssrfGuard.ts.
+    try {
+      await assertPublicHttpsUrl(String(base_url || ""));
+    } catch (e: any) {
+      return res.status(400).json({ success: false, message: e.message });
     }
     if (!String(api_key || "").trim()) {
       return res.status(400).json({ success: false, message: "api_key is required." });
