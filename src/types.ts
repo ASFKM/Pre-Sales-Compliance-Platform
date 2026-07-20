@@ -308,6 +308,13 @@ export interface BOMItem {
   category: string;
   specification: string;
   source_reference: string;
+  // Confiança (0-1) auto-reportada pela IA no momento da extração (análise inicial ou reanálise
+  // de seção) de que equipment_name/specification realmente captura o que o documento pede -
+  // diferente de match_confidence abaixo, que é sobre achar um produto real depois. Usada pra
+  // decidir se uma reanálise pode substituir este item (server/routes/analysis.ts,
+  // reconcileBomWithExisting) e pra sinalizar "revisar" na tela quando baixa. Ausente em BOMs
+  // salvos antes desse campo existir.
+  confidence?: number;
   sourced_via_web_search?: boolean;
   // True when this item was instead resolved from an approved Knowledge Base entry (checked
   // before falling back to a live web search) - mutually exclusive with sourced_via_web_search.

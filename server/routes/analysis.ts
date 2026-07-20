@@ -203,6 +203,14 @@ const BOMItemSchema = z.object({
   category: z.string(),
   specification: z.string(),
   source_reference: z.string(),
+  // Self-reported by the model at EXTRACTION time (initial analysis AND per-section reanalysis) -
+  // how confident it is that this item's equipment/specification correctly captures what the
+  // source document actually demands. Distinct from match_confidence below, which is about
+  // finding a REAL product (post-extraction web/KB lookup) - this one is about the extraction/
+  // interpretation itself. Drives the "don't blindly replace a correct item on reanalysis" rule
+  // in reanalyze-section: an existing item is only overwritten by a differing new item when the
+  // new confidence is meaningfully higher AND the existing one was already low/unset.
+  confidence: z.number().min(0).max(1).optional().default(0.5),
   // True when sku/part_number/manufacturer were filled by the web-search lookup step below
   // rather than found in the source document - the two have very different reliability, and the
   // user needs to know which is which before quoting a part number in a real proposal.
@@ -378,7 +386,7 @@ const SECTION_CONFIG: Record<string, { schema: z.ZodTypeAny; label: string; shap
   bom: {
     schema: z.array(BOMItemSchema),
     label: "BOM (Lista de Materiais)",
-    shapeHint: `[{ "item_id": string, "sku": string, "part_number": string, "equipment_name": string, "manufacturer": string, "quantity": number, "unit": string, "category": string, "specification": string, "source_reference": string }]`,
+    shapeHint: `[{ "item_id": string, "sku": string, "part_number": string, "equipment_name": string, "manufacturer": string, "quantity": number, "unit": string, "category": string, "specification": string, "source_reference": string, "confidence": number (0-1) }]`,
     needsBomEnrichment: true,
   },
 };
@@ -465,6 +473,12 @@ router.post("/projects/:projectId/analysis-result/reanalyze-section", requirePer
 
     await updateTaskProgress(task.id, { currentStep: "Analisando com IA", progressPct: 40 });
 
+    // Fetched here (not just before saving, as this endpoint originally did) so the BOM
+    // reanalysis prompt below can show the model what's already there - a reanalysis regenerating
+    // the whole section from the raw text alone, with no memory of prior extraction, is exactly
+    // how a previously-correct item silently got replaced by a wrong one (real bug, 2026-07-20).
+    const existing = await dbStore.getAnalysisResult(projectId);
+
     const knowledgeBaseKeywords = extractKnowledgeBaseKeywords(
       [project.name, project.customer_name, project.vertical, project.description, project.ai_orientation_text, combinedExtractedText]
         .filter(Boolean)
@@ -475,6 +489,22 @@ router.post("/projects/:projectId/analysis-result/reanalyze-section", requirePer
       ? `\nACCUMULATED KNOWLEDGE FROM PAST PROJECTS (human-reviewed and approved - apply only the
 entries that are actually relevant to this document; ignore anything that doesn't clearly match):
 ${approvedKnowledge.map((k) => `- [${k.category}] Se: ${k.trigger} → Então: ${k.knowledge}`).join("\n")}\n`
+      : "";
+
+    // Only for the BOM section: show the model what's already saved for this project, so a
+    // reanalysis doesn't treat every item as a blank slate. The actual "don't blindly replace a
+    // correct item" enforcement is deterministic (reconcileBomWithExisting, below, after the AI
+    // responds) - this prompt text is a first line of defense (fewer spurious differences to
+    // reconcile in the first place), not the real guarantee.
+    const existingBomItems = section === "bom" ? (existing?.bom as any[] | undefined) || [] : [];
+    const existingBomSection = existingBomItems.length > 0
+      ? `\nCURRENT BOM ALREADY ON FILE FOR THIS PROJECT (from a previous analysis pass - human or
+automated review may already have confirmed some of these are correct):
+${existingBomItems.map((i) => `- ${i.equipment_name} [${i.category}] - manufacturer: ${i.manufacturer || "(empty)"}, part_number: ${i.part_number || "(empty)"}, confidence: ${typeof i.confidence === "number" ? i.confidence : "unknown"}`).join("\n")}
+Only report a DIFFERENT manufacturer/part_number/specification for an item above if the source
+documents give you clear evidence the current value is wrong or incomplete - disagreeing without
+new evidence is not a valid reason to change it. It is fine and expected to report the exact same
+values as above when they are still correct.\n`
       : "";
 
     // The whole point of a per-section reanalysis: this prompt asks for ONLY this one section,
@@ -491,7 +521,7 @@ EVERY distinct item the source material actually supports - do not merge similar
 into one, do not omit an item because it seems redundant with another, and do not invent a value
 (quantity, spec, reference) that isn't actually stated - if the source text is ambiguous about
 something, say so in the relevant text/notes field rather than guessing.
-${knowledgeBaseSection}
+${knowledgeBaseSection}${existingBomSection}
 PROJECT METADATA:
 - Name: ${project.name}
 - Customer: ${project.customer_name}
@@ -518,11 +548,21 @@ ${sectionConfig.shapeHint}`;
       validatedSection = await enrichBomWithWebSearch(validatedSection, platformSettings, project.proposal_language, tenantId, project.ai_orientation_text || "");
     }
 
+    // Deterministic reconciliation against what was already saved - the real enforcement of "an
+    // already-correct BOM item is not replaced just because a reanalysis was requested" (the
+    // prompt instruction above reduces spurious differences, but only this step actually decides
+    // and logs it). See reconcileBomWithExisting's own comment for the exact rule.
+    let bomReconciliationDecisions: BomReconciliationDecision[] = [];
+    if (section === "bom") {
+      const reconciliation = reconcileBomWithExisting(validatedSection, existingBomItems);
+      validatedSection = reconciliation.items;
+      bomReconciliationDecisions = reconciliation.decisions;
+    }
+
     // Same merge-on-save pattern as POST /projects/:projectId/analysis-result (the manual-edit
     // endpoint) - read the existing full row, overwrite only this one field, save the whole thing
     // back. Every other section (and the two proposal drafts) is left exactly as it was.
     await updateTaskProgress(task.id, { currentStep: "Salvando resultado", progressPct: 95 });
-    const existing = await dbStore.getAnalysisResult(projectId);
     const updatedLogicVersions = { ...(existing?.logic_versions || {}) };
     if (section === "bom") updatedLogicVersions.bom_enrichment = LOGIC_VERSIONS.bom_enrichment;
     const merged = { ...existing, [section]: validatedSection, project_id: projectId, updated_at: new Date().toISOString(), logic_versions: updatedLogicVersions };
@@ -536,7 +576,12 @@ ${sectionConfig.shapeHint}`;
       project_id: projectId,
       ip_address: "127.0.0.1",
       user_agent: "section-reanalysis",
-      metadata: JSON.stringify({ section, provider: providerResolution.provider, model: providerResolution.model }),
+      metadata: JSON.stringify({
+        section,
+        provider: providerResolution.provider,
+        model: providerResolution.model,
+        ...(section === "bom" && bomReconciliationDecisions.length > 0 ? { bom_reconciliation: bomReconciliationDecisions } : {}),
+      }),
     });
 
     logDebugMessage({
@@ -664,6 +709,135 @@ export function computeEquipmentMatchCrossCheck<T extends { category?: string; m
     const downgraded = isOutlier && item.match_confidence === "high" ? "medium" : item.match_confidence;
     return { ...item, manufacturer_outlier: isOutlier, match_confidence: downgraded };
   });
+}
+
+function normalizeForBomMatch(text: string | undefined): string {
+  return (text || "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+// A section reanalysis regenerates the ENTIRE BOM from the source documents again, with no
+// memory of what was already saved - confirmed real bug (2026-07-20): a correctly-specified
+// camera (present in the Knowledge Base with 38 approved entries) got silently replaced by a
+// wrong one on a later pass, because nothing ever compared the new AI output against what was
+// already there. `item_id` can't be used to match "the same equipment" across passes - the model
+// regenerates the whole list and has no obligation to reuse a prior ID.
+//
+// Two-tier matching (real end-to-end test, 2026-07-20, found the identity gap): matching by
+// equipment_name+category alone missed cases where the AI legitimately restructured wording
+// (e.g. splitting one item into per-lot variants, "Câmera PTZ" -> "Câmera PTZ - LOTE 1") while the
+// underlying product identity (manufacturer+part_number) stayed exactly the same - each old/new
+// pair was treated as two unrelated items instead of one, inflating the BOM with near-duplicates.
+// Tier 1 (identity): category+manufacturer+part_number, normalized - only when the NEW item
+// actually states both a manufacturer and a part_number (an empty/not_found new item can't claim
+// an identity match against a real existing product; that would silently affirm a lookup failure
+// as if it were the correct one). This tier is a pure rename/rewording case by construction (same
+// product either way), so the new item's fields are accepted directly, no confidence comparison
+// needed - there's nothing to arbitrate.
+// Tier 2 (name fallback): normalized equipment_name+category, same as before - this is where a
+// REAL conflict (same conceptual line item, different manufacturer/part_number proposed) is
+// actually caught and run through the confidence rule below. Matching by identity first, before
+// falling back to name, is deliberate: if tier 1 matched by identity already consumed an existing
+// item, tier 2 must not also match it under a stale name and double-count it.
+//
+// Decision rule for tier-2 conflicts (user-approved, 2026-07-20): the existing item wins UNLESS
+// the new item's confidence is meaningfully higher (>= CONFIDENCE_REPLACE_DELTA more) AND the
+// existing item was already low-confidence or unset (< CONFIDENCE_REPLACE_FLOOR, including
+// never-set/`not_found`). Deliberately automatic (no extra confirmation screen, per user's
+// explicit choice) but never silent: every real conflict is logged with old/new confidence and
+// the outcome, both as a short note on the item itself and in the audit log entry.
+const CONFIDENCE_REPLACE_DELTA = 0.3;
+const CONFIDENCE_REPLACE_FLOOR = 0.5;
+
+export interface BomReconciliationDecision {
+  equipment_name: string;
+  category: string;
+  outcome: "kept_existing" | "accepted_new" | "matched_by_identity" | "new_item" | "existing_untouched";
+  existing_confidence?: number;
+  new_confidence?: number;
+}
+
+export function reconcileBomWithExisting(newItems: any[], existingItems: any[]): { items: any[]; decisions: BomReconciliationDecision[] } {
+  if (!existingItems || existingItems.length === 0) {
+    return { items: newItems, decisions: [] };
+  }
+
+  const identityKey = (item: any) => `${normalizeForBomMatch(item.category)}::${normalizeForBomMatch(item.manufacturer)}::${normalizeForBomMatch(item.part_number)}`;
+  const nameKey = (item: any) => `${normalizeForBomMatch(item.equipment_name)}::${normalizeForBomMatch(item.category)}`;
+
+  const existingByIdentity = new Map<string, number>();
+  const existingByName = new Map<string, number>();
+  existingItems.forEach((item, idx) => {
+    if (item.manufacturer?.trim() && item.part_number?.trim()) {
+      existingByIdentity.set(identityKey(item), idx);
+    }
+    existingByName.set(nameKey(item), idx);
+  });
+  const consumedExistingIdx = new Set<number>();
+  const decisions: BomReconciliationDecision[] = [];
+
+  const reconciled = newItems.map((newItem) => {
+    // Tier 1: identity match (category+manufacturer+part_number) - a pure rename/rewording, the
+    // underlying product is already confirmed the same, nothing to arbitrate.
+    if (newItem.manufacturer?.trim() && newItem.part_number?.trim()) {
+      const idIdx = existingByIdentity.get(identityKey(newItem));
+      if (idIdx !== undefined && !consumedExistingIdx.has(idIdx)) {
+        consumedExistingIdx.add(idIdx);
+        decisions.push({ equipment_name: newItem.equipment_name, category: newItem.category, outcome: "matched_by_identity" });
+        return newItem;
+      }
+    }
+
+    // Tier 2: name fallback - this is where a real conflict (same line item, different
+    // manufacturer/part_number proposed) is actually caught.
+    const nmIdx = existingByName.get(nameKey(newItem));
+    if (nmIdx === undefined || consumedExistingIdx.has(nmIdx)) {
+      return newItem;
+    }
+    const existingItem = existingItems[nmIdx];
+    consumedExistingIdx.add(nmIdx);
+
+    // Not a real conflict if the substance of the item didn't actually change - no need to log a
+    // "decision" or touch the item just because the AI regenerated equivalent text.
+    const sameSubstance =
+      normalizeForBomMatch(newItem.part_number) === normalizeForBomMatch(existingItem.part_number) &&
+      normalizeForBomMatch(newItem.manufacturer) === normalizeForBomMatch(existingItem.manufacturer);
+    if (sameSubstance) {
+      return newItem;
+    }
+
+    const existingConfidence = typeof existingItem.confidence === "number" ? existingItem.confidence : 0.5;
+    const newConfidence = typeof newItem.confidence === "number" ? newItem.confidence : 0.5;
+    const shouldAcceptNew = existingConfidence < CONFIDENCE_REPLACE_FLOOR && newConfidence - existingConfidence >= CONFIDENCE_REPLACE_DELTA;
+
+    if (shouldAcceptNew) {
+      decisions.push({ equipment_name: newItem.equipment_name, category: newItem.category, outcome: "accepted_new", existing_confidence: existingConfidence, new_confidence: newConfidence });
+      return newItem;
+    }
+
+    decisions.push({ equipment_name: newItem.equipment_name, category: newItem.category, outcome: "kept_existing", existing_confidence: existingConfidence, new_confidence: newConfidence });
+    const note = "(mantido da reanálise anterior - confiança já era alta ou a nova sugestão não teve confiança suficientemente maior para substituir)";
+    return {
+      ...existingItem,
+      specification: existingItem.specification?.includes(note) ? existingItem.specification : `${existingItem.specification} ${note}`,
+    };
+  });
+
+  // An existing item the new pass simply didn't recreate at all (by identity NOR by name) is a
+  // worse failure than a wrong replacement (silent data loss) - add it back rather than let a
+  // reanalysis quietly shrink the BOM.
+  existingItems.forEach((existingItem, idx) => {
+    if (!consumedExistingIdx.has(idx)) {
+      decisions.push({ equipment_name: existingItem.equipment_name, category: existingItem.category, outcome: "existing_untouched" });
+      reconciled.push(existingItem);
+    }
+  });
+
+  return { items: reconciled, decisions };
 }
 
 async function enrichBomWithWebSearch(bom: any[], platformSettings: any, proposalLanguage: string, tenantId: string, orientationText: string): Promise<any[]> {
@@ -1217,7 +1391,8 @@ You MUST respond with a strictly parsable JSON object. No markdown, no formattin
       "unit": "un",
       "category": "Hardware, Software, Serviço, Licença, etc.",
       "specification": "Real technical specification/requirement for this item exactly as demanded by the source document (throughput, protocol, certification, dimensions, etc.), aligned with Tech Orientation: ${project.ai_orientation_text}",
-      "source_reference": "Section/page/item number in the source document this line item came from"
+      "source_reference": "Section/page/item number in the source document this line item came from",
+      "confidence": "number 0-1: how confident you are that this equipment_name/specification correctly captures what the source document actually demands for this item - 1.0 only when the document states it explicitly and unambiguously, lower when you had to infer, interpret vague wording, or reconcile conflicting mentions of the same item"
     }
   ],
   "point_to_point_table": [
