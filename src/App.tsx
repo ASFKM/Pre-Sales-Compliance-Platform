@@ -283,6 +283,17 @@ export default function App() {
     };
   }, []);
 
+  // AUD-006 (auditoria de segurança, 2026-07-19): avaliado migrar o token de sessão de
+  // localStorage para um cookie httpOnly (elimina o acesso via JS, então um XSS não consegue
+  // roubar o token) - decisão consciente de NÃO fazer essa migração nesta correção. Motivo: exige
+  // reescrever requireAuth pra aceitar cookie (hoje só Bearer), CSRF protection nova (cookie é
+  // enviado automaticamente pelo browser em toda requisição, diferente de Authorization que exige
+  // JS explícito - abre uma classe de vulnerabilidade nova que não existe hoje), e tocar todo
+  // ponto do frontend que lê o token (dezenas de call sites). Risco de regressão/quebra
+  // desproporcional ao ganho numa mudança feita sem ciclo de design/teste dedicado - já mitigado
+  // via CSP restrito (script-src 'self', sem 'unsafe-inline') como principal defesa contra XSS
+  // hoje. Query string do token no EventSource (o vetor mais barato de vazar, via log de
+  // acesso/histórico) já foi corrigido acima com ticket de curta duração.
   const handleLoginSuccess = (user: any, token: string) => {
     localStorage.setItem("ca_session_token", token);
     localStorage.setItem("ca_user", JSON.stringify(user));

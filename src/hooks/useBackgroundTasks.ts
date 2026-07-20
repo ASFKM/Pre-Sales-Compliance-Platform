@@ -56,7 +56,22 @@ export function useBackgroundTasks(isAuthenticated: boolean) {
     };
     syncActiveSnapshot();
 
-    const es = new EventSource(`/api/tasks/stream?token=${encodeURIComponent(token)}`);
+    // AUD-006 (auditoria de segurança, 2026-07-19): EventSource não pode setar cabeçalhos, então
+    // não dá pra mandar o token de sessão completo (válido por horas) via Authorization - antes
+    // ia direto na query string da URL, risco real de aparecer em log de acesso/histórico do
+    // navegador. Busca um ticket de curta duração primeiro (requisição normal, token no header) e
+    // usa só ele na URL do EventSource.
+    let es: EventSource | undefined;
+    fetch("/api/auth/sse-ticket", { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled || !data.success) return;
+        es = new EventSource(`/api/tasks/stream?ticket=${encodeURIComponent(data.ticket)}`);
+        wireEventSource(es);
+      })
+      .catch(() => {});
+
+    function wireEventSource(es: EventSource) {
     es.onopen = () => {
       syncActiveSnapshot();
       // A task's terminal message (completed/failed) can be missed during the exact disconnect
@@ -90,10 +105,11 @@ export function useBackgroundTasks(isAuthenticated: boolean) {
         console.error("Failed to parse task update", err);
       }
     };
+    }
 
     return () => {
       cancelled = true;
-      es.close();
+      es?.close();
     };
   }, [isAuthenticated]);
 

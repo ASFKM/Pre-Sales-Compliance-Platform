@@ -346,27 +346,44 @@ export default function AdminConsole({
   useEffect(() => {
     const token = localStorage.getItem("ca_session_token");
     if (!token) return;
-    const es = new EventSource(`/api/admin/system-updates/stream?token=${encodeURIComponent(token)}`);
-    // Redis pub/sub has no replay - a message published exactly while this connection is down
-    // (the server-side app restart mid-update is the textbook case) is lost for good, not just
-    // delayed. Reconciling with a normal fetch on every (re)connect - not just the first one -
-    // is what makes a dropped connection self-heal instead of leaving the panel stuck on
-    // whatever the last received event said. Same pattern useBackgroundTasks.ts already uses.
-    es.onopen = () => loadSystemUpdateState();
-    es.onmessage = (ev) => {
-      try {
-        const data: { status: string; current_step?: string | null } = JSON.parse(ev.data);
-        setSystemUpdateState((prev) => (prev ? { ...prev, last_attempt_status: data.status as any, current_step: data.current_step ?? prev.current_step } : prev));
-        if (data.status !== "in_progress") {
-          // Estados terminais trazem mais campos do que o evento carrega (versão atual, histórico
-          // novo) - uma busca completa pega o resto.
-          loadSystemUpdateState();
-        }
-      } catch {
-        // ignora mensagem malformada
-      }
+    let cancelled = false;
+    let es: EventSource | undefined;
+
+    // AUD-006 (auditoria de segurança, 2026-07-19): EventSource não pode setar cabeçalhos, então
+    // o token de sessão completo (válido por horas) ia direto na query string - troca por um
+    // ticket de curta duração (mesmo mecanismo de useBackgroundTasks.ts), buscado antes via
+    // requisição normal com o token no header.
+    fetch("/api/auth/sse-ticket", { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled || !data.success) return;
+        es = new EventSource(`/api/admin/system-updates/stream?ticket=${encodeURIComponent(data.ticket)}`);
+        // Redis pub/sub has no replay - a message published exactly while this connection is down
+        // (the server-side app restart mid-update is the textbook case) is lost for good, not just
+        // delayed. Reconciling with a normal fetch on every (re)connect - not just the first one -
+        // is what makes a dropped connection self-heal instead of leaving the panel stuck on
+        // whatever the last received event said. Same pattern useBackgroundTasks.ts already uses.
+        es.onopen = () => loadSystemUpdateState();
+        es.onmessage = (ev) => {
+          try {
+            const data: { status: string; current_step?: string | null } = JSON.parse(ev.data);
+            setSystemUpdateState((prev) => (prev ? { ...prev, last_attempt_status: data.status as any, current_step: data.current_step ?? prev.current_step } : prev));
+            if (data.status !== "in_progress") {
+              // Estados terminais trazem mais campos do que o evento carrega (versão atual, histórico
+              // novo) - uma busca completa pega o resto.
+              loadSystemUpdateState();
+            }
+          } catch {
+            // ignora mensagem malformada
+          }
+        };
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+      es?.close();
     };
-    return () => es.close();
   }, []);
 
   const fetchReleaseNotes = async () => {
