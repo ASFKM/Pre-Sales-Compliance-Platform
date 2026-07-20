@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pen, Trash2, FolderOpen, X } from "lucide-react";
+import { Pen, Trash2, FolderOpen, X, Plus } from "lucide-react";
 import { Project } from "../types";
 import ApiClient from "../lib/api";
 import ProjectFieldsForm, { ProjectFieldsValues } from "./modals/ProjectFieldsForm";
@@ -49,9 +49,10 @@ interface ProjectsListProps {
   hasPermission: (permission: string) => boolean;
   onOpenProject: (projectId: string) => void;
   onProjectsChanged: () => void;
+  setShowNewProjectModal: (show: boolean) => void;
 }
 
-export default function ProjectsList({ locale, projects, hasPermission, onOpenProject, onProjectsChanged }: ProjectsListProps) {
+export default function ProjectsList({ locale, projects, hasPermission, onOpenProject, onProjectsChanged, setShowNewProjectModal }: ProjectsListProps) {
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [editValues, setEditValues] = useState<ProjectFieldsValues | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
@@ -101,6 +102,12 @@ export default function ProjectsList({ locale, projects, hasPermission, onOpenPr
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">Todos os Projetos ({projects.length})</h2>
+        <button
+          onClick={() => setShowNewProjectModal(true)}
+          className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-1.5 rounded-lg font-semibold transition-all shadow-sm cursor-pointer"
+        >
+          <Plus size={14} /> Novo Projeto
+        </button>
       </div>
 
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">

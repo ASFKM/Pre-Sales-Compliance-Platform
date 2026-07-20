@@ -952,19 +952,19 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
 
           <div className="flex items-center">
             <button
-              onClick={() => setActiveTab("workspace")}
-              className={`py-4 px-1 border-b-2 transition-all ${activeTab === "workspace" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
+              onClick={() => setActiveTab("projectsList")}
+              className={`py-4 px-1 border-b-2 transition-all ${activeTab === "projectsList" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
             >
-              {t("workspace")}
+              Projetos
             </button>
           </div>
 
           <div className="flex items-center">
             <button
-              onClick={() => setActiveTab("projectsList")}
-              className={`py-4 px-1 border-b-2 transition-all ${activeTab === "projectsList" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
+              onClick={() => setActiveTab("workspace")}
+              className={`py-4 px-1 border-b-2 transition-all ${activeTab === "workspace" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
             >
-              Projetos
+              {t("workspace")}
             </button>
           </div>
 
@@ -1333,6 +1333,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                 hasPermission={hasPermission}
                 onOpenProject={(projectId) => { setSelectedProjectId(projectId); setActiveTab("workspace"); }}
                 onProjectsChanged={fetchProjects}
+                setShowNewProjectModal={setShowNewProjectModal}
               />
             </div>
           )}
