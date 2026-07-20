@@ -17,6 +17,7 @@ import { FACTORY_DEFAULT_ANALYSIS_PROMPT } from "../utils/promptDefaults";
 import { buildDocxBuffer } from "../utils/docx";
 import { randomId } from "../../src/idGenerator";
 import { LOGIC_VERSIONS } from "../../src/aiLogicVersions";
+import { UNTRUSTED_DOCUMENT_WARNING } from "../utils/promptSafety";
 
 const router = express.Router();
 
@@ -496,6 +497,8 @@ PROJECT METADATA:
 - Customer: ${project.customer_name}
 - Vertical: ${project.vertical}
 - Description: ${project.description || "N/A"}
+
+${UNTRUSTED_DOCUMENT_WARNING}
 
 REAL EXTRACTED DOCUMENT TEXT:
 ${combinedExtractedText}
@@ -1127,6 +1130,8 @@ PROJECT METADATA:
 - Technical Guidelines: ${project.ai_orientation_text || "None provided"}
 - Target Language: ${project.proposal_language}
 ${knowledgeBaseSection}
+${UNTRUSTED_DOCUMENT_WARNING}
+
 REAL EXTRACTED DOCUMENT TEXTS:
 ${combinedExtractedText}
 
@@ -1480,6 +1485,8 @@ CRITICAL: this project is ONLY the one named below - never reference, compare ag
 information from any other project. Answer in ${project.proposal_language}.
 
 PROJECT: ${project.name} (${project.customer_name}, ${project.vertical})
+
+${UNTRUSTED_DOCUMENT_WARNING}
 
 EXTRACTED DOCUMENT TEXT:
 ${combinedExtractedText || "No document text extracted yet."}

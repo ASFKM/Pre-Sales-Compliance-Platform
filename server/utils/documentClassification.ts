@@ -4,6 +4,7 @@ import { FACTORY_DEFAULT_CLASSIFICATION_PROMPT } from "./promptDefaults";
 import { estimateCostUsd } from "./aiPricing";
 import { recordAiUsage, resolveProvider, recordProviderFallback } from "../../src/aiOrchestrator";
 import { generateJsonWithProvider, ConnectedProvider } from "./aiProviders";
+import { UNTRUSTED_DOCUMENT_WARNING } from "./promptSafety";
 
 export interface DocumentClassification {
   document_type: string;
@@ -25,6 +26,8 @@ export async function classifyDocument(filename: string, extractedText: string, 
     const prompt = `${instructions}
 
 FILENAME: ${filename}
+
+${UNTRUSTED_DOCUMENT_WARNING}
 
 EXTRACTED TEXT (first 4000 characters):
 ${extractedText.slice(0, 4000) || "(no text extracted)"}

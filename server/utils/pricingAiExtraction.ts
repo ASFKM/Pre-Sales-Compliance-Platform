@@ -11,6 +11,7 @@ import { z } from "zod";
 import { ConnectedProvider, ProviderFileInput, generateJsonWithProvider } from "./aiProviders";
 import { extractTextFromDocument } from "./extraction";
 import { parseAiJson } from "../routes/analysis";
+import { UNTRUSTED_DOCUMENT_WARNING } from "./promptSafety";
 
 export interface DraftPricingRow {
   itemCode: string | null;
@@ -117,7 +118,7 @@ export async function extractPricingRowsWithAi(
     if (extracted.metadata.extractionStatus === "failed") {
       throw new Error(`Não foi possível ler o conteúdo de "${file.filename}" - o arquivo pode estar corrompido, protegido por senha, ou num formato não suportado.`);
     }
-    prompt += `\n\n--- CONTEÚDO DO DOCUMENTO (${file.filename}) ---\n${extracted.text.substring(0, 20000)}`;
+    prompt += `\n\n${UNTRUSTED_DOCUMENT_WARNING}\n\n--- CONTEÚDO DO DOCUMENTO (${file.filename}) ---\n${extracted.text.substring(0, 20000)}`;
   }
 
   const { text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(provider, model, prompt, files);
