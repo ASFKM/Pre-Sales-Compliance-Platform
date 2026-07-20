@@ -151,8 +151,15 @@ export async function failTask(id: string, errorMessage: string): Promise<Backgr
   return task;
 }
 
-export async function getTask(id: string): Promise<BackgroundTask | undefined> {
-  const t = await prisma.backgroundTask.findUnique({ where: { id } });
+// AUD-010 (auditoria de segurança, 2026-07-19): antes só filtrava por id (tenant já vem grátis
+// da extensão de escopo) - qualquer usuário do tenant podia consultar a tarefa de QUALQUER outro
+// usuário pelo ID, vazando error_message, custo estimado, provider de IA e result_id. Único call
+// site real (GET /tasks/:id) sempre consulta uma tarefa que o próprio usuário está aguardando
+// (waitForTask), então filtrar por userId não quebra nenhum uso legítimo - tarefas sem dono
+// (system_update, disparadas por agendamento/comando remoto) usam suas próprias rotas dedicadas
+// em /admin/system-updates/*, não esta.
+export async function getTask(id: string, userId: string): Promise<BackgroundTask | undefined> {
+  const t = await prisma.backgroundTask.findFirst({ where: { id, userId } });
   return t ? mapTask(t) : undefined;
 }
 
