@@ -155,6 +155,35 @@ export async function getSession(token: string): Promise<Session | undefined> {
   };
 }
 
+// AUD-006 (auditoria de segurança, 2026-07-19): EventSource não pode setar cabeçalhos
+// customizados, então o token de sessão completo (válido por horas) ia direto na query string
+// (`?token=...`) - risco real de aparecer em logs de acesso, histórico do navegador e cabeçalho
+// Referer. Ticket separado do token de sessão, com uma janela de validade bem mais curta (5 min
+// contra horas) reduz drasticamente essa exposição.
+//
+// Deliberadamente NÃO é de uso único: o EventSource nativo do browser reconecta sozinho usando a
+// MESMA URL sempre que a conexão cai (rede instável, deploy, restart do servidor) - um ticket
+// consumido na primeira conexão travaria toda reconexão automática depois da primeira, um bug
+// pior que o problema original. Reutilizável dentro da janela de 5 min é a troca certa aqui:
+// reduz a exposição de "horas" pra "no máximo 5 minutos" sem quebrar a reconexão nativa.
+const SSE_TICKET_TTL_MS = 5 * 60_000;
+
+function sseTicketRedisKey(ticket: string): string {
+  return `sse-ticket:${ticket}`;
+}
+
+export async function issueSseTicket(userId: string, roleId: string): Promise<string> {
+  const ticket = crypto.randomBytes(24).toString("hex");
+  await redis.set(sseTicketRedisKey(ticket), JSON.stringify({ userId, roleId }), "PX", SSE_TICKET_TTL_MS);
+  return ticket;
+}
+
+export async function resolveSseTicket(ticket: string): Promise<{ userId: string; roleId: string } | null> {
+  const raw = await redis.get(sseTicketRedisKey(ticket));
+  if (!raw) return null;
+  return JSON.parse(raw);
+}
+
 export async function deleteSession(token: string): Promise<void> {
   const sid = decodeSid(token);
   if (!sid) return;
@@ -249,13 +278,26 @@ export async function revokeRefreshToken(token: string): Promise<void> {
 // Rotates a refresh token: returns a new access-token session + new refresh token, or null if
 // the token is unknown/expired/reused/the family's absolute lifetime has passed - any of which
 // means "the frontend must send the user back through a real login."
+function refreshTokenClaimKey(token: string): string {
+  return `reftoken-claim:${token}`;
+}
+
 export async function rotateRefreshToken(oldToken: string): Promise<{ session: Session; refreshToken: string } | null> {
   const raw = await redis.get(refreshTokenKey(oldToken));
   if (!raw) return null;
 
   const record: RefreshTokenRecord = JSON.parse(raw);
 
-  if (record.used) {
+  // AUD-007 (auditoria de segurança, 2026-07-19): antes, "ler o registro" e "marcar como usado"
+  // eram duas operações Redis separadas (GET, depois SET) - duas requisições de refresh
+  // concorrentes com o MESMO token podiam ambas passar pela checagem `record.used` antes de
+  // qualquer uma delas marcar, e ambas emitiam sessão/refresh token novos (corrida real, não
+  // hipotética). SET ... NX é atômico por natureza do Redis - só a PRIMEIRA chamada concorrente
+  // consegue gravar a chave de reivindicação, qualquer outra falha na hora, sem essa janela.
+  const claimed = await redis.set(refreshTokenClaimKey(oldToken), "1", "PX", USED_TOKEN_REUSE_DETECTION_WINDOW_MS, "NX");
+  if (claimed !== "OK" || record.used) {
+    // Perdeu a corrida agora (concorrência genuína) ou já tinha sido usado antes (replay de
+    // verdade) - os dois casos são tratados igual, como reuso suspeito.
     await revokeRefreshFamily(record.familyId);
     return null;
   }

@@ -17,7 +17,9 @@ import {
   createRefreshFamily,
   rotateRefreshToken,
   revokeRefreshToken,
-  REFRESH_TOKEN_COOKIE_NAME
+  REFRESH_TOKEN_COOKIE_NAME,
+  issueSseTicket,
+  resolveSseTicket
 } from "../utils/security";
 import { logDebugMessage, loginRateLimiter } from "../middleware/security";
 import { isProductionRuntime, isDemoRuntime } from "../config/runtime";
@@ -104,19 +106,37 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   const authHeader = req.headers["authorization"];
   const correlationId = (req.headers["x-correlation-id"] as string) || "corr-unknown";
 
-  // EventSource (used for the Phase 1 task-progress stream) can't set custom headers, so it's
-  // the one legitimate case for passing the token as a query param instead of Authorization.
-  // Every other client already sends it via the header, so this fallback doesn't change
-  // behavior for them.
+  // EventSource can't set custom headers, so a query param has always been the one legitimate
+  // exception to sending the token via Authorization. AUD-006 (auditoria de segurança,
+  // 2026-07-19): passar o TOKEN DE SESSÃO completo (válido por horas) direto na URL era o
+  // problema - risco real de aparecer em log de acesso, histórico do navegador, Referer. Agora é
+  // um `ticket` de curta duração (5 min, ver issueSseTicket/resolveSseTicket em security.ts -
+  // reutilizável dentro da janela de propósito, pra não quebrar a reconexão automática nativa do
+  // EventSource) - `?token=` na query ainda funciona por compatibilidade, mas nenhum código deste
+  // repositório emite mais URLs assim (ver GET /auth/sse-ticket e os dois EventSource do
+  // frontend, atualizados juntos com esta mudança).
   const queryToken = typeof req.query.token === "string" ? req.query.token : undefined;
+  const ticketParam = typeof req.query.ticket === "string" ? req.query.ticket : undefined;
   const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : queryToken;
 
-  if (!token) {
+  if (!token && !ticketParam) {
     return res.status(401).json({ success: false, message: "Authorization token required." });
   }
 
   try {
-    const session = await getSession(token);
+    let session: Awaited<ReturnType<typeof getSession>>;
+    if (token) {
+      session = await getSession(token);
+    } else if (ticketParam) {
+      const resolved = await resolveSseTicket(ticketParam);
+      // mfaVerified: true - o ticket só existe porque quem o emitiu (GET /auth/sse-ticket) já
+      // exigiu requireAuth completo, MFA incluído; reexigir aqui seria redundante, o ticket em si
+      // já prova isso (e expira em 5 min, então não é um jeito mais fraco de contornar o MFA - só
+      // reaproveita uma verificação que acabou de acontecer há pouco).
+      session = resolved
+        ? { token: "", userId: resolved.userId, roleId: resolved.roleId, mfaVerified: true, createdAt: new Date(), expiresAt: new Date() }
+        : undefined;
+    }
 
     if (!session) {
       return res.status(401).json({ success: false, message: "Invalid or expired session token.", correlationId });
@@ -146,7 +166,17 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       return res.status(401).json({ success: false, message: "Invalid or expired session token.", correlationId });
     }
 
-    const role = await dbStore.getRoleById(session.roleId);
+    // AUD-003 (auditoria de segurança, 2026-07-19): sem isso, um usuário desativado mantinha
+    // acesso total até a sessão expirar sozinha - nada aqui revalidava o status a cada
+    // requisição, só no momento do login.
+    if (user.status !== "ACTIVE") {
+      return res.status(401).json({ success: false, message: "Invalid or expired session token.", correlationId });
+    }
+
+    // AUD-003: lê o papel ATUAL do usuário (user.role_id, resolvido agora) em vez do papel
+    // congelado no momento do login (session.roleId) - sem isso, rebaixar/promover um usuário só
+    // fazia efeito na próxima vez que ele fizesse login de novo, não na próxima requisição.
+    const role = await dbStore.getRoleById(user.role_id);
     const canSeeAllProjects = role?.permissions.includes("project:read_all") ?? false;
 
     // Phase 7 (fleet/license management): only ever blocks on an explicit, currently-valid,
@@ -175,7 +205,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
     // Bind session info to request headers for downstream endpoint use
     req.headers["x-user-id"] = session.userId;
-    req.headers["x-role-id"] = session.roleId;
+    req.headers["x-role-id"] = user.role_id;
     req.headers["x-session-token"] = token;
     req.headers["x-tenant-id"] = user.tenant_id;
 
@@ -184,11 +214,11 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     // line from here on for this request carries userId/tenantId/roleId without each call site
     // having to pass them explicitly.
     if (req.log) {
-      req.log = req.log.child({ userId: session.userId, tenantId: user.tenant_id, roleId: session.roleId });
+      req.log = req.log.child({ userId: session.userId, tenantId: user.tenant_id, roleId: user.role_id });
     }
 
     runWithTenant(
-      { tenantId: user.tenant_id, userId: session.userId, roleId: session.roleId, canSeeAllProjects },
+      { tenantId: user.tenant_id, userId: session.userId, roleId: user.role_id, canSeeAllProjects },
       () => next()
     );
   } catch (err) {
@@ -476,6 +506,16 @@ router.post("/change-password", async (req: Request, res: Response, next: NextFu
       return res.status(401).json({ success: false, message: "Invalid or expired session token.", correlationId });
     }
 
+    // AUD-004 (auditoria de segurança, 2026-07-19): sem isso, quem só tivesse a senha atual (ex.:
+    // phishing, senha vazada) podia trocar a senha de uma conta com MFA ativo antes de completar
+    // o MFA. Contas sem MFA habilitado não são afetadas (mfaVerified já vem true na criação da
+    // sessão nesse caso via createSession), e o fluxo de primeiro acesso (enroll -> verify -> troca
+    // de senha) continua funcionando sem mudança, já que nenhum dos dois depende da senha já ter
+    // sido trocada.
+    if (!session.mfaVerified) {
+      return res.status(401).json({ success: false, code: "MFA_REQUIRED", message: "Conclua a verificação de MFA antes de trocar a senha.", correlationId });
+    }
+
     const user = await dbStore.getUserById(session.userId);
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found." });
@@ -647,6 +687,22 @@ router.post("/logout", requireAuth, async (req: Request, res: Response, next: Ne
     });
 
     res.json({ success: true, message: "Logged out successfully." });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// AUD-006 (auditoria de segurança, 2026-07-19): emite o ticket de curta duração usado pra abrir
+// uma conexão EventSource sem colocar o token de sessão completo na URL - o frontend chama isto
+// primeiro (requisição normal, token no header) e usa o `ticket` retornado no `?ticket=` da URL
+// do EventSource. Passa por requireAuth de verdade, então herda toda a checagem normal (status,
+// MFA, licença, troca de senha obrigatória) antes de emitir o ticket.
+router.get("/sse-ticket", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.headers["x-user-id"] as string;
+    const roleId = req.headers["x-role-id"] as string;
+    const ticket = await issueSseTicket(userId, roleId);
+    res.json({ success: true, ticket });
   } catch (err) {
     next(err);
   }
