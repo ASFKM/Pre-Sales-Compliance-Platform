@@ -11,7 +11,7 @@ customizable templates with a fully documented variable glossary.
 
 ## Stack
 
-- **Frontend**: React 18 + Vite + Tailwind CSS + Lucide icons.
+- **Frontend**: React 19 + Vite + Tailwind CSS + Lucide icons.
 - **Backend**: Express (TypeScript), served either via Vite middleware (dev) or a single bundled
   `dist/server.cjs` (production, built with esbuild).
 - **Database**: PostgreSQL via Prisma ORM (see `prisma/schema.prisma`). Not an in-memory store —

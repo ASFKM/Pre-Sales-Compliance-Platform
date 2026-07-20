@@ -14,7 +14,7 @@ documents, generated proposals, and connected API credentials.
   configurable TTL (`SESSION_TTL_MINUTES`). The client stores the token and sends it as
   `Authorization: Bearer <token>`.
 - **MFA**: real TOTP (RFC 6238) once a user has enrolled a secret (`verifyTotpCode`, the secret is
-  itself AES-256-CBC encrypted at rest, never stored or transmitted in plaintext). A demo-only
+  itself AES-256-GCM encrypted at rest, never stored or transmitted in plaintext). A demo-only
   fallback (codes `123456`, `000000`, `111111`) exists **only** for accounts that haven't enrolled
   a real secret yet, and **only** when `isDemoRuntime()` is true — i.e. `APP_RUNTIME_MODE=demo`.
   **Never deploy a real tenant with `APP_RUNTIME_MODE=demo`** — production mode hard-blocks this
@@ -77,9 +77,11 @@ matching permission.
 
 ## 4. Encryption of Secrets & API Connectors
 
-- **AES-256-CBC at rest**: AI provider API keys, connector credentials, and enrolled TOTP secrets
-  are encrypted with a key derived from `SECRET_ENCRYPTION_KEY`, with a fresh IV per value (no
-  cipher/ciphertext reuse across records).
+- **AES-256-GCM at rest**: AI provider API keys, connector credentials, and enrolled TOTP secrets
+  are encrypted with a key derived from `SECRET_ENCRYPTION_KEY`, with a fresh IV and authentication
+  tag per value (no cipher/ciphertext reuse across records). Values encrypted before this scheme's
+  introduction are still transparently readable via a legacy AES-256-CBC decrypt path
+  (`decryptSecret`), but every value written today uses GCM.
 - **Masked before reaching the browser**: encrypted values are decrypted server-side only when
   actually needed for an outbound call; anything ever sent to the frontend (e.g. integration
   status) is masked (`sk_t...8a91`-style), so client-side inspection/XSS cannot recover a real
