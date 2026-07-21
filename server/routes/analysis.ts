@@ -1059,10 +1059,16 @@ Respond with ONLY a JSON array (no markdown, no extra text), one object per item
 
     const resultsByItemId = new Map<string, { item_id: string; sku: string; part_number: string; manufacturer: string; source?: string; match_confidence?: "high" | "medium" | "low"; note: string; brand_policy_applicable?: boolean; brand_policy_compliant?: boolean; brand_policy_note?: string }>();
     for (const chunk of chunks) {
-      // One retry on an actual rate-limit error, after a delay long enough to clear a per-minute
-      // window - anything else (a real parsing/auth/network failure) fails this chunk immediately,
+      // Up to 3 retries on an actual rate-limit error (real incident, 2026-07-21: a single fixed
+      // 20s wait + one retry was not enough when the whole BOM enrichment run puts the account
+      // under sustained pressure across many chunks in quick succession - a chunk could still be
+      // rate-limited on its one retry, permanently losing that item's lookup for no reason other
+      // than bad timing). Backoff increases per attempt (20s, 40s, 60s) rather than a flat wait,
+      // long enough to clear a per-minute window even under sustained load. Anything else (a real
+      // parsing/auth/network failure) still fails this chunk immediately after its own one retry,
       // same fail-soft behavior as before, just scoped to one chunk instead of the whole BOM.
-      for (let attempt = 0; attempt < 2; attempt++) {
+      const MAX_ATTEMPTS = 4;
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         try {
           const { text, inputTokens, outputTokens, billedCostUsd } = await searchWebWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, promptFor(chunk));
           await recordAiUsage({
@@ -1122,9 +1128,13 @@ Respond with ONLY a JSON array (no markdown, no extra text), one object per item
           // is not deterministic - a second attempt at the exact same prompt often comes back
           // clean, same reasoning as the existing rate-limit retry, just a different trigger.
           const isParseError = chunkErr instanceof SyntaxError;
-          if ((isRateLimit || isParseError) && attempt === 0) {
-            logger.warn({ err: chunkErr, tenantId, chunkSize: chunk.length, reason: isRateLimit ? "rate_limit" : "malformed_json" }, "BOM web search chunk failed, retrying once");
-            if (isRateLimit) await new Promise((resolve) => setTimeout(resolve, 20000));
+          // Rate limits get the full budget of retries (waiting for a shared account-level window
+          // to clear is a matter of time, not luck) - parse errors still get just one (a garbled
+          // response is a per-call fluke, not something more waiting fixes).
+          const canRetry = isRateLimit ? attempt < MAX_ATTEMPTS - 1 : isParseError && attempt === 0;
+          if (canRetry) {
+            logger.warn({ err: chunkErr, tenantId, chunkSize: chunk.length, reason: isRateLimit ? "rate_limit" : "malformed_json", attempt }, "BOM web search chunk failed, retrying");
+            if (isRateLimit) await new Promise((resolve) => setTimeout(resolve, 20000 * (attempt + 1)));
             continue;
           }
           logger.warn({ err: chunkErr, tenantId, chunkSize: chunk.length }, "BOM web search chunk failed, leaving its items unenriched");
