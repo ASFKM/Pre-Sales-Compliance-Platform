@@ -298,7 +298,7 @@ const ALLOWED_MIME_TYPES = [
   "text/csv",
   "text/plain"
 ];
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const MAX_FILE_SIZE = 25 * 1024 * 1024;
 
 export interface FileValidationResult {
   valid: boolean;
@@ -317,7 +317,7 @@ export function validateUploadedFile(originalFilename: string, mimeType: string,
   }
 
   if (fileSize > MAX_FILE_SIZE) {
-    return { valid: false, error: `File exceeds maximum size of 10MB (Received: ${(fileSize / (1024 * 1024)).toFixed(2)}MB).` };
+    return { valid: false, error: `File exceeds maximum size of 25MB (Received: ${(fileSize / (1024 * 1024)).toFixed(2)}MB).` };
   }
 
   return { valid: true };

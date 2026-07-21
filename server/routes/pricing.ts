@@ -25,9 +25,9 @@ import { createTask, updateTaskProgress, completeTask, failTask } from "../../sr
 import { runWithTenant } from "../../src/tenantContext";
 
 const router = express.Router();
-// Limite subiu de 10MB pra 20MB com "Enviar Arquivos": fotos/scans de cotação de fornecedor pesam
+// Limite de 25MB com "Enviar Arquivos": fotos/scans de cotação de fornecedor pesam
 // mais que uma planilha de texto. `files: 10` é o teto de arquivos por lote de uma vez.
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 10 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 10 } });
 
 router.get("/health", requirePermission("pricing:read"), requireModule("pricing"), (req: Request, res: Response) => {
   res.json({ success: true, module: "pricing", status: "ok" });

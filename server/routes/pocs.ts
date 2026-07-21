@@ -24,10 +24,10 @@ import { createTask, updateTaskProgress, completeTask, failTask } from "../../sr
 
 const router = express.Router();
 
-// Same memory-storage config as documents.ts - a 10MB limit comfortably covers a scanned NF PDF.
+// Same memory-storage config as documents.ts - a 25MB limit comfortably covers a scanned NF PDF.
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 25 * 1024 * 1024 },
 });
 
 // Fase L: once a POC is fully approved (Poc.status === "completed"), nothing about it can be
