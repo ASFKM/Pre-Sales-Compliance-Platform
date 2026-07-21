@@ -807,13 +807,29 @@ export function reconcileBomWithExisting(newItems: any[], existingItems: any[]):
   const identityKey = (item: any) => `${normalizeForBomMatch(item.category)}::${normalizeForBomMatch(item.manufacturer)}::${normalizeForBomMatch(item.part_number)}`;
   const nameKey = (item: any) => `${normalizeForBomMatch(item.equipment_name)}::${normalizeForBomMatch(item.category)}`;
 
-  const existingByIdentity = new Map<string, number>();
-  const existingByName = new Map<string, number>();
+  // Queues, not single indices: a real BOM routinely has SEVERAL existing items sharing the same
+  // identity on purpose (a main camera + its spare/backup, both legitimately the same
+  // manufacturer+part_number) - a single `Map<string, number>` overwrites earlier entries with the
+  // same key, so only the LAST existing item of each identity group stayed reachable at all
+  // (confirmed real bug, 2026-07-21: a main camera + spare, both DS-2DF8C448I5XG-ELW, collapsed to
+  // one map slot - the first new item to match consumed it, the second couldn't re-match despite
+  // sharing the identity, fell through to "new item", and the un-consumed original got re-added by
+  // the existing_untouched safety net below - net result: 3 copies of the same camera instead of
+  // 1). A queue lets N existing items of the same identity absorb up to N new items 1:1 before
+  // anything is treated as new/untouched.
+  const existingByIdentity = new Map<string, number[]>();
+  const existingByName = new Map<string, number[]>();
   existingItems.forEach((item, idx) => {
     if (item.manufacturer?.trim() && item.part_number?.trim()) {
-      existingByIdentity.set(identityKey(item), idx);
+      const key = identityKey(item);
+      const queue = existingByIdentity.get(key);
+      if (queue) queue.push(idx);
+      else existingByIdentity.set(key, [idx]);
     }
-    existingByName.set(nameKey(item), idx);
+    const nKey = nameKey(item);
+    const nQueue = existingByName.get(nKey);
+    if (nQueue) nQueue.push(idx);
+    else existingByName.set(nKey, [idx]);
   });
   const consumedExistingIdx = new Set<number>();
   const decisions: BomReconciliationDecision[] = [];
@@ -822,8 +838,9 @@ export function reconcileBomWithExisting(newItems: any[], existingItems: any[]):
     // Tier 1: identity match (category+manufacturer+part_number) - a pure rename/rewording, the
     // underlying product is already confirmed the same, nothing to arbitrate.
     if (newItem.manufacturer?.trim() && newItem.part_number?.trim()) {
-      const idIdx = existingByIdentity.get(identityKey(newItem));
-      if (idIdx !== undefined && !consumedExistingIdx.has(idIdx)) {
+      const idQueue = existingByIdentity.get(identityKey(newItem));
+      const idIdx = idQueue?.find((i) => !consumedExistingIdx.has(i));
+      if (idIdx !== undefined) {
         consumedExistingIdx.add(idIdx);
         decisions.push({ equipment_name: newItem.equipment_name, category: newItem.category, outcome: "matched_by_identity" });
         return newItem;
@@ -832,8 +849,9 @@ export function reconcileBomWithExisting(newItems: any[], existingItems: any[]):
 
     // Tier 2: name fallback - this is where a real conflict (same line item, different
     // manufacturer/part_number proposed) is actually caught.
-    const nmIdx = existingByName.get(nameKey(newItem));
-    if (nmIdx === undefined || consumedExistingIdx.has(nmIdx)) {
+    const nmQueue = existingByName.get(nameKey(newItem));
+    const nmIdx = nmQueue?.find((i) => !consumedExistingIdx.has(i));
+    if (nmIdx === undefined) {
       return newItem;
     }
     const existingItem = existingItems[nmIdx];
