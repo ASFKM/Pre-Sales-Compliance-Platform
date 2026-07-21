@@ -953,7 +953,7 @@ export default function Workspace({
                                   <td className="p-3">
                                     <input type="text" value={item.equipment_name} onChange={(e) => updateField("equipment_name", e.target.value)}
                                       className="font-bold text-slate-800 bg-slate-50 px-1 py-0.5 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500" />
-                                    {typeof item.confidence === "number" && (
+                                    {typeof item.confidence === "number" && (item.manufacturer?.trim() || item.part_number?.trim()) && (
                                       <span
                                         className={`inline-block mt-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
                                           item.confidence < 0.5
