@@ -56,7 +56,29 @@ Classify as exactly one of:
 
 Respond with ONLY a JSON object: { "classification": "duplicate"|"contradiction"|"distinct", "conflicting_entry_id": "..." or null, "reason": "one short sentence in Portuguese" }`;
 
-    const { text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);
+    // Up to 3 retries on an actual rate-limit error, same pattern already proven in production for
+    // enrichBomWithWebSearch (server/routes/analysis.ts) - real incident, 2026-07-21: a single
+    // heartbeat syncing several KB entries at once made 12 of these calls in quick succession,
+    // every one hitting an OpenAI rate limit with no retry at all, each silently falling back to
+    // "treat as new/approved" (safe, but skips the real duplicate/contradiction check every time
+    // there's a burst). Backoff increases per attempt (20s/40s/60s) to clear a per-minute window
+    // even under sustained load.
+    const MAX_ATTEMPTS = 4;
+    let text = "", inputTokens = 0, outputTokens = 0, billedCostUsd: number | undefined;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      try {
+        ({ text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt));
+        break;
+      } catch (aiErr: any) {
+        const isRateLimit = aiErr?.status === 429 || /rate.?limit|429/i.test(String(aiErr?.message || ""));
+        if (isRateLimit && attempt < MAX_ATTEMPTS - 1) {
+          logger.warn({ err: aiErr, tenantId, entryId: incoming.entry_id, attempt }, "Knowledge base reconciliation rate-limited, retrying");
+          await new Promise((resolve) => setTimeout(resolve, 20000 * (attempt + 1)));
+          continue;
+        }
+        throw aiErr;
+      }
+    }
     await recordAiUsage({
       tenantId,
       taskType: "kb_reconciliation",
