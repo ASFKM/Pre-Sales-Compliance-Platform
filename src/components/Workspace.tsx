@@ -953,15 +953,21 @@ export default function Workspace({
                                   <td className="p-3">
                                     <input type="text" value={item.equipment_name} onChange={(e) => updateField("equipment_name", e.target.value)}
                                       className="font-bold text-slate-800 bg-slate-50 px-1 py-0.5 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500" />
-                                    {typeof item.confidence === "number" && item.confidence < 0.5 && (
+                                    {typeof item.confidence === "number" && (
                                       <span
-                                        className="inline-block mt-1 text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded-full"
+                                        className={`inline-block mt-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
+                                          item.confidence < 0.5
+                                            ? "text-amber-700 bg-amber-50 border-amber-100"
+                                            : item.confidence < 0.8
+                                              ? "text-slate-600 bg-slate-100 border-slate-200"
+                                              : "text-emerald-700 bg-emerald-50 border-emerald-100"
+                                        }`}
                                         title={tx(
-                                          "The AI reported low confidence that this specification is correctly extracted from the source document - review before quoting it.",
-                                          "A IA reportou baixa confiança de que esta especificação foi extraída corretamente do documento fonte - revise antes de usar."
+                                          "AI-reported confidence that this equipment/specification correctly captures what the source document demands - not the same as whether a real product match was found.",
+                                          "Confiança reportada pela IA de que este equipamento/especificação captura corretamente o que o documento fonte exige - não é o mesmo que ter encontrado um produto real correspondente."
                                         )}
                                       >
-                                        🔎 {tx("Review", "Revisar")} ({Math.round(item.confidence * 100)}%)
+                                        {item.confidence < 0.5 ? `🔎 ${tx("Review", "Revisar")} ` : ""}{Math.round(item.confidence * 100)}%
                                       </span>
                                     )}
                                   </td>
