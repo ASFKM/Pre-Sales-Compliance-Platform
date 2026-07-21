@@ -794,9 +794,65 @@ const CONFIDENCE_REPLACE_FLOOR = 0.5;
 export interface BomReconciliationDecision {
   equipment_name: string;
   category: string;
-  outcome: "kept_existing" | "accepted_new" | "matched_by_identity" | "new_item" | "existing_untouched";
+  outcome: "kept_existing" | "accepted_new" | "matched_by_identity" | "matched_by_similarity" | "new_item" | "existing_untouched";
   existing_confidence?: number;
   new_confidence?: number;
+}
+
+function tokenSet(text: string): Set<string> {
+  return new Set(normalizeForBomMatch(text).split(" ").filter((w) => w.length >= 3));
+}
+
+function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let intersection = 0;
+  for (const w of a) if (b.has(w)) intersection++;
+  const union = a.size + b.size - intersection;
+  return union === 0 ? 0 : intersection / union;
+}
+
+const TIER3_SIMILARITY_THRESHOLD = 0.45;
+
+// Tier 3 (2026-07-21): Tiers 1/2 above only recognize a renamed item when it HAS a product
+// identity (Tier 1) or its name stayed unchanged (Tier 2). Services and licenses never have a
+// manufacturer/part_number, so when the AI restructures their wording the same way it does for
+// physical products (e.g. "Serviço de Instalação" -> "Serviço de Instalação - LOTE 1
+// (Sorocabana)"), neither tier recognizes it as the same item - real bug, same lot-restructuring
+// pattern that used to duplicate cameras (fixed by Tier 1), just for the class of item that never
+// had an identity to anchor on in the first place. Matches by word-overlap (Jaccard - same
+// normalization as the rest of this file, no embeddings/vector infra here) between
+// equipment_name, gated by an EXACT quantity match and same category (both required, not just a
+// scoring boost) - a real quantity split (e.g. a corrected lot count) is treated as a genuinely
+// different item rather than silently merged, and two unrelated services sharing generic wording
+// need to ALSO coincidentally share an exact quantity to false-match. Threshold and gate validated
+// against 5 real pairs from a real project (2026-07-21): correct pairs scored 0.50-0.67, incorrect
+// pairs scored 0.00 and 0.29 - comfortable margin either side of 0.45.
+function computeTier3Matches(newItems: any[], unresolvedNewIndices: number[], existingItems: any[], consumedExistingIdx: Set<number>): Map<number, number> {
+  const candidateExisting = existingItems
+    .map((item, idx) => ({ item, idx }))
+    .filter(({ item, idx }) => !consumedExistingIdx.has(idx) && !item.manufacturer?.trim() && !item.part_number?.trim());
+
+  const scoredPairs: { score: number; ni: number; ei: number }[] = [];
+  for (const ni of unresolvedNewIndices) {
+    const newItem = newItems[ni];
+    const newTokens = tokenSet(newItem.equipment_name);
+    for (const { item: existingItem, idx: ei } of candidateExisting) {
+      if (normalizeForBomMatch(newItem.category) !== normalizeForBomMatch(existingItem.category)) continue;
+      if (newItem.quantity !== existingItem.quantity) continue;
+      const score = jaccardSimilarity(newTokens, tokenSet(existingItem.equipment_name));
+      if (score >= TIER3_SIMILARITY_THRESHOLD) scoredPairs.push({ score, ni, ei });
+    }
+  }
+  scoredPairs.sort((a, b) => b.score - a.score);
+
+  const matches = new Map<number, number>();
+  const usedExisting = new Set<number>();
+  for (const { ni, ei } of scoredPairs) {
+    if (matches.has(ni) || usedExisting.has(ei)) continue;
+    matches.set(ni, ei);
+    usedExisting.add(ei);
+  }
+  return matches;
 }
 
 export function reconcileBomWithExisting(newItems: any[], existingItems: any[]): { items: any[]; decisions: BomReconciliationDecision[] } {
@@ -834,7 +890,15 @@ export function reconcileBomWithExisting(newItems: any[], existingItems: any[]):
   const consumedExistingIdx = new Set<number>();
   const decisions: BomReconciliationDecision[] = [];
 
-  const reconciled = newItems.map((newItem) => {
+  // Pass 1: Tiers 1/2 (identity, then name) - unchanged logic from before Tier 3 existed. Items
+  // with no product identity that fall through BOTH are held back (not returned as "new" yet) so
+  // Tier 3 gets a chance at them below, using the fully up-to-date consumedExistingIdx from this
+  // pass (a service/license can only be a Tier 3 candidate once we know for sure Tiers 1/2 didn't
+  // already claim its potential match under a different item).
+  const reconciled: any[] = new Array(newItems.length);
+  const unresolvedNewIndices: number[] = [];
+
+  newItems.forEach((newItem, ni) => {
     // Tier 1: identity match (category+manufacturer+part_number) - a pure rename/rewording, the
     // underlying product is already confirmed the same, nothing to arbitrate.
     if (newItem.manufacturer?.trim() && newItem.part_number?.trim()) {
@@ -843,7 +907,8 @@ export function reconcileBomWithExisting(newItems: any[], existingItems: any[]):
       if (idIdx !== undefined) {
         consumedExistingIdx.add(idIdx);
         decisions.push({ equipment_name: newItem.equipment_name, category: newItem.category, outcome: "matched_by_identity" });
-        return newItem;
+        reconciled[ni] = newItem;
+        return;
       }
     }
 
@@ -852,7 +917,14 @@ export function reconcileBomWithExisting(newItems: any[], existingItems: any[]):
     const nmQueue = existingByName.get(nameKey(newItem));
     const nmIdx = nmQueue?.find((i) => !consumedExistingIdx.has(i));
     if (nmIdx === undefined) {
-      return newItem;
+      // No identity match, no name match - a genuinely new item UNLESS Tier 3 (below) recognizes
+      // it as a renamed service/license with no product identity to anchor on.
+      if (!newItem.manufacturer?.trim() && !newItem.part_number?.trim()) {
+        unresolvedNewIndices.push(ni);
+      } else {
+        reconciled[ni] = newItem;
+      }
+      return;
     }
     const existingItem = existingItems[nmIdx];
     consumedExistingIdx.add(nmIdx);
@@ -863,7 +935,8 @@ export function reconcileBomWithExisting(newItems: any[], existingItems: any[]):
       normalizeForBomMatch(newItem.part_number) === normalizeForBomMatch(existingItem.part_number) &&
       normalizeForBomMatch(newItem.manufacturer) === normalizeForBomMatch(existingItem.manufacturer);
     if (sameSubstance) {
-      return newItem;
+      reconciled[ni] = newItem;
+      return;
     }
 
     const existingConfidence = typeof existingItem.confidence === "number" ? existingItem.confidence : 0.5;
@@ -872,20 +945,36 @@ export function reconcileBomWithExisting(newItems: any[], existingItems: any[]):
 
     if (shouldAcceptNew) {
       decisions.push({ equipment_name: newItem.equipment_name, category: newItem.category, outcome: "accepted_new", existing_confidence: existingConfidence, new_confidence: newConfidence });
-      return newItem;
+      reconciled[ni] = newItem;
+      return;
     }
 
     decisions.push({ equipment_name: newItem.equipment_name, category: newItem.category, outcome: "kept_existing", existing_confidence: existingConfidence, new_confidence: newConfidence });
     const note = "(mantido da reanálise anterior - confiança já era alta ou a nova sugestão não teve confiança suficientemente maior para substituir)";
-    return {
+    reconciled[ni] = {
       ...existingItem,
       specification: existingItem.specification?.includes(note) ? existingItem.specification : `${existingItem.specification} ${note}`,
     };
   });
 
-  // An existing item the new pass simply didn't recreate at all (by identity NOR by name) is a
-  // worse failure than a wrong replacement (silent data loss) - add it back rather than let a
-  // reanalysis quietly shrink the BOM.
+  // Pass 2: Tier 3, only for items with no product identity that fell through both prior tiers -
+  // see computeTier3Matches' own comment for the exact rule.
+  if (unresolvedNewIndices.length > 0) {
+    const tier3Matches = computeTier3Matches(newItems, unresolvedNewIndices, existingItems, consumedExistingIdx);
+    for (const ni of unresolvedNewIndices) {
+      const newItem = newItems[ni];
+      const existingIdx = tier3Matches.get(ni);
+      if (existingIdx !== undefined) {
+        consumedExistingIdx.add(existingIdx);
+        decisions.push({ equipment_name: newItem.equipment_name, category: newItem.category, outcome: "matched_by_similarity" });
+      }
+      reconciled[ni] = newItem;
+    }
+  }
+
+  // An existing item the new pass simply didn't recreate at all (by identity, name, NOR
+  // similarity) is a worse failure than a wrong replacement (silent data loss) - add it back
+  // rather than let a reanalysis quietly shrink the BOM.
   existingItems.forEach((existingItem, idx) => {
     if (!consumedExistingIdx.has(idx)) {
       decisions.push({ equipment_name: existingItem.equipment_name, category: existingItem.category, outcome: "existing_untouched" });
