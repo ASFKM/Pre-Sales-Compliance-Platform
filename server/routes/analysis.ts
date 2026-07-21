@@ -546,6 +546,7 @@ ${sectionConfig.shapeHint}`;
     if (sectionConfig.needsBomEnrichment) {
       await updateTaskProgress(task.id, { currentStep: "Buscando equipamentos reais para o BOM", progressPct: 85 });
       validatedSection = await enrichBomWithWebSearch(validatedSection, platformSettings, project.proposal_language, tenantId, project.ai_orientation_text || "");
+      validatedSection = computeConfidenceConsistency(validatedSection);
     }
 
     // Deterministic reconciliation against what was already saved - the real enforcement of "an
@@ -708,6 +709,43 @@ export function computeEquipmentMatchCrossCheck<T extends { category?: string; m
     const isOutlier = itemCount < majorityCount && majorityCount > group.length / 2;
     const downgraded = isOutlier && item.match_confidence === "high" ? "medium" : item.match_confidence;
     return { ...item, manufacturer_outlier: isOutlier, match_confidence: downgraded };
+  });
+}
+
+// Real user complaint (2026-07-20): "Câmera IP tipo PTZ com DAI" reported confidence 85% while
+// "Câmeras Sobressalentes" - whose OWN specification explicitly says "mesma especificação técnica
+// da câmera PTZ com DAI do LOTE 1" - reported 90% for the exact same underlying claim. Each item's
+// confidence is an independent per-item self-report from the model, with nothing enforcing
+// consistency across items that assert they're the same product. Deterministic fix, same spirit
+// as computeBrandPolicyCrossCheck/computeEquipmentMatchCrossCheck above: group items by the same
+// identity key used for reanalysis reconciliation (category+manufacturer+part_number, normalized -
+// only when both are non-empty, since an empty/not_found identity has nothing concrete to agree
+// on), and unify confidence within each group to the group's MINIMUM - conservative on purpose: if
+// the model was less sure about ANY single instance of a claim, that uncertainty is real
+// information and should carry over to every item making the same claim, not get diluted away by
+// a more confident sibling.
+export function computeConfidenceConsistency<T extends { category?: string; manufacturer?: string; part_number?: string; confidence?: number }>(items: T[]): T[] {
+  const identityKey = (item: T) => `${normalizeForBomMatch(item.category)}::${normalizeForBomMatch(item.manufacturer)}::${normalizeForBomMatch(item.part_number)}`;
+
+  const confidencesByKey = new Map<string, number[]>();
+  for (const item of items) {
+    if (typeof item.confidence !== "number" || !item.manufacturer?.trim() || !item.part_number?.trim()) continue;
+    const key = identityKey(item);
+    const existing = confidencesByKey.get(key);
+    if (existing) existing.push(item.confidence);
+    else confidencesByKey.set(key, [item.confidence]);
+  }
+
+  const unifiedByKey = new Map<string, number>();
+  for (const [key, confidences] of confidencesByKey) {
+    if (confidences.length > 1) unifiedByKey.set(key, Math.min(...confidences));
+  }
+  if (unifiedByKey.size === 0) return items;
+
+  return items.map((item) => {
+    if (typeof item.confidence !== "number" || !item.manufacturer?.trim() || !item.part_number?.trim()) return item;
+    const unified = unifiedByKey.get(identityKey(item));
+    return unified !== undefined && unified !== item.confidence ? { ...item, confidence: unified } : item;
   });
 }
 
@@ -1491,7 +1529,7 @@ Write all generated content fields strictly in ${project.proposal_language}. Mai
     // specify - a real web search (see enrichBomWithWebSearch), not the model guessing. Failure
     // here never fails the analysis - see that function's own error handling.
     await updateTaskProgress(task.id, { currentStep: "Buscando equipamentos reais para o BOM", progressPct: 88 });
-    const enrichedBom = await enrichBomWithWebSearch(validatedJson.bom, platformSettings, project.proposal_language, tenantId, project.ai_orientation_text || "");
+    const enrichedBom = computeConfidenceConsistency(await enrichBomWithWebSearch(validatedJson.bom, platformSettings, project.proposal_language, tenantId, project.ai_orientation_text || ""));
 
     // Save final Analysis Result
     const analysisResult: AnalysisResult = {
