@@ -497,14 +497,29 @@ ${approvedKnowledge.map((k) => `- [${k.category}] Se: ${k.trigger} → Então: $
     // responds) - this prompt text is a first line of defense (fewer spurious differences to
     // reconcile in the first place), not the real guarantee.
     const existingBomItems = section === "bom" ? (existing?.bom as any[] | undefined) || [] : [];
+    // specification is included below (it wasn't before, 2026-07-22 fix) specifically so the
+    // model can actually perform the internal-consistency check the paragraph after this list
+    // asks for - a real bug slipped through undetected for that exact reason: an item's own
+    // specification said "mesmo modelo/especificação da câmera PTZ com DAI do Lote 2" but its
+    // manufacturer/part_number pointed at a completely different, non-PTZ product, and no prior
+    // reanalysis pass could have caught it because this summary never showed the model the
+    // specification text to check against in the first place.
     const existingBomSection = existingBomItems.length > 0
       ? `\nCURRENT BOM ALREADY ON FILE FOR THIS PROJECT (from a previous analysis pass - human or
 automated review may already have confirmed some of these are correct):
-${existingBomItems.map((i) => `- ${i.equipment_name} [${i.category}] - manufacturer: ${i.manufacturer || "(empty)"}, part_number: ${i.part_number || "(empty)"}, confidence: ${typeof i.confidence === "number" ? i.confidence : "unknown"}`).join("\n")}
+${existingBomItems.map((i) => `- ${i.equipment_name} [${i.category}] - manufacturer: ${i.manufacturer || "(empty)"}, part_number: ${i.part_number || "(empty)"}, specification: ${i.specification || "(empty)"}, confidence: ${typeof i.confidence === "number" ? i.confidence : "unknown"}`).join("\n")}
 Only report a DIFFERENT manufacturer/part_number/specification for an item above if the source
 documents give you clear evidence the current value is wrong or incomplete - disagreeing without
 new evidence is not a valid reason to change it. It is fine and expected to report the exact same
-values as above when they are still correct.\n`
+values as above when they are still correct.
+EXCEPTION - internal consistency (this is not "new evidence from the documents", it is catching a
+mistake already present in the data above): if an item's OWN specification text above describes it
+as equivalent to, a spare/backup/sobressalente of, or "mesmo modelo/especificação de" another item
+in this same list (typically a spare/backup unit that must match its primary unit), but its
+manufacturer/part_number does NOT actually match that referenced item's manufacturer/part_number -
+report the CORRECTED manufacturer/part_number (matching the referenced item) for this item, and
+say so explicitly in this item's specification text. Silently repeating an internal contradiction
+because "it was already confirmed" is not correct behavior - a confirmed value can still be wrong.\n`
       : "";
 
     // The whole point of a per-section reanalysis: this prompt asks for ONLY this one section,
@@ -1539,7 +1554,7 @@ You MUST respond with a strictly parsable JSON object. No markdown, no formattin
     {
       "item_id": "bom_1",
       "sku": "Internal SKU code if the document provides one, otherwise a short stable code you generate from the equipment name",
-      "part_number": "Manufacturer part number exactly as written in the source document - never invent one, leave empty string if not stated",
+      "part_number": "Manufacturer part number exactly as written in the source document - never invent one, leave empty string if not stated. CRITICAL for spare/backup/sobressalente items: if this item's own specification says it is the same model/spec as another item you're also listing in this BOM (e.g. spare units for a primary camera), this part_number MUST match that other item's part_number exactly - never assign a different, merely-plausible product just because it also comes to mind for that category.",
       "equipment_name": "Real equipment/material name as required by the document (e.g. 'Switch PoE 24 portas Gigabit')",
       "manufacturer": "Manufacturer name if the document states or implies a standard (e.g. via a referenced norm/certification), otherwise empty string - never invent a brand",
       "quantity": 5,
