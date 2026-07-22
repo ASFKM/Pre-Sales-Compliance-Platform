@@ -24,7 +24,9 @@ import {
   RefreshCw,
   LogOut,
   FileSpreadsheet,
-  Globe
+  Globe,
+  PanelLeftClose,
+  PanelLeftOpen
 } from "lucide-react";
 import {
   Project,
@@ -328,6 +330,13 @@ export default function App() {
 
   // Navigation / Views
   const [activeTab, setActiveTab] = useState<"home" | "workspace" | "projectsList" | "proposals" | "approval" | "knowledgeBase" | "admin" | "pocManagement" | "pricing">("home");
+  // Left sidebar (bid/project metadata) can retract to free width for the project content itself
+  // on the Workspace tab - persisted so a user's preference survives reloads, same pattern as the
+  // brand customization below.
+  const [leftPanelCollapsed, setLeftPanelCollapsed] = useState<boolean>(() => localStorage.getItem("ca_left_panel_collapsed") === "1");
+  useEffect(() => {
+    localStorage.setItem("ca_left_panel_collapsed", leftPanelCollapsed ? "1" : "0");
+  }, [leftPanelCollapsed]);
   const [activeAdminSection, setActiveAdminSection] = useState<"overview" | "users" | "ai" | "templates" | "approval_flow" | "subscription" | "system_updates" | "branding" | "integrations" | "storage" | "audit">("overview");
 
   // Shared with fetchGlobalConfigs (auto-selects defaults) and Workspace's proposal builder -
@@ -1136,8 +1145,22 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
             still use the context sub-header's project dropdown, but don't need this cadastro/
             analysis sidebar alongside them. */}
         {activeTab === "workspace" && (
-          <aside className="w-80 bg-slate-50 border-r border-slate-200 flex flex-col p-4 gap-4 shrink-0 overflow-y-auto">
+          <aside className={`${leftPanelCollapsed ? "w-10 p-2" : "w-80 p-4"} bg-slate-50 border-r border-slate-200 flex flex-col gap-4 shrink-0 overflow-y-auto transition-[width] duration-150`}>
 
+          {/* Retract/expand toggle - always visible regardless of collapsed state, so it's never
+              lost once the panel closes. Frees width for the project content on narrower screens
+              or when the user just wants more room for the workspace tabs. */}
+          <button
+            onClick={() => setLeftPanelCollapsed((v) => !v)}
+            className="flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-200 rounded p-1 self-end shrink-0"
+            title={leftPanelCollapsed ? (locale === "pt" ? "Expandir painel" : "Expand panel") : (locale === "pt" ? "Recolher painel" : "Collapse panel")}
+            aria-label={leftPanelCollapsed ? "Expand panel" : "Collapse panel"}
+          >
+            {leftPanelCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          </button>
+
+          {!leftPanelCollapsed && (
+          <>
           {/* Quick Creator */}
           <div className="flex items-center justify-between border-b border-slate-200 pb-2">
             <h3 className="text-[10px] uppercase tracking-widest text-slate-500 font-bold font-mono">{t("bidsManager")}</h3>
@@ -1266,6 +1289,8 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               {effectiveTaskModel("document_analysis", platformSettings?.document_analysis_model) ? ` (${effectiveTaskModel("document_analysis", platformSettings?.document_analysis_model)})` : ""}
             </p>
           </section>
+          </>
+          )}
         </aside>
         )}
 

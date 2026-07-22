@@ -2,6 +2,7 @@ import { Dispatch, ReactNode, SetStateAction, useEffect, useRef, useState } from
 import {
   TriangleAlert, ArrowLeft, DollarSign, PenLine, FileCode, FilePlus,
   FolderOpen, FolderPlus, HardDrive, MessageSquare, Plus, RefreshCw, Trash2, X,
+  PanelRightClose, PanelRightOpen,
 } from "lucide-react";
 import { AnalysisResult, BOMItem, Document } from "../types";
 import { useWorkspace } from "../hooks/useWorkspace";
@@ -121,6 +122,13 @@ export default function Workspace({
   chatHistory, setChatHistory, waitForTask, currentUserName,
 }: WorkspaceProps) {
   const [subTab, setSubTab] = useState<SubTab>("summary");
+  // Right column (clarification questions) can retract to free width for the tabbed project
+  // content - same collapsible-sidebar pattern as the left bid-management panel in App.tsx,
+  // persisted the same way.
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState<boolean>(() => localStorage.getItem("ca_right_panel_collapsed") === "1");
+  useEffect(() => {
+    localStorage.setItem("ca_right_panel_collapsed", rightPanelCollapsed ? "1" : "0");
+  }, [rightPanelCollapsed]);
   const [exportingQuestions, setExportingQuestions] = useState(false);
   const [showCopilotChat, setShowCopilotChat] = useState(false);
   const [editingNotesReqId, setEditingNotesReqId] = useState<string | null>(null);
@@ -1753,8 +1761,20 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
               </div>
 
               {/* Right Column of Workspace (Technical Q&A / Clarification List) */}
-              <div className="w-96 bg-slate-50 rounded-xl border border-slate-200 p-4 flex flex-col min-h-0 shrink-0 shadow-sm">
+              <div className={`${rightPanelCollapsed ? "w-10 p-2" : "w-96 p-4"} bg-slate-50 rounded-xl border border-slate-200 flex flex-col min-h-0 shrink-0 shadow-sm transition-[width] duration-150`}>
 
+                {/* Retract/expand toggle - always visible, same pattern as the left panel. */}
+                <button
+                  onClick={() => setRightPanelCollapsed((v) => !v)}
+                  className="flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-200 rounded p-1 self-start shrink-0 mb-2"
+                  title={rightPanelCollapsed ? (locale === "pt" ? "Expandir painel" : "Expand panel") : (locale === "pt" ? "Recolher painel" : "Collapse panel")}
+                  aria-label={rightPanelCollapsed ? "Expand panel" : "Collapse panel"}
+                >
+                  {rightPanelCollapsed ? <PanelRightOpen size={16} /> : <PanelRightClose size={16} />}
+                </button>
+
+                {!rightPanelCollapsed && (
+                <>
                 {/* Section 1: Dynamic QA List extracted - now the main content of this column
                     (the copilot below is just a small floating trigger), since clarification
                     questions are the more important thing to see at a glance. */}
@@ -1810,6 +1830,8 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                     <span className="text-[9px] bg-emerald-100 text-emerald-800 rounded-full px-1.5 font-bold">{chatHistory.length}</span>
                   )}
                 </button>
+                </>
+                )}
 
               </div>
 
