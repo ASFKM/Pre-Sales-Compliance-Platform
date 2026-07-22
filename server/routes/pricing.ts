@@ -1059,12 +1059,13 @@ router.post(
   }
 );
 
-// Lista as sessões de precificação já importadas, para a aba "Precificação de projeto" mostrar
-// o que já foi feito em vez de perder a referência assim que o usuário sai da tela ou importa
-// outro projeto. Um projeto pode acumular mais de uma sessão (reimportações do mesmo BOM não
-// substituem a anterior, ver POST /projects/:projectId/pricing-sheets acima) - a lista mostra só
-// a mais recente por projeto, senão viraria uma lista crescente de sessões obsoletas do mesmo
-// projeto sem forma de saber qual é a atual.
+// Lista as sessões de precificação já importadas/criadas, para a aba "Precificação de projeto"
+// mostrar o que já foi feito em vez de perder a referência assim que o usuário sai da tela ou
+// importa outro projeto. Um projeto pode acumular mais de uma sessão (reimportações do mesmo BOM
+// não substituem a anterior, ver POST /projects/:projectId/pricing-sheets acima) - a lista mostra
+// só a mais recente por projeto, senão viraria uma lista crescente de sessões obsoletas do mesmo
+// projeto sem forma de saber qual é a atual. Sessões avulsas (projectId null, Fase 8) não têm essa
+// noção de "reimportação" - cada uma é sua própria linha, deduplicada pelo próprio id.
 router.get("/pricing-sheets", requirePermission("pricing:read"), requireModule("pricing"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const sheets = await prisma.projectPricingSheet.findMany({
@@ -1074,11 +1075,12 @@ router.get("/pricing-sheets", requirePermission("pricing:read"), requireModule("
         _count: { select: { lines: true } },
       },
     });
-    const seenProjectIds = new Set<string>();
+    const seenKeys = new Set<string>();
     const latestPerProject: typeof sheets = [];
     for (const sheet of sheets) {
-      if (seenProjectIds.has(sheet.projectId)) continue;
-      seenProjectIds.add(sheet.projectId);
+      const key = sheet.projectId ?? sheet.id;
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
       latestPerProject.push(sheet);
     }
     res.json({
@@ -1086,7 +1088,8 @@ router.get("/pricing-sheets", requirePermission("pricing:read"), requireModule("
       sheets: latestPerProject.map((s) => ({
         id: s.id,
         projectId: s.projectId,
-        projectName: s.project.name,
+        displayName: s.project?.name ?? s.label ?? "Precificação avulsa",
+        standalone: s.projectId == null,
         status: s.status,
         destinationUF: s.destinationUF,
         totalLines: s._count.lines,
@@ -1098,6 +1101,137 @@ router.get("/pricing-sheets", requirePermission("pricing:read"), requireModule("
   }
 });
 
+// Fase 8: cria uma sessão de precificação avulsa, sem vincular a projeto/BOM - pra cotações
+// rápidas ou testes de preço que não fazem parte de um processo de licitação formal. Linhas são
+// adicionadas manualmente via POST /pricing-sheets/:id/lines (busca no catálogo), não por import
+// de BOM.
+const CreateStandaloneSheetSchema = z.object({
+  label: z.string().min(1),
+  destinationUF: z.string().length(2).optional(),
+});
+
+router.post("/pricing-sheets", requirePermission("pricing:manage"), requireModule("pricing"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = req.headers["x-tenant-id"] as string;
+    const validated = CreateStandaloneSheetSchema.parse(req.body);
+    const sheet = await prisma.projectPricingSheet.create({
+      data: {
+        id: randomId("pps"),
+        tenantId,
+        label: validated.label,
+        destinationUF: validated.destinationUF ?? null,
+        status: "draft",
+      },
+    });
+    res.status(201).json({ success: true, sheetId: sheet.id });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ success: false, message: err.issues[0].message });
+    }
+    next(err);
+  }
+});
+
+// Fase 8: adiciona manualmente um item do catálogo a uma sessão (qualquer sessão, não só avulsa -
+// também útil pra corrigir uma sessão importada de projeto que ficou faltando um item). Mesmo
+// cálculo de preço (computeLinePricing) e mesmo cruzamento com o motor fiscal do import de BOM em
+// lote acima, só que pra uma linha só.
+const AddLineSchema = z.object({
+  catalogItemId: z.string().min(1),
+  quantity: z.number().positive().default(1),
+});
+
+router.post(
+  "/pricing-sheets/:id/lines",
+  requirePermission("pricing:manage"),
+  requireModule("pricing"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenantId = req.headers["x-tenant-id"] as string;
+      const validated = AddLineSchema.parse(req.body);
+      const sheet = await prisma.projectPricingSheet.findUnique({ where: { id: req.params.id } });
+      if (!sheet) {
+        return res.status(404).json({ success: false, message: "Sessão de precificação não encontrada." });
+      }
+      const catalogItem = await prisma.priceCatalogItem.findUnique({ where: { id: validated.catalogItemId } });
+      if (!catalogItem) {
+        return res.status(404).json({ success: false, message: "Item de catálogo não encontrado." });
+      }
+
+      const pricing = computeLinePricing({
+        listPrice: catalogItem.currentListPrice,
+        markupMin: catalogItem.markupMin,
+        markupMax: catalogItem.markupMax,
+        discountPercent: 0,
+      });
+
+      const lineData: Record<string, unknown> = {
+        id: randomId("ppl"),
+        tenantId,
+        pricingSheetId: sheet.id,
+        bomItemId: randomId("manual"),
+        rawPartNumber: catalogItem.pn,
+        rawDescription: catalogItem.description,
+        matchedItemId: catalogItem.id,
+        matchStatus: "matched",
+        quantity: validated.quantity,
+        listPriceSnapshot: catalogItem.currentListPrice,
+        discountPercent: 0,
+        finalUnitPrice: pricing.finalUnitPrice,
+        marginPercent: pricing.marginPercent,
+      };
+
+      const taxSettings = await prisma.tenantPricingSettings.findUnique({ where: { tenantId } });
+      const taxProfile = taxSettings?.taxCalculationEnabled ? await prisma.tenantTaxProfile.findUnique({ where: { tenantId } }) : null;
+      if (taxProfile) {
+        const tax = await calculateTax({
+          originUF: taxProfile.originUF,
+          destinationUF: sheet.destinationUF,
+          taxRegime: taxProfile.taxRegime,
+          itemType: catalogItem.itemType,
+          ipiRatePercent: catalogItem.ipiRatePercent,
+          issRatePercent: catalogItem.issRatePercent,
+          stApplicable: catalogItem.stApplicable,
+        });
+        lineData.icmsRatePercent = tax.icmsRatePercent;
+        lineData.ipiRatePercent = tax.ipiRatePercent;
+        lineData.pisCofinsRatePercent = tax.pisCofinsRatePercent;
+        lineData.issRatePercent = tax.issRatePercent;
+        lineData.stFlag = tax.stFlag;
+        lineData.totalTaxPercent = tax.totalTaxPercent;
+        lineData.finalPriceWithTax = pricing.finalUnitPrice * (1 + tax.totalTaxPercent / 100);
+      }
+
+      const line = await prisma.projectPricingLine.create({ data: lineData as any });
+      await prisma.projectPricingSheet.update({ where: { id: sheet.id }, data: { updatedAt: new Date() } });
+      res.status(201).json({ success: true, line });
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ success: false, message: err.issues[0].message });
+      }
+      next(err);
+    }
+  }
+);
+
+router.delete(
+  "/pricing-sheets/:sheetId/lines/:lineId",
+  requirePermission("pricing:manage"),
+  requireModule("pricing"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const line = await prisma.projectPricingLine.findUnique({ where: { id: req.params.lineId } });
+      if (!line || line.pricingSheetId !== req.params.sheetId) {
+        return res.status(404).json({ success: false, message: "Linha não encontrada nesta sessão." });
+      }
+      await prisma.projectPricingLine.delete({ where: { id: line.id } });
+      res.json({ success: true });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 router.get("/pricing-sheets/:id", requirePermission("pricing:read"), requireModule("pricing"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const sheet = await prisma.projectPricingSheet.findUnique({
@@ -1108,6 +1242,23 @@ router.get("/pricing-sheets/:id", requirePermission("pricing:read"), requireModu
       return res.status(404).json({ success: false, message: "Sessão de precificação não encontrada." });
     }
     res.json({ success: true, sheet });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Exclui uma sessão de precificação (e em cascata suas linhas e rodadas de otimização de
+// budget, onDelete: Cascade no schema para ambas) - usado pela lista "Projetos já importados"
+// pra limpar sessões duplicadas/obsoletas (reimportações do mesmo projeto não substituem a
+// anterior, ver POST /projects/:projectId/pricing-sheets).
+router.delete("/pricing-sheets/:id", requirePermission("pricing:manage"), requireModule("pricing"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const existing = await prisma.projectPricingSheet.findUnique({ where: { id: req.params.id } });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: "Sessão de precificação não encontrada." });
+    }
+    await prisma.projectPricingSheet.delete({ where: { id: existing.id } });
+    res.json({ success: true });
   } catch (err) {
     next(err);
   }

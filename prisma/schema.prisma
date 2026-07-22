@@ -1777,14 +1777,19 @@ model ItemAliasMapping {
 // A "sessão de precificação" de um projeto - criada ao importar o BOM da AnalysisResult do
 // projeto (Fase 4). destinationUF/destinationTaxpayerType/targetBudgetBasis só são usados com o
 // motor fiscal da Fase 7 ligado.
+// projectId/sourceAnalysisResultId são opcionais desde 2026-07-22 (Fase 8): uma sessão "avulsa"
+// (sem projeto/BOM de origem) usa `label` como nome de exibição em vez de project.name, e suas
+// linhas são adicionadas manualmente a partir do catálogo (POST /pricing-sheets/:id/lines) em vez
+// de vir de um BOM importado - ver server/routes/pricing.ts.
 model ProjectPricingSheet {
   id                      String             @id
   tenantId                String             @map("tenant_id")
   tenant                  Tenant             @relation(fields: [tenantId], references: [id])
-  projectId               String             @map("project_id")
-  project                 Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  sourceAnalysisResultId  String             @map("source_analysis_result_id")
-  sourceAnalysisResult    AnalysisResult     @relation(fields: [sourceAnalysisResultId], references: [id])
+  projectId               String?            @map("project_id")
+  project                 Project?           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceAnalysisResultId  String?            @map("source_analysis_result_id")
+  sourceAnalysisResult    AnalysisResult?    @relation(fields: [sourceAnalysisResultId], references: [id])
+  label                   String?
   targetBudget            Float?             @map("target_budget")
   targetBudgetBasis       String?            @map("target_budget_basis")
   destinationUF           String?            @map("destination_uf")

@@ -1,6 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CircleAlert, Check, X, Loader2 } from "lucide-react";
 import ApiClient from "../lib/api";
+
+interface CatalogItemRef {
+  itemCode: string;
+  pn: string;
+  description: string;
+}
 
 interface ExtractionDraft {
   id: string;
@@ -25,6 +31,10 @@ interface ExtractionDraft {
 // pra impedir a seleção ANTES de tentar confirmar, em vez de só mostrar um erro depois do clique.
 function isDraftReadyToConfirm(d: ExtractionDraft): boolean {
   return !!d.itemCode && d.listPriceBrl != null && d.listPriceUsd != null && d.markupMin != null && d.markupMax != null;
+}
+
+function normalizePn(pn: string): string {
+  return pn.trim().toLowerCase();
 }
 
 // Edição inline direto no draft - cada onBlur salva o campo editado imediatamente (PUT), sem um
@@ -78,6 +88,7 @@ export default function PricingExtractionReview({ onCountChange }: { onCountChan
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirming, setConfirming] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [catalogItems, setCatalogItems] = useState<CatalogItemRef[]>([]);
 
   const load = () => {
     setLoading(true);
@@ -92,7 +103,25 @@ export default function PricingExtractionReview({ onCountChange }: { onCountChan
 
   useEffect(() => {
     load();
+    // Catálogo completo carregado só pra montar o índice de PN abaixo (nenhum campo extra além
+    // do necessário pra sugerir/alertar sobre duplicidade - ver pnIndex).
+    ApiClient.get<{ success: boolean; items: CatalogItemRef[] }>("/api/pricing/catalog")
+      .then((res) => setCatalogItems(res.items || []))
+      .catch(() => setCatalogItems([]));
   }, []);
+
+  // Achado real (verificado no código): a extração por IA de cotação de fornecedor nunca cruza
+  // com o catálogo já cadastrado - "item_code" só vem preenchido se estiver escrito no próprio
+  // documento do fornecedor (quase nunca), e o confirmar (POST /extraction-drafts/confirm) faz
+  // upsert por (tenantId, itemCode) só, sem checar PN/descrição. Ou seja, sem essa ajuda aqui, uma
+  // descrição "levemente diferente" (ou nenhuma reconciliação de código) cria um item DUPLICADO em
+  // vez de atualizar o existente. Este índice por PN normalizado é o sinal mais confiável
+  // disponível (é o identificador real do produto) pra avisar/sugerir antes de confirmar.
+  const pnIndex = useMemo(() => {
+    const map = new Map<string, CatalogItemRef>();
+    for (const item of catalogItems) map.set(normalizePn(item.pn), item);
+    return map;
+  }, [catalogItems]);
 
   const saveField = async (id: string, field: string, rawValue: string) => {
     const isNumeric = ["listPriceBrl", "listPriceUsd", "markupMin", "markupMax"].includes(field);
@@ -245,6 +274,7 @@ export default function PricingExtractionReview({ onCountChange }: { onCountChan
                   <tbody className="divide-y divide-slate-100">
                     {rows.map((d) => {
                       const ready = isDraftReadyToConfirm(d);
+                      const catalogMatch = pnIndex.get(normalizePn(d.pn));
                       return (
                         <tr key={d.id} className={selected.has(d.id) ? "bg-emerald-50/40" : !ready ? "bg-amber-50/30" : ""}>
                           <td className="px-2 py-1 align-top">
@@ -265,6 +295,27 @@ export default function PricingExtractionReview({ onCountChange }: { onCountChan
                           </td>
                           <td className="px-1 py-1 align-top">
                             <EditableCell value={d.itemCode} onSave={(v) => saveField(d.id, "itemCode", v)} placeholder="obrigatório" required />
+                            {catalogMatch && !d.itemCode && (
+                              <button
+                                onClick={() => saveField(d.id, "itemCode", catalogMatch.itemCode)}
+                                title={`PN já cadastrado no catálogo como "${catalogMatch.description}"`}
+                                className="mt-0.5 block text-left text-[9px] text-blue-600 hover:underline leading-tight"
+                              >
+                                PN já existe: usar {catalogMatch.itemCode}
+                              </button>
+                            )}
+                            {catalogMatch && d.itemCode && d.itemCode === catalogMatch.itemCode && (
+                              <span className="mt-0.5 block text-[9px] text-emerald-600 leading-tight">Atualiza item existente</span>
+                            )}
+                            {catalogMatch && d.itemCode && d.itemCode !== catalogMatch.itemCode && (
+                              <span
+                                title={`PN já está cadastrado sob o código "${catalogMatch.itemCode}" - confirme se este é mesmo um item diferente antes de confirmar.`}
+                                className="mt-0.5 flex items-center gap-0.5 text-[9px] text-amber-600 leading-tight"
+                              >
+                                <CircleAlert size={9} className="shrink-0" />
+                                PN já existe c/ outro código
+                              </span>
+                            )}
                           </td>
                           <td className="px-1 py-1 align-top">
                             <EditableCell value={d.category} onSave={(v) => saveField(d.id, "category", v)} placeholder="—" />
