@@ -77,34 +77,34 @@ export default function PricingPendingItems() {
       )}
 
       <div className="border border-slate-200 rounded-lg overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
+        <table className="w-full text-xs">
+          <thead className="bg-slate-50 text-slate-500 text-[10px] uppercase tracking-wide">
             <tr>
-              <th className="text-left px-3 py-2 font-medium">PN</th>
-              <th className="text-left px-3 py-2 font-medium">Descrição (do BOM)</th>
-              <th className="text-right px-3 py-2 font-medium">Vezes visto</th>
+              <th className="text-left px-2.5 py-1.5 font-medium">PN</th>
+              <th className="text-left px-2.5 py-1.5 font-medium">Descrição (do BOM)</th>
+              <th className="text-right px-2.5 py-1.5 font-medium">Vezes visto</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {loading && (
               <tr>
-                <td colSpan={3} className="px-3 py-8 text-center text-slate-400">
+                <td colSpan={3} className="px-2.5 py-8 text-center text-slate-400">
                   Carregando...
                 </td>
               </tr>
             )}
             {!loading && pending.length === 0 && (
               <tr>
-                <td colSpan={3} className="px-3 py-8 text-center text-slate-400">
+                <td colSpan={3} className="px-2.5 py-8 text-center text-slate-400">
                   Nenhuma pendência — todos os itens vistos em BOMs já têm preço cadastrado.
                 </td>
               </tr>
             )}
             {pending.map((item) => (
               <tr key={item.id} className="hover:bg-slate-50">
-                <td className="px-3 py-2 font-mono text-xs text-slate-700">{item.rawPN}</td>
-                <td className="px-3 py-2 text-slate-600">{item.rawDescription || "—"}</td>
-                <td className="px-3 py-2 text-right text-slate-700 font-medium">{item.timesSeen}</td>
+                <td className="px-2.5 py-1 font-mono text-xs text-slate-700">{item.rawPN}</td>
+                <td className="px-2.5 py-1 text-slate-600">{item.rawDescription || "—"}</td>
+                <td className="px-2.5 py-1 text-right text-slate-700 font-medium">{item.timesSeen}</td>
               </tr>
             ))}
           </tbody>
