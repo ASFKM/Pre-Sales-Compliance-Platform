@@ -479,12 +479,30 @@ router.post("/projects/:projectId/analysis-result/reanalyze-section", requirePer
     // how a previously-correct item silently got replaced by a wrong one (real bug, 2026-07-20).
     const existing = await dbStore.getAnalysisResult(projectId);
 
+    // minLength=3 (era o padrão 4 até 2026-07-22): "PTZ"/"DAI" e outras siglas curtas e
+    // altamente distintivas deste dominio (DVR, LPR, VMS, NVR) tem so 3 caracteres e eram
+    // descartadas silenciosamente antes mesmo de chegar na busca da KB - confirmado com um caso
+    // real (item 5.1/5.2 do Termo de Referencia CFTV Via Sorocabana): a busca a nivel de
+    // documento nao achava nenhuma das 12+ entradas aprovadas sobre a DS-2DF8C448I5XG-ELW porque
+    // nem "ptz" nem "dai" sobreviviam ao filtro, mesmo a KB tendo cobertura completa do modelo.
+    // A busca por item do BOM (abaixo, em enrichBomWithWebSearch) ja usava minLength=3 por essa
+    // mesma razao - so a busca a nivel de documento ainda nao tinha recebido a mesma correcao.
     const knowledgeBaseKeywords = extractKnowledgeBaseKeywords(
       [project.name, project.customer_name, project.vertical, project.description, project.ai_orientation_text, combinedExtractedText]
         .filter(Boolean)
-        .join(" ")
+        .join(" "),
+      40,
+      3
     );
-    const approvedKnowledge = await dbStore.searchApprovedKnowledgeBase(knowledgeBaseKeywords);
+    // limit=60 (era o padrão 30 até 2026-07-22): confirmado com o mesmo caso real da correção de
+    // minLength acima - mesmo com "ptz"/"dai" agora presentes nas keywords, das 10 entradas
+    // aprovadas realmente sobre a DS-2DF8C448I5XG-ELW (entre 200 candidatas no total), só 2
+    // sobreviviam ao corte de 30, porque termos genéricos (câmera, tipo, poste, lote) raros
+    // O BASTANTE DENTRO DESTA CONSULTA especifica pontuam alto no ranking por peso IDF sem serem
+    // exclusivos deste produto. Não mexi no algoritmo de ranking em si (já tem histórico de dois
+    // ajustes anteriores documentados acima, delicado) - só dei mais espaço pra ele, o que já
+    // basta pra essas 10 entradas relevantes caberem quase todas.
+    const approvedKnowledge = await dbStore.searchApprovedKnowledgeBase(knowledgeBaseKeywords, 60);
     const knowledgeBaseSection = approvedKnowledge.length > 0
       ? `\nACCUMULATED KNOWLEDGE FROM PAST PROJECTS (human-reviewed and approved - apply only the
 entries that are actually relevant to this document; ignore anything that doesn't clearly match):
@@ -1443,12 +1461,30 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
     // extracted, and only pull entries whose trigger/knowledge actually mention one of them - still
     // a heuristic (no vector/embedding search infra here), but bounded and targeted instead of
     // unconditional.
+    // minLength=3 (era o padrão 4 até 2026-07-22): "PTZ"/"DAI" e outras siglas curtas e
+    // altamente distintivas deste dominio (DVR, LPR, VMS, NVR) tem so 3 caracteres e eram
+    // descartadas silenciosamente antes mesmo de chegar na busca da KB - confirmado com um caso
+    // real (item 5.1/5.2 do Termo de Referencia CFTV Via Sorocabana): a busca a nivel de
+    // documento nao achava nenhuma das 12+ entradas aprovadas sobre a DS-2DF8C448I5XG-ELW porque
+    // nem "ptz" nem "dai" sobreviviam ao filtro, mesmo a KB tendo cobertura completa do modelo.
+    // A busca por item do BOM (abaixo, em enrichBomWithWebSearch) ja usava minLength=3 por essa
+    // mesma razao - so a busca a nivel de documento ainda nao tinha recebido a mesma correcao.
     const knowledgeBaseKeywords = extractKnowledgeBaseKeywords(
       [project.name, project.customer_name, project.vertical, project.description, project.ai_orientation_text, combinedExtractedText]
         .filter(Boolean)
-        .join(" ")
+        .join(" "),
+      40,
+      3
     );
-    const approvedKnowledge = await dbStore.searchApprovedKnowledgeBase(knowledgeBaseKeywords);
+    // limit=60 (era o padrão 30 até 2026-07-22): confirmado com o mesmo caso real da correção de
+    // minLength acima - mesmo com "ptz"/"dai" agora presentes nas keywords, das 10 entradas
+    // aprovadas realmente sobre a DS-2DF8C448I5XG-ELW (entre 200 candidatas no total), só 2
+    // sobreviviam ao corte de 30, porque termos genéricos (câmera, tipo, poste, lote) raros
+    // O BASTANTE DENTRO DESTA CONSULTA especifica pontuam alto no ranking por peso IDF sem serem
+    // exclusivos deste produto. Não mexi no algoritmo de ranking em si (já tem histórico de dois
+    // ajustes anteriores documentados acima, delicado) - só dei mais espaço pra ele, o que já
+    // basta pra essas 10 entradas relevantes caberem quase todas.
+    const approvedKnowledge = await dbStore.searchApprovedKnowledgeBase(knowledgeBaseKeywords, 60);
     logDebugMessage({
       operation: "Knowledge Base Retrieval",
       message: `Extracted ${knowledgeBaseKeywords.length} keywords (${knowledgeBaseKeywords.slice(0, 10).join(", ")}${knowledgeBaseKeywords.length > 10 ? ", ..." : ""}); matched ${approvedKnowledge.length} approved entries for the analysis prompt.`,
