@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FileUp, TriangleAlert, Loader2, CheckCircle2, CircleAlert, Target, Check, X } from "lucide-react";
+import { FileUp, TriangleAlert, Loader2, CheckCircle2, CircleAlert, Target, Check, X, FolderOpen } from "lucide-react";
 import ApiClient from "../lib/api";
 import { Project } from "../types";
 
@@ -23,7 +23,23 @@ interface ProjectPricingSheet {
   lines: ProjectPricingLine[];
 }
 
+interface ImportedPricingSheetSummary {
+  id: string;
+  projectId: string;
+  projectName: string;
+  status: string;
+  destinationUF: string | null;
+  totalLines: number;
+  updatedAt: string;
+}
+
 const currencyFormatter = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+const dateTimeFormatter = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
+
+const SHEET_STATUS_LABEL: Record<string, string> = {
+  draft: "Rascunho",
+  finalized: "Finalizada",
+};
 
 const MATCH_LABEL: Record<ProjectPricingLine["matchStatus"], string> = {
   matched: "Casado com catálogo",
@@ -74,12 +90,44 @@ export default function PricingProjectSheet() {
   const [optimizing, setOptimizing] = useState(false);
   const [suggestion, setSuggestion] = useState<BudgetOptimizeResponse | null>(null);
   const [applying, setApplying] = useState(false);
+  const [importedSheets, setImportedSheets] = useState<ImportedPricingSheetSummary[]>([]);
+  const [loadingImported, setLoadingImported] = useState(true);
+  const [openingSheetId, setOpeningSheetId] = useState<string | null>(null);
 
   useEffect(() => {
     ApiClient.get<Project[]>("/api/projects")
       .then((res) => setProjects(res || []))
       .catch(() => setProjects([]));
   }, []);
+
+  const loadImportedSheets = () => {
+    setLoadingImported(true);
+    ApiClient.get<{ success: boolean; sheets: ImportedPricingSheetSummary[] }>("/api/pricing/pricing-sheets")
+      .then((res) => setImportedSheets(res.sheets || []))
+      .catch(() => setImportedSheets([]))
+      .finally(() => setLoadingImported(false));
+  };
+
+  useEffect(() => {
+    loadImportedSheets();
+  }, []);
+
+  const openSheet = async (sheetId: string, projectId: string) => {
+    setOpeningSheetId(sheetId);
+    setError(null);
+    setImportSummary(null);
+    setSuggestion(null);
+    try {
+      const sheetRes = await ApiClient.get<{ success: boolean; sheet: ProjectPricingSheet }>(`/api/pricing/pricing-sheets/${sheetId}`);
+      setSheet(sheetRes.sheet);
+      setSelectedProjectId(projectId);
+      setOutOfRangeLineIds(new Set());
+    } catch (e: any) {
+      setError(e.message || "Não foi possível abrir esta sessão de precificação.");
+    } finally {
+      setOpeningSheetId(null);
+    }
+  };
 
   const importBom = async () => {
     if (!selectedProjectId) return;
@@ -94,6 +142,7 @@ export default function PricingProjectSheet() {
       setImportSummary({ matched: res.matched, unmatched: res.unmatched, total: res.total });
       const sheetRes = await ApiClient.get<{ success: boolean; sheet: ProjectPricingSheet }>(`/api/pricing/pricing-sheets/${res.sheetId}`);
       setSheet(sheetRes.sheet);
+      loadImportedSheets();
     } catch (e: any) {
       setError(e.message || "Não foi possível importar o BOM deste projeto.");
     } finally {
@@ -184,7 +233,7 @@ export default function PricingProjectSheet() {
             setSheet(null);
             setImportSummary(null);
           }}
-          className="text-sm border border-slate-300 rounded-lg px-3 py-2 min-w-[280px]"
+          className="text-xs border border-slate-300 rounded-lg px-2.5 py-1.5 min-w-[280px] focus:outline-none focus:ring-1 focus:ring-emerald-500"
         >
           <option value="">Selecione um projeto...</option>
           {projects.map((p) => (
@@ -200,14 +249,14 @@ export default function PricingProjectSheet() {
           onChange={(e) => setDestinationUF(e.target.value.toUpperCase())}
           placeholder="UF destino (opcional)"
           title="Só é usada pelo motor fiscal, se estiver ligado nas Configurações"
-          className="text-sm border border-slate-300 rounded-lg px-3 py-2 w-40 uppercase"
+          className="text-xs border border-slate-300 rounded-lg px-2.5 py-1.5 w-36 uppercase focus:outline-none focus:ring-1 focus:ring-emerald-500"
         />
         <button
           onClick={importBom}
           disabled={!selectedProjectId || importing}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-white bg-emerald-600 rounded-lg px-3 py-2 hover:bg-emerald-700 disabled:opacity-60"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-white bg-emerald-600 rounded-lg px-2.5 py-1.5 hover:bg-emerald-700 disabled:opacity-60"
         >
-          {importing ? <Loader2 size={15} className="animate-spin" /> : <FileUp size={15} />}
+          {importing ? <Loader2 size={14} className="animate-spin" /> : <FileUp size={14} />}
           {importing ? "Importando..." : "Importar BOM"}
         </button>
       </div>
@@ -240,14 +289,14 @@ export default function PricingProjectSheet() {
               placeholder="Valor total alvo (R$)"
               value={targetBudget}
               onChange={(e) => setTargetBudget(e.target.value)}
-              className="text-sm border border-slate-300 rounded-lg px-3 py-2 w-52"
+              className="text-xs border border-slate-300 rounded-lg px-2.5 py-1.5 w-48 focus:outline-none focus:ring-1 focus:ring-emerald-500"
             />
             <button
               onClick={runOptimization}
               disabled={optimizing || !targetBudget}
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-white bg-emerald-600 rounded-lg px-3 py-2 hover:bg-emerald-700 disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-white bg-emerald-600 rounded-lg px-2.5 py-1.5 hover:bg-emerald-700 disabled:opacity-60"
             >
-              {optimizing ? <Loader2 size={15} className="animate-spin" /> : <Target size={15} />}
+              {optimizing ? <Loader2 size={14} className="animate-spin" /> : <Target size={14} />}
               {optimizing ? "Calculando..." : "Calcular"}
             </button>
           </div>
@@ -268,13 +317,13 @@ export default function PricingProjectSheet() {
               <p className="text-xs text-slate-500 mb-3">{suggestion.rationale}</p>
 
               <div className="border border-slate-200 rounded-lg overflow-x-auto bg-white">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
+                <table className="w-full text-xs">
+                  <thead className="bg-slate-50 text-slate-500 text-[10px] uppercase tracking-wide">
                     <tr>
-                      <th className="text-left px-3 py-1.5 font-medium whitespace-nowrap">Item</th>
-                      <th className="text-right px-3 py-1.5 font-medium whitespace-nowrap">Desconto atual</th>
-                      <th className="text-right px-3 py-1.5 font-medium whitespace-nowrap">Desconto sugerido</th>
-                      <th className="text-right px-3 py-1.5 font-medium whitespace-nowrap">Preço final sugerido</th>
+                      <th className="text-left px-2.5 py-1.5 font-medium whitespace-nowrap">Item</th>
+                      <th className="text-right px-2.5 py-1.5 font-medium whitespace-nowrap">Desconto atual</th>
+                      <th className="text-right px-2.5 py-1.5 font-medium whitespace-nowrap">Desconto sugerido</th>
+                      <th className="text-right px-2.5 py-1.5 font-medium whitespace-nowrap">Preço final sugerido</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -282,10 +331,10 @@ export default function PricingProjectSheet() {
                       const line = lineById.get(s.id);
                       return (
                         <tr key={s.id}>
-                          <td className="px-3 py-1 text-slate-700 whitespace-nowrap">{line?.rawDescription || s.id}</td>
-                          <td className="px-3 py-1 text-right text-slate-500">{line?.discountPercent ?? 0}%</td>
-                          <td className="px-3 py-1 text-right font-medium text-emerald-700">{s.discountPercent}%</td>
-                          <td className="px-3 py-1 text-right text-slate-700">{currencyFormatter.format(s.finalUnitPrice)}</td>
+                          <td className="px-2.5 py-1 text-slate-700 whitespace-nowrap">{line?.rawDescription || s.id}</td>
+                          <td className="px-2.5 py-1 text-right text-slate-500">{line?.discountPercent ?? 0}%</td>
+                          <td className="px-2.5 py-1 text-right font-medium text-emerald-700">{s.discountPercent}%</td>
+                          <td className="px-2.5 py-1 text-right text-slate-700">{currencyFormatter.format(s.finalUnitPrice)}</td>
                         </tr>
                       );
                     })}
@@ -318,17 +367,17 @@ export default function PricingProjectSheet() {
 
       {sheet && (
         <div className="border border-slate-200 rounded-lg overflow-x-auto">
-          <table className="w-full text-sm table-fixed">
-            <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
+          <table className="w-full text-xs table-fixed">
+            <thead className="bg-slate-50 text-slate-500 text-[10px] uppercase tracking-wide">
               <tr>
-                <th className="text-left px-3 py-1.5 font-medium w-28 whitespace-nowrap">PN</th>
-                <th className="text-left px-3 py-1.5 font-medium whitespace-nowrap">Descrição</th>
-                <th className="text-left px-3 py-1.5 font-medium w-40 whitespace-nowrap">Status</th>
-                <th className="text-right px-3 py-1.5 font-medium w-16 whitespace-nowrap">Qtd.</th>
-                <th className="text-right px-3 py-1.5 font-medium w-32 whitespace-nowrap">Preço de lista</th>
-                <th className="text-right px-3 py-1.5 font-medium w-28 whitespace-nowrap">Desconto %</th>
-                <th className="text-right px-3 py-1.5 font-medium w-28 whitespace-nowrap">Preço final</th>
-                <th className="text-right px-3 py-1.5 font-medium w-20 whitespace-nowrap">Margem</th>
+                <th className="text-left px-2.5 py-1.5 font-medium w-28 whitespace-nowrap">PN</th>
+                <th className="text-left px-2.5 py-1.5 font-medium whitespace-nowrap">Descrição</th>
+                <th className="text-left px-2.5 py-1.5 font-medium w-40 whitespace-nowrap">Status</th>
+                <th className="text-right px-2.5 py-1.5 font-medium w-16 whitespace-nowrap">Qtd.</th>
+                <th className="text-right px-2.5 py-1.5 font-medium w-32 whitespace-nowrap">Preço de lista</th>
+                <th className="text-right px-2.5 py-1.5 font-medium w-28 whitespace-nowrap">Desconto %</th>
+                <th className="text-right px-2.5 py-1.5 font-medium w-28 whitespace-nowrap">Preço final</th>
+                <th className="text-right px-2.5 py-1.5 font-medium w-20 whitespace-nowrap">Margem</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -336,22 +385,22 @@ export default function PricingProjectSheet() {
                 const outOfRange = outOfRangeLineIds.has(line.id);
                 return (
                   <tr key={line.id} className="hover:bg-slate-50">
-                    <td className="px-3 py-1 text-xs font-mono text-slate-500 truncate" title={line.rawPartNumber || undefined}>
+                    <td className="px-2.5 py-1 text-xs font-mono text-slate-500 truncate" title={line.rawPartNumber || undefined}>
                       {line.rawPartNumber || "sem PN"}
                     </td>
-                    <td className="px-3 py-1 text-slate-700 truncate" title={line.rawDescription || undefined}>
+                    <td className="px-2.5 py-1 text-slate-700 truncate" title={line.rawDescription || undefined}>
                       {line.rawDescription || "—"}
                     </td>
-                    <td className="px-3 py-1">
+                    <td className="px-2.5 py-1">
                       <span className={`text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${MATCH_COLOR[line.matchStatus]}`}>
                         {MATCH_LABEL[line.matchStatus]}
                       </span>
                     </td>
-                    <td className="px-3 py-1 text-right text-slate-600">{line.quantity}</td>
-                    <td className="px-3 py-1 text-right text-slate-600">
+                    <td className="px-2.5 py-1 text-right text-slate-600">{line.quantity}</td>
+                    <td className="px-2.5 py-1 text-right text-slate-600">
                       {line.listPriceSnapshot != null ? currencyFormatter.format(line.listPriceSnapshot) : "—"}
                     </td>
-                    <td className="px-3 py-1 text-right">
+                    <td className="px-2.5 py-1 text-right">
                       {line.matchStatus === "unmatched" ? (
                         <span className="text-slate-300">—</span>
                       ) : (
@@ -367,16 +416,16 @@ export default function PricingProjectSheet() {
                               const v = Number(e.target.value);
                               if (!Number.isNaN(v) && v !== line.discountPercent) updateDiscount(line, v);
                             }}
-                            className="w-14 text-right text-sm border border-slate-300 rounded px-1.5 py-0.5"
+                            className="w-14 text-right text-xs border border-slate-300 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                           />
                           <span className="text-xs text-slate-400 shrink-0">%</span>
                         </div>
                       )}
                     </td>
-                    <td className="px-3 py-1 text-right text-slate-700">
+                    <td className="px-2.5 py-1 text-right text-slate-700">
                       {line.finalUnitPrice != null ? currencyFormatter.format(line.finalUnitPrice) : "—"}
                     </td>
-                    <td className="px-3 py-1 text-right">
+                    <td className="px-2.5 py-1 text-right">
                       {line.marginPercent != null ? (
                         <span className={`inline-flex items-center gap-1 whitespace-nowrap ${outOfRange ? "text-amber-600" : "text-slate-600"}`}>
                           {outOfRange ? <CircleAlert size={13} /> : <CheckCircle2 size={13} className="text-emerald-500" />}
@@ -393,6 +442,59 @@ export default function PricingProjectSheet() {
           </table>
         </div>
       )}
+
+      <div className="mt-8">
+        <div className="flex items-center gap-1.5 mb-2">
+          <FolderOpen size={14} className="text-slate-400" />
+          <h3 className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Projetos já importados</h3>
+        </div>
+        <div className="border border-slate-200 rounded-lg overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="bg-slate-50 text-slate-500 text-[10px] uppercase tracking-wide">
+              <tr>
+                <th className="text-left px-2.5 py-1.5 font-medium">Projeto</th>
+                <th className="text-left px-2.5 py-1.5 font-medium w-28">Status</th>
+                <th className="text-left px-2.5 py-1.5 font-medium w-24">UF destino</th>
+                <th className="text-right px-2.5 py-1.5 font-medium w-20">Itens</th>
+                <th className="text-right px-2.5 py-1.5 font-medium w-36">Atualizado em</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {loadingImported && (
+                <tr>
+                  <td colSpan={5} className="px-2.5 py-6 text-center text-slate-400">
+                    Carregando...
+                  </td>
+                </tr>
+              )}
+              {!loadingImported && importedSheets.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-2.5 py-6 text-center text-slate-400">
+                    Nenhum projeto importado ainda.
+                  </td>
+                </tr>
+              )}
+              {importedSheets.map((s) => (
+                <tr
+                  key={s.id}
+                  onClick={() => openSheet(s.id, s.projectId)}
+                  className={`cursor-pointer hover:bg-slate-50 ${sheet?.id === s.id ? "bg-emerald-50/40" : ""}`}
+                >
+                  <td className="px-2.5 py-1 text-slate-700 truncate" title={s.projectName}>
+                    {s.projectName}
+                  </td>
+                  <td className="px-2.5 py-1 text-slate-600">{SHEET_STATUS_LABEL[s.status] || s.status}</td>
+                  <td className="px-2.5 py-1 text-slate-600">{s.destinationUF || "—"}</td>
+                  <td className="px-2.5 py-1 text-right text-slate-600">{s.totalLines}</td>
+                  <td className="px-2.5 py-1 text-right text-slate-500 whitespace-nowrap">
+                    {openingSheetId === s.id ? <Loader2 size={12} className="animate-spin inline-block" /> : dateTimeFormatter.format(new Date(s.updatedAt))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }

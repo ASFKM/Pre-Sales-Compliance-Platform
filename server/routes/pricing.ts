@@ -1059,6 +1059,45 @@ router.post(
   }
 );
 
+// Lista as sessões de precificação já importadas, para a aba "Precificação de projeto" mostrar
+// o que já foi feito em vez de perder a referência assim que o usuário sai da tela ou importa
+// outro projeto. Um projeto pode acumular mais de uma sessão (reimportações do mesmo BOM não
+// substituem a anterior, ver POST /projects/:projectId/pricing-sheets acima) - a lista mostra só
+// a mais recente por projeto, senão viraria uma lista crescente de sessões obsoletas do mesmo
+// projeto sem forma de saber qual é a atual.
+router.get("/pricing-sheets", requirePermission("pricing:read"), requireModule("pricing"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const sheets = await prisma.projectPricingSheet.findMany({
+      orderBy: { updatedAt: "desc" },
+      include: {
+        project: { select: { name: true } },
+        _count: { select: { lines: true } },
+      },
+    });
+    const seenProjectIds = new Set<string>();
+    const latestPerProject: typeof sheets = [];
+    for (const sheet of sheets) {
+      if (seenProjectIds.has(sheet.projectId)) continue;
+      seenProjectIds.add(sheet.projectId);
+      latestPerProject.push(sheet);
+    }
+    res.json({
+      success: true,
+      sheets: latestPerProject.map((s) => ({
+        id: s.id,
+        projectId: s.projectId,
+        projectName: s.project.name,
+        status: s.status,
+        destinationUF: s.destinationUF,
+        totalLines: s._count.lines,
+        updatedAt: s.updatedAt,
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get("/pricing-sheets/:id", requirePermission("pricing:read"), requireModule("pricing"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const sheet = await prisma.projectPricingSheet.findUnique({

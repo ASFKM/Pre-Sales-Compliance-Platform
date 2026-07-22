@@ -1,5 +1,5 @@
-import { Fragment, useEffect, useState } from "react";
-import { Download, Upload, Loader2, TriangleAlert, ChevronDown, ChevronRight, Pencil, Check, X, RefreshCw, Trash2 } from "lucide-react";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { Download, Upload, Loader2, TriangleAlert, ChevronDown, ChevronRight, Pencil, Check, X, RefreshCw, Trash2, Search } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import ApiClient from "../lib/api";
 import PricingFileUploadModal from "./PricingFileUploadModal";
@@ -201,6 +201,7 @@ export default function PricingCatalog({ onFilesProcessed, waitForTask, tasksByI
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [search, setSearch] = useState("");
 
   // Edição/exclusão direta de uma linha do catálogo - inline na própria tabela, mesmo espírito do
   // EditableCell de PricingExtractionReview.tsx (draft), mas aqui já é o item de verdade
@@ -289,6 +290,14 @@ export default function PricingCatalog({ onFilesProcessed, waitForTask, tasksByI
     loadItems();
   }, []);
 
+  const filteredItems = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return items;
+    return items.filter((item) =>
+      [item.itemCode, item.erpCode, item.category, item.pn, item.description].some((field) => field?.toLowerCase().includes(term))
+    );
+  }, [items, search]);
+
   const downloadTemplate = async () => {
     const token = localStorage.getItem("ca_session_token");
     const res = await fetch("/api/pricing/catalog/template", {
@@ -342,46 +351,64 @@ export default function PricingCatalog({ onFilesProcessed, waitForTask, tasksByI
         </div>
       )}
 
+      <div className="relative mb-3 max-w-xs">
+        <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Buscar por código, PN, categoria ou descrição..."
+          className="w-full text-xs border border-slate-300 rounded-lg pl-8 pr-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+        />
+      </div>
+
       <div className="border border-slate-200 rounded-lg overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
+        <table className="w-full text-xs">
+          <thead className="bg-slate-50 text-slate-500 text-[10px] uppercase tracking-wide">
             <tr>
-              <th className="text-left px-3 py-2 font-medium">Código</th>
-              <th className="text-left px-3 py-2 font-medium">Categoria</th>
-              <th className="text-left px-3 py-2 font-medium">PN</th>
-              <th className="text-left px-3 py-2 font-medium">Descrição</th>
-              <th className="text-right px-3 py-2 font-medium">Preço de lista (R$)</th>
-              <th className="text-right px-3 py-2 font-medium">Preço de lista (US$)</th>
-              <th className="text-right px-3 py-2 font-medium">Markup mín / máx</th>
-              <th className="text-right px-3 py-2 font-medium">Ações</th>
+              <th className="text-left px-2.5 py-1.5 font-medium">Código</th>
+              <th className="text-left px-2.5 py-1.5 font-medium">Categoria</th>
+              <th className="text-left px-2.5 py-1.5 font-medium">PN</th>
+              <th className="text-left px-2.5 py-1.5 font-medium">Descrição</th>
+              <th className="text-right px-2.5 py-1.5 font-medium">Preço de lista (R$)</th>
+              <th className="text-right px-2.5 py-1.5 font-medium">Preço de lista (US$)</th>
+              <th className="text-right px-2.5 py-1.5 font-medium">Markup mín / máx</th>
+              <th className="text-right px-2.5 py-1.5 font-medium">Ações</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {loading && (
               <tr>
-                <td colSpan={8} className="px-3 py-8 text-center text-slate-400">
+                <td colSpan={8} className="px-2.5 py-8 text-center text-slate-400">
                   Carregando...
                 </td>
               </tr>
             )}
             {!loading && items.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-3 py-8 text-center text-slate-400">
+                <td colSpan={8} className="px-2.5 py-8 text-center text-slate-400">
                   Nenhum item cadastrado ainda. Baixe o modelo, preencha e envie a planilha.
                 </td>
               </tr>
             )}
-            {items.map((item) => {
+            {!loading && items.length > 0 && filteredItems.length === 0 && (
+              <tr>
+                <td colSpan={8} className="px-2.5 py-8 text-center text-slate-400">
+                  Nenhum item encontrado para "{search}".
+                </td>
+              </tr>
+            )}
+            {filteredItems.map((item) => {
               const expanded = expandedId === item.id;
               const isEditing = editingId === item.id;
-              const inputClass = "w-full text-xs border border-slate-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-emerald-500";
+              const inputClass = "w-full text-xs border border-slate-300 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-emerald-500";
               return (
                 <Fragment key={item.id}>
                   <tr
                     onClick={() => !isEditing && setExpandedId(expanded ? null : item.id)}
                     className={isEditing ? "bg-emerald-50/40" : "hover:bg-slate-50 cursor-pointer"}
                   >
-                    <td className="px-3 py-2 font-mono text-xs text-slate-700">
+                    <td className="px-2.5 py-1 font-mono text-xs text-slate-700">
                       {isEditing ? (
                         <input className={inputClass} value={editDraft?.itemCode ?? ""} onChange={(e) => setEditDraft((d) => (d ? { ...d, itemCode: e.target.value } : d))} onClick={(e) => e.stopPropagation()} />
                       ) : (
@@ -391,21 +418,21 @@ export default function PricingCatalog({ onFilesProcessed, waitForTask, tasksByI
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-slate-600">
+                    <td className="px-2.5 py-1 text-slate-600">
                       {isEditing ? (
                         <input className={inputClass} value={editDraft?.category ?? ""} onChange={(e) => setEditDraft((d) => (d ? { ...d, category: e.target.value } : d))} onClick={(e) => e.stopPropagation()} />
                       ) : (
                         item.category
                       )}
                     </td>
-                    <td className="px-3 py-2 font-mono text-xs text-slate-600">
+                    <td className="px-2.5 py-1 font-mono text-xs text-slate-600">
                       {isEditing ? (
                         <input className={inputClass} value={editDraft?.pn ?? ""} onChange={(e) => setEditDraft((d) => (d ? { ...d, pn: e.target.value } : d))} onClick={(e) => e.stopPropagation()} />
                       ) : (
                         item.pn
                       )}
                     </td>
-                    <td className="px-3 py-2 text-slate-700">
+                    <td className="px-2.5 py-1 text-slate-700">
                       {isEditing ? (
                         <input className={inputClass} value={editDraft?.description ?? ""} onChange={(e) => setEditDraft((d) => (d ? { ...d, description: e.target.value } : d))} onClick={(e) => e.stopPropagation()} />
                       ) : (
@@ -419,14 +446,14 @@ export default function PricingCatalog({ onFilesProcessed, waitForTask, tasksByI
                         </>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-right text-slate-700">
+                    <td className="px-2.5 py-1 text-right text-slate-700">
                       {isEditing ? (
                         <input className={`${inputClass} text-right`} value={editDraft?.currentListPrice ?? ""} onChange={(e) => setEditDraft((d) => (d ? { ...d, currentListPrice: e.target.value } : d))} onClick={(e) => e.stopPropagation()} />
                       ) : (
                         currencyFormatter.format(item.currentListPrice)
                       )}
                     </td>
-                    <td className="px-3 py-2 text-right text-slate-500">
+                    <td className="px-2.5 py-1 text-right text-slate-500">
                       {isEditing ? (
                         <input className={`${inputClass} text-right`} placeholder="—" value={editDraft?.currentListPriceUsd ?? ""} onChange={(e) => setEditDraft((d) => (d ? { ...d, currentListPriceUsd: e.target.value } : d))} onClick={(e) => e.stopPropagation()} />
                       ) : item.currentListPriceUsd != null ? (
@@ -435,7 +462,7 @@ export default function PricingCatalog({ onFilesProcessed, waitForTask, tasksByI
                         "—"
                       )}
                     </td>
-                    <td className="px-3 py-2 text-right text-slate-500">
+                    <td className="px-2.5 py-1 text-right text-slate-500">
                       {isEditing ? (
                         <div className="flex items-center gap-1 justify-end">
                           <input className={`${inputClass} text-right w-14`} value={editDraft?.markupMin ?? ""} onChange={(e) => setEditDraft((d) => (d ? { ...d, markupMin: e.target.value } : d))} onClick={(e) => e.stopPropagation()} />
@@ -446,7 +473,7 @@ export default function PricingCatalog({ onFilesProcessed, waitForTask, tasksByI
                         `${item.markupMin}% / ${item.markupMax}%`
                       )}
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-2.5 py-1 text-right">
                       {isEditing ? (
                         <div className="flex items-center gap-1.5 justify-end">
                           <button onClick={(e) => saveEdit(item.id, e)} disabled={savingEdit} className="text-emerald-600 hover:text-emerald-700 disabled:opacity-50" title="Salvar">
@@ -470,7 +497,7 @@ export default function PricingCatalog({ onFilesProcessed, waitForTask, tasksByI
                   </tr>
                   {isEditing && rowError && (
                     <tr>
-                      <td colSpan={8} className="px-3 pb-2 text-xs text-red-600 bg-emerald-50/40">
+                      <td colSpan={8} className="px-2.5 pb-1 text-xs text-red-600 bg-emerald-50/40">
                         {rowError}
                       </td>
                     </tr>
