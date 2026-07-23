@@ -187,6 +187,27 @@ export function errorHandler(err: any, req: Request, res: Response, next: NextFu
     error: err
   });
 
+  // CloudMountain Diagnostics Agent (CDA) - additive to logDebugMessage above, not a replacement:
+  // DebugLog stays the existing log/audit trail this app already ships to the Fleet Manager on
+  // heartbeat; this is the separate, faster channel the CDC briefing calls for (Seção 12 -
+  // critical events shouldn't wait up to 20 minutes for the next heartbeat). Dynamically imported
+  // and wrapped so a bug in the Agent itself can never break error handling for the real request.
+  import("../diagnostics/agent")
+    .then(({ captureBackendError }) =>
+      captureBackendError({
+        tenantId,
+        message: err.message || "An unexpected error occurred inside the api server",
+        exceptionType: err.name,
+        stackTrace: err.stack,
+        route: req.path,
+        httpMethod: req.method,
+        httpStatus: err.status || 500,
+        operation: `${req.method} ${req.path}`,
+        correlationId,
+      })
+    )
+    .catch((agentErr) => logger.error({ err: agentErr }, "cda: capture failed"));
+
   // Safe client-friendly response - only a generic message reaches the client. Routes that want
   // to surface a specific message to the client (e.g. Zod validation errors) already do so
   // directly with their own res.status(...).json(...) before ever calling next(err); anything

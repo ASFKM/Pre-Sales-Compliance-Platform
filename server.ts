@@ -50,6 +50,7 @@ import settingsRouter from "./server/routes/settings";
 import integrationsRouter from "./server/routes/integrations";
 import auditRouter from "./server/routes/audit";
 import diagnosticsRouter from "./server/routes/diagnostics";
+import diagnosticsAgentRouter from "./server/routes/diagnosticsAgent";
 import tasksRouter from "./server/routes/tasks";
 import userTasksRouter from "./server/routes/userTasks";
 import dashboardRouter from "./server/routes/dashboard";
@@ -115,6 +116,7 @@ app.use("/api", settingsRouter);
 app.use("/api/integrations", integrationsRouter);
 app.use("/api", auditRouter);
 app.use("/api", diagnosticsRouter);
+app.use("/api", diagnosticsAgentRouter);
 app.use("/api", tasksRouter);
 app.use("/api", userTasksRouter);
 app.use("/api", dashboardRouter);
@@ -273,6 +275,13 @@ async function bootstrap() {
   // immediately instead of waiting up to 20 minutes for the next full heartbeat.
   setTimeout(() => runLicenseStatusPollForAllEnabledTenants().catch((err) => logger.error({ err }, "Initial license status poll failed")), 10000);
   setInterval(() => runLicenseStatusPollForAllEnabledTenants().catch((err) => logger.error({ err }, "License status poll failed")), 45 * 1000);
+
+  // CloudMountain Diagnostics Agent (CDA): drains any DiagnosticsOutboxEvent rows still unsent
+  // (immediate flush attempts inside agent.ts already try right after capture - this periodic
+  // pass is what guarantees delivery once the Fleet Manager comes back after being unreachable,
+  // without waiting on the unrelated 20-minute heartbeat cycle above).
+  const { flushDiagnosticsOutboxForAllEnabledTenants } = await import("./server/diagnostics/agent");
+  setInterval(() => flushDiagnosticsOutboxForAllEnabledTenants().catch((err) => logger.error({ err }, "cda: periodic flush failed")), 30 * 1000);
 
   // Sistema de Atualização de Produção: boot-time reconciliation (a scheduled update due while
   // this process was down, or a previous run's detached child that never reported back) plus a
