@@ -247,6 +247,7 @@ model Tenant {
   conversationMessages    ConversationMessage[]
   auditLogs               AuditLog[]
   debugLogs               DebugLog[]
+  diagnosticsOutboxEvents DiagnosticsOutboxEvent[]
   platformSettings        PlatformSettings?
   promptTemplates         PromptTemplate[]
   proposalTemplates       ProposalTemplate[]
@@ -865,6 +866,42 @@ model DebugLog {
   @@index([timestamp])
   @@index([tenantId])
   @@map("debug_logs")
+}
+
+// CloudMountain Diagnostics Agent (CDA) - persistent local buffer for events headed to the CMSaaS
+// Diagnostics Center. Required (not nullable) tenantId, unlike DebugLog above: every diagnostics
+// event has a known tenant by the time it's captured (server/diagnostics/agent.ts resolves it via
+// getCurrentTenantId()/req before ever writing here), and each tenant has its own independent Fleet
+// Manager identity (fleet_manager_api_key_encrypted) - the whole reason this buffer must be
+// tenant-scoped rather than a single global outbox. A row surviving here across a process restart
+// with sentAt still null is exactly the offline-resilience guarantee (Seção 48.5 of the CDC
+// briefing): capture never depends on the CMSaaS being reachable at capture time.
+model DiagnosticsOutboxEvent {
+  id              String   @id
+  tenantId        String   @map("tenant_id")
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+  externalEventId String   @map("external_event_id")
+  eventType       String   @map("event_type")
+  source          String
+  severity        String   @default("medium")
+  message         String   @db.Text
+  exceptionType   String?  @map("exception_type")
+  stackTrace      String?  @map("stack_trace") @db.Text
+  route           String?
+  httpMethod      String?  @map("http_method")
+  httpStatus      Int?     @map("http_status")
+  operation       String?
+  correlationId   String?  @map("correlation_id")
+  sessionId       String?  @map("session_id")
+  metadataJson    String?  @map("metadata_json") @db.Text
+  occurredAt      DateTime @map("occurred_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  sentAt          DateTime? @map("sent_at")
+  attempts        Int      @default(0)
+  lastError       String?  @map("last_error") @db.Text
+
+  @@index([tenantId, sentAt])
+  @@map("diagnostics_outbox_events")
 }
 
 // Cached mirror of this tenant's ia_kb add-on billing state, refreshed on every Fleet Manager
