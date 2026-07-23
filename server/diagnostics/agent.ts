@@ -4,8 +4,8 @@ import { runWithTenant } from "../../src/tenantContext";
 import { randomId } from "../../src/idGenerator";
 import { decryptSecret } from "../utils/security";
 import { logger } from "../utils/logger";
-import { redactDiagnosticsEvent } from "./redact";
-import { sendDiagnosticsBatch, DiagnosticsWireEvent } from "./transport";
+import { redactDiagnosticsEvent, redactText } from "./redact";
+import { sendDiagnosticsBatch, sendBugReport, sendAttachment, DiagnosticsWireEvent, BugReportWirePayload } from "./transport";
 
 // CloudMountain Diagnostics Agent (CDA) - the module embedded in this Pre-Sales Compliance
 // Platform process that captures, buffers and forwards diagnostics events to the CMSaaS
@@ -115,12 +115,25 @@ function toWireEvent(row: {
   };
 }
 
+interface FleetManagerCredentials {
+  url: string;
+  apiKey: string;
+}
+
+// Shared by the outbox flush and the synchronous bug-report/attachment submissions below - one
+// place that decides "is this tenant even configured to talk to a Fleet Manager right now".
+async function getFleetManagerCredentials(): Promise<FleetManagerCredentials | null> {
+  const settings = await dbStore.getSettings();
+  if (!settings.fleet_manager_enabled || !settings.fleet_manager_url || !settings.fleet_manager_api_key_encrypted) {
+    return null;
+  }
+  return { url: settings.fleet_manager_url, apiKey: decryptSecret(settings.fleet_manager_api_key_encrypted) };
+}
+
 export async function flushDiagnosticsOutboxForTenant(tenantId: string): Promise<void> {
   await runWithTenant({ tenantId }, async () => {
-    const settings = await dbStore.getSettings();
-    if (!settings.fleet_manager_enabled || !settings.fleet_manager_url || !settings.fleet_manager_api_key_encrypted) {
-      return;
-    }
+    const credentials = await getFleetManagerCredentials();
+    if (!credentials) return;
 
     const pending = await prisma.diagnosticsOutboxEvent.findMany({
       where: { tenantId, sentAt: null },
@@ -129,8 +142,7 @@ export async function flushDiagnosticsOutboxForTenant(tenantId: string): Promise
     });
     if (pending.length === 0) return;
 
-    const apiKey = decryptSecret(settings.fleet_manager_api_key_encrypted);
-    const result = await sendDiagnosticsBatch(settings.fleet_manager_url, apiKey, pending.map(toWireEvent));
+    const result = await sendDiagnosticsBatch(credentials.url, credentials.apiKey, pending.map(toWireEvent));
 
     if (result.ok) {
       await prisma.diagnosticsOutboxEvent.updateMany({
@@ -194,4 +206,72 @@ export async function captureFrontendError(params: CaptureFrontendErrorParams): 
     return;
   }
   flushDiagnosticsOutboxForTenant(params.tenantId).catch((err) => logger.error({ err }, "cda: immediate flush attempt failed"));
+}
+
+// "Reportar problema" (briefing Seção 17) - submitted synchronously, unlike error events: the
+// user is waiting on screen for a confirmation code, so there is no outbox/retry here. If the
+// CMSaaS is unreachable, the caller (server/routes/diagnosticsAgent.ts) surfaces that directly
+// rather than silently queuing - a bug report silently "lost" until some later flush would be a
+// worse experience than an honest "não foi possível enviar agora" for this one, synchronous case.
+export interface SubmitBugReportParams {
+  tenantId: string;
+  title: string;
+  whatHappened: string;
+  expectedBehavior?: string;
+  stepsToReproduce?: string;
+  reportedSeverity?: "low" | "medium" | "high" | "critical";
+  route?: string;
+  sessionId?: string;
+  correlationId?: string;
+  reporterName?: string;
+  reporterEmail?: string;
+  screenshotReference?: string;
+}
+
+export async function submitBugReport(params: SubmitBugReportParams): Promise<{ ok: boolean; confirmationCode?: string; error?: string }> {
+  return runWithTenant({ tenantId: params.tenantId }, async () => {
+    const credentials = await getFleetManagerCredentials();
+    if (!credentials) {
+      return { ok: false, error: "Diagnostics não está configurado para este tenant." };
+    }
+
+    const payload: BugReportWirePayload = {
+      title: (redactText(params.title) as string).slice(0, 200),
+      what_happened: redactText(params.whatHappened) as string,
+      expected_behavior: redactText(params.expectedBehavior) ?? undefined,
+      steps_to_reproduce: redactText(params.stepsToReproduce) ?? undefined,
+      reported_severity: params.reportedSeverity,
+      route: params.route,
+      session_id: params.sessionId,
+      correlation_id: params.correlationId,
+      reporter_name: params.reporterName,
+      reporter_email: params.reporterEmail,
+      screenshot_reference: params.screenshotReference,
+    };
+
+    const result = await sendBugReport(credentials.url, credentials.apiKey, payload);
+    if (!result.ok) {
+      logger.error({ tenantId: params.tenantId, error: result.error }, "cda: bug report submission failed");
+    }
+    return { ok: result.ok, confirmationCode: result.confirmationCode, error: result.error };
+  });
+}
+
+export async function uploadBugReportAttachment(
+  tenantId: string,
+  fileBuffer: Buffer,
+  mimeType: string,
+  fileName: string
+): Promise<{ ok: boolean; reference?: string; error?: string }> {
+  return runWithTenant({ tenantId }, async () => {
+    const credentials = await getFleetManagerCredentials();
+    if (!credentials) {
+      return { ok: false, error: "Diagnostics não está configurado para este tenant." };
+    }
+    const result = await sendAttachment(credentials.url, credentials.apiKey, fileBuffer, mimeType, fileName);
+    if (!result.ok) {
+      logger.error({ tenantId, error: result.error }, "cda: attachment upload failed");
+    }
+    return result;
+  });
 }
