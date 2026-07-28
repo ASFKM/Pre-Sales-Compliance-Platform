@@ -23,7 +23,11 @@ describe("validateUploadedFile", () => {
   });
 
   it("rejects a file over the size limit", () => {
-    const result = validateUploadedFile("spec.pdf", "application/pdf", 11 * 1024 * 1024);
+    // Limit was raised 10MB -> 25MB (project's own "Upload limit 25MB" fix); this assertion
+    // still used the old 11MB fixture and had been silently passing-the-wrong-thing since, since
+    // validateUploadedFile now correctly accepts 11MB. Found while checking a stale CI failure on
+    // an unrelated PR (2026-07-27).
+    const result = validateUploadedFile("spec.pdf", "application/pdf", 26 * 1024 * 1024);
     expect(result.valid).toBe(false);
     expect(result.error).toMatch(/exceeds maximum size/i);
   });
