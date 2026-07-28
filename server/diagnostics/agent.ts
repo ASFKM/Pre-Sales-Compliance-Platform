@@ -81,7 +81,7 @@ export async function captureBackendError(params: CaptureBackendErrorParams): Pr
   flushDiagnosticsOutboxForTenant(tenantId).catch((err) => logger.error({ err, tenantId }, "cda: immediate flush attempt failed"));
 }
 
-function toWireEvent(row: {
+export function toWireEvent(row: {
   externalEventId: string;
   eventType: string;
   source: string;
@@ -103,14 +103,20 @@ function toWireEvent(row: {
     source: row.source,
     severity: row.severity,
     message: row.message,
-    exception_type: row.exceptionType,
-    stack_trace: row.stackTrace,
-    route: row.route,
-    http_method: row.httpMethod,
+    // CMSaaS's EventSchema (server/routes/diagnosticsIngestion.ts) types these as
+    // z.string().optional() - undefined (an absent key) is fine, but an explicit `null` fails
+    // validation with HTTP 400. Prisma represents an unset nullable column as `null`, not
+    // `undefined`, so every one of these needs the `?? undefined` normalization or any event
+    // missing one of them gets rejected outright - found by actually running the pipeline
+    // end-to-end (2026-07-27), not by reading either schema in isolation.
+    exception_type: row.exceptionType ?? undefined,
+    stack_trace: row.stackTrace ?? undefined,
+    route: row.route ?? undefined,
+    http_method: row.httpMethod ?? undefined,
     http_status: row.httpStatus ?? undefined,
-    operation: row.operation,
-    correlation_id: row.correlationId,
-    session_id: row.sessionId,
+    operation: row.operation ?? undefined,
+    correlation_id: row.correlationId ?? undefined,
+    session_id: row.sessionId ?? undefined,
     occurred_at: row.occurredAt.toISOString(),
   };
 }
