@@ -23,7 +23,7 @@ cd "$REPO_ROOT"
 
 # Editar esta linha é a forma deliberada e explícita de mudar qual branch é "a de verdade" (ex.:
 # no dia em que este trabalho for mesclado em main) - nunca implícito.
-EXPECTED_BRANCH="feature/setup-installation-wizard"
+EXPECTED_BRANCH="main"
 SERVICE_NAME="commercial-assistant-ai.service"
 HEALTH_URL="http://localhost:3000/api/health"
 DEPLOY_LOG="$REPO_ROOT/deploy.log"
