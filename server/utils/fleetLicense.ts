@@ -563,7 +563,7 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
           method: "POST",
           headers: { Authorization: `Bearer ${apiKey}` },
           signal: AbortSignal.timeout(10000),
-        }).catch(() => {});
+        }).catch((err) => logger.warn({ err, tenantId, entryId: kbItem.entry_id }, "Failed to ACK knowledge base entry to Fleet Manager"));
       }
 
       if (kbEntriesToSync.length > 0) {
