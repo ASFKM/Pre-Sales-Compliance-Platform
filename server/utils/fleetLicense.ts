@@ -126,20 +126,66 @@ interface VulnerabilityFinding {
   severity: string;
   title: string;
   url: string;
+  root_cause?: string;
+  fix_available: boolean;
+  fix_is_breaking?: boolean;
 }
 
 // Each key in npm audit's `vulnerabilities` object is a distinct package - a stable-enough
 // identifier to correlate the same finding across scans (present -> still open, absent from a
-// later scan -> resolved). `via` entries are either a string (an indirect dependency name) or an
-// object carrying the actual advisory title/url - only the object form has that detail.
+// later scan -> resolved). `via` entries are either a string (naming another package in this same
+// object that the vulnerability is inherited from) or an object carrying the actual advisory
+// title/url - only the object form has that detail. A purely transitive package (e.g. `glob`,
+// pulled in only because `minimatch` is vulnerable) has nothing but string entries in its own
+// `via`, so its title/url would be empty without walking the chain down to whichever package
+// actually owns the advisory. `seen` guards against a pathological cycle in the audit output.
+function resolveAdvisory(
+  packageName: string,
+  vulnerabilities: Record<string, any>,
+  seen: Set<string> = new Set()
+): { title: string; url: string; rootCause?: string } {
+  if (seen.has(packageName)) return { title: "", url: "" };
+  seen.add(packageName);
+
+  const via = vulnerabilities[packageName]?.via || [];
+  const directAdvisory = via.find((v: any) => typeof v === "object");
+  if (directAdvisory) {
+    return { title: directAdvisory.title || "", url: directAdvisory.url || "" };
+  }
+
+  const nextPackageName = via.find((v: any) => typeof v === "string");
+  if (!nextPackageName || !vulnerabilities[nextPackageName]) {
+    return { title: "", url: "" };
+  }
+  const resolved = resolveAdvisory(nextPackageName, vulnerabilities, seen);
+  // Keep bubbling up the deepest root cause found so far rather than overwriting it with each
+  // intermediate hop, so a 3+ level chain (glob -> minimatch -> brace-expansion) still reports
+  // brace-expansion, not minimatch, as the root cause.
+  return { title: resolved.title, url: resolved.url, rootCause: resolved.rootCause || nextPackageName };
+}
+
+// npm audit's per-package `fixAvailable` is `false` (no fix), `true` (fix within the same major),
+// or an object describing a fix that requires a semver-major bump - collapsed here into the two
+// booleans the fleet dashboard actually needs to prioritize a backlog.
+function normalizeFixAvailable(fixAvailable: any): { fix_available: boolean; fix_is_breaking?: boolean } {
+  if (fixAvailable && typeof fixAvailable === "object") {
+    return { fix_available: true, fix_is_breaking: fixAvailable.isSemVerMajor === true };
+  }
+  return { fix_available: fixAvailable === true };
+}
+
 function extractFindings(vulnerabilities: Record<string, any>): VulnerabilityFinding[] {
   return Object.entries(vulnerabilities || {}).map(([packageName, info]: [string, any]) => {
-    const advisory = (info.via || []).find((v: any) => typeof v === "object");
+    const { title, url, rootCause } = resolveAdvisory(packageName, vulnerabilities);
+    const { fix_available, fix_is_breaking } = normalizeFixAvailable(info.fixAvailable);
     return {
       package_name: packageName,
       severity: info.severity || "unknown",
-      title: advisory?.title || "",
-      url: advisory?.url || "",
+      title,
+      url,
+      root_cause: rootCause,
+      fix_available,
+      fix_is_breaking,
     };
   });
 }
