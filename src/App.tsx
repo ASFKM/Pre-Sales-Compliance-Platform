@@ -10,6 +10,7 @@ import Home from "./components/Home";
 import Proposals from "./components/Proposals";
 import Approval from "./components/Approval";
 import PocManagement from "./components/PocManagement";
+import PricingModule from "./components/PricingModule";
 import NewProjectWizard from "./components/modals/NewProjectWizard";
 import { useBackgroundTasks } from "./hooks/useBackgroundTasks";
 import { useSilentRefresh } from "./hooks/useSilentRefresh";
@@ -23,7 +24,9 @@ import {
   RefreshCw,
   LogOut,
   FileSpreadsheet,
-  Globe
+  Globe,
+  PanelLeftClose,
+  PanelLeftOpen
 } from "lucide-react";
 import {
   Project,
@@ -147,11 +150,43 @@ export default function App() {
   const [authChecking, setAuthChecking] = useState<boolean>(true);
 
   // Phase 1: real-time background task progress (analysis, proposal generation, ...)
-  const { activeTasks, waitForTask } = useBackgroundTasks(isAuthenticated);
+  const { activeTasks, waitForTask, tasks } = useBackgroundTasks(isAuthenticated);
 
   // Phase 2: keeps the short-lived access token renewed in the background via the httpOnly
   // refresh cookie - same "unauthorized" event every other 401 already triggers if it fails.
   useSilentRefresh(isAuthenticated, () => window.dispatchEvent(new Event("unauthorized")));
+
+  // Aviso de nova versão: reaproveita o /api/health que já existe (nenhum endpoint novo) -
+  // captura o git_sha servido no carregamento da aba e compara periodicamente. Uma atualização
+  // do sistema (agendada, manual ou empurrada pelo CMSaaS) troca o processo no servidor sem
+  // avisar as abas já abertas - decisão do usuário durante o ensaio no Presales Demo
+  // (2026-07-17): quem está numa aba aberta deve ser avisado, não descobrir sozinho recarregando
+  // manualmente. Não recarrega sozinho (evitaria perder trabalho não salvo em algum formulário) -
+  // só mostra o aviso, quem decide quando recarregar é o usuário.
+  const [newVersionAvailable, setNewVersionAvailable] = useState(false);
+  useEffect(() => {
+    let loadedGitSha: string | null = null;
+    let cancelled = false;
+    const check = () => {
+      fetch("/api/health")
+        .then((r) => r.json())
+        .then((data) => {
+          if (cancelled || !data.git_sha) return;
+          if (loadedGitSha === null) {
+            loadedGitSha = data.git_sha;
+          } else if (data.git_sha !== loadedGitSha) {
+            setNewVersionAvailable(true);
+          }
+        })
+        .catch(() => {});
+    };
+    check();
+    const interval = setInterval(check, 60000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
 
   const [currentSessionUser, setCurrentSessionUser] = useState({
     id: "",
@@ -172,12 +207,21 @@ export default function App() {
   const hasModule = (moduleName: string) =>
     Array.isArray(currentSessionUser.enabled_modules) && currentSessionUser.enabled_modules.includes(moduleName);
 
+  // Resolves what will actually run a task: iaKbTaskConfig (CMSaaS-managed) once the add-on is
+  // active, platformSettings' own field otherwise - same distinction AdminConsole.tsx's
+  // orchestrator map already draws, just needed here too for the "Powered by" captions.
+  const effectiveTaskProvider = (taskType: string, settingsField: string | undefined) =>
+    (hasModule("ia_kb") ? iaKbTaskConfig[taskType]?.provider : undefined) || settingsField || "gemini";
+  const effectiveTaskModel = (taskType: string, settingsField: string | undefined) =>
+    (hasModule("ia_kb") ? iaKbTaskConfig[taskType]?.model : undefined) || settingsField || "";
+
   const adminSectionPermissions: Record<string, string[]> = {
     overview: [
       "admin:users",
       "admin:roles",
       "admin:settings",
       "admin:audit",
+      "admin:system_updates",
       "ai:settings",
       "template:manage",
       "approval:manage",
@@ -190,6 +234,7 @@ export default function App() {
     templates: ["template:manage"],
     approval_flow: ["approval:manage"],
     subscription: ["admin:settings"],
+    system_updates: ["admin:system_updates"],
     branding: ["branding:manage"],
     integrations: ["integrations:manage"],
     storage: ["storage:manage"],
@@ -240,6 +285,17 @@ export default function App() {
     };
   }, []);
 
+  // AUD-006 (auditoria de segurança, 2026-07-19): avaliado migrar o token de sessão de
+  // localStorage para um cookie httpOnly (elimina o acesso via JS, então um XSS não consegue
+  // roubar o token) - decisão consciente de NÃO fazer essa migração nesta correção. Motivo: exige
+  // reescrever requireAuth pra aceitar cookie (hoje só Bearer), CSRF protection nova (cookie é
+  // enviado automaticamente pelo browser em toda requisição, diferente de Authorization que exige
+  // JS explícito - abre uma classe de vulnerabilidade nova que não existe hoje), e tocar todo
+  // ponto do frontend que lê o token (dezenas de call sites). Risco de regressão/quebra
+  // desproporcional ao ganho numa mudança feita sem ciclo de design/teste dedicado - já mitigado
+  // via CSP restrito (script-src 'self', sem 'unsafe-inline') como principal defesa contra XSS
+  // hoje. Query string do token no EventSource (o vetor mais barato de vazar, via log de
+  // acesso/histórico) já foi corrigido acima com ticket de curta duração.
   const handleLoginSuccess = (user: any, token: string) => {
     localStorage.setItem("ca_session_token", token);
     localStorage.setItem("ca_user", JSON.stringify(user));
@@ -273,8 +329,15 @@ export default function App() {
 
 
   // Navigation / Views
-  const [activeTab, setActiveTab] = useState<"home" | "workspace" | "projectsList" | "proposals" | "approval" | "knowledgeBase" | "admin" | "pocManagement">("home");
-  const [activeAdminSection, setActiveAdminSection] = useState<"overview" | "users" | "ai" | "templates" | "approval_flow" | "subscription" | "branding" | "integrations" | "storage" | "audit">("overview");
+  const [activeTab, setActiveTab] = useState<"home" | "workspace" | "projectsList" | "proposals" | "approval" | "knowledgeBase" | "admin" | "pocManagement" | "pricing">("home");
+  // Left sidebar (bid/project metadata) can retract to free width for the project content itself
+  // on the Workspace tab - persisted so a user's preference survives reloads, same pattern as the
+  // brand customization below.
+  const [leftPanelCollapsed, setLeftPanelCollapsed] = useState<boolean>(() => localStorage.getItem("ca_left_panel_collapsed") === "1");
+  useEffect(() => {
+    localStorage.setItem("ca_left_panel_collapsed", leftPanelCollapsed ? "1" : "0");
+  }, [leftPanelCollapsed]);
+  const [activeAdminSection, setActiveAdminSection] = useState<"overview" | "users" | "ai" | "templates" | "approval_flow" | "subscription" | "system_updates" | "branding" | "integrations" | "storage" | "audit">("overview");
 
   // Shared with fetchGlobalConfigs (auto-selects defaults) and Workspace's proposal builder -
   // one entry per proposal type (see server/utils/proposalTypes.ts) rather than a separate
@@ -314,6 +377,12 @@ export default function App() {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [debugLogs, setDebugLogs] = useState<DebugLog[]>([]);
   const [platformSettings, setPlatformSettings] = useState<PlatformSettings | null>(null);
+  // ia_kb add-on: once active, this is the actual source of truth for provider/model per task -
+  // platformSettings' own fields stop being read (see AdminConsole's own comment on this same
+  // distinction). Bug found during the Presales Demo rehearsal (2026-07-17): the "Powered by"
+  // captions below kept reading platformSettings directly even with the add-on active, always
+  // showing the stale/default value instead of what's actually configured via the CMSaaS.
+  const [iaKbTaskConfig, setIaKbTaskConfig] = useState<Record<string, { provider: string; model: string }>>({});
   const [brandingSettings, setBrandingSettings] = useState<BrandingSettings | null>(null);
   const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>([]);
   const [aiProviderConfigs, setAiProviderConfigs] = useState<any[]>([]);
@@ -364,6 +433,22 @@ export default function App() {
               const res = await fetch("/api/settings");
               const data = await res.json();
               if (res.ok) setPlatformSettings(data.platform ?? data ?? null);
+            })()
+          ]
+        : []),
+      // Same permission the backend route itself requires (ai:settings) - matches
+      // platformSettings' own gating just above, so a role without either permission still just
+      // falls back to the generic default caption, same as it always has.
+      ...(hasPermission("ai:settings")
+        ? [
+            (async () => {
+              const res = await fetch("/api/settings/iakb-task-config");
+              const data = await res.json();
+              if (res.ok && Array.isArray(data)) {
+                const map: Record<string, { provider: string; model: string }> = {};
+                for (const row of data) map[row.task_type] = { provider: row.provider, model: row.model };
+                setIaKbTaskConfig(map);
+              }
             })()
           ]
         : []),
@@ -837,6 +922,15 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
   return (
     <div className="flex flex-col h-screen w-full bg-[#f8fafc] text-slate-900 font-sans overflow-hidden">
 
+      {newVersionAvailable && (
+        <div className="shrink-0 z-20 bg-amber-500 text-amber-950 text-xs font-bold px-4 py-2 flex items-center justify-center gap-3">
+          <span>{tx("A new version was installed on the server.", "Uma nova versão foi instalada no servidor.")}</span>
+          <button onClick={() => window.location.reload()} className="underline">
+            {tx("Reload page", "Recarregar página")}
+          </button>
+        </div>
+      )}
+
       {/* 1. TOP NAV BAR */}
       <nav className="h-auto min-h-14 bg-slate-900 text-white flex items-center justify-between px-3 lg:px-6 shrink-0 z-10 shadow-md flex-wrap lg:flex-nowrap gap-2">
         <div className="flex items-center gap-3 min-w-0 shrink-0">
@@ -867,19 +961,19 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
 
           <div className="flex items-center">
             <button
-              onClick={() => setActiveTab("workspace")}
-              className={`py-4 px-1 border-b-2 transition-all ${activeTab === "workspace" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
+              onClick={() => setActiveTab("projectsList")}
+              className={`py-4 px-1 border-b-2 transition-all ${activeTab === "projectsList" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
             >
-              {t("workspace")}
+              Projetos
             </button>
           </div>
 
           <div className="flex items-center">
             <button
-              onClick={() => setActiveTab("projectsList")}
-              className={`py-4 px-1 border-b-2 transition-all ${activeTab === "projectsList" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
+              onClick={() => setActiveTab("workspace")}
+              className={`py-4 px-1 border-b-2 transition-all ${activeTab === "workspace" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
             >
-              Projetos
+              {t("workspace")}
             </button>
           </div>
 
@@ -937,6 +1031,20 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
             </div>
           )}
 
+          {hasModule("pricing") && hasAnyPermission(["pricing:read", "pricing:manage"]) && (
+            <div className="flex items-center">
+              <button
+                onClick={() => setActiveTab("pricing")}
+                className={`py-4 px-1 border-b-2 transition-all flex items-center gap-2 ${activeTab === "pricing" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
+              >
+                Precificação
+                <span className="text-[9px] font-bold tracking-wide uppercase text-emerald-400 bg-emerald-400/10 border border-emerald-400/40 rounded-full px-1.5 py-0.5">
+                  Add-on
+                </span>
+              </button>
+            </div>
+          )}
+
           {canAccessAdminConsole() && (
             <div className="flex items-center">
               <button
@@ -985,7 +1093,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
           Not on Gestão de POC either (Fase 6 add-on) - a POC's own project (if any) is shown in
           its own detail view, and this sub-header showing an unrelated *other* project's
           status/deadline/owner while managing a POC was confusing (reported directly). */}
-      {activeTab !== "home" && activeTab !== "admin" && activeTab !== "projectsList" && activeTab !== "knowledgeBase" && activeTab !== "pocManagement" && (
+      {activeTab !== "home" && activeTab !== "admin" && activeTab !== "projectsList" && activeTab !== "knowledgeBase" && activeTab !== "pocManagement" && activeTab !== "pricing" && (
         <div className="h-11 bg-white border-b border-slate-200 flex items-center px-6 gap-2 text-xs font-medium shrink-0 shadow-sm">
           <span className="text-slate-400 font-mono">{locale === "pt" ? "Projetos" : "Projects"}</span>
           <span className="text-slate-400">/</span>
@@ -1037,8 +1145,22 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
             still use the context sub-header's project dropdown, but don't need this cadastro/
             analysis sidebar alongside them. */}
         {activeTab === "workspace" && (
-          <aside className="w-80 bg-slate-50 border-r border-slate-200 flex flex-col p-4 gap-4 shrink-0 overflow-y-auto">
+          <aside className={`${leftPanelCollapsed ? "w-10 p-2" : "w-80 p-4"} bg-slate-50 border-r border-slate-200 flex flex-col gap-4 shrink-0 overflow-y-auto transition-[width] duration-150`}>
 
+          {/* Retract/expand toggle - always visible regardless of collapsed state, so it's never
+              lost once the panel closes. Frees width for the project content on narrower screens
+              or when the user just wants more room for the workspace tabs. */}
+          <button
+            onClick={() => setLeftPanelCollapsed((v) => !v)}
+            className="flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-200 rounded p-1 self-end shrink-0"
+            title={leftPanelCollapsed ? (locale === "pt" ? "Expandir painel" : "Expand panel") : (locale === "pt" ? "Recolher painel" : "Collapse panel")}
+            aria-label={leftPanelCollapsed ? "Expand panel" : "Collapse panel"}
+          >
+            {leftPanelCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          </button>
+
+          {!leftPanelCollapsed && (
+          <>
           {/* Quick Creator */}
           <div className="flex items-center justify-between border-b border-slate-200 pb-2">
             <h3 className="text-[10px] uppercase tracking-widest text-slate-500 font-bold font-mono">{t("bidsManager")}</h3>
@@ -1163,10 +1285,12 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               </span>
             </button>
             <p className="text-[9px] text-slate-400 text-center mt-1.5 leading-tight font-mono">
-              {tx("Powered by", "Executado por")} {PROVIDER_DISPLAY_NAME[platformSettings?.document_analysis_provider || "gemini"] || platformSettings?.document_analysis_provider}
-              {platformSettings?.document_analysis_model ? ` (${platformSettings.document_analysis_model})` : ""}
+              {tx("Powered by", "Executado por")} {PROVIDER_DISPLAY_NAME[effectiveTaskProvider("document_analysis", platformSettings?.document_analysis_provider)] || effectiveTaskProvider("document_analysis", platformSettings?.document_analysis_provider)}
+              {effectiveTaskModel("document_analysis", platformSettings?.document_analysis_model) ? ` (${effectiveTaskModel("document_analysis", platformSettings?.document_analysis_model)})` : ""}
             </p>
           </section>
+          </>
+          )}
         </aside>
         )}
 
@@ -1193,6 +1317,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               tx={tx}
               t={t}
               hasPermission={hasPermission}
+              activeTasks={activeTasks}
               selectedProjectId={selectedProjectId}
               projectName={activeProject?.name || ""}
               documents={documents}
@@ -1233,6 +1358,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                 hasPermission={hasPermission}
                 onOpenProject={(projectId) => { setSelectedProjectId(projectId); setActiveTab("workspace"); }}
                 onProjectsChanged={fetchProjects}
+                setShowNewProjectModal={setShowNewProjectModal}
               />
             </div>
           )}
@@ -1244,6 +1370,8 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               hasPermission={hasPermission}
               proposals={proposals}
               selectedProjectId={selectedProjectId}
+              activeTasks={activeTasks}
+              waitForTask={waitForTask}
               fetchGlobalConfigs={fetchGlobalConfigs}
               fetchProjectDetails={fetchProjectDetails}
               handleReleaseProposal={handleReleaseProposal}
@@ -1289,6 +1417,12 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               activeTasks={activeTasks}
               waitForTask={waitForTask}
             />
+          )}
+
+          {/* Módulo de Precificação (add-on) - Fase 2: cadastro de tabela de preços. Precificação
+              de BOM/projeto e "chegar no budget" chegam nas próximas fases do plano. */}
+          {activeTab === "pricing" && hasModule("pricing") && hasAnyPermission(["pricing:read", "pricing:manage"]) && (
+            <PricingModule waitForTask={waitForTask} tasksById={tasks} />
           )}
 
           {/* TAB 5: ADMIN CONSOLE */}
@@ -1350,55 +1484,80 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
           </span></span>
           <span className="flex items-center gap-1.5 border-l border-slate-700 pl-6">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            LLM Análise: <span className="text-emerald-400 font-bold uppercase">{PROVIDER_DISPLAY_NAME[platformSettings?.document_analysis_provider || "gemini"] || platformSettings?.document_analysis_provider}</span>
+            LLM Análise: <span className="text-emerald-400 font-bold uppercase">{PROVIDER_DISPLAY_NAME[effectiveTaskProvider("document_analysis", platformSettings?.document_analysis_provider)] || effectiveTaskProvider("document_analysis", platformSettings?.document_analysis_provider)}</span>
           </span>
           <span className="flex items-center gap-1.5">
-            LLM Propostas: <span className="text-emerald-400 font-bold uppercase">{PROVIDER_DISPLAY_NAME[platformSettings?.proposal_generation_provider || "gemini"] || platformSettings?.proposal_generation_provider}</span>
+            LLM Propostas: <span className="text-emerald-400 font-bold uppercase">{PROVIDER_DISPLAY_NAME[effectiveTaskProvider("proposal_generation", platformSettings?.proposal_generation_provider)] || effectiveTaskProvider("proposal_generation", platformSettings?.proposal_generation_provider)}</span>
           </span>
           {(() => {
-            const analysisTask = activeTasks.find((t) => t.type === "document_analysis");
-            if (!analysisTask) return null;
+            // Single fixed-width slot for ALL active job types (was two separate shrink-0
+            // w-[220px] blocks, one per task type, added independently over time - with 2+ types
+            // running at once their combined width exceeded the footer and forced a horizontal
+            // scrollbar on the whole page, confirmed against a real production report. Generic
+            // over task type now (not a hardcoded .find() per type) so a future new AI task type
+            // (e.g. the Fase 5 proposal-opinion tasks) never needs this file touched again to stay
+            // bounded - only the newest/first active task's detail is shown, any others collapse
+            // into a "+N" badge with the rest listed in its title tooltip.
+            if (activeTasks.length === 0) return null;
+            const footerTaskLabel = (type: string) => {
+              switch (type) {
+                case "document_analysis": return "Análise";
+                case "poc_test_generation": return "Caderno de Testes";
+                case "poc_schedule_generation": return "Cronograma";
+                case "proposal_generation": return "Proposta";
+                case "project_intake_analysis": return "Triagem";
+                case "knowledge_base_analysis": return "Base de Conhecimento";
+                case "pricing_catalog_extraction": return "Extração de Cotação";
+                default: return type;
+              }
+            };
+            // "Enviar Arquivos" cria uma BackgroundTask por arquivo (pra progresso granular por
+            // documento dentro do popup de upload) - mas listar cada uma separadamente aqui
+            // poluiria o rodapé com N entradas quase idênticas. Colapsa em uma única entrada
+            // sintética "Analisando N cotações..." quando há mais de uma ativa ao mesmo tempo; com
+            // só uma, mostra ela normalmente (mesmo padrão de qualquer outro tipo de tarefa).
+            const pricingExtractionTasks = activeTasks.filter((t) => t.type === "pricing_catalog_extraction");
+            const otherTasks = activeTasks.filter((t) => t.type !== "pricing_catalog_extraction");
+            const displayTasks =
+              pricingExtractionTasks.length > 1
+                ? [
+                    {
+                      ...pricingExtractionTasks[0],
+                      id: "pricing-catalog-extraction-aggregate",
+                      current_step: `Analisando ${pricingExtractionTasks.length} cotações de fornecedor...`,
+                      progress_pct: Math.round(
+                        pricingExtractionTasks.reduce((sum, t) => sum + (typeof t.progress_pct === "number" ? t.progress_pct : 10), 0) /
+                          pricingExtractionTasks.length
+                      ),
+                    },
+                    ...otherTasks,
+                  ]
+                : activeTasks;
+            const primary = displayTasks[0];
+            const extra = displayTasks.slice(1);
             return (
-              <span className="flex items-center gap-2 border-l border-slate-700 pl-6">
+              <span className="flex items-center gap-2 border-l border-slate-700 pl-6 w-[260px] shrink-0">
                 <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0"></span>
-                <span className="w-[220px] overflow-hidden shrink-0">
+                <span className="flex-1 min-w-0 overflow-hidden">
                   <span className="inline-block whitespace-nowrap animate-footer-task-ticker">
-                    Análise: {analysisTask.current_step}
-                    {typeof analysisTask.progress_pct === "number" && ` (${analysisTask.progress_pct}%)`}
+                    {footerTaskLabel(primary.type)}: {primary.current_step}
+                    {typeof primary.progress_pct === "number" && ` (${primary.progress_pct}%)`}
                   </span>
                 </span>
                 <span className="w-16 h-1.5 bg-slate-700 rounded-full overflow-hidden shrink-0">
                   <span
                     className="block h-full bg-amber-400 transition-all duration-500"
-                    style={{ width: `${typeof analysisTask.progress_pct === "number" ? analysisTask.progress_pct : 5}%` }}
+                    style={{ width: `${typeof primary.progress_pct === "number" ? primary.progress_pct : 5}%` }}
                   />
                 </span>
-              </span>
-            );
-          })()}
-          {(() => {
-            // Fase 6 follow-up (reported directly, 2026-07-14): same diagnostic-footer progress
-            // indicator as document analysis above, for the two POC AI generation flows (caderno
-            // de testes/cronograma) - both moved to the same async background-task pattern so a
-            // real ~15-30s AI round-trip shows real progress instead of just a disabled button.
-            const pocTask = activeTasks.find((t) => t.type === "poc_test_generation" || t.type === "poc_schedule_generation");
-            if (!pocTask) return null;
-            const label = pocTask.type === "poc_test_generation" ? "Caderno de Testes" : "Cronograma";
-            return (
-              <span className="flex items-center gap-2 border-l border-slate-700 pl-6">
-                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0"></span>
-                <span className="w-[220px] overflow-hidden shrink-0">
-                  <span className="inline-block whitespace-nowrap animate-footer-task-ticker">
-                    {label}: {pocTask.current_step}
-                    {typeof pocTask.progress_pct === "number" && ` (${pocTask.progress_pct}%)`}
-                  </span>
-                </span>
-                <span className="w-16 h-1.5 bg-slate-700 rounded-full overflow-hidden shrink-0">
+                {extra.length > 0 && (
                   <span
-                    className="block h-full bg-amber-400 transition-all duration-500"
-                    style={{ width: `${typeof pocTask.progress_pct === "number" ? pocTask.progress_pct : 5}%` }}
-                  />
-                </span>
+                    className="shrink-0 text-amber-300 font-bold"
+                    title={extra.map((t) => `${footerTaskLabel(t.type)}: ${t.current_step}`).join(", ")}
+                  >
+                    +{extra.length}
+                  </span>
+                )}
               </span>
             );
           })()}

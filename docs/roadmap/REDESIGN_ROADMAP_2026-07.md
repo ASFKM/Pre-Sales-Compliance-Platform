@@ -505,11 +505,61 @@ codar)**:
   itens de equipamento, casos de teste, registro de aceite) — desenhada em conceito acima, não em
   schema ainda.
 
+### Módulo de Precificação (pricing) — implementado
+
+Terceiro módulo add-on da Fase 6 (junto com POC), mesmo mecanismo de entitlement do Fleet Manager
+(`ModuleName "pricing"`, `requireModule("pricing")` como defesa em profundidade ao lado de
+`requirePermission`). **Implementado e liberado como release `v0.1.7-modulo-precificacao`**
+(canal canary, ver Sistema de Atualização de Produção na Fase 7) — cobre, de ponta a ponta:
+
+- **Catálogo de preços**: `PriceCatalogItem` com markup mín/máx por item, motor fiscal opcional
+  por UF (ICMS/IPI/ISS/ST, `server/utils/taxCalculation.ts`), e histórico de preço append-only
+  (`PriceHistoryEntry`) — nunca sobrescreve, sempre acrescenta uma nova versão, seja por reenvio de
+  planilha ou por edição manual de uma linha.
+- **Duas portas de entrada, uma revisão só**: a planilha-modelo (colunas fixas, parsing
+  determinístico, nunca IA) e "Enviar Arquivos" (cotação de fornecedor em qualquer formato — PDF,
+  foto, DOCX, planilha desestruturada — via extração por IA, com progresso em tempo real por
+  arquivo). Nenhuma das duas rejeita uma linha por campo obrigatório faltando: o import tenta
+  primeiro completar sozinho a partir de um item já cadastrado (casado por código do item, ou por
+  PN quando o código não veio no arquivo) e só cai em revisão humana (`PriceCatalogExtractionDraft`,
+  aba "Extrações pendentes") pro que realmente precisa de decisão humana — preço nunca é herdado,
+  sempre vem do arquivo novo.
+- **Precificação de projeto**: `ProjectPricingSheet`/`ProjectPricingLine` casa o BOM do projeto
+  contra o catálogo com um score de confiança, aplica desconto e imposto por linha.
+- **Conexão com proposta**: quando o projeto tem uma precificação real, ela alimenta a proposta
+  gerada diretamente (em vez da tabela digitada manualmente) — markup e preço de lista nunca são
+  copiados pra estrutura de dados que chega ao resolvedor de template (`docxTemplateEngine.ts`),
+  proteção na origem do dado, não só na hora de montar a variável.
+- **Estúdio de Propostas**: pareceres de IA multi-perspectiva (Técnico/Comercial/Financeiro/
+  Jurídico) com identidade visual (ícone/cor) própria por perspectiva.
+
+**Itens conhecidos, não bloqueantes**: excluir um `PriceCatalogItem` já usado numa
+`ProjectPricingLine` zera o vínculo (`onDelete: SetNull`) mas não reverte `matchStatus` de volta
+pra `unmatched` — a linha existente mantém o preço já calculado, só perde a referência ao catálogo.
+
 ---
 
 ## Fase 7 — Licenciamento, fleet management e vigilância contínua
 
-**Status**: nomeado, deliberadamente deixado para o final.
+**Status (atualizado 2026-07-19)**: deixou de ser só "nomeado" — o núcleo de fleet management já
+está implementado e em uso real no Fleet Manager (`saasmanager-01`), confirmado em código nesta
+atualização de documentação:
+- **Sistema de Atualização de Produção**: `model Release` (draft → published → retracted, canal
+  canary/stable, promoção canary→stable), instalações reportando versão real via heartbeat,
+  atualização agendada ou sob demanda (`scripts/update.sh` do lado desta instalação, com backup e
+  rollback automático), e push remoto de comando (`PendingCommand`). Primeira release real
+  publicada: `v0.1.7-modulo-precificacao` (canal canary).
+- **Licenciamento/planos**: `model Plan` (módulos contratados por cliente) e `ModuleEntitlement`
+  por instalação — é o mecanismo que já gate-ia os módulos POC e Precificação nesta plataforma.
+- **Billing de uso de IA**: `InstallationAiBilling`/`InstallationAiBillingCycle` por instalação.
+- **Relatório de vulnerabilidades**: `model VulnerabilityReport`/`VulnerabilityFinding` já existem
+  e são referenciados nas rotas de instalação/heartbeat/dashboard.
+
+**Ainda não confirmado como implementado** (não verificado nesta passada de documentação, não
+necessariamente ausente — precisa de auditoria dedicada, não assumir nem completo nem pendente sem
+checar): Uptime Kuma self-hosted (nenhuma referência encontrada no código), granularidade fina de
+limites por plano (usuários/projetos/armazenamento etc.), grace period após expiração, varredura
+periódica de CVE/npm-audit além do Dependabot.
 
 **Reformulação importante**: esta fase não é "uma tela de ativar licença" — é, na prática, um
 **painel de controle do lado do fornecedor** (AI Pre-Sales Solutions LLC gerindo os próprios

@@ -1,6 +1,7 @@
 import express, { Response, NextFunction } from "express";
 import type { Request } from "../types/express";
 import multer from "multer";
+import crypto from "crypto";
 import { z } from "zod";
 import { dbStore } from "../../src/dbStore";
 import { requirePermission } from "./auth";
@@ -11,12 +12,13 @@ import { resolveProvider, checkCostCap, recordAiUsage } from "../../src/aiOrches
 import { estimateCostUsd } from "../utils/aiPricing";
 import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
 import { runWithTenant } from "../../src/tenantContext";
+import { reconcileIncomingKnowledgeEntry } from "../utils/knowledgeBaseReconciliation";
 
 const router = express.Router();
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 25 * 1024 * 1024 },
 });
 
 const VISION_MIME_TYPES = new Set(["application/pdf", "image/png", "image/jpeg", "image/webp"]);
@@ -158,11 +160,28 @@ Respond with ONLY a JSON object: { "reusable": true, "trigger": "...", "knowledg
       return res.json({ success: true, entry: null });
     }
 
+    // Reaproveita a mesma checagem de duplicata/contradição já usada pra entries vindas do Fleet
+    // Manager (server/utils/knowledgeBaseReconciliation.ts) - antes disso, esse caminho não tinha
+    // nenhuma dedup, então a mesma correção repetida em projetos diferentes virava uma entry nova
+    // toda vez.
+    const reconciliation = await reconcileIncomingKnowledgeEntry(
+      { entry_id: "", category: validated.category, trigger: parsed.trigger, knowledge: parsed.knowledge },
+      platformSettings,
+      tenantId
+    );
+    if (reconciliation.action === "skip") {
+      return res.json({ success: true, entry: null, skipped_reason: "duplicate" });
+    }
+    const knowledgeText =
+      reconciliation.action === "create" && reconciliation.status === "pending"
+        ? reconciliation.conflictNote + parsed.knowledge
+        : parsed.knowledge;
+
     const userId = requireUserId(req);
     const entry = await dbStore.createKnowledgeBaseEntry({
       category: validated.category,
       trigger: parsed.trigger,
-      knowledge: parsed.knowledge,
+      knowledge: knowledgeText,
       status: "pending",
       source: "reactive_edit",
       source_project_id: validated.project_id,
@@ -224,6 +243,12 @@ router.post(
       const storagePath = await storageAdapter.uploadFile("knowledge-base", file.buffer, file.originalname, file.mimetype);
 
       const userId = requireUserId(req);
+      const contentHash = crypto.createHash("sha256").update(file.buffer).digest("hex");
+
+      // Avisa (não bloqueia) reupload do mesmo arquivo - caso real observado: o mesmo datasheet
+      // enviado 4 vezes, gerando entries redundantes toda vez que fosse analisado sem esse aviso.
+      const existingDuplicate = await runWithTenant(tenantContext, () => dbStore.findKnowledgeBaseDocumentByHash(contentHash));
+
       const doc = await runWithTenant(tenantContext, () =>
         dbStore.createKnowledgeBaseDocument({
           filename: file.originalname,
@@ -233,10 +258,14 @@ router.post(
           storage_provider: platformSettings.storage_mode,
           storage_path: storagePath,
           uploaded_by: userId,
+          content_hash: contentHash,
         })
       );
 
-      res.status(201).json(doc);
+      res.status(201).json({
+        ...doc,
+        duplicate_of: existingDuplicate ? { id: existingDuplicate.id, original_filename: existingDuplicate.original_filename, created_at: existingDuplicate.created_at } : null,
+      });
     } catch (err) {
       next(err);
     }
@@ -347,10 +376,27 @@ Respond with ONLY a JSON array (no markdown, no extra text):
             // prompt's OTHER valid option, "engineering_note") into "datasheet" - the ternary
             // only ever recognized one of the two categories the prompt itself asks for.
             const category = p.category === "bom_part_number" || p.category === "engineering_note" ? p.category : "datasheet";
+
+            // Mesma dedup/contradição reaproveitada do caminho reactive_edit acima - sem isso, um
+            // documento reenviado (caso real observado: o mesmo datasheet 4 vezes) gerava entries
+            // redundantes toda vez que fosse analisado.
+            const reconciliation = await reconcileIncomingKnowledgeEntry(
+              { entry_id: "", category, trigger: p.trigger, knowledge: p.knowledge },
+              platformSettings,
+              tenantId
+            );
+            if (reconciliation.action === "skip") {
+              continue;
+            }
+            const knowledgeText =
+              reconciliation.action === "create" && reconciliation.status === "pending"
+                ? reconciliation.conflictNote + p.knowledge
+                : p.knowledge;
+
             await dbStore.createKnowledgeBaseEntry({
               category: category as any,
               trigger: p.trigger,
-              knowledge: p.knowledge,
+              knowledge: knowledgeText,
               status: "pending",
               source: "uploaded_document",
               source_document_id: doc.id,

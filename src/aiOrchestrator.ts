@@ -2,6 +2,7 @@ import { prisma } from "./prisma";
 import { dbStore } from "./dbStore";
 import { randomId } from "./idGenerator";
 import { isIaKbActive } from "../server/utils/aiProviders";
+import { redis } from "./redis";
 
 // critical_extraction and proposal_generation were removed (2026-07 AI Orchestrator redesign) -
 // both had provider/model settings in the UI but resolveProvider() was never actually called for
@@ -10,7 +11,7 @@ import { isIaKbActive } from "../server/utils/aiProviders";
 // document_analysis call, not separate steps. document_classification was hardcoded to Gemini in
 // server/utils/documentClassification.ts before this - now routed through here like the other
 // real task types.
-export type AiTaskType = "document_analysis" | "web_grounding" | "spec_copilot" | "document_classification" | "poc_test_generation" | "poc_schedule_generation" | "poc_final_report_generation";
+export type AiTaskType = "document_analysis" | "web_grounding" | "spec_copilot" | "document_classification" | "poc_test_generation" | "poc_schedule_generation" | "poc_final_report_generation" | "proposal_opinion_panel" | "pricing_budget_optimization" | "pricing_catalog_extraction";
 
 export interface ProviderResolution {
   provider: string;
@@ -35,6 +36,12 @@ interface TaskProviderSettings {
   poc_schedule_generation_provider: string;
   poc_final_report_generation_model: string;
   poc_final_report_generation_provider: string;
+  proposal_opinion_panel_model: string;
+  proposal_opinion_panel_provider: string;
+  pricing_budget_optimization_model: string;
+  pricing_budget_optimization_provider: string;
+  pricing_catalog_extraction_model: string;
+  pricing_catalog_extraction_provider: string;
   openai_api_key_encrypted?: string;
   anthropic_api_key_encrypted?: string;
 }
@@ -122,6 +129,9 @@ export const AI_SPENDING_TASK_TYPES = [
   "poc_test_generation",
   "poc_schedule_generation",
   "poc_final_report_generation",
+  "proposal_opinion_panel",
+  "pricing_budget_optimization",
+  "pricing_catalog_extraction",
 ] as const;
 export type AiSpendingTaskType = (typeof AI_SPENDING_TASK_TYPES)[number];
 
@@ -158,6 +168,28 @@ export interface CostCapCheck {
   capUsd: number | null;
 }
 
+// AUD-016 (auditoria de segurança, 2026-07-20): checkCostCap só LÊ o gasto já gravado
+// (aiUsageLog) e recordAiUsage só GRAVA depois que a chamada de IA real termina - entre os dois
+// não existe nenhuma trava. N chamadas concorrentes perto do teto podem todas ler o mesmo
+// "currentSpendUsd" (ainda sem refletir as outras em andamento), todas passar no `< capUsd`, e só
+// gravar seus custos bem depois - o teto mensal pode ser furado por qualquer grau de
+// concorrência. Não dá pra reservar o custo EXATO de uma chamada aqui (varia por modelo/tamanho
+// de prompt/resposta, só conhecido depois que a chamada termina), então a correção reserva o
+// PIOR CASO (MAX_SINGLE_CALL_RESERVATION_USD) atomicamente via Redis (INCRBYFLOAT) assim que uma
+// chamada passa no teto, e deixa essa reserva expirar sozinha (TTL) em vez de exigir que cada um
+// dos 14 pontos de chamada (analysis.ts, pocs.ts, pricing.ts, projectIntake.ts, knowledgeBase.ts,
+// proposals.ts) seja alterado para "liberar" a reserva depois - mais simples, sem mudar a
+// assinatura da função nem nenhum call site, e falha para o lado seguro (superestima o gasto
+// durante a janela do TTL, nunca subestima).
+const MAX_SINGLE_CALL_RESERVATION_USD = 2.0;
+const COST_RESERVATION_TTL_SECONDS = 120;
+
+function costReservationRedisKey(tenantId: string): string {
+  const now = new Date();
+  const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  return `aicost:reserved:${tenantId}:${monthKey}`;
+}
+
 // Checked before starting ANY AI-calling task or call - the cap is a real block, not just a
 // dashboard number. 80% is a warning (task still runs) so nobody discovers the cap mid-emergency.
 export async function checkCostCap(tenantId: string, capUsd: number | null): Promise<CostCapCheck> {
@@ -171,8 +203,22 @@ export async function checkCostCap(tenantId: string, capUsd: number | null): Pro
   });
   const currentSpendUsd = result._sum.estimatedCostUsd || 0;
 
+  const reservationKey = costReservationRedisKey(tenantId);
+  // INCRBYFLOAT cria a chave com o próprio incremento se ela não existir - atômico, então duas
+  // chamadas concorrentes nunca leem/escrevem o mesmo valor base.
+  const reservedAfterIncrement = Number(await redis.incrbyfloat(reservationKey, MAX_SINGLE_CALL_RESERVATION_USD));
+  // NX: só arma o TTL na primeira reserva do mês para este tenant - chamadas seguintes só
+  // estendem o valor, nunca resetam a contagem regressiva de uma reserva ainda ativa.
+  await redis.expire(reservationKey, COST_RESERVATION_TTL_SECONDS, "NX");
+
+  const wouldExceedCap = currentSpendUsd + reservedAfterIncrement > capUsd;
+  if (wouldExceedCap) {
+    // Devolve a reserva - esta chamada não vai prosseguir, não deve contar contra o teto.
+    await redis.incrbyfloat(reservationKey, -MAX_SINGLE_CALL_RESERVATION_USD);
+  }
+
   return {
-    blocked: currentSpendUsd >= capUsd,
+    blocked: wouldExceedCap || currentSpendUsd >= capUsd,
     warningThresholdReached: currentSpendUsd >= capUsd * 0.8,
     currentSpendUsd,
     capUsd,

@@ -1,7 +1,6 @@
 import express, { Response } from "express";
 import type { Request } from "./server/types/express";
 import path from "path";
-import fs from "fs";
 import pinoHttp from "pino-http";
 import { createServer as createViteServer } from "vite";
 import { prisma } from "./src/prisma";
@@ -9,6 +8,7 @@ import { redis } from "./src/redis";
 import { dbStore } from "./src/dbStore";
 import { createStorageAdapter } from "./server/utils/storage";
 import { logger } from "./server/utils/logger";
+import { getAppVersion } from "./server/utils/appVersion";
 
 // Middleware Imports
 import {
@@ -50,6 +50,7 @@ import settingsRouter from "./server/routes/settings";
 import integrationsRouter from "./server/routes/integrations";
 import auditRouter from "./server/routes/audit";
 import diagnosticsRouter from "./server/routes/diagnostics";
+import diagnosticsAgentRouter from "./server/routes/diagnosticsAgent";
 import tasksRouter from "./server/routes/tasks";
 import userTasksRouter from "./server/routes/userTasks";
 import dashboardRouter from "./server/routes/dashboard";
@@ -57,7 +58,9 @@ import projectIntakeRouter from "./server/routes/projectIntake";
 import verticalsRouter from "./server/routes/verticals";
 import messagesRouter from "./server/routes/messages";
 import knowledgeBaseRouter from "./server/routes/knowledgeBase";
+import systemUpdatesRouter from "./server/routes/systemUpdates";
 import pocsRouter from "./server/routes/pocs";
+import pricingRouter from "./server/routes/pricing";
 
 const app = express();
 
@@ -113,6 +116,7 @@ app.use("/api", settingsRouter);
 app.use("/api/integrations", integrationsRouter);
 app.use("/api", auditRouter);
 app.use("/api", diagnosticsRouter);
+app.use("/api", diagnosticsAgentRouter);
 app.use("/api", tasksRouter);
 app.use("/api", userTasksRouter);
 app.use("/api", dashboardRouter);
@@ -120,7 +124,9 @@ app.use("/api", projectIntakeRouter);
 app.use("/api", verticalsRouter);
 app.use("/api", messagesRouter);
 app.use("/api", knowledgeBaseRouter);
+app.use("/api", systemUpdatesRouter);
 app.use("/api/pocs", pocsRouter);
+app.use("/api/pricing", pricingRouter);
 
 // 5. Basic Observability / Health Endpoints
 app.get("/api/health", (req: Request, res: Response) => {
@@ -128,7 +134,10 @@ app.get("/api/health", (req: Request, res: Response) => {
     success: true, 
     status: "healthy", 
     service: "Commercial Assistant AI Core API", 
-    uptime: process.uptime() 
+    uptime: process.uptime(),
+    version: getAppVersion().version,
+    git_sha: getAppVersion().gitShaShort,
+    dirty: getAppVersion().dirty,
   });
 });
 
@@ -173,16 +182,6 @@ app.use(errorHandler);
 
 // 7. Vite Development Middleware / Production static file serving
 async function bootstrap() {
-  // Ensure template path in uploads directory exists for proposal generation
-  const templateDir = path.join(process.cwd(), "uploads", "templates");
-  if (!fs.existsSync(templateDir)) {
-    fs.mkdirSync(templateDir, { recursive: true });
-  }
-  const standardTemplatePath = path.join(templateDir, "standard.docx");
-  if (!fs.existsSync(standardTemplatePath)) {
-    fs.writeFileSync(standardTemplatePath, "Standard Commercial Proposal template schema v1.0", "utf8");
-  }
-
   if (process.env.NODE_ENV === "production") {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
@@ -201,13 +200,68 @@ async function bootstrap() {
     app.use(vite.middlewares);
   }
 
-  const PORT = 3000;
+  // AUD-014 (auditoria de segurança, 2026-07-19): porta era fixa em 3000 mesmo com PORT
+  // documentado no .env.example - hoje os dois valores batem (PORT=3000), mas mudar PORT no
+  // .env não teria efeito nenhum, silenciosamente.
+  const PORT = Number(process.env.PORT) || 3000;
   // Bound to loopback only - Caddy (Fase 1 of the Zero Trust rollout) is the only thing that
   // should reach this port now, terminating TLS on :443 and reverse-proxying here. Direct LAN
   // access to :3000 is removed from ufw once this is confirmed working end to end.
-  app.listen(PORT, "127.0.0.1", () => {
+  const server = app.listen(PORT, "127.0.0.1", () => {
     logger.info({ port: PORT }, "Enterprise App Server listening");
   });
+
+  // AUD-014: sem isso, um sinal de término do systemd matava o processo imediatamente, cortando
+  // conexões em andamento sem aviso - inclusive uma análise de IA ou geração de proposta em
+  // voo. server.close() para de aceitar conexões novas e deixa as abertas terminarem sozinhas,
+  // com timeout de segurança (mesmo padrão já aplicado no Fleet Manager, CMS-008).
+  const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 10_000;
+  function gracefulShutdown(signal: string) {
+    logger.info({ signal }, "Received termination signal - draining connections");
+    const forceExitTimer = setTimeout(() => {
+      logger.warn("Graceful shutdown timed out - forcing exit");
+      process.exit(1);
+    }, GRACEFUL_SHUTDOWN_TIMEOUT_MS);
+    forceExitTimer.unref();
+    server.close((err) => {
+      if (err) {
+        logger.error({ err }, "Error during server close");
+        process.exit(1);
+      }
+      logger.info("Server closed cleanly");
+      process.exit(0);
+    });
+  }
+  process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+  process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+
+  // A BackgroundTask's whole life lives in this process's memory (see src/backgroundTasks.ts) -
+  // if the process restarts while one is "running"/"queued" (a deploy, a crash), that row is
+  // orphaned forever: nothing will ever mark it completed/failed again, so the UI that's polling
+  // it shows a permanently stuck progress bar (confirmed against a real production case - a
+  // restart mid-analysis left exactly this). Not tenant-scoped on purpose - no tenant context is
+  // active this early at boot, so the scoping extension (src/prisma.ts) passes this through
+  // unscoped across every tenant, which is exactly what a startup-wide sweep needs.
+  (async () => {
+    try {
+      const { prisma } = await import("./src/prisma");
+      // system_update is deliberately excluded: unlike every other task type, a restart mid-run
+      // is often the EXPECTED middle of a successful update (scripts/update.sh itself calls `pm2
+      // restart` as one of its own steps, from a detached child process that survives this
+      // process going down and back up) - see server/utils/updateScheduler.ts's own boot
+      // reconciliation, which is the one that gets to decide if a still-"running" system_update
+      // row means "mid-flight, carry on" or "genuinely orphaned".
+      const orphaned = await prisma.backgroundTask.updateMany({
+        where: { status: { in: ["running", "queued"] }, type: { not: "system_update" } },
+        data: { status: "failed", errorMessage: "Interrompido por reinicialização do servidor durante a execução." },
+      });
+      if (orphaned.count > 0) {
+        logger.warn({ count: orphaned.count }, "Marked orphaned background tasks (left running/queued by a previous process) as failed on boot");
+      }
+    } catch (err) {
+      logger.error({ err }, "Failed to clean up orphaned background tasks on boot");
+    }
+  })();
 
   // Phase 7 (fleet/license management): reports to the vendor's fleet manager and picks up any
   // pending admin commands - client-initiated, since on-prem installs sit behind NAT/firewalls
@@ -221,6 +275,20 @@ async function bootstrap() {
   // immediately instead of waiting up to 20 minutes for the next full heartbeat.
   setTimeout(() => runLicenseStatusPollForAllEnabledTenants().catch((err) => logger.error({ err }, "Initial license status poll failed")), 10000);
   setInterval(() => runLicenseStatusPollForAllEnabledTenants().catch((err) => logger.error({ err }, "License status poll failed")), 45 * 1000);
+
+  // CloudMountain Diagnostics Agent (CDA): drains any DiagnosticsOutboxEvent rows still unsent
+  // (immediate flush attempts inside agent.ts already try right after capture - this periodic
+  // pass is what guarantees delivery once the Fleet Manager comes back after being unreachable,
+  // without waiting on the unrelated 20-minute heartbeat cycle above).
+  const { flushDiagnosticsOutboxForAllEnabledTenants } = await import("./server/diagnostics/agent");
+  setInterval(() => flushDiagnosticsOutboxForAllEnabledTenants().catch((err) => logger.error({ err }, "cda: periodic flush failed")), 30 * 1000);
+
+  // Sistema de Atualização de Produção: boot-time reconciliation (a scheduled update due while
+  // this process was down, or a previous run's detached child that never reported back) plus a
+  // 5-minute recheck loop - see server/utils/updateScheduler.ts's own comments for why this is a
+  // periodic interval rather than a single setTimeout per schedule.
+  const { startUpdateSchedulerInterval } = await import("./server/utils/updateScheduler");
+  startUpdateSchedulerInterval();
 }
 
 bootstrap().catch((err) => {

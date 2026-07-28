@@ -77,6 +77,12 @@ multi-provider AI abstraction (not locked to a single vendor).
   - `tasks.ts`, `userTasks.ts`, `dashboard.ts`, `projectIntake.ts`, `verticals.ts`, `messages.ts` —
     background task tracking, per-user task queues, dashboard aggregates, intake/vertical
     configuration, and the in-app conversational copilot.
+  - `pricing.ts` — Módulo de Precificação (add-on, gated by `requireModule("pricing")`): price
+    catalog CRUD, template-workbook import and AI-extraction-from-quote import (both landing in
+    `PriceCatalogExtractionDraft` when a required field can't be resolved automatically, never
+    silently discarded), the extraction-drafts review/confirm workflow, project-level BOM-to-
+    catalog matching and per-line pricing (`computeLinePricing`), the optional tax engine
+    (`calculateTax`), and USD/BRL exchange-rate settings.
 - **`/server/utils/`**:
   - `security.ts` — scrypt password hashing/verification, JWT session signing, TOTP verification,
     AES-256-CBC secret encryption/decryption.
@@ -96,6 +102,11 @@ multi-provider AI abstraction (not locked to a single vendor).
     cross-check, so they can never drift apart.
   - `proposalTypes.ts` — the 7 proposal/template type values and their display labels, shared by
     the upload form validation and the generation route.
+  - `pricingImport.ts` / `pricingAiExtraction.ts` — deterministic parsing of the strict price-table
+    template (positional columns, never AI) and AI-driven extraction of a supplier quote in any
+    format, respectively; `pricingMath.ts` / `pricingBudgetOptimizer.ts` / `taxCalculation.ts` /
+    `exchangeRateFetch.ts` — per-line price/markup/tax computation, BOM-budget-constrained markup
+    optimization, the tax engine, and the Banco Central USD/BRL exchange-rate fetch.
 
 ---
 
@@ -118,6 +129,16 @@ All persistent state lives in **PostgreSQL**, accessed through **Prisma ORM**
 - `PlatformSettings` — per-task-type AI provider/model configuration, branding, cost caps.
 - `AiUsageLog` — recorded cost/usage per successful AI call, by task type and provider/model.
 - `AuditLog` — compliance/business audit trail.
+- `PriceCatalogItem` / `PriceListUpload` / `PriceHistoryEntry` — the price catalog's "live" state,
+  the upload batch it last came from, and an append-only ledger of every price/markup version (the
+  catalog is never silently overwritten — every import or manual edit adds a new history entry).
+- `PriceCatalogExtractionDraft` — a row that couldn't be fully resolved on import (template or AI
+  quote alike) and needs human review in "Extrações pendentes" before it can become a real
+  `PriceCatalogItem`; never auto-confirmed.
+- `ProjectPricingSheet` / `ProjectPricingLine` — a project's BOM matched against the price catalog
+  (with a match confidence score), discount and tax applied per line.
+- `TenantPricingSettings` / `TenantTaxProfile` — the USD/BRL exchange rate source and the optional
+  per-tenant tax engine configuration (origin UF, tax regime).
 
 **Redis** backs session storage and short-lived caches — it is not the system of record for any
 business data.

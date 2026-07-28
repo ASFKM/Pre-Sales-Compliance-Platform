@@ -17,6 +17,10 @@ export interface ProjectFieldsValues {
   procurement_modality: string;
   procurement_subtype: string;
   custom_modality: string;
+  // Roadmap item (customer_request): "Identidade Visual em DOCX" Fase 4b - reusable named brand
+  // style (see AdminConsole.tsx's "Estilos de Marca Reutilizáveis") this project opts into for its
+  // exported DOCX proposals, instead of the tenant-wide default. null/undefined = tenant default.
+  brand_style_id?: string | null;
 }
 
 function addDays(days: number): string {
@@ -46,6 +50,7 @@ export function getInitialProjectFieldsValues(): ProjectFieldsValues {
     procurement_modality: "Licitação",
     procurement_subtype: "Pregão",
     custom_modality: "",
+    brand_style_id: null,
   };
 }
 
@@ -66,6 +71,13 @@ export default function ProjectFieldsForm({ locale, values, onChange }: ProjectF
     ApiClient.get<{ id: string; name: string; is_active: boolean }[]>("/api/verticals")
       .then((v) => setVerticals(v.filter((item) => item.is_active)))
       .catch(() => setVerticals([]));
+  }, []);
+
+  const [brandStyles, setBrandStyles] = useState<Array<{ id: string; name: string }>>([]);
+  useEffect(() => {
+    ApiClient.get("/brand-styles")
+      .then((data: any) => { if (Array.isArray(data)) setBrandStyles(data); })
+      .catch(() => {});
   }, []);
 
   // Manufacturer names are stored as a single comma-separated string in ai_orientation_text (no
@@ -309,6 +321,27 @@ export default function ProjectFieldsForm({ locale, values, onChange }: ProjectF
               className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none font-semibold text-slate-800"
             />
           )}
+        </div>
+
+        <div>
+          <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">
+            {locale === "pt" ? "Estilo de Marca da Proposta" : "Proposal Brand Style"}
+          </label>
+          <select
+            value={values.brand_style_id || ""}
+            onChange={(e) => onChange({ ...values, brand_style_id: e.target.value || null })}
+            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none font-semibold text-slate-800"
+          >
+            <option value="">{locale === "pt" ? "Padrão do tenant" : "Tenant default"}</option>
+            {brandStyles.map((style) => (
+              <option key={style.id} value={style.id}>{style.name}</option>
+            ))}
+          </select>
+          <p className="text-[10px] text-slate-400 mt-1">
+            {locale === "pt"
+              ? "Para propostas com a marca do próprio cliente. Gerenciado em Admin > Personalização."
+              : "For proposals co-branded with the client's own identity. Managed in Admin > Branding."}
+          </p>
         </div>
       </div>
     </div>

@@ -7,12 +7,33 @@ import { buildProposalText, writeProposalFiles } from "../utils/docx";
 import { renderDocxFromTemplate } from "../utils/docxTemplateEngine";
 import { createStorageAdapter } from "../utils/storage";
 import { logDebugMessage, requireUserId } from "../middleware/security";
-import { ProposalTemplate } from "../../src/types";
+import { ProposalTemplate, SlaRiskFlag, Proposal, Project, PlatformSettings } from "../../src/types";
 import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
 import { runWithTenant } from "../../src/tenantContext";
 import { PROPOSAL_TYPES, ProposalTypeValue } from "../utils/proposalTypes";
+import { getFleetLicenseStatus } from "../utils/fleetLicense";
+import { generateJsonWithProvider, ConnectedProvider } from "../utils/aiProviders";
+import { resolveProvider, checkCostCap, recordProviderFallback, recordAiUsage } from "../../src/aiOrchestrator";
+import { estimateCostUsd } from "../utils/aiPricing";
+import { extractKnowledgeBaseKeywords, parseAiJson } from "./analysis";
+import { prisma } from "../../src/prisma";
+import { randomId } from "../../src/idGenerator";
+import { LOGIC_VERSIONS } from "../../src/aiLogicVersions";
+import { logger } from "../utils/logger";
 
 const router = express.Router();
+
+async function resolveBrandingHeader(projectId: string): Promise<{ companyName?: string; primaryColorHex?: string; logoDataUrl?: string }> {
+  const project = await dbStore.getProject(projectId);
+  if (project?.brand_style_id) {
+    const style = await dbStore.getBrandStyle(project.brand_style_id);
+    if (style) {
+      return { companyName: style.company_name, primaryColorHex: style.primary_color, logoDataUrl: style.logo_data_url };
+    }
+  }
+  const branding = await dbStore.getBranding();
+  return { companyName: branding.company_name, primaryColorHex: branding.primary_color, logoDataUrl: branding.report_logo_path };
+}
 
 async function resolveRegisteredTemplate(
   templateId: string,
@@ -74,8 +95,30 @@ const CreateProposalSchema = z.object({
   proposal_validity: z.string().optional(),
   commercial_assumptions: z.string().optional(),
   exclusions: z.string().optional(),
-  editable_content: z.string().optional()
+  editable_content: z.string().optional(),
+  // Item 3 (confiança no enriquecimento de BOM): permite prosseguir mesmo com itens de baixa
+  // confiança/fabricante destoante na proposta comercial - ver checkBomConfidenceForCommercial.
+  force_low_confidence_bom: z.boolean().optional().default(false)
 });
+
+// Item 3: item vindo de busca web com confiança baixa (ou fabricante destoante do resto da
+// categoria no mesmo BOM) é sinalizado antes de uma proposta COMERCIAL ser gerada - o rascunho
+// técnico nunca é bloqueado, só o tipo de proposta que efetivamente vira compromisso de preço/
+// especificação com o cliente. Não é uma segunda chamada de IA - usa só os campos já calculados
+// por enrichBomWithWebSearch/computeEquipmentMatchCrossCheck no momento da análise.
+const COMMERCIAL_PROPOSAL_TYPES = new Set<ProposalTypeValue>(["commercial", "technical_commercial"]);
+function checkBomConfidenceForCommercial(bom: unknown): { item_id: string; equipment_name: string; reason: string }[] {
+  if (!Array.isArray(bom)) return [];
+  return bom
+    .filter((item: any) => item.sourced_via_web_search && !item.edited_by && (item.match_confidence === "low" || item.manufacturer_outlier === true))
+    .map((item: any) => ({
+      item_id: item.item_id,
+      equipment_name: item.equipment_name,
+      reason: item.manufacturer_outlier
+        ? "Fabricante destoa dos demais itens da mesma categoria neste BOM"
+        : "Correspondência de baixa confiança encontrada via busca web",
+    }));
+}
 
 // GET all proposals for a project
 router.get("/projects/:projectId/proposals", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
@@ -107,6 +150,18 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
       return res.status(404).json({ success: false, message: "Project not found." });
     }
 
+    if (COMMERCIAL_PROPOSAL_TYPES.has(proposalType) && !validated.force_low_confidence_bom) {
+      const flaggedItems = checkBomConfidenceForCommercial(analysis?.bom);
+      if (flaggedItems.length > 0) {
+        return res.status(422).json({
+          success: false,
+          code: "BOM_NEEDS_REVIEW",
+          message: "Há itens do BOM com correspondência de baixa confiança - revise antes de gerar a proposta comercial, ou confirme para prosseguir mesmo assim.",
+          flagged_items: flaggedItems,
+        });
+      }
+    }
+
     const templateResolution = await resolveRegisteredTemplate(validated.template_id, proposalType);
     if ("errorStatus" in templateResolution) {
       return res.status(templateResolution.errorStatus).json({ success: false, message: templateResolution.errorMessage });
@@ -121,6 +176,34 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
     const user = await dbStore.getUserById(userId);
     const userName = user ? user.name : "System User";
     const owner = await dbStore.getUserById(project.owner_user_id);
+
+    // Módulo de Precificação (add-on): busca opcional, nunca bloqueia a geração de proposta pra
+    // quem não tem o módulo (mesmo padrão de dado-opcional-de-add-on de server/routes/
+    // settings.ts:707, não requireModule - essa rota nunca foi gated por add-on). Quando existe
+    // mais de uma ProjectPricingSheet (BOM reimportado mais de uma vez), usa sempre a mais
+    // recente - não há flag de "sessão atual" no schema. Só os campos abaixo chegam a
+    // templateData.pricing - ver o comentário de aviso em server/utils/docx.ts sobre por que
+    // markup/preço de lista nunca podem entrar aqui.
+    const license = tenantId ? await getFleetLicenseStatus(tenantId) : { modules: [] as string[] };
+    const pricingSheet = license.modules.includes("pricing")
+      ? await prisma.projectPricingSheet.findFirst({
+          where: { projectId },
+          orderBy: { createdAt: "desc" },
+          include: { lines: { include: { matchedItem: true } } },
+        })
+      : null;
+    const pricingLines = (pricingSheet?.lines || [])
+      .filter((l) => l.matchStatus !== "unmatched" && (l.finalUnitPrice != null || l.finalPriceWithTax != null))
+      .map((l) => ({
+        description: l.matchedItem?.description || l.rawDescription || "",
+        quantity: l.quantity,
+        finalUnitPrice: l.finalUnitPrice,
+        finalPriceWithTax: l.finalPriceWithTax,
+      }));
+    // Linhas do BOM que ficaram de fora da tabela de preços da proposta por falta de preço
+    // cadastrado (sem match no catálogo, ou matched mas ainda sem preço final calculado) - só
+    // pra avisar o usuário na tela de geração, nunca chega em templateData/no documento.
+    const pricingExcludedCount = pricingSheet ? pricingSheet.lines.length - pricingLines.length : 0;
 
     // 1. Compile template data from projects, analysis result, and manual pricings
     const templateData = {
@@ -162,13 +245,14 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
         proposal_validity: validated.proposal_validity,
         commercial_assumptions: validated.commercial_assumptions,
         exclusions: validated.exclusions
-      }
+      },
+      pricing: { lines: pricingLines }
     };
 
     // Document generation runs in the background from here - respond immediately with the
     // task id, same pattern as document analysis (server/routes/analysis.ts).
     const task = await createTask({ userId, type: "proposal_generation", currentStep: "Gerando documento..." });
-    res.status(202).json({ success: true, task_id: task.id });
+    res.status(202).json({ success: true, task_id: task.id, pricing_excluded_count: pricingExcludedCount });
 
     // Wrapped in runWithTenant like every other detached background block in this codebase -
     // without it, updateTaskProgress/completeTask/failTask/addAuditLog/createProposal below (all
@@ -200,7 +284,8 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
       // single persistent disk.
       await updateTaskProgress(task.id, { currentStep: "Gerando DOCX e PDF", progressPct: 65 });
       const outputAdapter = createStorageAdapter(platformSettings);
-      const { docx_file_path, pdf_file_path } = await writeProposalFiles(outputAdapter, projectId, proposalType, proposalContent, docxBufferOverride);
+      const brandingHeader = await resolveBrandingHeader(projectId);
+      const { docx_file_path, pdf_file_path } = await writeProposalFiles(outputAdapter, projectId, proposalType, proposalContent, docxBufferOverride, brandingHeader);
 
       // 5. Save proposal to database
       await updateTaskProgress(task.id, { currentStep: "Salvando proposta", progressPct: 90 });
@@ -270,6 +355,389 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
 });
 
 // UPDATE proposal metadata/manually edited pricing
+// Roadmap item (customer_request): "Alerta de Risco de SLA via Base de Conhecimento" - reformulated
+// after review from an earlier version that asked for post-sale delivery telemetry this product
+// doesn't (and shouldn't) collect. Viable version: cross-check the proposal's own proposed
+// commercial/SLA/penalty terms against the already-existing approved Knowledge Base (which already
+// records lessons learned by vertical/client) to flag clauses matching a known historical risk
+// pattern before the proposal is sent. Reuses the exact same KB search/AI-matching already used for
+// BOM enrichment against the Knowledge Base (server/routes/analysis.ts's enrichBomWithWebSearch) -
+// no new data source, just a new checkpoint on the proposal review screen. Synchronous (not a
+// background task) - a single short AI call over a handful of terms fields, not a multi-chunk job.
+// Shared by the standalone /sla-risk-check endpoint below AND the "legal" opinion perspective in
+// the multi-perspective panel (server/routes/proposals.ts's opinion-panel worker) - extracted so
+// the panel's Legal opinion reuses this exact cross-check instead of a second, divergent
+// implementation (roadmap decision already confirmed). Deliberately does NOT check the cost cap
+// itself - the standalone endpoint checks it once before calling this; the panel worker checks it
+// once for the whole run instead of once per perspective.
+async function computeSlaRiskFlags(
+  proposal: Proposal,
+  project: Project,
+  tenantId: string,
+  platformSettings: PlatformSettings,
+  userId: string
+): Promise<SlaRiskFlag[]> {
+  const termsText = [proposal.payment_terms, proposal.delivery_terms, proposal.commercial_assumptions, proposal.exclusions, proposal.proposal_validity]
+    .filter((v): v is string => !!v && v.trim().length > 0)
+    .join("\n");
+  if (!termsText.trim()) return [];
+
+  const keywords = extractKnowledgeBaseKeywords(
+    [termsText, project.vertical, project.customer_name].filter(Boolean).join(" "),
+    30,
+    3
+  );
+  const relevantKnowledge = keywords.length > 0 ? await dbStore.searchApprovedKnowledgeBase(keywords, 20) : [];
+  if (relevantKnowledge.length === 0) return [];
+
+  const providerResolution = await resolveProvider("document_analysis", platformSettings);
+  if (providerResolution.isFallback) {
+    await recordProviderFallback({ tenantId, taskType: "document_analysis", intendedProvider: providerResolution.intendedProvider, userId });
+  }
+
+  const prompt = `You are reviewing the proposed commercial/SLA/penalty terms of a pre-sales proposal
+BEFORE it is sent to the customer, cross-checking them against a human-approved Knowledge Base of
+lessons learned from past projects (by vertical/client) for known historical risk patterns.
+
+PROJECT: ${project.name} | Customer: ${project.customer_name} | Vertical: ${project.vertical}
+
+PROPOSED TERMS (payment, delivery, validity, commercial assumptions, exclusions):
+${termsText}
+
+RELEVANT APPROVED KNOWLEDGE BASE ENTRIES (human-reviewed lessons from past projects):
+${relevantKnowledge.map((k) => `- [${k.category}] Se: ${k.trigger} → Então: ${k.knowledge}`).join("\n")}
+
+For each proposed term that matches a known historical risk pattern from the knowledge base above,
+flag it. Only flag a term if a knowledge base entry ACTUALLY warns about that specific kind of
+clause/commitment - do not invent a risk that isn't grounded in one of the knowledge base entries
+above. If no proposed term matches any knowledge base risk pattern, return an empty array.
+
+Respond with ONLY a JSON array (no markdown, no extra text), in this exact shape:
+[{ "term_excerpt": "the exact proposed text being flagged", "risk_description": "why this is risky, in ${proposal.language}", "related_lesson": "the specific knowledge base lesson that applies", "severity": "high"|"medium"|"low" }]`;
+
+  const { text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);
+  const parsed = parseAiJson(text);
+  const risks: SlaRiskFlag[] = z.array(z.object({
+    term_excerpt: z.string(),
+    risk_description: z.string(),
+    related_lesson: z.string(),
+    severity: z.enum(["high", "medium", "low"]),
+  })).parse(parsed);
+
+  await recordAiUsage({
+    tenantId,
+    taskType: "document_analysis",
+    provider: providerResolution.provider,
+    model: providerResolution.model,
+    estimatedCostUsd: billedCostUsd ?? estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
+  });
+
+  return risks;
+}
+
+router.post("/proposals/:id/sla-risk-check", requirePermission("proposal:edit"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const proposal = await dbStore.getProposal(req.params.id);
+    if (!proposal) {
+      return res.status(404).json({ success: false, message: "Proposal not found." });
+    }
+    const project = await dbStore.getProject(proposal.project_id);
+    if (!project) {
+      return res.status(404).json({ success: false, message: "Project not found." });
+    }
+
+    const tenantId = req.headers["x-tenant-id"] as string;
+    const platformSettings = await dbStore.getSettings();
+    const costCap = await checkCostCap(tenantId, platformSettings.monthly_cost_cap_usd ?? null);
+    if (costCap.blocked) {
+      return res.status(402).json({
+        success: false,
+        message: `Monthly AI cost cap reached ($${costCap.currentSpendUsd.toFixed(2)} of $${costCap.capUsd?.toFixed(2)}). SLA risk check blocked until next month or the cap is raised in Admin > AI, Prompts e Custos.`
+      });
+    }
+
+    const userId = requireUserId(req);
+    const risks = await computeSlaRiskFlags(proposal, project, tenantId, platformSettings, userId);
+    res.json({ success: true, risks });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(502).json({ success: false, message: "AI response for SLA risk check did not match the expected format." });
+    }
+    next(err);
+  }
+});
+
+// Roadmap item (official): "Pareceres de IA Multi-Perspectiva em Propostas" - 4 opinions
+// (Technical/Commercial/Legal/Financial), generated sequentially as ONE proposal_opinion_panel
+// BackgroundTask (not 4, and not Promise.all - see this session's plan for why: sequential is the
+// only real precedent in this codebase, and it lets checkCostCap be re-checked mid-run instead of
+// only once at the very start). Persisted (ProposalOpinionRun/ProposalAiOpinionItem), unlike the
+// synchronous/unpersisted sla-risk-check, so the panel survives a page reload. Never blocks
+// anything - purely informational context for the human ApprovalWorkflow stages.
+const OPINION_PERSPECTIVES = ["technical", "commercial", "legal", "financial"] as const;
+type OpinionPerspective = (typeof OPINION_PERSPECTIVES)[number];
+const OPINION_PERSPECTIVE_LABEL: Record<OpinionPerspective, string> = {
+  technical: "Técnico",
+  commercial: "Comercial",
+  legal: "Jurídico",
+  financial: "Financeiro",
+};
+
+async function buildOpinionPrompt(
+  perspective: OpinionPerspective,
+  proposal: Proposal,
+  project: Project,
+  analysisResult: any,
+  tenantId: string,
+  platformSettings: PlatformSettings,
+  userId: string
+): Promise<string> {
+  const header = `PROJECT: ${project.name} | Customer: ${project.customer_name} | Vertical: ${project.vertical}\n`;
+  const responseShape = `\n\nRespond with ONLY a JSON object (no markdown, no extra text), in this exact shape:\n{ "severity": "info"|"warning"|"critical", "summary": "one sentence in ${proposal.language}", "content": "2-4 short paragraphs in ${proposal.language}" }`;
+
+  if (perspective === "technical") {
+    const bom = (analysisResult?.bom || []) as any[];
+    const bomText = bom.length > 0
+      ? bom.map((item) => {
+          const flag = item.brand_policy_applicable && item.brand_policy_compliant === false ? " [FORA DA POLÍTICA DE MARCA DO PROJETO]" : "";
+          const unresolved = !item.part_number?.trim() ? " [PART NUMBER NÃO RESOLVIDO]" : "";
+          return `- ${item.equipment_name} (${item.manufacturer || "fabricante não confirmado"}, qty ${item.quantity}): ${item.specification}${flag}${unresolved}`;
+        }).join("\n")
+      : "Nenhum item de BOM disponível (a análise de IA do projeto ainda não gerou um).";
+    return `${header}
+You are a senior technical reviewer evaluating this proposal's Bill of Materials (BOM) before it is
+sent to the customer.
+
+MANDATORY PROJECT BRAND POLICY: ${project.ai_orientation_text || "None defined"}
+
+BOM (brand-policy flags already computed - comment on them if relevant, don't re-derive from scratch):
+${bomText}
+
+Evaluate: items with an unresolved part number, items outside the mandated brand policy, equipment
+categories that look under-specified (cabling, licensing, labor/installation). Flag concrete,
+specific technical risks - not generic boilerplate.${responseShape}`;
+  }
+
+  if (perspective === "commercial") {
+    return `${header}
+You are a commercial reviewer evaluating this proposal's terms before it is sent to the customer.
+
+PROPOSED TERMS:
+Payment: ${proposal.payment_terms || "N/D"}
+Delivery: ${proposal.delivery_terms || "N/D"}
+Validity: ${proposal.proposal_validity || "N/D"}
+Commercial assumptions: ${proposal.commercial_assumptions || "N/D"}
+
+Evaluate consistency between the proposed delivery timeline and the nature of the BOM items (high
+lead-time equipment needs a longer delivery window), and whether the proposal's validity period is
+compatible with the promised delivery timeline.${responseShape}`;
+  }
+
+  if (perspective === "legal") {
+    const slaFlags = await computeSlaRiskFlags(proposal, project, tenantId, platformSettings, userId);
+    const flagsText = slaFlags.length > 0
+      ? slaFlags.map((f) => `- [${f.severity}] "${f.term_excerpt}": ${f.risk_description} (${f.related_lesson})`).join("\n")
+      : "No historical risk pattern found in the approved Knowledge Base for the proposed terms.";
+    return `${header}
+You are a legal reviewer evaluating this proposal before it is sent to the customer.
+
+RISKS ALREADY FLAGGED BY THE APPROVED KNOWLEDGE BASE (an automated cross-check already ran - use
+this as input, don't redo the same analysis from scratch):
+${flagsText}
+
+PROPOSED EXCLUSIONS: ${proposal.exclusions || "N/D"}
+
+Evaluate additional contractual risk: missing standard clauses, contradictions between the
+exclusions and the BOM's technical scope.${responseShape}`;
+  }
+
+  // financial
+  const pricing = (proposal.manual_pricing_table || []) as any[];
+  const total = pricing.reduce((sum, p) => sum + Number(p.total_price ?? Number(p.quantity || 0) * Number(p.unit_price || 0)), 0);
+  const pricingText = pricing.length > 0
+    ? pricing.map((p) => `- ${p.product_or_service}: qty ${p.quantity} x ${p.currency} ${p.unit_price} (discount ${p.discount}%) = ${p.currency} ${p.total_price}`).join("\n")
+    : "No pricing table defined.";
+  return `${header}
+You are a financial reviewer evaluating this proposal's pricing before it is sent to the customer.
+
+PRICING TABLE (estimated total: USD ${total.toFixed(2)}):
+${pricingText}
+
+PAYMENT TERMS: ${proposal.payment_terms || "N/D"}
+
+Evaluate: unusual/aggressive discounts, currency exposure (if the table mixes currencies), and cash
+flow implications of the payment terms and proposal validity. Do NOT evaluate profit margin - there
+is no cost-basis data available, only sale price.${responseShape}`;
+}
+
+router.post("/proposals/:id/opinion-panel", requirePermission("proposal:edit"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const proposal = await dbStore.getProposal(req.params.id);
+    if (!proposal) {
+      return res.status(404).json({ success: false, message: "Proposal not found." });
+    }
+    const project = await dbStore.getProject(proposal.project_id);
+    if (!project) {
+      return res.status(404).json({ success: false, message: "Project not found." });
+    }
+
+    const tenantId = req.headers["x-tenant-id"] as string;
+    const platformSettings = await dbStore.getSettings();
+    const costCap = await checkCostCap(tenantId, platformSettings.monthly_cost_cap_usd ?? null);
+    if (costCap.blocked) {
+      return res.status(402).json({
+        success: false,
+        message: `Monthly AI cost cap reached ($${costCap.currentSpendUsd.toFixed(2)} of $${costCap.capUsd?.toFixed(2)}). Opinion panel blocked until next month or the cap is raised in Admin > AI, Prompts e Custos.`
+      });
+    }
+
+    const userId = requireUserId(req);
+    const providerResolution = await resolveProvider("proposal_opinion_panel", platformSettings);
+    if (providerResolution.isFallback) {
+      await recordProviderFallback({ tenantId, taskType: "proposal_opinion_panel", intendedProvider: providerResolution.intendedProvider, userId });
+    }
+
+    const task = await createTask({ userId, type: "proposal_opinion_panel", currentStep: "Iniciando pareceres de IA...", resultId: proposal.id });
+    const runId = randomId("por");
+    await prisma.proposalOpinionRun.create({
+      data: {
+        id: runId,
+        tenantId,
+        proposalId: proposal.id,
+        backgroundTaskId: task.id,
+        status: "running",
+        requestedByUserId: userId,
+        logicVersion: LOGIC_VERSIONS.proposal_opinion_panel,
+      },
+    });
+    res.status(202).json({ success: true, task_id: task.id, run_id: runId });
+
+    // Detached background block, same pattern as every other long-running AI task in this
+    // codebase (see server/routes/analysis.ts) - runWithTenant re-establishes tenant context for
+    // everything below, since the request that kicked this off has already responded.
+    void runWithTenant({ tenantId }, async () => {
+      let completedCount = 0;
+      let anyFailed = false;
+      try {
+        const analysisResult = await dbStore.getAnalysisResult(proposal.project_id);
+
+        for (let i = 0; i < OPINION_PERSPECTIVES.length; i++) {
+          const perspective = OPINION_PERSPECTIVES[i];
+          await updateTaskProgress(task.id, {
+            currentStep: `Gerando parecer ${OPINION_PERSPECTIVE_LABEL[perspective]}... ${i + 1}/${OPINION_PERSPECTIVES.length}`,
+            progressPct: Math.round((i / OPINION_PERSPECTIVES.length) * 100),
+          });
+
+          // Re-check accumulated spend before the 3rd/4th call - the only other multi-call
+          // precedent in this codebase (Knowledge Base document analysis) only ever checks the
+          // cap once at the very start, a blind spot already identified as a real risk; this
+          // closes it for a run that costs ~4x a single document_analysis call.
+          if (i >= 2) {
+            const midCheck = await checkCostCap(tenantId, platformSettings.monthly_cost_cap_usd ?? null);
+            if (midCheck.blocked) {
+              logger.warn({ tenantId, runId, perspective }, "Opinion panel stopped mid-run: cost cap reached");
+              break;
+            }
+          }
+
+          try {
+            const prompt = await buildOpinionPrompt(perspective, proposal, project, analysisResult, tenantId, platformSettings, userId);
+            let rawText = "", inputTokens = 0, outputTokens = 0, billedCostUsd: number | undefined;
+            for (let attempt = 0; attempt < 2; attempt++) {
+              try {
+                const result = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);
+                rawText = result.text; inputTokens = result.inputTokens; outputTokens = result.outputTokens; billedCostUsd = result.billedCostUsd;
+                break;
+              } catch (callErr: any) {
+                const isRateLimit = callErr?.status === 429 || /rate.?limit|429/i.test(String(callErr?.message || ""));
+                if (isRateLimit && attempt === 0) { await new Promise((resolve) => setTimeout(resolve, 20000)); continue; }
+                throw callErr;
+              }
+            }
+            const parsed = parseAiJson(rawText);
+            const opinion = z.object({
+              severity: z.enum(["info", "warning", "critical"]),
+              summary: z.string(),
+              content: z.string(),
+            }).parse(parsed);
+
+            await prisma.proposalAiOpinionItem.create({
+              data: {
+                id: randomId("poi"),
+                tenantId,
+                runId,
+                perspective,
+                status: "completed",
+                severity: opinion.severity,
+                summary: opinion.summary,
+                content: opinion.content,
+                raw: parsed,
+                providerUsed: providerResolution.provider,
+                modelUsed: providerResolution.model,
+              },
+            });
+            await recordAiUsage({
+              tenantId,
+              taskType: "proposal_opinion_panel",
+              provider: providerResolution.provider,
+              model: providerResolution.model,
+              estimatedCostUsd: billedCostUsd ?? estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
+              backgroundTaskId: task.id,
+            });
+            completedCount++;
+          } catch (perspectiveErr: any) {
+            anyFailed = true;
+            logger.warn({ err: perspectiveErr, runId, perspective }, "Opinion panel perspective failed");
+            await prisma.proposalAiOpinionItem.create({
+              data: {
+                id: randomId("poi"),
+                tenantId,
+                runId,
+                perspective,
+                status: "failed",
+                summary: perspectiveErr.message || "Unknown error",
+                content: "",
+              },
+            });
+          }
+        }
+
+        const finalStatus = completedCount === 0 ? "failed" : (anyFailed || completedCount < OPINION_PERSPECTIVES.length ? "partial" : "completed");
+        await prisma.proposalOpinionRun.update({ where: { id: runId }, data: { status: finalStatus, completedAt: new Date() } });
+        await prisma.proposal.update({ where: { id: proposal.id }, data: { latestOpinionRunId: runId } });
+
+        if (finalStatus === "failed") {
+          await failTask(task.id, "All opinion perspectives failed.");
+        } else {
+          await completeTask(task.id, { resultType: "proposal_opinion_run", resultId: runId });
+        }
+      } catch (err: any) {
+        logger.error({ err, runId }, "Opinion panel run failed");
+        await prisma.proposalOpinionRun.update({ where: { id: runId }, data: { status: "failed", completedAt: new Date() } }).catch(() => {});
+        await failTask(task.id, err.message || "Unknown error during opinion panel generation");
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/proposals/:id/opinion-panel", requirePermission("proposal:edit"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const proposal = await dbStore.getProposal(req.params.id);
+    if (!proposal || !proposal.latest_opinion_run_id) {
+      return res.json({ success: true, run: null });
+    }
+    const run = await prisma.proposalOpinionRun.findUnique({
+      where: { id: proposal.latest_opinion_run_id },
+      include: { opinions: true },
+    });
+    res.json({ success: true, run });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.put("/proposals/:id", requirePermission("proposal:edit"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validated = CreateProposalSchema.partial().parse(req.body);
@@ -300,11 +768,14 @@ router.put("/proposals/:id", requirePermission("proposal:edit"), async (req: Req
     if (validated.editable_content !== undefined && proposal) {
       const platformSettings = await dbStore.getSettings();
       const outputAdapter = createStorageAdapter(platformSettings);
+      const brandingHeader = await resolveBrandingHeader(existingProposal.project_id);
       const { docx_file_path, pdf_file_path } = await writeProposalFiles(
         outputAdapter,
         existingProposal.project_id,
         existingProposal.proposal_type,
-        validated.editable_content
+        validated.editable_content,
+        undefined,
+        brandingHeader
       );
 
       const oldAdapter = createStorageAdapter({ ...platformSettings, storage_mode: existingProposal.storage_provider });

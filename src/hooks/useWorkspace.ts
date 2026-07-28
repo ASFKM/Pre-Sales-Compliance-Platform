@@ -178,6 +178,18 @@ export function useWorkspace(params: UseWorkspaceParams) {
         throw new Error(finished.error_message || "Failed to generate proposal.");
       }
 
+      // Linhas do BOM sem preço cadastrado no módulo de Precificação ficam de fora da tabela de
+      // preços da proposta silenciosamente - avisa aqui pra não passar despercebido (não bloqueia
+      // a geração, a proposta já foi criada com sucesso).
+      const excludedCount = typeof data.pricing_excluded_count === "number" ? data.pricing_excluded_count : 0;
+      if (excludedCount > 0) {
+        alert(
+          locale === "pt"
+            ? `Proposta gerada. ${excludedCount} item(ns) do BOM não entraram na tabela de preços por falta de preço cadastrado no módulo de Precificação.`
+            : `Proposal generated. ${excludedCount} BOM item(s) were left out of the pricing table due to missing prices in the Pricing module.`
+        );
+      }
+
       await fetchProjectDetails(selectedProjectId);
       fetchGlobalConfigs();
       setActiveTab("proposals");

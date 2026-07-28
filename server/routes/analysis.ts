@@ -16,6 +16,8 @@ import { prisma } from "../../src/prisma";
 import { FACTORY_DEFAULT_ANALYSIS_PROMPT } from "../utils/promptDefaults";
 import { buildDocxBuffer } from "../utils/docx";
 import { randomId } from "../../src/idGenerator";
+import { LOGIC_VERSIONS } from "../../src/aiLogicVersions";
+import { UNTRUSTED_DOCUMENT_WARNING } from "../utils/promptSafety";
 
 const router = express.Router();
 
@@ -114,7 +116,7 @@ export function extractKnowledgeBaseKeywords(text: string, maxKeywords = 40, min
 // billed, wasting the whole attempt). Strip a code fence first (existing behavior), then retry
 // once with trailing commas removed before giving up - if the repaired text still doesn't parse,
 // re-throw the ORIGINAL error so a genuinely different syntax problem is never masked.
-function parseAiJson(rawText: string): any {
+export function parseAiJson(rawText: string): any {
   const stripped = rawText.trim().replace(/^```json\s*|```\s*$/g, "");
   try {
     return JSON.parse(stripped);
@@ -201,6 +203,14 @@ const BOMItemSchema = z.object({
   category: z.string(),
   specification: z.string(),
   source_reference: z.string(),
+  // Self-reported by the model at EXTRACTION time (initial analysis AND per-section reanalysis) -
+  // how confident it is that this item's equipment/specification correctly captures what the
+  // source document actually demands. Distinct from match_confidence below, which is about
+  // finding a REAL product (post-extraction web/KB lookup) - this one is about the extraction/
+  // interpretation itself. Drives the "don't blindly replace a correct item on reanalysis" rule
+  // in reanalyze-section: an existing item is only overwritten by a differing new item when the
+  // new confidence is meaningfully higher AND the existing one was already low/unset.
+  confidence: z.number().min(0).max(1).optional().default(0.5),
   // True when sku/part_number/manufacturer were filled by the web-search lookup step below
   // rather than found in the source document - the two have very different reliability, and the
   // user needs to know which is which before quoting a part number in a real proposal.
@@ -214,6 +224,20 @@ const BOMItemSchema = z.object({
   // sourced_via_web_search/sourced_via_knowledge_base in the UI badge once a person has verified/
   // corrected the value.
   edited_by: z.string().optional(),
+  // Roadmap item (customer_request): deterministic-enough brand-policy compliance signal, on top
+  // of the prompt-only instruction already given to enrichBomWithWebSearch (project.ai_orientation_text,
+  // e.g. "Hikvision"). A prompt instruction alone increases compliance but doesn't guarantee it
+  // item-by-item since generation is probabilistic - confirmed this session (21-item real BOM test:
+  // 0 real violations, but a naive "manufacturer != policy -> flag" check would have produced 2
+  // false positives on VMS/analytics software licenses the mandated camera brand doesn't make).
+  // applicable/compliant/note are the model's own structured self-report (formalizing what the
+  // prompt already asked it to explain in prose); confidence is computed afterward in
+  // computeBrandPolicyCrossCheck, never by the model itself. All optional/nullable - absent on
+  // BOMs saved before this existed, and on items where no brand policy applies at all.
+  brand_policy_applicable: z.boolean().optional().nullable(),
+  brand_policy_compliant: z.boolean().optional().nullable(),
+  brand_policy_note: z.string().optional().nullable(),
+  brand_policy_confidence: z.enum(["high", "medium", "low"]).optional().nullable(),
 });
 
 // The point-to-point technical matrix is domain-aware rather than one fixed set of columns for
@@ -272,6 +296,23 @@ const AnalysisResultSchema = z.object({
 });
 
 
+// Computed server-side (not duplicated in the frontend) so LOGIC_VERSIONS stays the single
+// source of truth - null means "legacy/unknown" (row predates this column, or this particular
+// logic unit was never run for it), distinct from both true (stale) and false (up to date), so
+// old rows don't get flagged en masse as "outdated" the moment this feature ships.
+function computeLogicStaleness(result: AnalysisResult): { is_document_analysis_stale: boolean | null; is_bom_enrichment_stale: boolean | null } {
+  const stored = result.logic_versions;
+  const staleFor = (key: keyof typeof LOGIC_VERSIONS): boolean | null => {
+    const storedVersion = stored?.[key];
+    if (storedVersion === undefined || storedVersion === null) return null;
+    return storedVersion < LOGIC_VERSIONS[key];
+  };
+  return {
+    is_document_analysis_stale: staleFor("document_analysis"),
+    is_bom_enrichment_stale: staleFor("bom_enrichment"),
+  };
+}
+
 // GET latest analysis result
 router.get("/projects/:projectId/analysis-result", requirePermission("analysis:read"), async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -279,7 +320,7 @@ router.get("/projects/:projectId/analysis-result", requirePermission("analysis:r
     if (!result) {
       return res.status(404).json({ success: false, message: "No analysis result exists for this project." });
     }
-    res.json(result);
+    res.json({ ...result, ...computeLogicStaleness(result) });
   } catch (err) {
     next(err);
   }
@@ -321,6 +362,294 @@ router.post("/projects/:projectId/analysis-result", requirePermission("analysis:
   }
 });
 
+// Roadmap item (customer_request): focused single-section re-run of an already-completed
+// analysis (e.g. just the BOM, if it came out unsatisfactory) instead of rerunning the whole
+// 8-section analysis and hoping. Reuses document_analysis's own provider/model config
+// (resolveProvider("document_analysis", ...)) - same AI capability, just a narrower prompt with
+// the section's entire output budget to itself instead of splitting it with the other 7 sections.
+const SECTION_CONFIG: Record<string, { schema: z.ZodTypeAny; label: string; shapeHint: string; needsBomEnrichment?: boolean }> = {
+  critical_requirements: {
+    schema: z.array(CriticalRequirementSchema),
+    label: "Requisitos Críticos",
+    shapeHint: `[{ "requirement_id": string, "category": "technical"|"commercial"|"contractual"|"operational"|"security"|"integration"|"infrastructure"|"deadline"|"support"|"maintenance"|"documentation"|"training", "description": string, "source_document": string, "source_page_or_section": string, "source_snippet": string, "priority": "high"|"medium"|"low", "mandatory_or_optional": "mandatory"|"optional", "compliance_status": "not_enough_information"|"compliant"|"partially_compliant"|"non_compliant", "evidence_type": "directly_supported"|"inferred_from_documents"|"user_provided_instruction"|"assumption"|"missing_information"|"requires_customer_confirmation", "confidence": number (0-1), "notes": string }]`,
+  },
+  risks: {
+    schema: z.array(ProjectRiskSchema),
+    label: "Riscos",
+    shapeHint: `[{ "risk_id": string, "title": string, "description": string, "severity": "low"|"medium"|"high"|"critical", "probability": "low"|"medium"|"high", "impact": string, "source_document": string, "source_page_or_section": string, "source_snippet": string, "mitigation": string, "owner_area": string, "requires_customer_clarification": boolean, "evidence_type": string, "confidence": number }]`,
+  },
+  opportunities: {
+    schema: z.array(ProjectOpportunitySchema),
+    label: "Oportunidades",
+    shapeHint: `[{ "opportunity_id": string, "title": string, "description": string, "business_value": string, "source_document": string, "source_page_or_section": string, "suggested_solution": string, "sales_strategy": string, "priority": "high"|"medium"|"low", "evidence_type": string, "confidence": number }]`,
+  },
+  bom: {
+    schema: z.array(BOMItemSchema),
+    label: "BOM (Lista de Materiais)",
+    shapeHint: `[{ "item_id": string, "sku": string, "part_number": string, "equipment_name": string, "manufacturer": string, "quantity": number, "unit": string, "category": string, "specification": string, "source_reference": string, "confidence": number (0-1) }]`,
+    needsBomEnrichment: true,
+  },
+};
+
+router.post("/projects/:projectId/analysis-result/reanalyze-section", requirePermission("analysis:run"), async (req: Request, res: Response, next: NextFunction) => {
+  const correlationId = (req.headers["x-correlation-id"] as string) || "corr-section-reanalysis";
+  const startTime = Date.now();
+  const projectId = req.params.projectId;
+  const tenantId = req.headers["x-tenant-id"] as string;
+  const tenantContext = { tenantId };
+
+  const section = req.body?.section as string;
+  const sectionConfig = SECTION_CONFIG[section];
+  if (!sectionConfig) {
+    return res.status(400).json({ success: false, message: `Seção inválida para reanálise: "${section}".` });
+  }
+
+  let project, platformSettings, providerResolution, userId, task;
+  try {
+    project = await dbStore.getProject(projectId);
+    if (!project) {
+      return res.status(404).json({ success: false, message: "Project not found." });
+    }
+
+    platformSettings = await dbStore.getSettings();
+    providerResolution = await resolveProvider("document_analysis", platformSettings);
+
+    const costCap = await checkCostCap(tenantId, platformSettings.monthly_cost_cap_usd ?? null);
+    if (costCap.blocked) {
+      return res.status(402).json({
+        success: false,
+        message: `Monthly AI cost cap reached ($${costCap.currentSpendUsd.toFixed(2)} of $${costCap.capUsd?.toFixed(2)}). Reanalysis blocked until next month or the cap is raised in Admin > AI, Prompts e Custos.`
+      });
+    }
+
+    userId = requireUserId(req);
+    if (providerResolution.isFallback) {
+      await recordProviderFallback({ tenantId, taskType: "document_analysis", intendedProvider: providerResolution.intendedProvider, userId });
+    }
+
+    task = await createTask({ userId, type: "section_reanalysis", currentStep: `Reanalisando: ${sectionConfig.label}`, resultId: projectId });
+    res.status(202).json({ success: true, task_id: task.id });
+  } catch (err) {
+    return next(err);
+  }
+
+  // Everything from here runs detached, same pattern as POST /projects/:projectId/analyze above.
+  void runWithTenant(tenantContext, async () => {
+  try {
+    await updateTaskProgress(task.id, { status: "running", currentStep: "Lendo documentos", progressPct: 15 });
+
+    // Same document-gathering logic as the full analysis handler above (POST /projects/:projectId/
+    // analyze) - duplicated rather than extracted into a shared helper, deliberately: that handler
+    // is real, tested production code, and this endpoint is new - safer to leave it untouched than
+    // risk a refactor regression on the primary analysis path.
+    const docs = await dbStore.getDocuments(projectId);
+    const VISION_MIME_TYPES = new Set(["application/pdf", "image/png", "image/jpeg", "image/webp"]);
+    let combinedExtractedText = "";
+    const documentFiles: ProviderFileInput[] = [];
+    const storageAdapterForDocs = createStorageAdapter(platformSettings);
+
+    for (let idx = 0; idx < docs.length; idx++) {
+      const doc = docs[idx];
+      if (VISION_MIME_TYPES.has(doc.mime_type)) {
+        try {
+          const buffer = await storageAdapterForDocs.readFile(doc.storage_path);
+          documentFiles.push({ mimeType: doc.mime_type, base64Data: buffer.toString("base64") });
+          combinedExtractedText += `\n--- DOCUMENT ${idx + 1}: ${doc.filename} (${doc.detected_document_type}) - sent as a real file below, read it directly ---\n`;
+        } catch (err) {
+          logger.error({ err, documentId: doc.id, filename: doc.filename }, "Failed to read document file for section reanalysis");
+        }
+        continue;
+      }
+      const text = await dbStore.getDocumentContent(doc.id);
+      if (text) {
+        combinedExtractedText += `\n--- START DOCUMENT ${idx + 1}: ${doc.filename} (${doc.detected_document_type}) ---\n`;
+        combinedExtractedText += text.substring(0, 10000);
+        combinedExtractedText += `\n--- END DOCUMENT ${idx + 1} ---\n`;
+      }
+    }
+    if (!combinedExtractedText) {
+      combinedExtractedText = "No document text was extracted. Standard project description fallback is used.";
+    }
+
+    await updateTaskProgress(task.id, { currentStep: "Analisando com IA", progressPct: 40 });
+
+    // Fetched here (not just before saving, as this endpoint originally did) so the BOM
+    // reanalysis prompt below can show the model what's already there - a reanalysis regenerating
+    // the whole section from the raw text alone, with no memory of prior extraction, is exactly
+    // how a previously-correct item silently got replaced by a wrong one (real bug, 2026-07-20).
+    const existing = await dbStore.getAnalysisResult(projectId);
+
+    // minLength=3 (era o padrão 4 até 2026-07-22): "PTZ"/"DAI" e outras siglas curtas e
+    // altamente distintivas deste dominio (DVR, LPR, VMS, NVR) tem so 3 caracteres e eram
+    // descartadas silenciosamente antes mesmo de chegar na busca da KB - confirmado com um caso
+    // real (item 5.1/5.2 do Termo de Referencia CFTV Via Sorocabana): a busca a nivel de
+    // documento nao achava nenhuma das 12+ entradas aprovadas sobre a DS-2DF8C448I5XG-ELW porque
+    // nem "ptz" nem "dai" sobreviviam ao filtro, mesmo a KB tendo cobertura completa do modelo.
+    // A busca por item do BOM (abaixo, em enrichBomWithWebSearch) ja usava minLength=3 por essa
+    // mesma razao - so a busca a nivel de documento ainda nao tinha recebido a mesma correcao.
+    const knowledgeBaseKeywords = extractKnowledgeBaseKeywords(
+      [project.name, project.customer_name, project.vertical, project.description, project.ai_orientation_text, combinedExtractedText]
+        .filter(Boolean)
+        .join(" "),
+      40,
+      3
+    );
+    // limit=60 (era o padrão 30 até 2026-07-22): confirmado com o mesmo caso real da correção de
+    // minLength acima - mesmo com "ptz"/"dai" agora presentes nas keywords, das 10 entradas
+    // aprovadas realmente sobre a DS-2DF8C448I5XG-ELW (entre 200 candidatas no total), só 2
+    // sobreviviam ao corte de 30, porque termos genéricos (câmera, tipo, poste, lote) raros
+    // O BASTANTE DENTRO DESTA CONSULTA especifica pontuam alto no ranking por peso IDF sem serem
+    // exclusivos deste produto. Não mexi no algoritmo de ranking em si (já tem histórico de dois
+    // ajustes anteriores documentados acima, delicado) - só dei mais espaço pra ele, o que já
+    // basta pra essas 10 entradas relevantes caberem quase todas.
+    const approvedKnowledge = await dbStore.searchApprovedKnowledgeBase(knowledgeBaseKeywords, 60);
+    const knowledgeBaseSection = approvedKnowledge.length > 0
+      ? `\nACCUMULATED KNOWLEDGE FROM PAST PROJECTS (human-reviewed and approved - apply only the
+entries that are actually relevant to this document; ignore anything that doesn't clearly match):
+${approvedKnowledge.map((k) => `- [${k.category}] Se: ${k.trigger} → Então: ${k.knowledge}`).join("\n")}\n`
+      : "";
+
+    // Only for the BOM section: show the model what's already saved for this project, so a
+    // reanalysis doesn't treat every item as a blank slate. The actual "don't blindly replace a
+    // correct item" enforcement is deterministic (reconcileBomWithExisting, below, after the AI
+    // responds) - this prompt text is a first line of defense (fewer spurious differences to
+    // reconcile in the first place), not the real guarantee.
+    const existingBomItems = section === "bom" ? (existing?.bom as any[] | undefined) || [] : [];
+    // specification is included below (it wasn't before, 2026-07-22 fix) specifically so the
+    // model can actually perform the internal-consistency check the paragraph after this list
+    // asks for - a real bug slipped through undetected for that exact reason: an item's own
+    // specification said "mesmo modelo/especificação da câmera PTZ com DAI do Lote 2" but its
+    // manufacturer/part_number pointed at a completely different, non-PTZ product, and no prior
+    // reanalysis pass could have caught it because this summary never showed the model the
+    // specification text to check against in the first place.
+    const existingBomSection = existingBomItems.length > 0
+      ? `\nCURRENT BOM ALREADY ON FILE FOR THIS PROJECT (from a previous analysis pass - human or
+automated review may already have confirmed some of these are correct):
+${existingBomItems.map((i) => `- ${i.equipment_name} [${i.category}] - manufacturer: ${i.manufacturer || "(empty)"}, part_number: ${i.part_number || "(empty)"}, specification: ${i.specification || "(empty)"}, confidence: ${typeof i.confidence === "number" ? i.confidence : "unknown"}`).join("\n")}
+Only report a DIFFERENT manufacturer/part_number/specification for an item above if the source
+documents give you clear evidence the current value is wrong or incomplete - disagreeing without
+new evidence is not a valid reason to change it. It is fine and expected to report the exact same
+values as above when they are still correct.
+EXCEPTION - internal consistency (this is not "new evidence from the documents", it is catching a
+mistake already present in the data above): if an item's OWN specification text above describes it
+as equivalent to, a spare/backup/sobressalente of, or "mesmo modelo/especificação de" another item
+in this same list (typically a spare/backup unit that must match its primary unit), but its
+manufacturer/part_number does NOT actually match that referenced item's manufacturer/part_number -
+report the CORRECTED manufacturer/part_number (matching the referenced item) for this item, and
+say so explicitly in this item's specification text. Silently repeating an internal contradiction
+because "it was already confirmed" is not correct behavior - a confirmed value can still be wrong.\n`
+      : "";
+
+    // The whole point of a per-section reanalysis: this prompt asks for ONLY this one section,
+    // with the entire output token budget available to it instead of splitting it 8 ways like the
+    // full analysis does - explicitly told to use that room for real thoroughness (every distinct
+    // item, not a summarized/collapsed version), and to flag ambiguity rather than guess, matching
+    // the rigor already confirmed on a real BOM extraction reviewed this session (precise
+    // source_reference per item, no invented values).
+    const prompt = `You are running a FOCUSED, SPECIALIST reanalysis of ONE section of a pre-sales tender
+analysis: "${sectionConfig.label}" (JSON key: "${section}"). This is NOT the full multi-section
+analysis - the entire output budget is available for this one section alone, so take the time to
+be exhaustive and precise instead of summarizing or collapsing similar items together. Extract
+EVERY distinct item the source material actually supports - do not merge similar-looking items
+into one, do not omit an item because it seems redundant with another, and do not invent a value
+(quantity, spec, reference) that isn't actually stated - if the source text is ambiguous about
+something, say so in the relevant text/notes field rather than guessing.
+${knowledgeBaseSection}${existingBomSection}
+PROJECT METADATA:
+- Name: ${project.name}
+- Customer: ${project.customer_name}
+- Vertical: ${project.vertical}
+- Description: ${project.description || "N/A"}
+
+${UNTRUSTED_DOCUMENT_WARNING}
+
+REAL EXTRACTED DOCUMENT TEXT:
+${combinedExtractedText}
+
+Respond with ONLY a JSON array (no markdown, no extra text) matching this exact shape:
+${sectionConfig.shapeHint}`;
+
+    let rawText: string, inputTokens: number, outputTokens: number, billedCostUsd: number | undefined;
+    ({ text: rawText, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt, documentFiles));
+    const realEstimatedCostUsd = billedCostUsd ?? estimateCostUsd(providerResolution.model, inputTokens, outputTokens);
+
+    const parsedJson = parseAiJson(rawText);
+    let validatedSection: any = sectionConfig.schema.parse(parsedJson);
+
+    if (sectionConfig.needsBomEnrichment) {
+      await updateTaskProgress(task.id, { currentStep: "Buscando equipamentos reais para o BOM", progressPct: 85 });
+      validatedSection = await enrichBomWithWebSearch(validatedSection, platformSettings, project.proposal_language, tenantId, project.ai_orientation_text || "");
+      validatedSection = computeConfidenceConsistency(validatedSection);
+    }
+
+    // Deterministic reconciliation against what was already saved - the real enforcement of "an
+    // already-correct BOM item is not replaced just because a reanalysis was requested" (the
+    // prompt instruction above reduces spurious differences, but only this step actually decides
+    // and logs it). See reconcileBomWithExisting's own comment for the exact rule.
+    let bomReconciliationDecisions: BomReconciliationDecision[] = [];
+    if (section === "bom") {
+      const reconciliation = reconcileBomWithExisting(validatedSection, existingBomItems);
+      validatedSection = reconciliation.items;
+      bomReconciliationDecisions = reconciliation.decisions;
+    }
+
+    // Same merge-on-save pattern as POST /projects/:projectId/analysis-result (the manual-edit
+    // endpoint) - read the existing full row, overwrite only this one field, save the whole thing
+    // back. Every other section (and the two proposal drafts) is left exactly as it was.
+    await updateTaskProgress(task.id, { currentStep: "Salvando resultado", progressPct: 95 });
+    const updatedLogicVersions = { ...(existing?.logic_versions || {}) };
+    if (section === "bom") updatedLogicVersions.bom_enrichment = LOGIC_VERSIONS.bom_enrichment;
+    const merged = { ...existing, [section]: validatedSection, project_id: projectId, updated_at: new Date().toISOString(), logic_versions: updatedLogicVersions };
+    await dbStore.saveAnalysisResult(merged as AnalysisResult);
+
+    await dbStore.addAuditLog({
+      user_id: userId,
+      action: "Section Reanalysis (AI)",
+      entity_type: "AnalysisResult",
+      entity_id: existing?.id || "ar_section_reanalysis",
+      project_id: projectId,
+      ip_address: "127.0.0.1",
+      user_agent: "section-reanalysis",
+      metadata: JSON.stringify({
+        section,
+        provider: providerResolution.provider,
+        model: providerResolution.model,
+        ...(section === "bom" && bomReconciliationDecisions.length > 0 ? { bom_reconciliation: bomReconciliationDecisions } : {}),
+      }),
+    });
+
+    logDebugMessage({
+      operation: "Section Reanalysis",
+      message: `Successfully reanalyzed section "${section}" for project ${projectId}.`,
+      status: "SUCCESS",
+      durationMs: Date.now() - startTime,
+      correlationId,
+      projectId,
+    });
+
+    await completeTask(task.id, {
+      resultType: "analysis_result",
+      resultId: projectId,
+      estimatedCostUsd: realEstimatedCostUsd,
+      aiProvider: providerResolution.provider,
+      intendedProvider: providerResolution.intendedProvider,
+      isProviderFallback: providerResolution.isFallback,
+    });
+    await recordAiUsage({
+      tenantId,
+      taskType: "document_analysis",
+      provider: providerResolution.provider,
+      model: providerResolution.model,
+      estimatedCostUsd: realEstimatedCostUsd,
+      backgroundTaskId: task.id,
+    });
+  } catch (err: any) {
+    logger.error({ err, projectId, section }, "Section reanalysis failed");
+    await failTask(task.id, err.message || "Unknown error during section reanalysis");
+  }
+  });
+});
+
 // Looks up a real part number/manufacturer for BOM items the document itself didn't specify
 // (sku/part_number left blank by the main analysis, per its own "never invent" instruction).
 // Consults the approved Knowledge Base per item FIRST - the document-wide KB pass earlier in the
@@ -335,7 +664,361 @@ function truncate(text: string, maxLength: number): string {
   return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
 }
 
-async function enrichBomWithWebSearch(bom: any[], platformSettings: any, proposalLanguage: string, tenantId: string): Promise<any[]> {
+// Deterministic pass over the model's own brand_policy_applicable/compliant self-report
+// (enrichBomWithWebSearch's prompt asks for this per item) - never calls AI itself, no I/O. Groups
+// items by a normalized "category" (trim/lowercase - no formal taxonomy, see roadmap discussion)
+// and, for groups with enough members (>= MIN_GROUP_SIZE_FOR_CROSSCHECK) where the majority
+// already reports non-compliant with the SAME alternate manufacturer, treats that as a signal the
+// category is legitimately outside the mandated brand's product line (confidence stays as
+// reported, since the model itself already said "not applicable" in that case - most groups never
+// even reach this branch) rather than a real violation. Small groups (below the threshold) fall
+// back to the model's own self-report as-is, with confidence downgraded to "low" since there's no
+// same-BOM evidence to corroborate or contradict it either way.
+const MIN_GROUP_SIZE_FOR_CROSSCHECK = 3;
+export function computeBrandPolicyCrossCheck<T extends { category?: string; manufacturer?: string; brand_policy_applicable?: boolean | null; brand_policy_compliant?: boolean | null }>(items: T[]): (T & { brand_policy_confidence?: "high" | "medium" | "low" | null })[] {
+  const groups = new Map<string, T[]>();
+  for (const item of items) {
+    const key = (item.category || "").trim().toLowerCase();
+    const group = groups.get(key);
+    if (group) group.push(item);
+    else groups.set(key, [item]);
+  }
+
+  return items.map((item) => {
+    if (item.brand_policy_applicable == null) return item;
+    const key = (item.category || "").trim().toLowerCase();
+    const group = groups.get(key) || [item];
+
+    if (group.length < MIN_GROUP_SIZE_FOR_CROSSCHECK) {
+      return { ...item, brand_policy_confidence: "low" as const };
+    }
+
+    const nonCompliant = group.filter((g) => g.brand_policy_applicable && g.brand_policy_compliant === false);
+    const majorityNonCompliant = nonCompliant.length > group.length / 2;
+    // Same alternate manufacturer across the non-compliant majority - a coincidental single
+    // outlier isn't the same signal as a whole category consistently landing on one other brand.
+    const alternateManufacturers = new Set(nonCompliant.map((g) => (g.manufacturer || "").trim().toLowerCase()).filter(Boolean));
+
+    if (item.brand_policy_applicable && item.brand_policy_compliant === false && majorityNonCompliant && alternateManufacturers.size === 1) {
+      return { ...item, brand_policy_confidence: "high" as const };
+    }
+    return { ...item, brand_policy_confidence: (item as { brand_policy_confidence?: string }).brand_policy_confidence ?? "medium" };
+  });
+}
+
+// Mesmo padrão de corroboração estatística determinística (sem IA, dentro do mesmo BOM) de
+// computeBrandPolicyCrossCheck acima, mas pra correspondência de equipamento em geral - a única
+// validação cruzada que existia antes era exclusiva de política de marca. Sinaliza quando o
+// fabricante de um item destoa da maioria dos itens da mesma categoria neste BOM; nunca eleva
+// confiança sozinho, só rebaixa (nunca sobrescreve um "high" já vindo do prompt).
+const MIN_GROUP_SIZE_FOR_MATCH_CROSSCHECK = 3;
+export function computeEquipmentMatchCrossCheck<T extends { category?: string; manufacturer?: string; match_confidence?: "high" | "medium" | "low" | null }>(items: T[]): (T & { manufacturer_outlier?: boolean })[] {
+  const groups = new Map<string, T[]>();
+  for (const item of items) {
+    const key = (item.category || "").trim().toLowerCase();
+    const group = groups.get(key);
+    if (group) group.push(item);
+    else groups.set(key, [item]);
+  }
+
+  return items.map((item) => {
+    const key = (item.category || "").trim().toLowerCase();
+    const group = groups.get(key) || [item];
+    if (group.length < MIN_GROUP_SIZE_FOR_MATCH_CROSSCHECK || !item.manufacturer?.trim()) {
+      return { ...item, manufacturer_outlier: false };
+    }
+
+    const manufacturerCounts = new Map<string, number>();
+    for (const g of group) {
+      const m = (g.manufacturer || "").trim().toLowerCase();
+      if (m) manufacturerCounts.set(m, (manufacturerCounts.get(m) || 0) + 1);
+    }
+    const itemManufacturer = item.manufacturer.trim().toLowerCase();
+    const itemCount = manufacturerCounts.get(itemManufacturer) || 0;
+    const majorityCount = Math.max(...manufacturerCounts.values());
+    // Só marca outlier quando a maioria é de fato maioria (mais da metade do grupo) - evita
+    // sinalizar um BOM legitimamente multi-marca (câmeras de um fabricante + switches de outro)
+    // como suspeito.
+    const isOutlier = itemCount < majorityCount && majorityCount > group.length / 2;
+    const downgraded = isOutlier && item.match_confidence === "high" ? "medium" : item.match_confidence;
+    return { ...item, manufacturer_outlier: isOutlier, match_confidence: downgraded };
+  });
+}
+
+// Real user complaint (2026-07-20): "Câmera IP tipo PTZ com DAI" reported confidence 85% while
+// "Câmeras Sobressalentes" - whose OWN specification explicitly says "mesma especificação técnica
+// da câmera PTZ com DAI do LOTE 1" - reported 90% for the exact same underlying claim. Each item's
+// confidence is an independent per-item self-report from the model, with nothing enforcing
+// consistency across items that assert they're the same product. Deterministic fix, same spirit
+// as computeBrandPolicyCrossCheck/computeEquipmentMatchCrossCheck above: group items by the same
+// identity key used for reanalysis reconciliation (category+manufacturer+part_number, normalized -
+// only when both are non-empty, since an empty/not_found identity has nothing concrete to agree
+// on), and unify confidence within each group to the group's MINIMUM - conservative on purpose: if
+// the model was less sure about ANY single instance of a claim, that uncertainty is real
+// information and should carry over to every item making the same claim, not get diluted away by
+// a more confident sibling.
+export function computeConfidenceConsistency<T extends { category?: string; manufacturer?: string; part_number?: string; confidence?: number }>(items: T[]): T[] {
+  const identityKey = (item: T) => `${normalizeForBomMatch(item.category)}::${normalizeForBomMatch(item.manufacturer)}::${normalizeForBomMatch(item.part_number)}`;
+
+  const confidencesByKey = new Map<string, number[]>();
+  for (const item of items) {
+    if (typeof item.confidence !== "number" || !item.manufacturer?.trim() || !item.part_number?.trim()) continue;
+    const key = identityKey(item);
+    const existing = confidencesByKey.get(key);
+    if (existing) existing.push(item.confidence);
+    else confidencesByKey.set(key, [item.confidence]);
+  }
+
+  const unifiedByKey = new Map<string, number>();
+  for (const [key, confidences] of confidencesByKey) {
+    if (confidences.length > 1) unifiedByKey.set(key, Math.min(...confidences));
+  }
+  if (unifiedByKey.size === 0) return items;
+
+  return items.map((item) => {
+    if (typeof item.confidence !== "number" || !item.manufacturer?.trim() || !item.part_number?.trim()) return item;
+    const unified = unifiedByKey.get(identityKey(item));
+    return unified !== undefined && unified !== item.confidence ? { ...item, confidence: unified } : item;
+  });
+}
+
+function normalizeForBomMatch(text: string | undefined): string {
+  return (text || "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+// A section reanalysis regenerates the ENTIRE BOM from the source documents again, with no
+// memory of what was already saved - confirmed real bug (2026-07-20): a correctly-specified
+// camera (present in the Knowledge Base with 38 approved entries) got silently replaced by a
+// wrong one on a later pass, because nothing ever compared the new AI output against what was
+// already there. `item_id` can't be used to match "the same equipment" across passes - the model
+// regenerates the whole list and has no obligation to reuse a prior ID.
+//
+// Two-tier matching (real end-to-end test, 2026-07-20, found the identity gap): matching by
+// equipment_name+category alone missed cases where the AI legitimately restructured wording
+// (e.g. splitting one item into per-lot variants, "Câmera PTZ" -> "Câmera PTZ - LOTE 1") while the
+// underlying product identity (manufacturer+part_number) stayed exactly the same - each old/new
+// pair was treated as two unrelated items instead of one, inflating the BOM with near-duplicates.
+// Tier 1 (identity): category+manufacturer+part_number, normalized - only when the NEW item
+// actually states both a manufacturer and a part_number (an empty/not_found new item can't claim
+// an identity match against a real existing product; that would silently affirm a lookup failure
+// as if it were the correct one). This tier is a pure rename/rewording case by construction (same
+// product either way), so the new item's fields are accepted directly, no confidence comparison
+// needed - there's nothing to arbitrate.
+// Tier 2 (name fallback): normalized equipment_name+category, same as before - this is where a
+// REAL conflict (same conceptual line item, different manufacturer/part_number proposed) is
+// actually caught and run through the confidence rule below. Matching by identity first, before
+// falling back to name, is deliberate: if tier 1 matched by identity already consumed an existing
+// item, tier 2 must not also match it under a stale name and double-count it.
+//
+// Decision rule for tier-2 conflicts (user-approved, 2026-07-20): the existing item wins UNLESS
+// the new item's confidence is meaningfully higher (>= CONFIDENCE_REPLACE_DELTA more) AND the
+// existing item was already low-confidence or unset (< CONFIDENCE_REPLACE_FLOOR, including
+// never-set/`not_found`). Deliberately automatic (no extra confirmation screen, per user's
+// explicit choice) but never silent: every real conflict is logged with old/new confidence and
+// the outcome, both as a short note on the item itself and in the audit log entry.
+const CONFIDENCE_REPLACE_DELTA = 0.3;
+const CONFIDENCE_REPLACE_FLOOR = 0.5;
+
+export interface BomReconciliationDecision {
+  equipment_name: string;
+  category: string;
+  outcome: "kept_existing" | "accepted_new" | "matched_by_identity" | "matched_by_similarity" | "new_item" | "existing_untouched";
+  existing_confidence?: number;
+  new_confidence?: number;
+}
+
+function tokenSet(text: string): Set<string> {
+  return new Set(normalizeForBomMatch(text).split(" ").filter((w) => w.length >= 3));
+}
+
+function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let intersection = 0;
+  for (const w of a) if (b.has(w)) intersection++;
+  const union = a.size + b.size - intersection;
+  return union === 0 ? 0 : intersection / union;
+}
+
+const TIER3_SIMILARITY_THRESHOLD = 0.45;
+
+// Tier 3 (2026-07-21): Tiers 1/2 above only recognize a renamed item when it HAS a product
+// identity (Tier 1) or its name stayed unchanged (Tier 2). Services and licenses never have a
+// manufacturer/part_number, so when the AI restructures their wording the same way it does for
+// physical products (e.g. "Serviço de Instalação" -> "Serviço de Instalação - LOTE 1
+// (Sorocabana)"), neither tier recognizes it as the same item - real bug, same lot-restructuring
+// pattern that used to duplicate cameras (fixed by Tier 1), just for the class of item that never
+// had an identity to anchor on in the first place. Matches by word-overlap (Jaccard - same
+// normalization as the rest of this file, no embeddings/vector infra here) between
+// equipment_name, gated by an EXACT quantity match and same category (both required, not just a
+// scoring boost) - a real quantity split (e.g. a corrected lot count) is treated as a genuinely
+// different item rather than silently merged, and two unrelated services sharing generic wording
+// need to ALSO coincidentally share an exact quantity to false-match. Threshold and gate validated
+// against 5 real pairs from a real project (2026-07-21): correct pairs scored 0.50-0.67, incorrect
+// pairs scored 0.00 and 0.29 - comfortable margin either side of 0.45.
+function computeTier3Matches(newItems: any[], unresolvedNewIndices: number[], existingItems: any[], consumedExistingIdx: Set<number>): Map<number, number> {
+  const candidateExisting = existingItems
+    .map((item, idx) => ({ item, idx }))
+    .filter(({ item, idx }) => !consumedExistingIdx.has(idx) && !item.manufacturer?.trim() && !item.part_number?.trim());
+
+  const scoredPairs: { score: number; ni: number; ei: number }[] = [];
+  for (const ni of unresolvedNewIndices) {
+    const newItem = newItems[ni];
+    const newTokens = tokenSet(newItem.equipment_name);
+    for (const { item: existingItem, idx: ei } of candidateExisting) {
+      if (normalizeForBomMatch(newItem.category) !== normalizeForBomMatch(existingItem.category)) continue;
+      if (newItem.quantity !== existingItem.quantity) continue;
+      const score = jaccardSimilarity(newTokens, tokenSet(existingItem.equipment_name));
+      if (score >= TIER3_SIMILARITY_THRESHOLD) scoredPairs.push({ score, ni, ei });
+    }
+  }
+  scoredPairs.sort((a, b) => b.score - a.score);
+
+  const matches = new Map<number, number>();
+  const usedExisting = new Set<number>();
+  for (const { ni, ei } of scoredPairs) {
+    if (matches.has(ni) || usedExisting.has(ei)) continue;
+    matches.set(ni, ei);
+    usedExisting.add(ei);
+  }
+  return matches;
+}
+
+export function reconcileBomWithExisting(newItems: any[], existingItems: any[]): { items: any[]; decisions: BomReconciliationDecision[] } {
+  if (!existingItems || existingItems.length === 0) {
+    return { items: newItems, decisions: [] };
+  }
+
+  const identityKey = (item: any) => `${normalizeForBomMatch(item.category)}::${normalizeForBomMatch(item.manufacturer)}::${normalizeForBomMatch(item.part_number)}`;
+  const nameKey = (item: any) => `${normalizeForBomMatch(item.equipment_name)}::${normalizeForBomMatch(item.category)}`;
+
+  // Queues, not single indices: a real BOM routinely has SEVERAL existing items sharing the same
+  // identity on purpose (a main camera + its spare/backup, both legitimately the same
+  // manufacturer+part_number) - a single `Map<string, number>` overwrites earlier entries with the
+  // same key, so only the LAST existing item of each identity group stayed reachable at all
+  // (confirmed real bug, 2026-07-21: a main camera + spare, both DS-2DF8C448I5XG-ELW, collapsed to
+  // one map slot - the first new item to match consumed it, the second couldn't re-match despite
+  // sharing the identity, fell through to "new item", and the un-consumed original got re-added by
+  // the existing_untouched safety net below - net result: 3 copies of the same camera instead of
+  // 1). A queue lets N existing items of the same identity absorb up to N new items 1:1 before
+  // anything is treated as new/untouched.
+  const existingByIdentity = new Map<string, number[]>();
+  const existingByName = new Map<string, number[]>();
+  existingItems.forEach((item, idx) => {
+    if (item.manufacturer?.trim() && item.part_number?.trim()) {
+      const key = identityKey(item);
+      const queue = existingByIdentity.get(key);
+      if (queue) queue.push(idx);
+      else existingByIdentity.set(key, [idx]);
+    }
+    const nKey = nameKey(item);
+    const nQueue = existingByName.get(nKey);
+    if (nQueue) nQueue.push(idx);
+    else existingByName.set(nKey, [idx]);
+  });
+  const consumedExistingIdx = new Set<number>();
+  const decisions: BomReconciliationDecision[] = [];
+
+  // Pass 1: Tiers 1/2 (identity, then name) - unchanged logic from before Tier 3 existed. Items
+  // with no product identity that fall through BOTH are held back (not returned as "new" yet) so
+  // Tier 3 gets a chance at them below, using the fully up-to-date consumedExistingIdx from this
+  // pass (a service/license can only be a Tier 3 candidate once we know for sure Tiers 1/2 didn't
+  // already claim its potential match under a different item).
+  const reconciled: any[] = new Array(newItems.length);
+  const unresolvedNewIndices: number[] = [];
+
+  newItems.forEach((newItem, ni) => {
+    // Tier 1: identity match (category+manufacturer+part_number) - a pure rename/rewording, the
+    // underlying product is already confirmed the same, nothing to arbitrate.
+    if (newItem.manufacturer?.trim() && newItem.part_number?.trim()) {
+      const idQueue = existingByIdentity.get(identityKey(newItem));
+      const idIdx = idQueue?.find((i) => !consumedExistingIdx.has(i));
+      if (idIdx !== undefined) {
+        consumedExistingIdx.add(idIdx);
+        decisions.push({ equipment_name: newItem.equipment_name, category: newItem.category, outcome: "matched_by_identity" });
+        reconciled[ni] = newItem;
+        return;
+      }
+    }
+
+    // Tier 2: name fallback - this is where a real conflict (same line item, different
+    // manufacturer/part_number proposed) is actually caught.
+    const nmQueue = existingByName.get(nameKey(newItem));
+    const nmIdx = nmQueue?.find((i) => !consumedExistingIdx.has(i));
+    if (nmIdx === undefined) {
+      // No identity match, no name match - a genuinely new item UNLESS Tier 3 (below) recognizes
+      // it as a renamed service/license with no product identity to anchor on.
+      if (!newItem.manufacturer?.trim() && !newItem.part_number?.trim()) {
+        unresolvedNewIndices.push(ni);
+      } else {
+        reconciled[ni] = newItem;
+      }
+      return;
+    }
+    const existingItem = existingItems[nmIdx];
+    consumedExistingIdx.add(nmIdx);
+
+    // Not a real conflict if the substance of the item didn't actually change - no need to log a
+    // "decision" or touch the item just because the AI regenerated equivalent text.
+    const sameSubstance =
+      normalizeForBomMatch(newItem.part_number) === normalizeForBomMatch(existingItem.part_number) &&
+      normalizeForBomMatch(newItem.manufacturer) === normalizeForBomMatch(existingItem.manufacturer);
+    if (sameSubstance) {
+      reconciled[ni] = newItem;
+      return;
+    }
+
+    const existingConfidence = typeof existingItem.confidence === "number" ? existingItem.confidence : 0.5;
+    const newConfidence = typeof newItem.confidence === "number" ? newItem.confidence : 0.5;
+    const shouldAcceptNew = existingConfidence < CONFIDENCE_REPLACE_FLOOR && newConfidence - existingConfidence >= CONFIDENCE_REPLACE_DELTA;
+
+    if (shouldAcceptNew) {
+      decisions.push({ equipment_name: newItem.equipment_name, category: newItem.category, outcome: "accepted_new", existing_confidence: existingConfidence, new_confidence: newConfidence });
+      reconciled[ni] = newItem;
+      return;
+    }
+
+    decisions.push({ equipment_name: newItem.equipment_name, category: newItem.category, outcome: "kept_existing", existing_confidence: existingConfidence, new_confidence: newConfidence });
+    const note = "(mantido da reanálise anterior - confiança já era alta ou a nova sugestão não teve confiança suficientemente maior para substituir)";
+    reconciled[ni] = {
+      ...existingItem,
+      specification: existingItem.specification?.includes(note) ? existingItem.specification : `${existingItem.specification} ${note}`,
+    };
+  });
+
+  // Pass 2: Tier 3, only for items with no product identity that fell through both prior tiers -
+  // see computeTier3Matches' own comment for the exact rule.
+  if (unresolvedNewIndices.length > 0) {
+    const tier3Matches = computeTier3Matches(newItems, unresolvedNewIndices, existingItems, consumedExistingIdx);
+    for (const ni of unresolvedNewIndices) {
+      const newItem = newItems[ni];
+      const existingIdx = tier3Matches.get(ni);
+      if (existingIdx !== undefined) {
+        consumedExistingIdx.add(existingIdx);
+        decisions.push({ equipment_name: newItem.equipment_name, category: newItem.category, outcome: "matched_by_similarity" });
+      }
+      reconciled[ni] = newItem;
+    }
+  }
+
+  // An existing item the new pass simply didn't recreate at all (by identity, name, NOR
+  // similarity) is a worse failure than a wrong replacement (silent data loss) - add it back
+  // rather than let a reanalysis quietly shrink the BOM.
+  existingItems.forEach((existingItem, idx) => {
+    if (!consumedExistingIdx.has(idx)) {
+      decisions.push({ equipment_name: existingItem.equipment_name, category: existingItem.category, outcome: "existing_untouched" });
+      reconciled.push(existingItem);
+    }
+  });
+
+  return { items: reconciled, decisions };
+}
+
+async function enrichBomWithWebSearch(bom: any[], platformSettings: any, proposalLanguage: string, tenantId: string, orientationText: string): Promise<any[]> {
   // Only a missing part_number is treated as "needs lookup" here. A part_number already present
   // (e.g. filled from an approved Knowledge Base entry) but missing manufacturer used to also
   // trigger a search - confirmed on a real run that this can find a *different*, unrelated real
@@ -461,13 +1144,18 @@ async function enrichBomWithWebSearch(bom: any[], platformSettings: any, proposa
       };
     }));
 
-    const promptFor = (chunk: typeof lookupList) => `For each item below, first check "known_knowledge" - human-approved internal knowledge from past projects, already vetted by a person. If it clearly states a concrete real manufacturer and/or part number/SKU for this exact item, use that value instead of searching the web, and set "source" to "knowledge_base". known_knowledge entries were retrieved by keyword overlap and can include a product that is technically similar but actually the wrong product line for this item's stated use - e.g. a vehicle-mounted/portable/mobile-enforcement camera is NOT a match for an item that specifies a fixed pole/wall-mounted installation, and vice-versa, even when general specs (PTZ, zoom, IP rating, resolution) look alike. Before accepting a known_knowledge match, check that its stated application/mounting/context actually matches this item's own description; if it doesn't, treat known_knowledge as not applicable for that item and fall back to web search or not_found instead. IMPORTANT: numeric specs in a BOM item (zoom, IR range, resolution, IP/IK rating, etc.) are virtually always MINIMUM requirements from a technical reference document, not exact targets - a candidate that MEETS OR EXCEEDS a stated number (e.g. 48x zoom for an item asking for 30x, IP67 for an item asking for IP66) is a VALID match on that spec, not a mismatch - only reject on a spec if the candidate is BELOW what the item asks for, or if the installation context itself is wrong (see above). known_knowledge can list several different products - evaluate every distinct product mentioned by name before concluding none match; do not stop at the first plausible-looking one, and do not default to a web search just because more than one candidate is present. Only actually search the web for items where known_knowledge is null or doesn't give a confident, context-matching manufacturer/part number, and set "source" to "web_search" for those found that way. If "known_part_number" is set for an item, that part number is already correct/authoritative - only search for (or find in known_knowledge) which real manufacturer makes that exact part number, do not substitute a different product. If neither known_knowledge nor a web search yields a confident real match, leave sku/part_number/manufacturer as empty strings and set "source" to "not_found" rather than guessing.
+    const orientationBlock = orientationText.trim()
+      ? `MANDATORY PROJECT POLICY (from the project's own registered technical orientation - this is not a suggestion, it is a requirement that overrides an otherwise-plausible match from a different brand): "${orientationText.trim()}". If this names a required manufacturer/brand, every item below MUST be matched to a real product from that manufacturer whenever one exists that satisfies the item's stated specification - do not accept a different manufacturer's product just because it also clears the minimum numeric specs, even if it was the first or most obvious candidate found. Only deviate from the mandated manufacturer if you genuinely cannot find any real product from them that plausibly satisfies this specific item, and if you do deviate, say so explicitly in the item's "note".\n\n`
+      : "";
+    const promptFor = (chunk: typeof lookupList) => `${orientationBlock}For each item below, first check "known_knowledge" - human-approved internal knowledge from past projects, already vetted by a person. If it clearly states a concrete real manufacturer and/or part number/SKU for this exact item, use that value instead of searching the web, and set "source" to "knowledge_base". known_knowledge entries were retrieved by keyword overlap and can include a product that is technically similar but actually the wrong product line for this item's stated use - e.g. a vehicle-mounted/portable/mobile-enforcement camera is NOT a match for an item that specifies a fixed pole/wall-mounted installation, and vice-versa, even when general specs (PTZ, zoom, IP rating, resolution) look alike. Before accepting a known_knowledge match, check that its stated application/mounting/context actually matches this item's own description; if it doesn't, treat known_knowledge as not applicable for that item and fall back to web search or not_found instead. IMPORTANT: numeric specs in a BOM item (zoom, IR range, resolution, IP/IK rating, etc.) are virtually always MINIMUM requirements from a technical reference document, not exact targets - a candidate that MEETS OR EXCEEDS a stated number (e.g. 48x zoom for an item asking for 30x, IP67 for an item asking for IP66) is a VALID match on that spec, not a mismatch - only reject on a spec if the candidate is BELOW what the item asks for, or if the installation context itself is wrong (see above). CRITICAL: the product you find must match the item's own fundamental equipment type - "equipment_name" is the ultimate authority on what kind of product this line item actually IS (e.g. an item named "Armario tecnico"/technical cabinet is a physical enclosure, never a network switch, camera, or PoE injector - even when its specification text lists one of those as a component that must be bundled INSIDE or WITH it, e.g. a cabinet spec requiring "switch industrial 8 portas" as contents is still asking for the CABINET/ENCLOSURE itself, not the switch; find and return the cabinet/enclosure product, never the accessory component only mentioned as part of its required contents). If you cannot find a real product matching the item's own equipment type specifically (as opposed to one of its bundled accessories), leave sku/part_number/manufacturer empty and set source to "not_found" rather than substituting an accessory's part number for the item's own. If an item's specification states it is a spare, backup, or replacement unit with "the same specification" as another item (e.g. "para reposicao", "mesma especificacao", "backup", "reserva"), apply the EXACT same matching rigor and standards as for any other item - being a spare does NOT license accepting a different manufacturer or a lower-tier product just because it merely meets the minimum numeric specs; a spare described as identical to another camera/equipment item should end up as the same manufacturer and product family as that other item whenever the specification genuinely matches, not a different brand that happens to also clear the numeric bar. known_knowledge can list several different products - evaluate every distinct product mentioned by name before concluding none match; do not stop at the first plausible-looking one, and do not default to a web search just because more than one candidate is present. Only actually search the web for items where known_knowledge is null or doesn't give a confident, context-matching manufacturer/part number, and set "source" to "web_search" for those found that way. If "known_part_number" is set for an item, that part number is already correct/authoritative - only search for (or find in known_knowledge) which real manufacturer makes that exact part number, do not substitute a different product. If neither known_knowledge nor a web search yields a confident real match, leave sku/part_number/manufacturer as empty strings and set "source" to "not_found" rather than guessing. Never use a literal double-quote character (") inside any string value in your JSON response (e.g. inside "note") - it breaks JSON parsing for the entire response; write a quoted term or measurement without quote marks instead (e.g. 3 inch, not 3"). For each item, also self-report on the mandatory brand policy above (if one was given): set "brand_policy_applicable" to false if this item's equipment type is not something the mandated brand actually makes (e.g. a generic cabinet/enclosure, a server, a third-party VMS software license - the mandated camera brand not making that kind of product is a legitimate, correct reason to use a different manufacturer, NOT a policy violation); set it to true otherwise. When true, set "brand_policy_compliant" to whether the manufacturer you actually used matches the mandated brand, and always fill "brand_policy_note" with a one-sentence reason in ${proposalLanguage} either way (why the policy applies or doesn't, and why the match does or doesn't comply). If no brand policy was given above, set "brand_policy_applicable" to false for every item and leave the other two fields empty.
 
 ITEMS TO LOOK UP:
 ${JSON.stringify(chunk, null, 2)}
 
+For each item, also self-report "match_confidence" for the equipment match itself (independent of the brand policy fields above): "high" if the source (known_knowledge or web search) explicitly and unambiguously names this exact product/part number for this exact use case; "medium" if you're confident about the manufacturer/product family but had to infer the specific part number/variant, or the match required judgment calls on ambiguous specs; "low" if you found a plausible but not clearly confirmed match (e.g. only a category/family match, conflicting information between sources, or a stretch on the "meets or exceeds" spec reasoning). If source is "not_found", set match_confidence to "low".
+
 Respond with ONLY a JSON array (no markdown, no extra text), one object per item_id above, in this exact shape:
-[{ "item_id": "...", "sku": "real SKU or empty string", "part_number": "real part number or empty string", "manufacturer": "real manufacturer name or empty string", "source": "knowledge_base" | "web_search" | "not_found", "note": "one short sentence in ${proposalLanguage} - what you found and its source, or why nothing confident was found" }]`;
+[{ "item_id": "...", "sku": "real SKU or empty string", "part_number": "real part number or empty string", "manufacturer": "real manufacturer name or empty string", "source": "knowledge_base" | "web_search" | "not_found", "match_confidence": "high" | "medium" | "low", "note": "one short sentence in ${proposalLanguage} - what you found and its source, or why nothing confident was found", "brand_policy_applicable": true or false, "brand_policy_compliant": true or false, "brand_policy_note": "one short sentence in ${proposalLanguage}" }]`;
 
     // Sent as one request per chunk (not the whole BOM at once) - see the 57k-token/6000-TPM
     // incident above. Chunk boundaries are picked by a rough token estimate (chars/4) against a
@@ -491,12 +1179,18 @@ Respond with ONLY a JSON array (no markdown, no extra text), one object per item
     }
     if (current.length > 0) chunks.push(current);
 
-    const resultsByItemId = new Map<string, { item_id: string; sku: string; part_number: string; manufacturer: string; source?: string; note: string }>();
+    const resultsByItemId = new Map<string, { item_id: string; sku: string; part_number: string; manufacturer: string; source?: string; match_confidence?: "high" | "medium" | "low"; note: string; brand_policy_applicable?: boolean; brand_policy_compliant?: boolean; brand_policy_note?: string }>();
     for (const chunk of chunks) {
-      // One retry on an actual rate-limit error, after a delay long enough to clear a per-minute
-      // window - anything else (a real parsing/auth/network failure) fails this chunk immediately,
+      // Up to 3 retries on an actual rate-limit error (real incident, 2026-07-21: a single fixed
+      // 20s wait + one retry was not enough when the whole BOM enrichment run puts the account
+      // under sustained pressure across many chunks in quick succession - a chunk could still be
+      // rate-limited on its one retry, permanently losing that item's lookup for no reason other
+      // than bad timing). Backoff increases per attempt (20s, 40s, 60s) rather than a flat wait,
+      // long enough to clear a per-minute window even under sustained load. Anything else (a real
+      // parsing/auth/network failure) still fails this chunk immediately after its own one retry,
       // same fail-soft behavior as before, just scoped to one chunk instead of the whole BOM.
-      for (let attempt = 0; attempt < 2; attempt++) {
+      const MAX_ATTEMPTS = 4;
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         try {
           const { text, inputTokens, outputTokens, billedCostUsd } = await searchWebWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, promptFor(chunk));
           await recordAiUsage({
@@ -507,22 +1201,62 @@ Respond with ONLY a JSON array (no markdown, no extra text), one object per item
             estimatedCostUsd: billedCostUsd ?? estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
           });
           // The model prefaces the JSON with explanatory prose that can itself contain stray
-          // "[...]" (e.g. citing "[16:9]" resolution) - a single greedy [\s\S]*] regex grabbed
-          // from that first stray bracket through to the real array's closing bracket, garbling
-          // the JSON. Prefer the ```json fenced block if present (the array is always what's
-          // fenced); only fall back to the last "[" in the text (the real array is always the
-          // final thing in the response) if no fence is found.
+          // "[...]" (e.g. citing "[16:9]" resolution), and a web-search-grounded model (gpt-5-search-api)
+          // also APPENDS a trailing citation/source list after the real array (e.g. "[camcentral.com]",
+          // "[hikvision.com]") - so neither "first [" nor "last [" is a safe anchor. Anchor on "[{"
+          // instead (the real array is always an array of objects, never of bare citation strings),
+          // then walk forward counting bracket/brace depth (skipping the contents of quoted strings)
+          // until it returns to zero, to get exactly the real array and nothing appended after it.
           const fenceMatch = text.match(/```json\s*([\s\S]*?)```/);
-          const rawJsonText = fenceMatch ? fenceMatch[1] : text.slice(text.lastIndexOf("["));
-          if (!rawJsonText.includes("[")) throw new Error("Web search response did not contain a JSON array");
-          const chunkResults: Array<{ item_id: string; sku: string; part_number: string; manufacturer: string; source?: string; note: string }> = JSON.parse(rawJsonText.trim());
+          const source = fenceMatch ? fenceMatch[1] : text;
+          const arrayStart = source.search(/\[\s*\{/);
+          if (arrayStart === -1) throw new Error("Web search response did not contain a JSON array of objects");
+          let depth = 0;
+          let inString = false;
+          let escaped = false;
+          let arrayEnd = -1;
+          for (let i = arrayStart; i < source.length; i++) {
+            const ch = source[i];
+            if (inString) {
+              if (escaped) escaped = false;
+              else if (ch === "\\") escaped = true;
+              else if (ch === '"') inString = false;
+              continue;
+            }
+            if (ch === '"') { inString = true; continue; }
+            if (ch === "[" || ch === "{") depth++;
+            else if (ch === "]" || ch === "}") {
+              depth--;
+              if (depth === 0) { arrayEnd = i; break; }
+            }
+          }
+          if (arrayEnd === -1) throw new Error("Web search response JSON array was not properly closed");
+          const rawJsonText = source.slice(arrayStart, arrayEnd + 1).trim();
+          let chunkResults: Array<{ item_id: string; sku: string; part_number: string; manufacturer: string; source?: string; match_confidence?: "high" | "medium" | "low"; note: string; brand_policy_applicable?: boolean; brand_policy_compliant?: boolean; brand_policy_note?: string }>;
+          try {
+            chunkResults = JSON.parse(rawJsonText);
+          } catch (firstParseErr) {
+            // Trailing-comma repair (same technique as parseAiJson elsewhere in this file) - a
+            // distinct malformation from the citation-bracket issue the scanner above already
+            // handles, worth one cheap local repair attempt before falling through to a full retry.
+            chunkResults = JSON.parse(rawJsonText.replace(/,(\s*[}\]])/g, "$1"));
+          }
           for (const r of chunkResults) resultsByItemId.set(r.item_id, r);
           break;
         } catch (chunkErr: any) {
           const isRateLimit = chunkErr?.status === 429 || /rate.?limit|429/i.test(String(chunkErr?.message || ""));
-          if (isRateLimit && attempt === 0) {
-            logger.warn({ err: chunkErr, tenantId, chunkSize: chunk.length }, "BOM web search chunk rate-limited, retrying after backoff");
-            await new Promise((resolve) => setTimeout(resolve, 20000));
+          // A malformed-JSON response (e.g. the model emitting a literal unescaped quote inside a
+          // string value - confirmed on a real chunk: "Expected ',' or '}' after property value")
+          // is not deterministic - a second attempt at the exact same prompt often comes back
+          // clean, same reasoning as the existing rate-limit retry, just a different trigger.
+          const isParseError = chunkErr instanceof SyntaxError;
+          // Rate limits get the full budget of retries (waiting for a shared account-level window
+          // to clear is a matter of time, not luck) - parse errors still get just one (a garbled
+          // response is a per-call fluke, not something more waiting fixes).
+          const canRetry = isRateLimit ? attempt < MAX_ATTEMPTS - 1 : isParseError && attempt === 0;
+          if (canRetry) {
+            logger.warn({ err: chunkErr, tenantId, chunkSize: chunk.length, reason: isRateLimit ? "rate_limit" : "malformed_json", attempt }, "BOM web search chunk failed, retrying");
+            if (isRateLimit) await new Promise((resolve) => setTimeout(resolve, 20000 * (attempt + 1)));
             continue;
           }
           logger.warn({ err: chunkErr, tenantId, chunkSize: chunk.length }, "BOM web search chunk failed, leaving its items unenriched");
@@ -531,20 +1265,45 @@ Respond with ONLY a JSON array (no markdown, no extra text), one object per item
       }
     }
 
-    return bom.map((item) => {
+    const enrichedItems = bom.map((item) => {
       const found = resultsByItemId.get(item.item_id);
-      if (!found || (!found.part_number?.trim() && !found.manufacturer?.trim())) return item;
+      if (!found) return item;
+      const brandPolicyFields = {
+        brand_policy_applicable: found.brand_policy_applicable ?? null,
+        brand_policy_compliant: found.brand_policy_applicable ? (found.brand_policy_compliant ?? null) : null,
+        brand_policy_note: found.brand_policy_note ?? null,
+      };
+      // Auto-reportado pelo mesmo prompt/chamada que já roda acima - sem custo de IA adicional,
+      // mesma ideia do brand_policy_confidence, mas sobre a correspondência do equipamento em si
+      // (não existia nenhum sinal de confiança pra isso antes, só as flags binárias de origem).
+      const matchConfidence = found.match_confidence ?? null;
+      if (!found.part_number?.trim() && !found.manufacturer?.trim()) {
+        return { ...item, ...brandPolicyFields, match_confidence: matchConfidence ?? "low" };
+      }
       const fromKnowledgeBase = found.source === "knowledge_base";
       return {
         ...item,
+        ...brandPolicyFields,
+        match_confidence: matchConfidence,
         sku: item.sku?.trim() || found.sku || item.sku,
         part_number: item.part_number?.trim() || found.part_number || item.part_number,
-        manufacturer: item.manufacturer?.trim() || found.manufacturer || item.manufacturer,
+        // manufacturer is DIFFERENT from sku/part_number above: an item only enters
+        // itemsNeedingLookup because its part_number was empty, but its manufacturer field can
+        // already be pre-filled with a GUESS from the original document_analysis pass (e.g.
+        // inferred from a nearby item's brand) even while part_number stayed empty - confirmed on
+        // a real BOM where a spare camera kept a stale "Hikvision" guess even after the web search
+        // confirmed the real product was made by LILIN, and a main camera kept "Hikvision" even
+        // after the real match was an i-PRO model. Once a search actually confirms a real product
+        // (found.manufacturer is non-empty - the not_found case leaves it empty per the prompt),
+        // that confirmed manufacturer is authoritative and must win over the earlier guess -
+        // "existing wins if non-empty" was backwards specifically for this field.
+        manufacturer: found.manufacturer?.trim() || item.manufacturer,
         specification: found.note ? `${item.specification} (${found.note})` : item.specification,
         sourced_via_knowledge_base: fromKnowledgeBase,
         sourced_via_web_search: !fromKnowledgeBase,
       };
     });
+    return computeEquipmentMatchCrossCheck(computeBrandPolicyCrossCheck(enrichedItems));
   } catch (err: any) {
     logger.warn({ err, tenantId }, "BOM web search enrichment failed, keeping original BOM");
     return bom;
@@ -702,12 +1461,30 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
     // extracted, and only pull entries whose trigger/knowledge actually mention one of them - still
     // a heuristic (no vector/embedding search infra here), but bounded and targeted instead of
     // unconditional.
+    // minLength=3 (era o padrão 4 até 2026-07-22): "PTZ"/"DAI" e outras siglas curtas e
+    // altamente distintivas deste dominio (DVR, LPR, VMS, NVR) tem so 3 caracteres e eram
+    // descartadas silenciosamente antes mesmo de chegar na busca da KB - confirmado com um caso
+    // real (item 5.1/5.2 do Termo de Referencia CFTV Via Sorocabana): a busca a nivel de
+    // documento nao achava nenhuma das 12+ entradas aprovadas sobre a DS-2DF8C448I5XG-ELW porque
+    // nem "ptz" nem "dai" sobreviviam ao filtro, mesmo a KB tendo cobertura completa do modelo.
+    // A busca por item do BOM (abaixo, em enrichBomWithWebSearch) ja usava minLength=3 por essa
+    // mesma razao - so a busca a nivel de documento ainda nao tinha recebido a mesma correcao.
     const knowledgeBaseKeywords = extractKnowledgeBaseKeywords(
       [project.name, project.customer_name, project.vertical, project.description, project.ai_orientation_text, combinedExtractedText]
         .filter(Boolean)
-        .join(" ")
+        .join(" "),
+      40,
+      3
     );
-    const approvedKnowledge = await dbStore.searchApprovedKnowledgeBase(knowledgeBaseKeywords);
+    // limit=60 (era o padrão 30 até 2026-07-22): confirmado com o mesmo caso real da correção de
+    // minLength acima - mesmo com "ptz"/"dai" agora presentes nas keywords, das 10 entradas
+    // aprovadas realmente sobre a DS-2DF8C448I5XG-ELW (entre 200 candidatas no total), só 2
+    // sobreviviam ao corte de 30, porque termos genéricos (câmera, tipo, poste, lote) raros
+    // O BASTANTE DENTRO DESTA CONSULTA especifica pontuam alto no ranking por peso IDF sem serem
+    // exclusivos deste produto. Não mexi no algoritmo de ranking em si (já tem histórico de dois
+    // ajustes anteriores documentados acima, delicado) - só dei mais espaço pra ele, o que já
+    // basta pra essas 10 entradas relevantes caberem quase todas.
+    const approvedKnowledge = await dbStore.searchApprovedKnowledgeBase(knowledgeBaseKeywords, 60);
     logDebugMessage({
       operation: "Knowledge Base Retrieval",
       message: `Extracted ${knowledgeBaseKeywords.length} keywords (${knowledgeBaseKeywords.slice(0, 10).join(", ")}${knowledgeBaseKeywords.length > 10 ? ", ..." : ""}); matched ${approvedKnowledge.length} approved entries for the analysis prompt.`,
@@ -733,6 +1510,8 @@ PROJECT METADATA:
 - Technical Guidelines: ${project.ai_orientation_text || "None provided"}
 - Target Language: ${project.proposal_language}
 ${knowledgeBaseSection}
+${UNTRUSTED_DOCUMENT_WARNING}
+
 REAL EXTRACTED DOCUMENT TEXTS:
 ${combinedExtractedText}
 
@@ -811,14 +1590,15 @@ You MUST respond with a strictly parsable JSON object. No markdown, no formattin
     {
       "item_id": "bom_1",
       "sku": "Internal SKU code if the document provides one, otherwise a short stable code you generate from the equipment name",
-      "part_number": "Manufacturer part number exactly as written in the source document - never invent one, leave empty string if not stated",
+      "part_number": "Manufacturer part number exactly as written in the source document - never invent one, leave empty string if not stated. CRITICAL for spare/backup/sobressalente items: if this item's own specification says it is the same model/spec as another item you're also listing in this BOM (e.g. spare units for a primary camera), this part_number MUST match that other item's part_number exactly - never assign a different, merely-plausible product just because it also comes to mind for that category.",
       "equipment_name": "Real equipment/material name as required by the document (e.g. 'Switch PoE 24 portas Gigabit')",
       "manufacturer": "Manufacturer name if the document states or implies a standard (e.g. via a referenced norm/certification), otherwise empty string - never invent a brand",
       "quantity": 5,
       "unit": "un",
       "category": "Hardware, Software, Serviço, Licença, etc.",
       "specification": "Real technical specification/requirement for this item exactly as demanded by the source document (throughput, protocol, certification, dimensions, etc.), aligned with Tech Orientation: ${project.ai_orientation_text}",
-      "source_reference": "Section/page/item number in the source document this line item came from"
+      "source_reference": "Section/page/item number in the source document this line item came from",
+      "confidence": "number 0-1: how confident you are that this equipment_name/specification correctly captures what the source document actually demands for this item - 1.0 only when the document states it explicitly and unambiguously, lower when you had to infer, interpret vague wording, or reconcile conflicting mentions of the same item"
     }
   ],
   "point_to_point_table": [
@@ -917,7 +1697,7 @@ Write all generated content fields strictly in ${project.proposal_language}. Mai
     // specify - a real web search (see enrichBomWithWebSearch), not the model guessing. Failure
     // here never fails the analysis - see that function's own error handling.
     await updateTaskProgress(task.id, { currentStep: "Buscando equipamentos reais para o BOM", progressPct: 88 });
-    const enrichedBom = await enrichBomWithWebSearch(validatedJson.bom, platformSettings, project.proposal_language, tenantId);
+    const enrichedBom = computeConfidenceConsistency(await enrichBomWithWebSearch(validatedJson.bom, platformSettings, project.proposal_language, tenantId, project.ai_orientation_text || ""));
 
     // Save final Analysis Result
     const analysisResult: AnalysisResult = {
@@ -936,7 +1716,10 @@ Write all generated content fields strictly in ${project.proposal_language}. Mai
       commercial_proposal_draft: validatedJson.commercial_proposal_draft,
       review_status: "pending",
       created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
+      // Staleness signal (src/aiLogicVersions.ts) - a full analysis regenerates both the
+      // document-extraction and the BOM-enrichment output, so both keys are set fresh here.
+      logic_versions: { document_analysis: LOGIC_VERSIONS.document_analysis, bom_enrichment: LOGIC_VERSIONS.bom_enrichment }
     };
 
     await updateTaskProgress(task.id, { currentStep: "Salvando resultado", progressPct: 95 });
@@ -1083,6 +1866,8 @@ CRITICAL: this project is ONLY the one named below - never reference, compare ag
 information from any other project. Answer in ${project.proposal_language}.
 
 PROJECT: ${project.name} (${project.customer_name}, ${project.vertical})
+
+${UNTRUSTED_DOCUMENT_WARNING}
 
 EXTRACTED DOCUMENT TEXT:
 ${combinedExtractedText || "No document text extracted yet."}

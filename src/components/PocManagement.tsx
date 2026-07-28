@@ -139,6 +139,15 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
   const [deletingPoc, setDeletingPoc] = useState(false);
   const [deleteError, setDeleteError] = useState("");
 
+  // Roadmap item (customer_request): explicit "Salvar" control on the Test Notebook/Schedule
+  // screens - both already persist each row/change on its own (see PocTestCases.tsx/
+  // PocGanttChart.tsx), so this button's real job is the not_started -> planned confirmation
+  // below, not re-saving content that's already saved. showSaveStatusConfirm holds which screen
+  // triggered it, just for the confirmation copy.
+  const [showSaveStatusConfirm, setShowSaveStatusConfirm] = useState<"tests" | "gantt" | null>(null);
+  const [savingStatus, setSavingStatus] = useState(false);
+  const [saveStatusFeedback, setSaveStatusFeedback] = useState("");
+
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createForm, setCreateForm] = useState<CreateFormState>(EMPTY_CREATE_FORM);
   const [creating, setCreating] = useState(false);
@@ -456,6 +465,39 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
 
   const equipmentPendingReturn = equipment.filter((e) => e.status !== "returned").length;
   const pocIsOverdue = selectedPoc ? new Date(selectedPoc.end_date) < new Date() : false;
+
+  // Same "computed on render" idiom as pocIsOverdue above - no scheduler/notification
+  // infrastructure exists in this codebase (confirmed before implementing), so this is the
+  // realistic scope: a card-level visual cue, recomputed every render, not a real push alert.
+  const pocStartDateArrived = (poc: Poc) => poc.status === "planned" && new Date(poc.start_date) <= new Date();
+
+  const handleSaveClick = async (section: "tests" | "gantt") => {
+    if (!selectedPoc) return;
+    if (selectedPoc.status === "not_started") {
+      setShowSaveStatusConfirm(section);
+      return;
+    }
+    // Status already beyond "not_started" - every row already persists itself on change, so
+    // there's nothing left to actually save here; just confirm to the user that it's saved.
+    setSaveStatusFeedback("Salvo.");
+    setTimeout(() => setSaveStatusFeedback(""), 2000);
+  };
+
+  const confirmSaveAndPlan = async () => {
+    if (!selectedPoc) return;
+    setSavingStatus(true);
+    try {
+      await ApiClient.put(`/api/pocs/${selectedPoc.id}`, { status: "planned" });
+      await fetchPocs();
+      setShowSaveStatusConfirm(null);
+      setSaveStatusFeedback("Salvo - status agora é Planejada.");
+      setTimeout(() => setSaveStatusFeedback(""), 2500);
+    } catch (e: any) {
+      alert(e.message || "Não foi possível salvar.");
+    } finally {
+      setSavingStatus(false);
+    }
+  };
 
   const addCriterion = async () => {
     if (!selectedPoc || !newCriterionText.trim()) return;
@@ -1209,14 +1251,42 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
 
         {detailTab === "tests" && (
         <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-5">
-          <h2 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700 mb-4">Cadernos de Teste</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">Cadernos de Teste</h2>
+            {canManage && (
+              <div className="flex items-center gap-2">
+                {saveStatusFeedback && <span className="text-[11px] text-emerald-600 font-semibold">{saveStatusFeedback}</span>}
+                <button
+                  onClick={() => handleSaveClick("tests")}
+                  className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer"
+                >
+                  <Check size={13} />
+                  Salvar
+                </button>
+              </div>
+            )}
+          </div>
           <PocTestCases pocId={selectedPoc.id} canManage={canManage} activeTasks={activeTasks} waitForTask={waitForTask} />
         </div>
         )}
 
         {detailTab === "gantt" && (
         <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-5">
-          <h2 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700 mb-4">Cronograma</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">Cronograma</h2>
+            {canManage && (
+              <div className="flex items-center gap-2">
+                {saveStatusFeedback && <span className="text-[11px] text-emerald-600 font-semibold">{saveStatusFeedback}</span>}
+                <button
+                  onClick={() => handleSaveClick("gantt")}
+                  className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer"
+                >
+                  <Check size={13} />
+                  Salvar
+                </button>
+              </div>
+            )}
+          </div>
           <PocGanttChart poc={selectedPoc} canManage={canManage} activeTasks={activeTasks} waitForTask={waitForTask} />
         </div>
         )}
@@ -1231,6 +1301,40 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
             onPocUpdated={() => { fetchPocs(); if (viewingArchivedPoc) fetchArchivedPocs(); }}
           />
         </div>
+        )}
+
+        {showSaveStatusConfirm && selectedPoc && (
+          <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50">
+            <div className="bg-white rounded-xl border border-slate-200 w-[420px] overflow-hidden shadow-2xl">
+              <div className="bg-blue-600 text-white p-4 flex justify-between items-center">
+                <h3 className="text-sm font-bold uppercase font-mono tracking-wider">Confirmar</h3>
+                <button onClick={() => setShowSaveStatusConfirm(null)} className="text-blue-100 hover:text-white cursor-pointer">
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="p-5 space-y-4">
+                <p className="text-sm text-slate-700">
+                  Ao salvar, o status desta POC vai mudar de <span className="font-semibold">"Não iniciada"</span> para
+                  <span className="font-semibold"> "Planejada"</span>. Confirma?
+                </p>
+                <div className="flex items-center gap-2 justify-end">
+                  <button
+                    onClick={() => setShowSaveStatusConfirm(null)}
+                    className="px-3 py-1.5 border border-slate-300 rounded hover:bg-slate-100 font-mono text-xs cursor-pointer text-slate-500"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={confirmSaveAndPlan}
+                    disabled={savingStatus}
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
+                  >
+                    {savingStatus ? "Salvando..." : "Confirmar"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
 
         {showDeleteConfirm && (
@@ -1329,6 +1433,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                       poc.acceptance_decision === "won" ? "border-emerald-400" :
                       poc.acceptance_decision === "lost" ? "border-red-300" :
                       "border-slate-200";
+                    const startArrived = pocStartDateArrived(poc);
                     return (
                     <button
                       key={poc.id}
@@ -1336,7 +1441,8 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                       onDragStart={(e) => { setDragPocId(poc.id); e.dataTransfer.effectAllowed = "move"; }}
                       onDragEnd={() => setDragPocId(null)}
                       onClick={() => openDetail(poc)}
-                      className={`w-full text-left bg-white border-2 ${borderColor} rounded-md p-3 hover:border-emerald-400 hover:shadow-sm transition-all ${canManage ? "cursor-grab active:cursor-grabbing" : ""}`}
+                      title={startArrived ? "Data de início já chegou - atualize o status para \"Em andamento\"" : undefined}
+                      className={`w-full text-left bg-white border-2 ${borderColor} rounded-md p-3 hover:border-emerald-400 hover:shadow-sm transition-all ${canManage ? "cursor-grab active:cursor-grabbing" : ""} ${startArrived ? "animate-poc-start-glow" : ""}`}
                     >
                       <div className="text-[11px] text-slate-500 mb-0.5">{clientLabel(poc)}</div>
                       <div className="text-sm font-semibold text-slate-900 leading-snug mb-2">{poc.name}</div>

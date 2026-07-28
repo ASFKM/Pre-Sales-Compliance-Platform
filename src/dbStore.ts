@@ -6,6 +6,7 @@ import {
   UserStatus,
   Role,
   Project,
+  BrandStyle,
   Poc,
   PocSuccessCriterion,
   PocEquipmentItem,
@@ -58,6 +59,7 @@ function mapUser(u: any): User {
     name: u.name,
     email: u.email,
     mfa_enabled: u.mfaEnabled,
+    must_change_password: u.mustChangePassword,
     status: u.status,
     role_id: u.roleId,
     created_at: u.createdAt.toISOString(),
@@ -91,12 +93,26 @@ function mapProject(p: any): Project {
     ai_orientation_mode: p.aiOrientationMode,
     ai_orientation_text: p.aiOrientationText,
     selected_approval_workflow_id: p.selectedApprovalWorkflowId,
+    brand_style_id: p.brandStyleId ?? null,
     procurement_modality: p.procurementModality ?? undefined,
     procurement_subtype: p.procurementSubtype ?? undefined,
     custom_modality: p.customModality ?? undefined,
     created_at: p.createdAt.toISOString(),
     updated_at: p.updatedAt.toISOString(),
   } as Project;
+}
+
+function mapBrandStyle(b: any): BrandStyle {
+  return {
+    id: b.id,
+    name: b.name,
+    company_name: b.companyName ?? undefined,
+    logo_data_url: b.logoDataUrl ?? undefined,
+    primary_color: b.primaryColor ?? undefined,
+    created_by: b.createdBy,
+    created_at: b.createdAt.toISOString(),
+    updated_at: b.updatedAt.toISOString(),
+  } as BrandStyle;
 }
 
 function mapPoc(p: any): Poc {
@@ -280,6 +296,7 @@ function mapKnowledgeBaseDocument(d: any): KnowledgeBaseDocument {
     storage_path: d.storagePath,
     uploaded_by: d.uploadedBy,
     analyzed_at: d.analyzedAt ? d.analyzedAt.toISOString() : undefined,
+    content_hash: d.contentHash ?? undefined,
     created_at: d.createdAt.toISOString(),
   };
 }
@@ -323,6 +340,7 @@ function mapAnalysisResult(a: any): AnalysisResult {
     approved_at: a.approvedAt ? a.approvedAt.toISOString() : undefined,
     created_at: a.createdAt.toISOString(),
     updated_at: a.updatedAt.toISOString(),
+    logic_versions: a.logicVersions ?? null,
   } as AnalysisResult;
 }
 
@@ -422,6 +440,12 @@ function mapSettings(s: any): PlatformSettings {
     poc_schedule_generation_provider: s.pocScheduleGenerationProvider,
     poc_final_report_generation_model: s.pocFinalReportGenerationModel,
     poc_final_report_generation_provider: s.pocFinalReportGenerationProvider,
+    proposal_opinion_panel_model: s.proposalOpinionPanelModel,
+    proposal_opinion_panel_provider: s.proposalOpinionPanelProvider,
+    pricing_budget_optimization_model: s.pricingBudgetOptimizationModel,
+    pricing_budget_optimization_provider: s.pricingBudgetOptimizationProvider,
+    pricing_catalog_extraction_model: s.pricingCatalogExtractionModel,
+    pricing_catalog_extraction_provider: s.pricingCatalogExtractionProvider,
     monthly_cost_cap_usd: s.monthlyCostCapUsd ?? null,
     fleet_manager_url: s.fleetManagerUrl ?? null,
     fleet_manager_api_key_encrypted: s.fleetManagerApiKeyEncrypted ?? undefined,
@@ -527,6 +551,7 @@ function mapProposal(p: any): Proposal {
     commercial_assumptions: p.commercialAssumptions ?? undefined,
     exclusions: p.exclusions ?? undefined,
     editable_content: p.editableContent ?? undefined,
+    latest_opinion_run_id: p.latestOpinionRunId ?? null,
   } as Proposal;
 }
 
@@ -646,6 +671,9 @@ class DBStore {
         status: data.status || UserStatus.ACTIVE,
         mfaEnabled: data.mfa_enabled ?? false,
         passwordHash: data.password_hash,
+        // Roadmap (segurança): sempre true na criação, sem opção de desligar - o admin sempre
+        // define/aceita a senha inicial, então o usuário sempre precisa trocá-la no primeiro login.
+        mustChangePassword: true,
       },
     });
     return mapUser(u);
@@ -664,6 +692,7 @@ class DBStore {
         status: updates.status,
         mfaEnabled: updates.mfa_enabled,
         passwordHash: updates.password_hash,
+        mustChangePassword: updates.must_change_password,
       },
     });
     return mapUser(u);
@@ -813,6 +842,7 @@ class DBStore {
         aiOrientationMode: project.ai_orientation_mode,
         aiOrientationText: project.ai_orientation_text,
         selectedApprovalWorkflowId: project.selected_approval_workflow_id,
+        brandStyleId: project.brand_style_id,
         procurementModality: project.procurement_modality,
         procurementSubtype: project.procurement_subtype,
         customModality: project.custom_modality,
@@ -842,12 +872,65 @@ class DBStore {
         aiOrientationMode: updates.ai_orientation_mode,
         aiOrientationText: updates.ai_orientation_text,
         selectedApprovalWorkflowId: updates.selected_approval_workflow_id,
+        brandStyleId: updates.brand_style_id,
         procurementModality: updates.procurement_modality,
         procurementSubtype: updates.procurement_subtype,
         customModality: updates.custom_modality,
       },
     });
     return mapProject(p);
+  }
+
+  // Roadmap item (customer_request): "Identidade Visual em DOCX" Fase 4b - reusable named brand
+  // styles a project can opt into (see Project.brandStyleId above). Simple tenant-scoped CRUD,
+  // same shape as other small reusable-config entities in this file (e.g. ProposalTemplate).
+  public async getBrandStyles(): Promise<BrandStyle[]> {
+    const rows = await prisma.brandStyle.findMany({ orderBy: { name: "asc" } });
+    return rows.map(mapBrandStyle);
+  }
+
+  public async getBrandStyle(id: string): Promise<BrandStyle | undefined> {
+    const row = await prisma.brandStyle.findUnique({ where: { id } });
+    return row ? mapBrandStyle(row) : undefined;
+  }
+
+  public async createBrandStyle(style: Omit<BrandStyle, "id" | "created_at" | "updated_at">): Promise<BrandStyle> {
+    const row = await prisma.brandStyle.create({
+      data: {
+        id: randomId("bs"),
+        tenantId: requireTenantId(),
+        name: style.name,
+        companyName: style.company_name,
+        logoDataUrl: style.logo_data_url,
+        primaryColor: style.primary_color,
+        createdBy: style.created_by,
+      },
+    });
+    return mapBrandStyle(row);
+  }
+
+  public async updateBrandStyle(id: string, updates: Partial<BrandStyle>): Promise<BrandStyle | undefined> {
+    const exists = await prisma.brandStyle.findUnique({ where: { id } });
+    if (!exists) return undefined;
+    const row = await prisma.brandStyle.update({
+      where: { id },
+      data: {
+        name: updates.name,
+        companyName: updates.company_name,
+        logoDataUrl: updates.logo_data_url,
+        primaryColor: updates.primary_color,
+      },
+    });
+    return mapBrandStyle(row);
+  }
+
+  public async deleteBrandStyle(id: string): Promise<void> {
+    // Projects referencing this style keep their brandStyleId pointing at a now-deleted row -
+    // same tolerated pattern already established for selectedApprovalWorkflowId elsewhere in this
+    // file (no ON DELETE cascade/restrict wired for it either) - the DOCX branding lookup already
+    // falls back to the tenant default when a BrandStyle lookup comes back empty, so a project
+    // just silently reverts to the tenant default rather than erroring.
+    await prisma.brandStyle.delete({ where: { id } });
   }
 
   public async deleteProject(id: string): Promise<boolean> {
@@ -1567,6 +1650,7 @@ class DBStore {
       reviewStatus: result.review_status,
       approvedBy: result.approved_by,
       approvedAt: result.approved_at ? new Date(result.approved_at) : undefined,
+      logicVersions: result.logic_versions === undefined ? undefined : (result.logic_versions as any),
     };
 
     if (existing) {
@@ -1891,6 +1975,12 @@ class DBStore {
         pocScheduleGenerationProvider: updates.poc_schedule_generation_provider,
         pocFinalReportGenerationModel: updates.poc_final_report_generation_model,
         pocFinalReportGenerationProvider: updates.poc_final_report_generation_provider,
+        proposalOpinionPanelModel: updates.proposal_opinion_panel_model,
+        proposalOpinionPanelProvider: updates.proposal_opinion_panel_provider,
+        pricingBudgetOptimizationModel: updates.pricing_budget_optimization_model,
+        pricingBudgetOptimizationProvider: updates.pricing_budget_optimization_provider,
+        pricingCatalogExtractionModel: updates.pricing_catalog_extraction_model,
+        pricingCatalogExtractionProvider: updates.pricing_catalog_extraction_provider,
         monthlyCostCapUsd: updates.monthly_cost_cap_usd,
         fleetManagerUrl: updates.fleet_manager_url,
         fleetManagerApiKeyEncrypted: updates.fleet_manager_api_key_encrypted,
@@ -2620,7 +2710,21 @@ class DBStore {
       return { row, score };
     });
     scored.sort((a, b) => b.score - a.score);
-    return scored.slice(0, limit).map((s) => mapKnowledgeBaseEntry(s.row));
+    const top = scored.slice(0, limit);
+
+    // Métrica leve de uso - só sobre as linhas que de fato voltaram no resultado, não sobre todo
+    // candidato considerado. Fire-and-forget: não atrasa a resposta da busca, e uma falha aqui
+    // não deve derrubar a análise que está chamando isso.
+    if (top.length > 0) {
+      prisma.knowledgeBaseEntry
+        .updateMany({
+          where: { id: { in: top.map((s) => s.row.id) } },
+          data: { matchCount: { increment: 1 }, lastMatchedAt: new Date() },
+        })
+        .catch((err) => console.warn("Failed to update knowledge base entry match metrics", err));
+    }
+
+    return top.map((s) => mapKnowledgeBaseEntry(s.row));
   }
 
   // Used by BOM enrichment's context-mismatch check (see enrichBomWithWebSearch) to see a
@@ -2742,6 +2846,11 @@ class DBStore {
     return d ? mapKnowledgeBaseDocument(d) : undefined;
   }
 
+  public async findKnowledgeBaseDocumentByHash(contentHash: string): Promise<KnowledgeBaseDocument | undefined> {
+    const d = await prisma.knowledgeBaseDocument.findFirst({ where: { contentHash }, orderBy: { createdAt: "desc" } });
+    return d ? mapKnowledgeBaseDocument(d) : undefined;
+  }
+
   public async createKnowledgeBaseDocument(doc: Omit<KnowledgeBaseDocument, "id" | "created_at">): Promise<KnowledgeBaseDocument> {
     const d = await prisma.knowledgeBaseDocument.create({
       data: {
@@ -2754,6 +2863,7 @@ class DBStore {
         storageProvider: doc.storage_provider as any,
         storagePath: doc.storage_path,
         uploadedBy: doc.uploaded_by,
+        contentHash: doc.content_hash,
       },
     });
     return mapKnowledgeBaseDocument(d);

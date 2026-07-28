@@ -51,7 +51,8 @@ router.get("/tasks/stream", requireAuth, (req: Request, res: Response) => {
 // here with id="stream").
 router.get("/tasks/:id", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const task = await getTask(req.params.id);
+    const userId = req.headers["x-user-id"] as string;
+    const task = await getTask(req.params.id, userId);
     if (!task) {
       return res.status(404).json({ success: false, message: "Task not found." });
     }

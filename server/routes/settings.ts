@@ -7,10 +7,11 @@ import { requirePermission } from "./auth";
 import { encryptSecret, decryptSecret, maskSecret } from "../utils/security";
 import { requireUserId } from "../middleware/security";
 import { createStorageAdapter } from "../utils/storage";
-import { getFleetLicenseStatus } from "../utils/fleetLicense";
+import { getFleetLicenseStatus, runHeartbeatForTenant, runLicenseStatusPollForTenant } from "../utils/fleetLicense";
 import { getCurrentTenantId } from "../../src/tenantContext";
 import { FACTORY_DEFAULT_CLASSIFICATION_PROMPT, FACTORY_DEFAULT_ANALYSIS_PROMPT, FACTORY_DEFAULT_POC_TEST_GENERATION_PROMPT, FACTORY_DEFAULT_POC_SCHEDULE_GENERATION_PROMPT, FACTORY_DEFAULT_POC_FINAL_REPORT_GENERATION_PROMPT } from "../utils/promptDefaults";
 import { getCurrentMonthSpendUsd, getCurrentMonthSpendByTaskTypeAndProvider } from "../../src/aiOrchestrator";
+import { assertPublicHttpsUrl } from "../utils/ssrfGuard";
 
 const router = express.Router();
 
@@ -209,12 +210,26 @@ router.put("/settings", requirePermission("admin:settings"), async (req: Request
       return res.status(400).json({ success: false, message: "No valid global settings fields provided." });
     }
 
-    const settingsValidation = validateAISettingsUpdates(updates);
+    const settingsValidation = await validateAISettingsUpdates(updates);
     if (!settingsValidation.valid) {
       return res.status(400).json({ success: false, message: settingsValidation.message });
     }
 
     await dbStore.updateSettings(updates);
+
+    // Issue #28: connecting/reconfiguring the CMSaaS link used to just sit until the next
+    // timer tick (heartbeat every 20min, license poll every 45s) with no feedback - an admin
+    // who just entered a working URL/key had no way to know it actually worked without waiting.
+    // Fire both once, right now, in the background (not awaited - each already has its own
+    // network timeout, and the settings save itself shouldn't block on reaching an external
+    // server). Both are self-guarding no-ops if fleet_manager isn't actually enabled/configured.
+    if (["fleet_manager_url", "fleet_manager_enabled", "fleet_manager_api_key_encrypted"].some((f) => f in updates)) {
+      const tenantId = getCurrentTenantId();
+      if (tenantId) {
+        void runHeartbeatForTenant(tenantId).catch(() => {});
+        void runLicenseStatusPollForTenant(tenantId).catch(() => {});
+      }
+    }
 
     await auditSettingsChange(req, "Update Global Platform Settings", "PlatformSettings", "global", sanitizeSettingsAudit(updates));
 
@@ -288,8 +303,62 @@ router.put("/branding", requirePermission("branding:manage"), async (req: Reques
   }
 });
 
+// Roadmap item (customer_request): "Identidade Visual em DOCX" Fase 4b - reusable named brand
+// styles a project can opt into instead of the tenant-wide BrandingSettings above (see
+// Project.brand_style_id, wired into DOCX generation in server/routes/proposals.ts). Simple
+// tenant-scoped CRUD, same permission as the tenant-wide branding settings.
+router.get("/brand-styles", requirePermission("branding:manage"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    res.json(await dbStore.getBrandStyles());
+  } catch (err) {
+    next(err);
+  }
+});
 
+router.post("/brand-styles", requirePermission("branding:manage"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { name, company_name, logo_data_url, primary_color } = req.body || {};
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ success: false, message: "Name is required." });
+    }
+    if (primary_color !== undefined && !/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(String(primary_color).trim())) {
+      return res.status(400).json({ success: false, message: "primary_color must be a valid HEX color." });
+    }
+    const userId = requireUserId(req);
+    const style = await dbStore.createBrandStyle({ name, company_name, logo_data_url, primary_color, created_by: userId });
+    await auditSettingsChange(req, "Create Brand Style", "BrandStyle", style.id, { name });
+    res.status(201).json(style);
+  } catch (err) {
+    next(err);
+  }
+});
 
+router.put("/brand-styles/:id", requirePermission("branding:manage"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { name, company_name, logo_data_url, primary_color } = req.body || {};
+    if (primary_color !== undefined && !/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(String(primary_color).trim())) {
+      return res.status(400).json({ success: false, message: "primary_color must be a valid HEX color." });
+    }
+    const style = await dbStore.updateBrandStyle(req.params.id, { name, company_name, logo_data_url, primary_color });
+    if (!style) {
+      return res.status(404).json({ success: false, message: "Brand style not found." });
+    }
+    await auditSettingsChange(req, "Update Brand Style", "BrandStyle", style.id, { name, company_name, primary_color });
+    res.json(style);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/brand-styles/:id", requirePermission("branding:manage"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await dbStore.deleteBrandStyle(req.params.id);
+    await auditSettingsChange(req, "Delete Brand Style", "BrandStyle", req.params.id, {});
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // Built-in providers only - was a hardcoded 4-item snapshot ("gemini", "anthropic", "openai",
 // "deepseek") completely disconnected from the real, tenant-managed list of custom providers in
@@ -299,7 +368,7 @@ router.put("/branding", requirePermission("branding:manage"), async (req: Reques
 // as a parameter instead.
 const BUILT_IN_PROVIDERS = ["gemini", "anthropic", "openai"];
 
-function validateAISettingsUpdates(updates: any, customProviderKeys: string[] = []) {
+async function validateAISettingsUpdates(updates: any, customProviderKeys: string[] = []) {
   const validProviders = [...BUILT_IN_PROVIDERS, ...customProviderKeys];
   const modelFields = [
     "default_model",
@@ -311,7 +380,8 @@ function validateAISettingsUpdates(updates: any, customProviderKeys: string[] = 
     "document_classification_model",
     "poc_test_generation_model",
     "poc_schedule_generation_model",
-    "poc_final_report_generation_model"
+    "poc_final_report_generation_model",
+    "proposal_opinion_panel_model"
   ];
   const providerFields = [
     "document_analysis_provider",
@@ -322,7 +392,8 @@ function validateAISettingsUpdates(updates: any, customProviderKeys: string[] = 
     "document_classification_provider",
     "poc_test_generation_provider",
     "poc_schedule_generation_provider",
-    "poc_final_report_generation_provider"
+    "poc_final_report_generation_provider",
+    "proposal_opinion_panel_provider"
   ];
   const allowedLanguages = ["Portuguese", "English", "Spanish"];
   const allowedLogLevels = ["DEBUG", "INFO", "WARN", "ERROR"];
@@ -358,8 +429,17 @@ function validateAISettingsUpdates(updates: any, customProviderKeys: string[] = 
     return { valid: false, message: "Invalid default log level." };
   }
 
-  if (updates.fleet_manager_url !== undefined && updates.fleet_manager_url !== "" && !/^https?:\/\//.test(String(updates.fleet_manager_url))) {
-    return { valid: false, message: "CMSaaS URL must start with http:// or https://." };
+  // AUD-008 (auditoria de segurança, 2026-07-19): antes era só um regex checando o prefixo
+  // http(s):// - aceitava HTTP (a mesma URL cujo transporte protege o heartbeat assinado, ver
+  // CMS-001/AUD-001). allowPrivateNetwork: true de propósito - o Fleet Manager real desta
+  // instalação está na mesma LAN (IP de rede privada), topologia legítima e esperada aqui; exigir
+  // HTTPS já cobre a ameaça real (MITM em trânsito). Ver ssrfGuard.ts.
+  if (updates.fleet_manager_url !== undefined && updates.fleet_manager_url !== "") {
+    try {
+      await assertPublicHttpsUrl(String(updates.fleet_manager_url), { allowPrivateNetwork: true });
+    } catch (e: any) {
+      return { valid: false, message: e.message };
+    }
   }
 
   return { valid: true, message: "" };
@@ -408,6 +488,8 @@ router.put("/settings/ai", requirePermission("ai:settings"), async (req: Request
       "poc_schedule_generation_provider",
       "poc_final_report_generation_model",
       "poc_final_report_generation_provider",
+      "proposal_opinion_panel_model",
+      "proposal_opinion_panel_provider",
       "monthly_cost_cap_usd",
       "default_language",
       "default_log_level"
@@ -443,7 +525,7 @@ router.put("/settings/ai", requirePermission("ai:settings"), async (req: Request
     }
 
     const customProviders = await dbStore.getAiProviderConfigs();
-    const aiValidation = validateAISettingsUpdates(updates, customProviders.map((p) => p.provider_key));
+    const aiValidation = await validateAISettingsUpdates(updates, customProviders.map((p) => p.provider_key));
     if (!aiValidation.valid) {
       return res.status(400).json({ success: false, message: aiValidation.message });
     }
@@ -798,8 +880,12 @@ router.post("/settings/ai-providers", requirePermission("ai:settings"), async (r
     } catch {
       return res.status(400).json({ success: false, message: "base_url must be a valid URL (e.g. https://api.x.ai/v1)." });
     }
-    if (parsedUrl.protocol !== "https:") {
-      return res.status(400).json({ success: false, message: "base_url must use https." });
+    // AUD-008 (auditoria de segurança, 2026-07-19): antes só checava protocolo https - nada
+    // impedia apontar pra rede interna/loopback/metadata de nuvem. Ver ssrfGuard.ts.
+    try {
+      await assertPublicHttpsUrl(String(base_url || ""));
+    } catch (e: any) {
+      return res.status(400).json({ success: false, message: e.message });
     }
     if (!String(api_key || "").trim()) {
       return res.status(400).json({ success: false, message: "api_key is required." });

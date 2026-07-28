@@ -23,13 +23,17 @@ import { getTenantContext, TenantContext } from "./tenantContext";
 // bug) go unscoped for most of this project's history.
 export const TENANT_SCOPED_MODELS = new Set([
   "aIAnalysisJob", "aiProviderConfig", "aiUsageLog", "analysisResult", "approvalDecision",
-  "approvalWorkflow", "approvalStage", "auditLog", "backgroundTask", "brandingSettings",
-  "conversationMessage", "debugLog", "document", "documentContent", "iaKbBillingSnapshot",
-  "iaKbTaskConfig", "integrationConnector",
+  "approvalWorkflow", "approvalStage", "auditLog", "backgroundTask", "brandingSettings", "brandStyle",
+  "budgetOptimizationRun",
+  "conversationMessage", "debugLog", "diagnosticsOutboxEvent", "document", "documentContent", "iaKbBillingSnapshot",
+  "iaKbTaskConfig", "integrationConnector", "itemAliasMapping",
   "knowledgeBaseDocument", "knowledgeBaseEntry", "platformSettings", "poc", "pocAcceptance",
   "pocEquipmentItem", "pocFinalReportQuestion", "pocSuccessCriterion", "pocTask", "pocTestCase",
-  "project", "promptTemplate", "proposal", "proposalTemplate", "role", "systemMessage", "task",
-  "user", "teamMembership", "vertical",
+  "priceCatalogExtractionDraft", "priceCatalogItem", "priceHistoryEntry", "priceListUpload",
+  "project", "projectPricingLine", "projectPricingSheet",
+  "promptTemplate", "proposal", "proposalTemplate", "proposalOpinionRun",
+  "proposalAiOpinionItem", "role", "systemMessage", "systemUpdateState", "systemUpdateHistory", "task",
+  "tenantPricingSettings", "tenantTaxProfile", "user", "teamMembership", "vertical",
 ]);
 
 const READ_OPS = new Set(["findFirst", "findFirstOrThrow", "findUnique", "findUniqueOrThrow", "findMany", "count", "aggregate", "groupBy"]);
@@ -51,15 +55,31 @@ function buildVisibilityFilter(model: string, context: TenantContext): Record<st
   const { userId, roleId } = context;
   const approverOr = { OR: [{ approverUserId: userId }, ...(roleId ? [{ approverRoleId: roleId }] : [])] };
 
+  // Same 4 conditions as "who can see a Project" (below) - extracted so every model that hangs
+  // directly off a project (Document, AIAnalysisJob, AnalysisResult, ConversationMessage) can
+  // reuse it wrapped in `project: { OR: ... }` instead of re-deriving it. Any of these 4 models
+  // reachable in the future the same way should be added to the AUD-002 case further down, not
+  // left to fall through to the tenant-only filter (that's the exact IDOR class this closes -
+  // was confirmed real via GET /projects/:projectId/documents returning any project's documents
+  // to any authenticated user of the same tenant, not just this project's team).
+  const projectVisibilityOr = [
+    { ownerUserId: userId },
+    { owner: { teamMemberships: { some: { managerId: userId } } } },
+    { proposals: { some: { decisions: { some: { approverUserId: userId } } } } },
+    { proposals: { some: { approvalWorkflow: { stages: { some: approverOr } } } } },
+  ];
+
   if (model === "Project") {
-    return {
-      OR: [
-        { ownerUserId: userId },
-        { owner: { teamMemberships: { some: { managerId: userId } } } },
-        { proposals: { some: { decisions: { some: { approverUserId: userId } } } } },
-        { proposals: { some: { approvalWorkflow: { stages: { some: approverOr } } } } },
-      ],
-    };
+    return { OR: projectVisibilityOr };
+  }
+
+  // AUD-002 (auditoria de segurança, 2026-07-19): estes 4 modelos ficavam de fora da visibilidade
+  // por projeto, recebendo só o filtro de tenant - qualquer usuário autenticado do tenant podia
+  // ler/alterar documentos, resultados de análise, jobs e mensagens de conversa de QUALQUER
+  // projeto do tenant, não só dos projetos que ele pode ver. Mesma regra de "quem vê o projeto",
+  // um nível abaixo via a relação project direta que os 4 já têm no schema.
+  if (model === "Document" || model === "AIAnalysisJob" || model === "AnalysisResult" || model === "ConversationMessage") {
+    return { project: { OR: projectVisibilityOr } };
   }
 
   if (model === "Proposal") {
@@ -80,6 +100,32 @@ function buildVisibilityFilter(model: string, context: TenantContext): Record<st
         { proposal: { project: { owner: { teamMemberships: { some: { managerId: userId } } } } } },
         { approverUserId: userId },
         { stage: approverOr },
+      ],
+    };
+  }
+
+  // Same inherited-visibility rule as Proposal/ApprovalDecision above, relation path adjusted to
+  // reach the project from these two models (ProposalOpinionRun -> Proposal -> Project,
+  // ProposalAiOpinionItem -> ProposalOpinionRun -> Proposal -> Project) - neither has its own
+  // ownership, a user who can't see the proposal shouldn't see its AI opinion panel either.
+  if (model === "ProposalOpinionRun") {
+    return {
+      OR: [
+        { proposal: { project: { ownerUserId: userId } } },
+        { proposal: { project: { owner: { teamMemberships: { some: { managerId: userId } } } } } },
+        { proposal: { decisions: { some: { approverUserId: userId } } } },
+        { proposal: { approvalWorkflow: { stages: { some: approverOr } } } },
+      ],
+    };
+  }
+
+  if (model === "ProposalAiOpinionItem") {
+    return {
+      OR: [
+        { run: { proposal: { project: { ownerUserId: userId } } } },
+        { run: { proposal: { project: { owner: { teamMemberships: { some: { managerId: userId } } } } } } },
+        { run: { proposal: { decisions: { some: { approverUserId: userId } } } } },
+        { run: { proposal: { approvalWorkflow: { stages: { some: approverOr } } } } },
       ],
     };
   }

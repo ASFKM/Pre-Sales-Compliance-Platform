@@ -3,6 +3,7 @@ import { Trash2, Star, Check, BookOpen, Pencil, X } from "lucide-react";
 import {
   AuditLog,
   BrandingSettings,
+  BrandStyle,
   Document,
   IntegrationConnector,
   PlatformSettings,
@@ -27,6 +28,58 @@ interface FleetLicenseStatus {
   customer_city: string | null;
   customer_state: string | null;
   customer_logo_base64: string | null;
+}
+
+// Mirrors scripts/update.sh's own step() calls, in order - used only to compute a rough
+// percentage for the progress bar (steps take very different amounts of time, so this is a
+// "which stage" indicator, not a time-accurate progress meter).
+const UPDATE_STEPS = [
+  "Verificando pré-requisitos",
+  "Buscando referência",
+  "Fazendo backup (banco de dados + .env)",
+  "Aplicando atualização: checkout",
+  "Instalando dependências (npm ci)",
+  "Aplicando migrações",
+  "Compilando build de produção",
+  "Reiniciando serviço",
+  "Verificando saúde pós-atualização",
+];
+function updateStepIndex(currentStep: string | null): number {
+  if (!currentStep) return -1;
+  return UPDATE_STEPS.findIndex((s) => currentStep.startsWith(s));
+}
+
+interface SystemUpdateState {
+  current_version: string | null;
+  current_git_sha: string | null;
+  last_checked_at: string | null;
+  current_step?: string | null;
+  latest_release: { id: string; version: string; channel: string; code_ref: string; published_at: string | null; notes_md: string | null } | null;
+  scheduled_update_at: string | null;
+  scheduled_release_id: string | null;
+  scheduled_code_ref: string | null;
+  last_attempt_status: "none" | "in_progress" | "success" | "failed" | "rolled_back";
+  last_attempt_started_at: string | null;
+  last_attempt_finished_at: string | null;
+  last_attempt_from_version: string | null;
+  last_attempt_to_version: string | null;
+  last_attempt_error_log: string | null;
+  backup_ref: string | null;
+}
+
+interface SystemUpdateHistoryRow {
+  id: string;
+  from_version: string | null;
+  to_version: string;
+  from_code_ref: string | null;
+  to_code_ref: string;
+  release_id: string | null;
+  started_at: string;
+  finished_at: string | null;
+  status: "none" | "in_progress" | "success" | "failed" | "rolled_back";
+  triggered_by: "scheduled" | "manual" | "remote_command";
+  error_log: string | null;
+  backup_ref: string | null;
 }
 
 interface SystemMessageRow {
@@ -55,6 +108,8 @@ const TASK_CAPABILITY: Record<string, TaskCapability> = {
   poc_test_generation: "text",
   poc_schedule_generation: "text",
   poc_final_report_generation: "text",
+  pricing_budget_optimization: "text",
+  pricing_catalog_extraction: "vision",
 };
 
 // Curated, not exhaustive - especially for OpenAI, whose model lineup changes fast across several
@@ -115,6 +170,11 @@ const RECOMMENDED_MODEL: Record<string, { provider: string; model: string }> = {
   poc_test_generation: { provider: "anthropic", model: "claude-sonnet-5" },
   poc_schedule_generation: { provider: "anthropic", model: "claude-sonnet-5" },
   poc_final_report_generation: { provider: "anthropic", model: "claude-sonnet-5" },
+  // Módulo de Precificação, Fase 6 (add-on): escolhe a estratégia de distribuição de desconto
+  // (equal_percent/equal_amount) e explica o porquê - julgamento estruturado com racional em
+  // texto, mesma categoria dos 3 task types de POC acima, não classificação simples.
+  pricing_budget_optimization: { provider: "anthropic", model: "claude-sonnet-5" },
+  pricing_catalog_extraction: { provider: "anthropic", model: "claude-sonnet-5" },
 };
 
 type CustomProviderCapabilities = { provider_key: string; display_name: string; default_model: string; supports_vision: boolean; supports_web_search: boolean };
@@ -168,6 +228,9 @@ const AI_TASK_TYPE_LABEL: Record<string, { pt: string; en: string }> = {
   poc_test_generation: { pt: "Geração de Cadernos de Teste (POC)", en: "Test Script Generation (POC)" },
   poc_schedule_generation: { pt: "Sugestão de Cronograma (POC)", en: "Schedule Suggestion (POC)" },
   poc_final_report_generation: { pt: "Relatório Final (POC)", en: "Final Report (POC)" },
+  proposal_opinion_panel: { pt: "Pareceres de IA Multi-Perspectiva (Propostas)", en: "Multi-Perspective AI Opinions (Proposals)" },
+  pricing_budget_optimization: { pt: "Otimização de Budget (Precificação)", en: "Budget Optimization (Pricing)" },
+  pricing_catalog_extraction: { pt: "Extração de Catálogo (Precificação)", en: "Catalog Extraction (Pricing)" },
 };
 
 // Column order for the per-provider cost breakdown table - the 3 providers this platform has
@@ -188,7 +251,7 @@ const MODULE_PERMISSION_MAP: Record<string, string[]> = {
   proposals: ["proposal:generate", "proposal:read", "proposal:approve"],
   templates: ["template:manage"],
   approval: ["approval:manage"],
-  admin: ["admin:users", "admin:roles", "admin:settings"],
+  admin: ["admin:users", "admin:roles", "admin:settings", "admin:system_updates"],
   integrations: ["integrations:manage"],
   branding: ["branding:manage"],
   audit: ["admin:audit", "admin:debug", "admin:diagnostics"],
@@ -196,7 +259,7 @@ const MODULE_PERMISSION_MAP: Record<string, string[]> = {
 
 type AdminSection =
   | "overview" | "users" | "ai" | "templates" | "approval_flow"
-  | "subscription" | "branding" | "integrations" | "storage" | "audit";
+  | "subscription" | "system_updates" | "branding" | "integrations" | "storage" | "audit";
 
 interface AdminConsoleProps {
   locale: "en" | "pt";
@@ -255,6 +318,197 @@ export default function AdminConsole({
   // Manager side.
   const [fleetLicenseStatus, setFleetLicenseStatus] = useState<FleetLicenseStatus | null>(null);
 
+  // Sistema de Atualização de Produção: state/history from server/routes/systemUpdates.ts -
+  // fetched once on mount like fleetLicenseStatus just above, not gated on activeAdminSection
+  // (the payload is small and this mirrors every other section's own fetch-on-mount convention).
+  const [systemUpdateState, setSystemUpdateState] = useState<SystemUpdateState | null>(null);
+  const [systemUpdateHistory, setSystemUpdateHistory] = useState<SystemUpdateHistoryRow[]>([]);
+  const [systemUpdateNotesMd, setSystemUpdateNotesMd] = useState<string | null>(null);
+  const [systemUpdateNotesLoading, setSystemUpdateNotesLoading] = useState(false);
+  const [systemUpdateMessage, setSystemUpdateMessage] = useState("");
+  const [scheduleDraft, setScheduleDraft] = useState("");
+  const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
+
+  const loadSystemUpdateState = () => {
+    ApiClient.get<SystemUpdateState | null>("/api/admin/system-updates/state").then(setSystemUpdateState).catch(() => setSystemUpdateState(null));
+    ApiClient.get<SystemUpdateHistoryRow[]>("/api/admin/system-updates/history").then(setSystemUpdateHistory).catch(() => setSystemUpdateHistory([]));
+  };
+
+  useEffect(() => {
+    loadSystemUpdateState();
+  }, []);
+
+  // Barra de progresso ao vivo - mesma técnica (SSE) já usada pelo resto do app para
+  // acompanhar tarefas em segundo plano (useBackgroundTasks.ts/tasks/stream), num canal próprio
+  // por instalação em vez de por usuário (ver o comentário de subscribeToSystemUpdateProgress no
+  // backend) - uma atualização agendada ou disparada remotamente pelo CMSaaS não tem um usuário
+  // "dono" para direcionar o evento. Conexão única, aberta uma vez, sem polling.
+  useEffect(() => {
+    const token = localStorage.getItem("ca_session_token");
+    if (!token) return;
+    let cancelled = false;
+    let es: EventSource | undefined;
+
+    // AUD-006 (auditoria de segurança, 2026-07-19): EventSource não pode setar cabeçalhos, então
+    // o token de sessão completo (válido por horas) ia direto na query string - troca por um
+    // ticket de curta duração (mesmo mecanismo de useBackgroundTasks.ts), buscado antes via
+    // requisição normal com o token no header.
+    fetch("/api/auth/sse-ticket", { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled || !data.success) return;
+        es = new EventSource(`/api/admin/system-updates/stream?ticket=${encodeURIComponent(data.ticket)}`);
+        // Redis pub/sub has no replay - a message published exactly while this connection is down
+        // (the server-side app restart mid-update is the textbook case) is lost for good, not just
+        // delayed. Reconciling with a normal fetch on every (re)connect - not just the first one -
+        // is what makes a dropped connection self-heal instead of leaving the panel stuck on
+        // whatever the last received event said. Same pattern useBackgroundTasks.ts already uses.
+        es.onopen = () => loadSystemUpdateState();
+        es.onmessage = (ev) => {
+          try {
+            const data: { status: string; current_step?: string | null } = JSON.parse(ev.data);
+            setSystemUpdateState((prev) => (prev ? { ...prev, last_attempt_status: data.status as any, current_step: data.current_step ?? prev.current_step } : prev));
+            if (data.status !== "in_progress") {
+              // Estados terminais trazem mais campos do que o evento carrega (versão atual, histórico
+              // novo) - uma busca completa pega o resto.
+              loadSystemUpdateState();
+            }
+          } catch {
+            // ignora mensagem malformada
+          }
+        };
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+      es?.close();
+    };
+  }, []);
+
+  const fetchReleaseNotes = async () => {
+    setSystemUpdateNotesLoading(true);
+    setSystemUpdateMessage("");
+    try {
+      const result = await ApiClient.get<{ notes_md: string }>("/api/admin/system-updates/release-notes");
+      setSystemUpdateNotesMd(result.notes_md);
+    } catch (err: any) {
+      setSystemUpdateMessage(err.message || "Não foi possível buscar as notas de versão.");
+    } finally {
+      setSystemUpdateNotesLoading(false);
+    }
+  };
+
+  const submitSchedule = async () => {
+    if (!scheduleDraft) return;
+    setSystemUpdateMessage("");
+    try {
+      await ApiClient.post("/api/admin/system-updates/schedule", { update_at: new Date(scheduleDraft).toISOString() });
+      setScheduleDraft("");
+      loadSystemUpdateState();
+    } catch (err: any) {
+      setSystemUpdateMessage(err.message || "Não foi possível agendar a atualização.");
+    }
+  };
+
+  const cancelSchedule = async () => {
+    setSystemUpdateMessage("");
+    try {
+      await ApiClient.post("/api/admin/system-updates/cancel", {});
+      loadSystemUpdateState();
+    } catch (err: any) {
+      setSystemUpdateMessage(err.message || "Não foi possível cancelar o agendamento.");
+    }
+  };
+
+  const runUpdateNow = async () => {
+    if (!confirm(locale === "pt" ? "Atualizar agora? O sistema fará backup e reiniciará sozinho." : "Update now? The system will back up and restart on its own.")) return;
+    setSystemUpdateMessage("");
+    try {
+      await ApiClient.post("/api/admin/system-updates/run-now", {});
+      setSystemUpdateMessage(locale === "pt" ? "Atualização iniciada." : "Update started.");
+      loadSystemUpdateState();
+    } catch (err: any) {
+      setSystemUpdateMessage(err.message || "Não foi possível iniciar a atualização.");
+    }
+  };
+
+  // Roadmap item (customer_request): "Identidade Visual em DOCX" Fase 4b - reusable named brand
+  // styles a project can opt into instead of the tenant-wide branding above (Fase 4a). Own local
+  // state/fetch, not routed through useAdminConsole - a small, independent CRUD surface.
+  const [brandStyles, setBrandStyles] = useState<BrandStyle[]>([]);
+  const [editingBrandStyle, setEditingBrandStyle] = useState<Partial<BrandStyle> | null>(null);
+  const [savingBrandStyle, setSavingBrandStyle] = useState(false);
+
+  useEffect(() => {
+    if (activeAdminSection !== "branding") return;
+    fetch("/api/brand-styles")
+      .then((r) => r.json())
+      .then((data) => { if (Array.isArray(data)) setBrandStyles(data); })
+      .catch(() => {});
+  }, [activeAdminSection]);
+
+  const saveBrandStyle = async () => {
+    if (!editingBrandStyle?.name?.trim()) {
+      alert(locale === "pt" ? "O nome do estilo é obrigatório." : "Style name is required.");
+      return;
+    }
+    setSavingBrandStyle(true);
+    try {
+      const isNew = !editingBrandStyle.id;
+      const res = await fetch(isNew ? "/api/brand-styles" : `/api/brand-styles/${editingBrandStyle.id}`, {
+        method: isNew ? "POST" : "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: editingBrandStyle.name,
+          company_name: editingBrandStyle.company_name,
+          logo_data_url: editingBrandStyle.logo_data_url,
+          primary_color: editingBrandStyle.primary_color,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível salvar o estilo de marca." : "Could not save the brand style."));
+        return;
+      }
+      setBrandStyles((prev) => (isNew ? [...prev, data] : prev.map((s) => (s.id === data.id ? data : s))));
+      setEditingBrandStyle(null);
+    } catch (err) {
+      console.error(err);
+      alert(locale === "pt" ? "Erro ao salvar o estilo de marca." : "Error saving the brand style.");
+    } finally {
+      setSavingBrandStyle(false);
+    }
+  };
+
+  const deleteBrandStyle = async (id: string) => {
+    if (!confirm(locale === "pt" ? "Remover este estilo de marca? Projetos que o usam voltam a usar a identidade visual padrão." : "Remove this brand style? Projects using it will revert to the default branding.")) return;
+    const res = await fetch(`/api/brand-styles/${id}`, { method: "DELETE" });
+    if (res.ok) setBrandStyles((prev) => prev.filter((s) => s.id !== id));
+  };
+
+  // Only PNG/JPEG accepted - unlike the tenant-wide logo above (which also allows SVG/WebP for
+  // on-screen UI use), a brand style's logo is embedded into an exported DOCX via
+  // server/utils/docx.ts's buildDocxBuffer, whose image decoder only supports those two formats.
+  const handleBrandStyleLogoUpload = (file?: File) => {
+    if (!file) return;
+    const allowed = ["image/png", "image/jpeg"];
+    if (!allowed.includes(file.type)) {
+      alert(locale === "pt" ? "Formato inválido. Use PNG ou JPG (formatos suportados na exportação DOCX)." : "Invalid format. Use PNG or JPG (formats supported in DOCX export).");
+      return;
+    }
+    if (file.size > 1024 * 1024) {
+      alert(locale === "pt" ? "A logo deve ter no máximo 1 MB." : "Logo must be at most 1 MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || "");
+      setEditingBrandStyle((prev) => (prev ? { ...prev, logo_data_url: dataUrl } : prev));
+    };
+    reader.readAsDataURL(file);
+  };
+
   // Fase O: each orchestrator field already saves itself on change/blur (handleSavePlatformSettings)
   // - this doesn't change that mechanism, it only gives explicit visual confirmation, since the
   // reported problem was that switching tabs right after a change gave no feedback that anything
@@ -271,6 +525,7 @@ export default function AdminConsole({
   // makes sense once the tenant's Fleet Manager entitlement actually includes "poc" - same
   // signature-verified source as "Assinatura e Licença" above, not a local guess.
   const pocModuleEnabled = fleetLicenseStatus?.modules?.includes("poc") ?? false;
+  const pricingModuleEnabled = fleetLicenseStatus?.modules?.includes("pricing") ?? false;
 
   // ia_kb add-on: when active, this tenant's AI calls route through the Fleet Manager's own
   // managed-key proxy (server/utils/aiProviders.ts) - the key-configuration UI below has nothing
@@ -451,6 +706,9 @@ export default function AdminConsole({
   const [newUserPassword, setNewUserPassword] = useState<string>("ChangeMe123!");
   const [editingUserId, setEditingUserId] = useState<string>("");
   const [editingUserPassword, setEditingUserPassword] = useState<string>("");
+  // Roadmap (segurança): marcado por padrão sempre que o admin define uma senha nova para um
+  // usuário existente - o admin desmarca conscientemente se não quiser forçar a troca.
+  const [forcePasswordChangeOnReset, setForcePasswordChangeOnReset] = useState<boolean>(true);
 
   const [showNewConnectorForm, setShowNewConnectorForm] = useState<boolean>(false);
   const [newConnectorName, setNewConnectorName] = useState<string>("");
@@ -587,6 +845,7 @@ export default function AdminConsole({
                     ["templates", locale === "pt" ? "Templates de Propostas" : "Proposal Templates", locale === "pt" ? "Upload, preview e versionamento" : "Upload, preview and versioning"],
                     ["approval_flow", locale === "pt" ? "Fluxo de Aprovação" : "Approval Workflow", locale === "pt" ? "Etapas, responsáveis e regras" : "Stages, owners and rules"],
                     ["subscription", locale === "pt" ? "Subscrição e Licença" : "Subscription & License", locale === "pt" ? "Plano, chave e limites" : "Plan, key and limits"],
+                    ["system_updates", locale === "pt" ? "Atualizações do Sistema" : "System Updates", locale === "pt" ? "Versão, agendamento e histórico" : "Version, scheduling and history"],
                     ["branding", locale === "pt" ? "Identidade Visual" : "Branding", locale === "pt" ? "Logo, cores e aparência" : "Logo, colors and appearance"],
                     ["integrations", locale === "pt" ? "Integrações e APIs" : "Integrations & APIs", locale === "pt" ? "CRM, ERP e conectores externos" : "CRM, ERP and external connectors"],
                     ["storage", locale === "pt" ? "Armazenamento" : "Storage", locale === "pt" ? "Arquivos, buckets e documentos" : "Files, buckets and documents"],
@@ -622,6 +881,7 @@ export default function AdminConsole({
 
                 {activeAdminSection === "approval_flow" && canAccessAdminSection("approval_flow") && (locale === "pt" ? "Fluxo de Aprovação de Propostas" : "Proposal Approval Workflow")}
                       {activeAdminSection === "subscription" && canAccessAdminSection("subscription") && (locale === "pt" ? "Subscrição e Licença" : "Subscription & License")}
+                      {activeAdminSection === "system_updates" && canAccessAdminSection("system_updates") && (locale === "pt" ? "Atualizações do Sistema" : "System Updates")}
                       {activeAdminSection === "branding" && canAccessAdminSection("branding") && (locale === "pt" ? "Personalização e Identidade Visual" : "Branding & Visual Identity")}
                       {activeAdminSection === "integrations" && canAccessAdminSection("integrations") && (locale === "pt" ? "Integrações, CRMs, ERPs e APIs" : "Integrations, CRMs, ERPs and APIs")}
                       {activeAdminSection === "storage" && canAccessAdminSection("storage") && (locale === "pt" ? "Armazenamento e Documentos" : "Storage & Documents")}
@@ -1175,29 +1435,40 @@ export default function AdminConsole({
                                     </button>
                                   </div>
                                   {editingUserId === u.id && (
-                                    <div className="flex gap-1">
-                                      <input
-                                        type="password"
-                                        value={editingUserPassword}
-                                        onChange={(e) => setEditingUserPassword(e.target.value)}
-                                        placeholder={locale === "pt" ? "Nova senha" : "New password"}
-                                        className="w-28 p-1 border border-slate-200 rounded text-[10px]"
-                                      />
-                                      <button
-                                        onClick={async () => {
-                                          if (editingUserPassword.length < 8) {
-                                            alert(locale === "pt" ? "A senha deve ter pelo menos 8 caracteres." : "Password must have at least 8 characters.");
-                                            return;
-                                          }
-                                          await handleUpdateUser(u.id, { password: editingUserPassword });
-                                          setEditingUserId("");
-                                          setEditingUserPassword("");
-                                          alert(locale === "pt" ? "Senha atualizada." : "Password updated.");
-                                        }}
-                                        className="bg-emerald-600 text-white px-2 py-1 rounded text-[10px] font-bold"
-                                      >
-                                        OK
-                                      </button>
+                                    <div className="flex flex-col gap-1">
+                                      <div className="flex gap-1">
+                                        <input
+                                          type="password"
+                                          value={editingUserPassword}
+                                          onChange={(e) => setEditingUserPassword(e.target.value)}
+                                          placeholder={locale === "pt" ? "Nova senha" : "New password"}
+                                          className="w-28 p-1 border border-slate-200 rounded text-[10px]"
+                                        />
+                                        <button
+                                          onClick={async () => {
+                                            if (editingUserPassword.length < 8) {
+                                              alert(locale === "pt" ? "A senha deve ter pelo menos 8 caracteres." : "Password must have at least 8 characters.");
+                                              return;
+                                            }
+                                            await handleUpdateUser(u.id, { password: editingUserPassword, force_password_change: forcePasswordChangeOnReset });
+                                            setEditingUserId("");
+                                            setEditingUserPassword("");
+                                            setForcePasswordChangeOnReset(true);
+                                            alert(locale === "pt" ? "Senha atualizada." : "Password updated.");
+                                          }}
+                                          className="bg-emerald-600 text-white px-2 py-1 rounded text-[10px] font-bold"
+                                        >
+                                          OK
+                                        </button>
+                                      </div>
+                                      <label className="flex items-center gap-1 text-[9px] text-slate-500">
+                                        <input
+                                          type="checkbox"
+                                          checked={forcePasswordChangeOnReset}
+                                          onChange={(e) => setForcePasswordChangeOnReset(e.target.checked)}
+                                        />
+                                        {locale === "pt" ? "Forçar troca de senha no próximo login" : "Force password change on next login"}
+                                      </label>
                                     </div>
                                   )}
                                 </div>
@@ -1448,12 +1719,22 @@ export default function AdminConsole({
                             ...(pocModuleEnabled ? [{ field: "poc_test_generation_provider", modelField: "poc_test_generation_model", taskKey: "poc_test_generation", label: locale === "pt" ? "Geração de Cadernos de Teste (POC)" : "Test Script Generation (POC)" }] : []),
                             ...(pocModuleEnabled ? [{ field: "poc_schedule_generation_provider", modelField: "poc_schedule_generation_model", taskKey: "poc_schedule_generation", label: locale === "pt" ? "Sugestão de Cronograma (POC)" : "Schedule Suggestion (POC)" }] : []),
                             ...(pocModuleEnabled ? [{ field: "poc_final_report_generation_provider", modelField: "poc_final_report_generation_model", taskKey: "poc_final_report_generation", label: locale === "pt" ? "Relatório Final (POC)" : "Final Report (POC)" }] : []),
+                            // Add-on (Módulo de Precificação): only shown once the tenant's Fleet Manager entitlement includes "pricing".
+                            ...(pricingModuleEnabled ? [{ field: "pricing_budget_optimization_provider", modelField: "pricing_budget_optimization_model", taskKey: "pricing_budget_optimization", label: locale === "pt" ? "Otimização de Budget (Precificação)" : "Budget Optimization (Pricing)" }] : []),
+                            ...(pricingModuleEnabled ? [{ field: "pricing_catalog_extraction_provider", modelField: "pricing_catalog_extraction_model", taskKey: "pricing_catalog_extraction", label: locale === "pt" ? "Extração de Catálogo (Precificação)" : "Catalog Extraction (Pricing)" }] : []),
                           ].map(({ field, modelField, taskKey, label }) => {
                             const capability = TASK_CAPABILITY[taskKey];
                             const currentProvider = (platformSettings as any)?.[field] || "gemini";
                             const validCustomProviders = customProvidersForCapability(capability, aiProviderConfigs);
                             const modelOptions = modelOptionsFor(currentProvider, capability, aiProviderConfigs);
                             const currentModel = (platformSettings as any)?.[modelField] || "";
+                            // Bug real encontrado durante o ensaio no Presales Demo (2026-07-17): a
+                            // checagem de "é a configuração recomendada?" comparava sempre contra
+                            // platformSettings, mesmo com o ia_kb ativo - nesse caso o texto exibido
+                            // já lia iaKbTaskConfig (a config de verdade, sincronizada do CMSaaS),
+                            // mas a comparação continuava olhando pro campo local desatualizado.
+                            const effectiveProvider = iaKbModuleEnabled ? (iaKbTaskConfig[taskKey]?.provider || currentProvider) : currentProvider;
+                            const effectiveModel = iaKbModuleEnabled ? (iaKbTaskConfig[taskKey]?.model || currentModel) : currentModel;
                             return (
                               <div key={field}>
                                 <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{label}</label>
@@ -1514,7 +1795,7 @@ export default function AdminConsole({
                                 )}
                                 {RECOMMENDED_MODEL[taskKey] && (() => {
                                   const rec = RECOMMENDED_MODEL[taskKey];
-                                  const isRecommended = currentProvider === rec.provider && currentModel === rec.model;
+                                  const isRecommended = effectiveProvider === rec.provider && effectiveModel === rec.model;
                                   return isRecommended ? (
                                     <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
                                       <Check size={10} />
@@ -2415,6 +2696,182 @@ export default function AdminConsole({
                   </div>
                 )}
 
+                {activeAdminSection === "system_updates" && canAccessAdminSection("system_updates") && (
+                  <div className="w-full space-y-4">
+                    {systemUpdateMessage && (
+                      <div className="text-xs rounded p-3 bg-sky-50 border border-sky-100 text-sky-700">{systemUpdateMessage}</div>
+                    )}
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+                      <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-3">
+                        <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
+                          {locale === "pt" ? "Versão Atual" : "Current Version"}
+                        </h3>
+                        <p className="text-sm font-mono text-slate-800">{systemUpdateState?.current_version || (locale === "pt" ? "desconhecida" : "unknown")}</p>
+                        {systemUpdateState?.current_git_sha && (
+                          <p className="text-[11px] font-mono text-slate-400">SHA {systemUpdateState.current_git_sha}</p>
+                        )}
+                        {systemUpdateState?.current_version?.endsWith("-dirty") && (
+                          <span className="inline-block text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-amber-50 text-amber-600 border border-amber-100">
+                            {locale === "pt" ? "Alterações locais não commitadas" : "Uncommitted local changes"}
+                          </span>
+                        )}
+                        {systemUpdateState?.last_attempt_status === "in_progress" && (() => {
+                          const stepIdx = updateStepIndex(systemUpdateState.current_step ?? null);
+                          const pct = stepIdx >= 0 ? Math.round(((stepIdx + 1) / UPDATE_STEPS.length) * 100) : 5;
+                          return (
+                            <div className="space-y-1.5">
+                              <p className="text-xs font-bold text-sky-600">
+                                {systemUpdateState.current_step || (locale === "pt" ? "Atualização em andamento..." : "Update in progress...")}
+                              </p>
+                              <div className="w-full h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                                <div className="h-full bg-sky-500 transition-all duration-500" style={{ width: `${pct}%` }} />
+                              </div>
+                              <p className="text-[10px] text-slate-400">{pct}%</p>
+                            </div>
+                          );
+                        })()}
+                        {(systemUpdateState?.last_attempt_status === "failed" || systemUpdateState?.last_attempt_status === "rolled_back") && (
+                          <p className="text-xs font-bold text-red-600">
+                            {locale === "pt" ? "Última tentativa falhou" : "Last attempt failed"}
+                            {systemUpdateState.last_attempt_status === "rolled_back" ? ` (${locale === "pt" ? "revertida automaticamente" : "auto rolled back"})` : ""}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-3">
+                        <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
+                          {locale === "pt" ? "Última Release Disponível" : "Latest Available Release"}
+                        </h3>
+                        {!systemUpdateState?.latest_release && (
+                          <p className="text-xs text-slate-400">
+                            {locale === "pt" ? "Nenhuma atualização detectada ainda - verificado a cada heartbeat (até 20 min)." : "No update detected yet - checked on every heartbeat (up to 20 min)."}
+                          </p>
+                        )}
+                        {systemUpdateState?.latest_release && (() => {
+                          // Mesma lógica do lado CMSaaS (Installations.tsx/computeUpdateStatus):
+                          // current_version é sempre a forma longa do `git describe` (com sufixo
+                          // -N-g<sha>, mesmo exatamente em cima de uma tag), então comparação
+                          // exata nunca bate - startsWith("<code_ref>-") cobre o caso comum de
+                          // code_ref ser uma tag real.
+                          const codeRef = systemUpdateState.latest_release!.code_ref;
+                          const upToDate = !!systemUpdateState.current_version?.startsWith(`${codeRef}-`) || systemUpdateState.current_version === codeRef;
+                          return (
+                            <>
+                              <p className="text-sm font-bold text-emerald-600">{systemUpdateState.latest_release!.version}</p>
+                              <p className="text-[11px] font-mono text-slate-400">ref {codeRef} · canal {systemUpdateState.latest_release!.channel}</p>
+                              {upToDate && (
+                                <span className="inline-block text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-600 border border-emerald-100">
+                                  {locale === "pt" ? "Já instalada" : "Already installed"}
+                                </span>
+                              )}
+                              <button
+                                onClick={fetchReleaseNotes}
+                                disabled={systemUpdateNotesLoading}
+                                className="text-xs font-bold text-slate-600 underline disabled:opacity-50 block"
+                              >
+                                {systemUpdateNotesLoading ? (locale === "pt" ? "Carregando..." : "Loading...") : (locale === "pt" ? "Ver notas de versão" : "View release notes")}
+                              </button>
+                              {systemUpdateNotesMd !== null && (
+                                <div className="text-xs whitespace-pre-wrap bg-slate-50 border border-slate-100 rounded p-3 max-h-48 overflow-y-auto">{systemUpdateNotesMd}</div>
+                              )}
+                              {!upToDate && (
+                                <div className="flex gap-2 flex-wrap pt-1">
+                                  <button
+                                    onClick={runUpdateNow}
+                                    disabled={systemUpdateState.last_attempt_status === "in_progress"}
+                                    className="text-xs font-bold px-3 py-1.5 rounded-lg text-white bg-slate-900 disabled:opacity-50"
+                                  >
+                                    {locale === "pt" ? "Atualizar Agora" : "Update Now"}
+                                  </button>
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
+                      </div>
+                    </div>
+
+                    <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-3">
+                      <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
+                        {locale === "pt" ? "Agendar Atualização" : "Schedule Update"}
+                      </h3>
+                      {systemUpdateState?.scheduled_update_at ? (
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <p className="text-xs text-slate-700">
+                            {locale === "pt" ? "Agendada para " : "Scheduled for "}
+                            <span className="font-bold">{new Date(systemUpdateState.scheduled_update_at).toLocaleString(locale === "pt" ? "pt-BR" : "en-US")}</span>
+                          </p>
+                          <button onClick={cancelSchedule} className="text-xs font-bold text-red-600 underline">
+                            {locale === "pt" ? "Cancelar agendamento" : "Cancel schedule"}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <input
+                            type="datetime-local"
+                            value={scheduleDraft}
+                            onChange={(e) => setScheduleDraft(e.target.value)}
+                            className="p-2 rounded bg-slate-50 border border-slate-200 text-xs font-mono"
+                          />
+                          <button
+                            onClick={submitSchedule}
+                            disabled={!scheduleDraft || !systemUpdateState?.latest_release}
+                            className="text-xs font-bold px-3 py-1.5 rounded-lg text-white bg-slate-900 disabled:opacity-50"
+                          >
+                            {locale === "pt" ? "Agendar" : "Schedule"}
+                          </button>
+                        </div>
+                      )}
+                      <p className="text-[10px] text-slate-400">
+                        {locale === "pt"
+                          ? "Um agendamento perdido por até 15 minutos roda automaticamente; além disso, exige reagendamento manual."
+                          : "A schedule missed by up to 15 minutes runs automatically; beyond that, it requires manual rescheduling."}
+                      </p>
+                    </div>
+
+                    <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-2">
+                      <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
+                        {locale === "pt" ? "Histórico de Atualizações" : "Update History"}
+                      </h3>
+                      {systemUpdateHistory.length === 0 && (
+                        <p className="text-xs text-slate-400">{locale === "pt" ? "Nenhuma atualização registrada ainda." : "No updates recorded yet."}</p>
+                      )}
+                      {systemUpdateHistory.map((h) => (
+                        <div key={h.id} className="border-t border-slate-100 py-2">
+                          <button
+                            onClick={() => setExpandedHistoryId(expandedHistoryId === h.id ? null : h.id)}
+                            className="w-full flex items-center justify-between text-xs text-left"
+                          >
+                            <span className="font-mono text-slate-700">{h.from_version || "?"} → {h.to_version}</span>
+                            <span className="flex items-center gap-2">
+                              <span
+                                className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
+                                  h.status === "success" ? "bg-emerald-50 text-emerald-600" :
+                                  h.status === "in_progress" ? "bg-sky-50 text-sky-600" :
+                                  "bg-red-50 text-red-600"
+                                }`}
+                              >
+                                {h.status}
+                              </span>
+                              <span className="text-slate-400">{new Date(h.started_at).toLocaleString(locale === "pt" ? "pt-BR" : "en-US")}</span>
+                            </span>
+                          </button>
+                          {expandedHistoryId === h.id && (
+                            <div className="mt-2 text-[11px] space-y-1">
+                              <p className="text-slate-500">{locale === "pt" ? "Disparado por" : "Triggered by"}: {h.triggered_by}</p>
+                              {h.backup_ref && <p className="text-slate-500">{locale === "pt" ? "Backup" : "Backup"}: {h.backup_ref}</p>}
+                              {h.error_log && (
+                                <pre className="whitespace-pre-wrap bg-slate-50 border border-slate-100 rounded p-2 max-h-48 overflow-y-auto font-mono">{h.error_log}</pre>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {activeAdminSection === "branding" && canAccessAdminSection("branding") && (
                   <div className="w-full grid grid-cols-1 xl:grid-cols-2 gap-6">
                     <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
@@ -2519,6 +2976,105 @@ export default function AdminConsole({
                         <p className="font-bold">{brandingSettings?.company_name || (locale === "pt" ? "Pré-visualização da identidade visual" : "Brand preview")}</p>
                         <p className="text-xs opacity-90">{tx("Pre-Sales Compliance Platform", "Plataforma de Compliance de Pré-Vendas")}</p>
                       </div>
+                    </div>
+
+                    <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4 xl:col-span-2">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
+                          {locale === "pt" ? "Estilos de Marca Reutilizáveis" : "Reusable Brand Styles"}
+                        </h3>
+                        <button
+                          onClick={() => setEditingBrandStyle({ name: "", primary_color: "#10b981" })}
+                          className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-3 py-1.5 rounded cursor-pointer"
+                        >
+                          + {locale === "pt" ? "Novo Estilo" : "New Style"}
+                        </button>
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        {locale === "pt"
+                          ? "Um projeto pode adotar um destes estilos em vez da identidade visual padrão acima, para propostas com a marca do próprio cliente."
+                          : "A project can adopt one of these instead of the default branding above, for proposals co-branded with the client's own identity."}
+                      </p>
+                      {brandStyles.length === 0 ? (
+                        <p className="text-xs text-slate-400 italic">{locale === "pt" ? "Nenhum estilo cadastrado." : "No styles registered."}</p>
+                      ) : (
+                        <div className="divide-y divide-slate-100">
+                          {brandStyles.map((style) => (
+                            <div key={style.id} className="flex items-center justify-between py-2">
+                              <div className="flex items-center gap-2">
+                                <div className="w-5 h-5 rounded border border-slate-200 shrink-0" style={{ backgroundColor: style.primary_color || "#cccccc" }} />
+                                <span className="text-sm font-semibold text-slate-700">{style.name}</span>
+                                {style.company_name && <span className="text-xs text-slate-400">({style.company_name})</span>}
+                              </div>
+                              <div className="flex gap-2">
+                                <button onClick={() => setEditingBrandStyle(style)} className="text-slate-400 hover:text-slate-700 cursor-pointer" title={locale === "pt" ? "Editar" : "Edit"}>
+                                  <Pencil size={14} />
+                                </button>
+                                <button onClick={() => deleteBrandStyle(style.id)} className="text-slate-400 hover:text-red-600 cursor-pointer" title={locale === "pt" ? "Remover" : "Delete"}>
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {editingBrandStyle && (
+                        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
+                          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-5 space-y-3">
+                            <div className="flex justify-between items-center">
+                              <h4 className="text-sm font-bold text-slate-800">
+                                {editingBrandStyle.id ? (locale === "pt" ? "Editar Estilo" : "Edit Style") : (locale === "pt" ? "Novo Estilo" : "New Style")}
+                              </h4>
+                              <button onClick={() => setEditingBrandStyle(null)} className="text-slate-400 hover:text-slate-700 cursor-pointer">
+                                <X size={16} />
+                              </button>
+                            </div>
+                            <input
+                              type="text"
+                              placeholder={locale === "pt" ? "Nome do estilo (ex: Cliente XYZ)" : "Style name (e.g. Client XYZ)"}
+                              value={editingBrandStyle.name || ""}
+                              onChange={(e) => setEditingBrandStyle((prev) => (prev ? { ...prev, name: e.target.value } : prev))}
+                              className="w-full border border-slate-200 rounded px-2 py-1.5 text-sm"
+                            />
+                            <input
+                              type="text"
+                              placeholder={locale === "pt" ? "Nome da empresa exibido na proposta" : "Company name shown on the proposal"}
+                              value={editingBrandStyle.company_name || ""}
+                              onChange={(e) => setEditingBrandStyle((prev) => (prev ? { ...prev, company_name: e.target.value } : prev))}
+                              className="w-full border border-slate-200 rounded px-2 py-1.5 text-sm"
+                            />
+                            <div className="flex items-center gap-2">
+                              <label className="text-xs text-slate-500">{locale === "pt" ? "Cor primária" : "Primary color"}</label>
+                              <input
+                                type="color"
+                                value={editingBrandStyle.primary_color || "#10b981"}
+                                onChange={(e) => setEditingBrandStyle((prev) => (prev ? { ...prev, primary_color: e.target.value } : prev))}
+                                className="h-8 w-16"
+                              />
+                            </div>
+                            <div>
+                              <label className="inline-flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
+                                {locale === "pt" ? "Selecionar logo (PNG/JPG)" : "Select logo (PNG/JPG)"}
+                                <input type="file" accept="image/png,image/jpeg" onChange={(e) => handleBrandStyleLogoUpload(e.target.files?.[0])} className="hidden" />
+                              </label>
+                              {editingBrandStyle.logo_data_url && <img src={editingBrandStyle.logo_data_url} alt="Logo preview" className="h-10 mt-1 object-contain" />}
+                            </div>
+                            <div className="flex justify-end gap-2 pt-2">
+                              <button onClick={() => setEditingBrandStyle(null)} className="text-xs font-bold uppercase text-slate-500 px-3 py-1.5 rounded hover:bg-slate-100 cursor-pointer">
+                                {locale === "pt" ? "Cancelar" : "Cancel"}
+                              </button>
+                              <button
+                                onClick={saveBrandStyle}
+                                disabled={savingBrandStyle}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold uppercase px-3 py-1.5 rounded disabled:opacity-50 cursor-pointer"
+                              >
+                                {savingBrandStyle ? (locale === "pt" ? "Salvando..." : "Saving...") : (locale === "pt" ? "Salvar" : "Save")}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}

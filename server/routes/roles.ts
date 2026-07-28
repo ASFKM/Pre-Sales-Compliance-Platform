@@ -16,13 +16,20 @@ const ALLOWED_PERMISSIONS = new Set<string>([
   "approval:manage",
   "knowledge_base:read", "knowledge_base:write",
   "admin:users", "admin:roles", "admin:settings", "admin:audit", "admin:debug", "admin:diagnostics",
+  // Sistema de Atualização de Produção: available to every installation (not gated behind a
+  // module entitlement, per the customer's own decision), so it's a plain admin permission like
+  // the others above, not paired with a requireModule check the way poc:read/poc:manage are.
+  "admin:system_updates",
   "ai:settings",
   "branding:manage",
   "storage:manage",
   "integrations:manage",
   // Add-on (Fase 6) - only actually usable when the tenant also has the "poc" module
   // entitlement (checked separately by requireModule); this is just the RBAC half.
-  "poc:read", "poc:manage"
+  "poc:read", "poc:manage",
+  // Add-on (Módulo de Precificação) - same shape as poc:read/poc:manage above, paired with
+  // requireModule("pricing").
+  "pricing:read", "pricing:manage"
 ]);
 
 function validatePermissions(permissions: string[]) {

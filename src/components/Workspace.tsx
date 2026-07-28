@@ -1,7 +1,8 @@
 import { Dispatch, ReactNode, SetStateAction, useEffect, useRef, useState } from "react";
 import {
   TriangleAlert, ArrowLeft, DollarSign, PenLine, FileCode, FilePlus,
-  FolderOpen, FolderPlus, HardDrive, MessageSquare, Plus, Trash2, X,
+  FolderOpen, FolderPlus, HardDrive, MessageSquare, Plus, RefreshCw, Trash2, X,
+  PanelRightClose, PanelRightOpen,
 } from "lucide-react";
 import { AnalysisResult, BOMItem, Document } from "../types";
 import { useWorkspace } from "../hooks/useWorkspace";
@@ -82,6 +83,7 @@ interface WorkspaceProps {
   tx: (en: string, pt: string) => string;
   t: (key: string) => string;
   hasPermission: (perm: string) => boolean;
+  activeTasks: BackgroundTask[];
   selectedProjectId: string;
   projectName: string;
   documents: Document[];
@@ -98,7 +100,7 @@ interface WorkspaceProps {
   fetchGlobalConfigs: () => Promise<void> | void;
   fetchProjectDetails: (projectId: string) => Promise<void> | void;
   setActiveTab: (tab: "home" | "workspace" | "projectsList" | "proposals" | "approval" | "knowledgeBase" | "admin") => void;
-  setActiveAdminSection: Dispatch<SetStateAction<"overview" | "users" | "ai" | "templates" | "approval_flow" | "subscription" | "branding" | "integrations" | "storage" | "audit">>;
+  setActiveAdminSection: Dispatch<SetStateAction<"overview" | "users" | "ai" | "templates" | "approval_flow" | "subscription" | "system_updates" | "branding" | "integrations" | "storage" | "audit">>;
   canAccessAdminSection: (section: string) => boolean;
   handleDeleteDocument: (id: string) => void;
   getDocTag: (filename: string) => { label: string; style: string };
@@ -111,7 +113,7 @@ interface WorkspaceProps {
 }
 
 export default function Workspace({
-  locale, tx, t, hasPermission, selectedProjectId, projectName,
+  locale, tx, t, hasPermission, activeTasks, selectedProjectId, projectName,
   documents, setDocuments, analysisResult, setAnalysisResult, displayAnalysisResult,
   analysisError, docsCount, reqsCount, risksCount, oppsCount,
   proposalTemplates, fetchGlobalConfigs, fetchProjectDetails,
@@ -120,6 +122,13 @@ export default function Workspace({
   chatHistory, setChatHistory, waitForTask, currentUserName,
 }: WorkspaceProps) {
   const [subTab, setSubTab] = useState<SubTab>("summary");
+  // Right column (clarification questions) can retract to free width for the tabbed project
+  // content - same collapsible-sidebar pattern as the left bid-management panel in App.tsx,
+  // persisted the same way.
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState<boolean>(() => localStorage.getItem("ca_right_panel_collapsed") === "1");
+  useEffect(() => {
+    localStorage.setItem("ca_right_panel_collapsed", rightPanelCollapsed ? "1" : "0");
+  }, [rightPanelCollapsed]);
   const [exportingQuestions, setExportingQuestions] = useState(false);
   const [showCopilotChat, setShowCopilotChat] = useState(false);
   const [editingNotesReqId, setEditingNotesReqId] = useState<string | null>(null);
@@ -200,6 +209,71 @@ export default function Workspace({
       alert(locale === "pt" ? "Erro ao salvar a lista de materiais." : "Error saving the bill of materials.");
     }
   };
+
+  // Roadmap item (customer_request): per-section reanalysis - a focused, single-section AI re-run
+  // of an already-completed analysis (e.g. just the BOM, if it came out unsatisfactory) instead of
+  // rerunning the entire 8-section analysis and hoping. Same background-task/waitForTask pattern
+  // already used for proposal generation (see useWorkspace.ts's handleGenerateProposal).
+  // "reanalyzingSection" alone only covers this exact page load - the button must also treat a
+  // task the SERVER already knows about (activeTasks, backed by the same SSE stream as the
+  // footer, survives a page refresh) as running, or a refresh mid-job makes the button look idle
+  // and re-clickable while the job is actually still going.
+  const [reanalyzingSection, setReanalyzingSection] = useState<string | null>(null);
+  const SECTION_LABELS: Record<string, string> = {
+    critical_requirements: "Requisitos Críticos",
+    risks: "Riscos",
+    opportunities: "Oportunidades",
+    bom: "BOM (Lista de Materiais)",
+  };
+  const activeSectionReanalysisTask = activeTasks.find((t) => t.type === "section_reanalysis" && t.result_id === selectedProjectId);
+  const isAnySectionReanalysisRunning = reanalyzingSection !== null || !!activeSectionReanalysisTask;
+  const handleReanalyzeSection = async (section: string) => {
+    if (!hasPermission("analysis:run") || !selectedProjectId || isAnySectionReanalysisRunning) return;
+    setReanalyzingSection(section);
+    try {
+      const res = await fetch(`/api/projects/${selectedProjectId}/analysis-result/reanalyze-section`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ section }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível iniciar a reanálise." : "Could not start the reanalysis."));
+        return;
+      }
+      const finished = await waitForTask(data.task_id);
+      if (finished.status === "failed") {
+        throw new Error(finished.error_message || (locale === "pt" ? "Falha na reanálise." : "Reanalysis failed."));
+      }
+      await fetchProjectDetails(selectedProjectId);
+    } catch (err) {
+      console.error(err);
+      alert(err instanceof Error ? err.message : String(err));
+    } finally {
+      setReanalyzingSection(null);
+    }
+  };
+
+  const ReanalyzeSectionButton = ({ section }: { section: string }) => {
+    const label = SECTION_LABELS[section];
+    const isThisSectionRunning = reanalyzingSection === section
+      || (!!activeSectionReanalysisTask && (activeSectionReanalysisTask.current_step || "").includes(label));
+    const progressPct = isThisSectionRunning ? activeSectionReanalysisTask?.progress_pct : null;
+    return (
+      <button
+        onClick={() => handleReanalyzeSection(section)}
+        disabled={isAnySectionReanalysisRunning}
+        className="flex items-center gap-1 bg-white hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 border border-slate-300 text-xs px-2.5 py-1.5 rounded font-bold font-mono transition-all shadow-sm cursor-pointer"
+        title={tx("Re-run AI analysis focused only on this section", "Executa a análise de IA novamente, focada só nesta seção")}
+      >
+        <RefreshCw size={13} className={isThisSectionRunning ? "animate-spin" : ""} />
+        {isThisSectionRunning
+          ? `${tx("Reanalyzing", "Reanalisando")}${progressPct != null ? ` ${progressPct}%` : "..."}`
+          : tx("Reanalyze Section", "Reanalisar Seção")}
+      </button>
+    );
+  };
+
   const [currentFolder, setCurrentFolder] = useState<string>(""); // "" means root/raiz
   const [projectFolders, setProjectFolders] = useState<string[]>([]);
   const [virtualFiles, setVirtualFiles] = useState<any[]>([]);
@@ -334,6 +408,12 @@ export default function Workspace({
                 {/* SUBTAB 1.1: EXECUTIVE SUMMARY */}
                 {subTab === "summary" && (
                   <div className="space-y-6">
+                    {displayAnalysisResult?.is_document_analysis_stale === true && (
+                      <div className="flex items-center gap-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                        <TriangleAlert size={14} className="shrink-0" />
+                        {tx("This analysis was generated with an earlier version of the analysis logic. Consider re-running it.", "Esta análise foi gerada com uma versão anterior da lógica de análise. Considere executá-la novamente.")}
+                      </div>
+                    )}
                     <div className="grid grid-cols-3 gap-4 shrink-0">
                       <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-lg shadow-sm">
                         <p className="text-[10px] uppercase tracking-wider text-emerald-700 font-bold font-mono">{locale === "pt" ? "Especificações Analisadas" : "Specifications Parsed"}</p>
@@ -469,7 +549,10 @@ export default function Workspace({
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
                       <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">{tx("Tender Requirements Datagrid", "Grade de Requisitos da Licitação")}</h3>
-                      <span className="text-xs text-slate-400">{tx("Updates sync in real-time with the central model", "Atualizações sincronizadas em tempo real com o modelo central")}</span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs text-slate-400">{tx("Updates sync in real-time with the central model", "Atualizações sincronizadas em tempo real com o modelo central")}</span>
+                        {displayAnalysisResult && <ReanalyzeSectionButton section="critical_requirements" />}
+                      </div>
                     </div>
 
                     {!displayAnalysisResult ? (
@@ -620,7 +703,10 @@ export default function Workspace({
                     <div className="space-y-3">
                       <div className="flex justify-between items-center">
                         <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">{tx("Tender Threats & Material Risks", "Riscos Materiais da Licitação")}</h3>
-                        <span className="text-xs text-slate-400">{tx("Risk rating matrix extracted via compliance analysis", "Matriz de riscos extraída pela análise de conformidade")}</span>
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs text-slate-400">{tx("Risk rating matrix extracted via compliance analysis", "Matriz de riscos extraída pela análise de conformidade")}</span>
+                          {displayAnalysisResult && <ReanalyzeSectionButton section="risks" />}
+                        </div>
                       </div>
 
                       {!displayAnalysisResult ? (
@@ -690,7 +776,10 @@ export default function Workspace({
                     <div className="space-y-3 pt-4 border-t border-slate-200">
                       <div className="flex justify-between items-center">
                         <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">{tx("Pre-Sales Up-Sell & SLA Opportunities", "Oportunidades de Pré-Vendas, Upsell e SLA")}</h3>
-                        <span className="text-xs text-slate-400">{tx("Value added propositions parsed from specifications", "Propostas de valor extraídas das especificações")}</span>
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs text-slate-400">{tx("Value added propositions parsed from specifications", "Propostas de valor extraídas das especificações")}</span>
+                          {displayAnalysisResult && <ReanalyzeSectionButton section="opportunities" />}
+                        </div>
                       </div>
 
                       {!displayAnalysisResult ? (
@@ -745,6 +834,22 @@ export default function Workspace({
                           <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">{tx("Specifications Bill of Materials (B.O.M.)", "Lista de Materiais das Especificações (B.O.M.)")}</h3>
                           <span className="text-xs text-slate-400">{tx("Aligned with active design parameters e.g. standard vendor compatibility", "Alinhado aos parâmetros ativos do projeto, como compatibilidade com fornecedor padrão")}</span>
                         </div>
+                        <div className="flex items-center gap-2">
+                        {displayAnalysisResult?.is_bom_enrichment_stale === true && (
+                          <span className="flex items-center gap-1 text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1" title={tx("This BOM was enriched with an earlier version of the matching logic.", "Este BOM foi enriquecido com uma versão anterior da lógica de correspondência.")}>
+                            <TriangleAlert size={11} /> {tx("Outdated logic", "Lógica desatualizada")}
+                          </span>
+                        )}
+                        {(() => {
+                          const flaggedCount = (displayAnalysisResult?.bom || []).filter((b) => b.brand_policy_applicable && b.brand_policy_compliant === false).length;
+                          if (flaggedCount === 0) return null;
+                          return (
+                            <span className="flex items-center gap-1 text-[10px] text-red-800 bg-red-50 border border-red-200 rounded px-2 py-1">
+                              ⚠️ {flaggedCount} {tx("item(s) off the brand policy", "item(ns) fora da política de marca")}
+                            </span>
+                          );
+                        })()}
+                        {displayAnalysisResult && <ReanalyzeSectionButton section="bom" />}
                         <button
                           onClick={() => {
                             if (!analysisResult) return;
@@ -767,6 +872,7 @@ export default function Workspace({
                         >
                           <Plus size={13} /> Adicionar Item
                         </button>
+                        </div>
                       </div>
 
                       {!displayAnalysisResult ? (
@@ -855,10 +961,37 @@ export default function Workspace({
                                   <td className="p-3">
                                     <input type="text" value={item.equipment_name} onChange={(e) => updateField("equipment_name", e.target.value)}
                                       className="font-bold text-slate-800 bg-slate-50 px-1 py-0.5 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500" />
+                                    {typeof item.confidence === "number" && (item.manufacturer?.trim() || item.part_number?.trim()) && (
+                                      <span
+                                        className={`inline-block mt-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
+                                          item.confidence < 0.5
+                                            ? "text-amber-700 bg-amber-50 border-amber-100"
+                                            : item.confidence < 0.8
+                                              ? "text-slate-600 bg-slate-100 border-slate-200"
+                                              : "text-emerald-700 bg-emerald-50 border-emerald-100"
+                                        }`}
+                                        title={tx(
+                                          "AI-reported confidence that this equipment/specification correctly captures what the source document demands - not the same as whether a real product match was found.",
+                                          "Confiança reportada pela IA de que este equipamento/especificação captura corretamente o que o documento fonte exige - não é o mesmo que ter encontrado um produto real correspondente."
+                                        )}
+                                      >
+                                        {item.confidence < 0.5 ? `🔎 ${tx("Review", "Revisar")} ` : ""}{Math.round(item.confidence * 100)}%
+                                      </span>
+                                    )}
                                   </td>
                                   <td className="p-3">
                                     <input type="text" value={item.manufacturer} onChange={(e) => updateField("manufacturer", e.target.value)}
                                       className="text-slate-700 bg-slate-50 px-1 py-0.5 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500" />
+                                    {item.brand_policy_applicable && item.brand_policy_compliant === false && (
+                                      <span
+                                        className={`inline-block mt-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
+                                          item.brand_policy_confidence === "high" ? "text-red-700 bg-red-50 border-red-100" : "text-amber-700 bg-amber-50 border-amber-100"
+                                        }`}
+                                        title={item.brand_policy_note || tx("Does not match this project's mandatory brand policy", "Não corresponde à política de marca obrigatória deste projeto")}
+                                      >
+                                        ⚠️ {tx("Off brand policy", "Fora da política de marca")}
+                                      </span>
+                                    )}
                                   </td>
                                   <td className="p-3">
                                     <input type="number" value={item.quantity} onChange={(e) => updateField("quantity", parseInt(e.target.value) || 1)}
@@ -1628,8 +1761,20 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
               </div>
 
               {/* Right Column of Workspace (Technical Q&A / Clarification List) */}
-              <div className="w-96 bg-slate-50 rounded-xl border border-slate-200 p-4 flex flex-col min-h-0 shrink-0 shadow-sm">
+              <div className={`${rightPanelCollapsed ? "w-10 p-2" : "w-96 p-4"} bg-slate-50 rounded-xl border border-slate-200 flex flex-col min-h-0 shrink-0 shadow-sm transition-[width] duration-150`}>
 
+                {/* Retract/expand toggle - always visible, same pattern as the left panel. */}
+                <button
+                  onClick={() => setRightPanelCollapsed((v) => !v)}
+                  className="flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-200 rounded p-1 self-start shrink-0 mb-2"
+                  title={rightPanelCollapsed ? (locale === "pt" ? "Expandir painel" : "Expand panel") : (locale === "pt" ? "Recolher painel" : "Collapse panel")}
+                  aria-label={rightPanelCollapsed ? "Expand panel" : "Collapse panel"}
+                >
+                  {rightPanelCollapsed ? <PanelRightOpen size={16} /> : <PanelRightClose size={16} />}
+                </button>
+
+                {!rightPanelCollapsed && (
+                <>
                 {/* Section 1: Dynamic QA List extracted - now the main content of this column
                     (the copilot below is just a small floating trigger), since clarification
                     questions are the more important thing to see at a glance. */}
@@ -1685,6 +1830,8 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                     <span className="text-[9px] bg-emerald-100 text-emerald-800 rounded-full px-1.5 font-bold">{chatHistory.length}</span>
                   )}
                 </button>
+                </>
+                )}
 
               </div>
 
