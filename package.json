@@ -26,7 +26,7 @@
     "brace-expansion": "^5.0.8"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.110.0",
+    "@anthropic-ai/sdk": "^0.115.0",
     "@aws-sdk/client-s3": "^3.1084.0",
     "@google-cloud/storage": "^7.14.0",
     "@google/genai": "^2.4.0",
