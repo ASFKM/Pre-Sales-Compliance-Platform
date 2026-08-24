@@ -16,10 +16,10 @@ const STATUS_LABEL: Record<string, string> = {
 const STATUS_COLOR: Record<string, string> = {
   draft: "bg-slate-100 text-slate-700",
   analysis_in_progress: "bg-blue-50 text-blue-700",
-  waiting_customer: "bg-amber-50 text-amber-700",
-  waiting_internal: "bg-amber-50 text-amber-700",
-  completed: "bg-emerald-50 text-emerald-700",
-  canceled: "bg-red-50 text-red-700",
+  waiting_customer: "bg-warning-50 text-warning-700",
+  waiting_internal: "bg-warning-50 text-warning-700",
+  completed: "bg-success-50 text-success-700",
+  canceled: "bg-danger-50 text-danger-700",
 };
 
 function projectToFormValues(p: Project): ProjectFieldsValues {
@@ -104,7 +104,7 @@ export default function ProjectsList({ locale, projects, hasPermission, onOpenPr
         <h2 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">Todos os Projetos ({projects.length})</h2>
         <button
           onClick={() => setShowNewProjectModal(true)}
-          className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-1.5 rounded-lg font-semibold transition-all shadow-sm cursor-pointer"
+          className="flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 text-white text-xs px-3 py-1.5 rounded-lg font-semibold transition-all shadow-sm cursor-pointer"
         >
           <Plus size={14} /> Novo Projeto
         </button>
@@ -141,7 +141,7 @@ export default function ProjectsList({ locale, projects, hasPermission, onOpenPr
                   <div className="flex items-center justify-end gap-1">
                     <button
                       onClick={() => onOpenProject(p.id)}
-                      className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors cursor-pointer"
+                      className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors cursor-pointer"
                       title="Abrir na Área de Trabalho"
                     >
                       <FolderOpen size={14} />
@@ -202,7 +202,7 @@ export default function ProjectsList({ locale, projects, hasPermission, onOpenPr
               <button
                 onClick={saveEdit}
                 disabled={savingEdit}
-                className="px-4 py-2 text-xs font-bold uppercase bg-emerald-600 hover:bg-emerald-700 text-white rounded transition-colors cursor-pointer disabled:opacity-50"
+                className="px-4 py-2 text-xs font-bold uppercase bg-brand-600 hover:bg-brand-700 text-white rounded transition-colors cursor-pointer disabled:opacity-50"
               >
                 {savingEdit ? "Salvando..." : "Salvar Alterações"}
               </button>

@@ -59,17 +59,14 @@ export default function SystemMessageBanner({ locale, hasPermission }: Props) {
   const combinedText = visible.map((m) => m.body).join("      •      ");
 
   return (
-    <div
-      className="shrink-0 h-7 flex items-center gap-2 px-3 overflow-hidden relative"
-      style={{ background: "#78350f", borderTop: "1px solid #92400e" }}
-    >
-      <Megaphone size={13} className="shrink-0 text-amber-300" />
+    <div className="shrink-0 h-7 flex items-center gap-2 px-3 overflow-hidden relative bg-brand-800 border-t border-brand-600">
+      <Megaphone size={13} className="shrink-0 text-brand-200" />
       <div className="flex-1 overflow-hidden whitespace-nowrap relative">
-        <div className="inline-block animate-ticker-scroll text-amber-100 text-[11px] font-medium">
+        <div className="inline-block animate-ticker-scroll text-brand-50 text-[11px] font-medium">
           {combinedText}
         </div>
       </div>
-      <button onClick={() => dismissAll(visible.map((m) => m.id))} className="shrink-0 text-amber-300 hover:text-white" title={locale === "pt" ? "Dispensar avisos" : "Dismiss notices"}>
+      <button onClick={() => dismissAll(visible.map((m) => m.id))} className="shrink-0 text-brand-200 hover:text-white" title={locale === "pt" ? "Dispensar avisos" : "Dismiss notices"}>
         <X size={13} />
       </button>
       <style>{`

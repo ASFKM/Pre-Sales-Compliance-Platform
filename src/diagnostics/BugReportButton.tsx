@@ -4,6 +4,11 @@ import BugReportModal from "./BugReportModal";
 // CloudMountain Diagnostics Agent (CDA) frontend - discreet, always-available entry point for
 // "Reportar problema" (briefing Seção 17). Only rendered once a session exists - a report tied to
 // no authenticated tenant/user has nowhere meaningful to attribute to on the CMSaaS side.
+//
+// Vive DENTRO do rodapé de diagnóstico (App.tsx), ao lado de "Manual do Usuário", e não mais como
+// pastilha `position: fixed` no canto inferior direito: ali ela cobria o último trecho do próprio
+// rodapé - visível em todas as 36 imagens do baseline visual, onde tapava "Audit Logs" e parte do
+// "Debug Console". Reportado pelo dono durante a Fase 2 do programa de identidade visual.
 export default function BugReportButton() {
   const [open, setOpen] = useState(false);
   const hasSession = !!localStorage.getItem("ca_session_token");
@@ -15,20 +20,7 @@ export default function BugReportButton() {
       <button
         onClick={() => setOpen(true)}
         title="Reportar problema"
-        style={{
-          position: "fixed",
-          bottom: 16,
-          right: 16,
-          zIndex: 9998,
-          fontSize: 12,
-          padding: "6px 12px",
-          borderRadius: 999,
-          border: "1px solid #ddd",
-          background: "white",
-          color: "#555",
-          boxShadow: "0 1px 4px rgba(0,0,0,0.15)",
-          cursor: "pointer",
-        }}
+        className="text-slate-300 hover:text-brand-400 hover:underline cursor-pointer transition-colors"
       >
         Reportar problema
       </button>
