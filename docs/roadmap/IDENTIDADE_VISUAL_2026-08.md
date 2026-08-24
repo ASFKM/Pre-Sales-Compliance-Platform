@@ -52,7 +52,7 @@ aqui — é de lá que o dono copia para abrir a próxima conversa.
 | Fase | Nome | Status | Commit | Observações |
 |---|---|---|---|---|
 | 0 | Tokens `@theme` + rede de segurança visual | **✓ concluída** (24/08/2026) | `906668f` (PR #52) | 36 capturas de baseline; 11 tokens de marca + 4 rampas semânticas; zero mudança visual, provada |
-| 1 | Ativos de marca (vetor, favicon, logo) | **✓ concluída** (24/08/2026) | `c68067c` (PR #PLACEHOLDER_PR) | símbolo e wordmark vetorizados dos pixels oficiais; 11 ativos em `public/brand/`; favicon criado do zero |
+| 1 | Ativos de marca (vetor, favicon, logo) | **✓ concluída** (24/08/2026) | `c68067c` (PR #53) | símbolo e wordmark vetorizados dos pixels oficiais; 11 ativos em `public/brand/`; favicon criado do zero |
 | 2 | Shell e portas de entrada | não iniciada | — | App/Login/Home/ProjectsList/Banner |
 | 3 | Área de Trabalho | não iniciada | — | maior densidade de cor do produto |
 | 4 | Propostas, Aprovação e Conhecimento | não iniciada | — | — |
