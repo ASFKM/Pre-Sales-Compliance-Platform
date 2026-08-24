@@ -363,37 +363,37 @@ export default function Workspace({
             <div className="flex items-center gap-6 px-6 h-12 border-b border-slate-200 text-xs font-semibold bg-slate-50/50">
               <button
                 onClick={() => setSubTab("summary")}
-                className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider ${subTab === "summary" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+                className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider ${subTab === "summary" ? "border-brand-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
               >
                 {t("execSummary")}
               </button>
               <button
                 onClick={() => setSubTab("requirements")}
-                className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider ${subTab === "requirements" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+                className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider ${subTab === "requirements" ? "border-brand-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
               >
                 {t("reqsGrid")} ({reqsCount})
               </button>
               <button
                 onClick={() => setSubTab("risks")}
-                className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider ${subTab === "risks" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+                className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider ${subTab === "risks" ? "border-brand-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
               >
                 {t("risksOpps")} ({risksCount + oppsCount})
               </button>
               <button
                 onClick={() => setSubTab("bom")}
-                className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider ${subTab === "bom" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+                className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider ${subTab === "bom" ? "border-brand-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
               >
                 {t("bomBuilder")}
               </button>
               <button
                 onClick={() => setSubTab("proposal_builder")}
-                className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider ${subTab === "proposal_builder" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+                className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider ${subTab === "proposal_builder" ? "border-brand-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
               >
                 {t("proposalStudioGen")}
               </button>
               <button
                 onClick={() => setSubTab("explorer")}
-                className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider ${subTab === "explorer" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+                className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider ${subTab === "explorer" ? "border-brand-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
               >
                 📂 {locale === "pt" ? "Explorador de Arquivos" : "File Explorer"}
               </button>
@@ -409,42 +409,42 @@ export default function Workspace({
                 {subTab === "summary" && (
                   <div className="space-y-6">
                     {displayAnalysisResult?.is_document_analysis_stale === true && (
-                      <div className="flex items-center gap-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                      <div className="flex items-center gap-2 text-xs text-warning-800 bg-warning-50 border border-warning-200 rounded-lg px-3 py-2">
                         <TriangleAlert size={14} className="shrink-0" />
                         {tx("This analysis was generated with an earlier version of the analysis logic. Consider re-running it.", "Esta análise foi gerada com uma versão anterior da lógica de análise. Considere executá-la novamente.")}
                       </div>
                     )}
                     <div className="grid grid-cols-3 gap-4 shrink-0">
-                      <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-lg shadow-sm">
-                        <p className="text-[10px] uppercase tracking-wider text-emerald-700 font-bold font-mono">{locale === "pt" ? "Especificações Analisadas" : "Specifications Parsed"}</p>
+                      <div className="p-4 bg-brand-50 border border-brand-100 rounded-lg shadow-sm">
+                        <p className="text-[10px] uppercase tracking-wider text-brand-700 font-bold font-mono">{locale === "pt" ? "Especificações Analisadas" : "Specifications Parsed"}</p>
                         <p className="text-2xl font-light text-slate-900">{documents.length} <span className="text-xs text-slate-500 font-mono">{locale === "pt" ? "Arquivos" : "Files"}</span></p>
-                        <div className="w-full bg-emerald-200 h-1 mt-2 rounded-full"><div className="bg-emerald-600 h-1 w-full rounded-full"></div></div>
+                        <div className="w-full bg-brand-200 h-1 mt-2 rounded-full"><div className="bg-brand-600 h-1 w-full rounded-full"></div></div>
                       </div>
-                      <div className="p-4 bg-amber-50 border border-amber-100 rounded-lg shadow-sm">
-                        <p className="text-[10px] uppercase tracking-wider text-amber-700 font-bold font-mono">{locale === "pt" ? "Mitigações Definidas" : "Mitigations Set"}</p>
+                      <div className="p-4 bg-brand-50 border border-brand-100 rounded-lg shadow-sm">
+                        <p className="text-[10px] uppercase tracking-wider text-brand-700 font-bold font-mono">{locale === "pt" ? "Mitigações Definidas" : "Mitigations Set"}</p>
                         <p className="text-2xl font-light text-slate-900">
                           {analysisResult?.risks.filter(r => r.mitigation).length || 0}
                           <span className="text-xs text-slate-500 font-mono"> / {risksCount} {locale === "pt" ? "Riscos" : "Risks"}</span>
                         </p>
-                        <div className="w-full bg-amber-200 h-1 mt-2 rounded-full">
+                        <div className="w-full bg-brand-200 h-1 mt-2 rounded-full">
                           <div
-                            className="bg-amber-600 h-1 rounded-full"
+                            className="bg-brand-600 h-1 rounded-full"
                             style={{ width: `${risksCount ? ((analysisResult?.risks.filter(r => r.mitigation).length || 0) / risksCount) * 100 : 0}%` }}
                           ></div>
                         </div>
                       </div>
-                      <div className="p-4 bg-blue-50 border border-blue-100 rounded-lg shadow-sm">
-                        <p className="text-[10px] uppercase tracking-wider text-blue-700 font-bold font-mono">{locale === "pt" ? "Dúvidas Extraídas" : "Extracted Gaps"}</p>
+                      <div className="p-4 bg-brand-50 border border-brand-100 rounded-lg shadow-sm">
+                        <p className="text-[10px] uppercase tracking-wider text-brand-700 font-bold font-mono">{locale === "pt" ? "Dúvidas Extraídas" : "Extracted Gaps"}</p>
                         <p className="text-2xl font-light text-slate-900">
                           {analysisResult?.clarification_questions.length || 0}
                           <span className="text-xs text-slate-500 font-mono"> {locale === "pt" ? "Perguntas" : "Questions"}</span>
                         </p>
-                        <div className="w-full bg-blue-200 h-1 mt-2 rounded-full"><div className="bg-blue-600 h-1 w-full rounded-full"></div></div>
+                        <div className="w-full bg-brand-200 h-1 mt-2 rounded-full"><div className="bg-brand-600 h-1 w-full rounded-full"></div></div>
                       </div>
                     </div>
 
                     {analysisError && (
-                      <div className="mb-4 p-4 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 text-sm shadow-sm">
+                      <div className="mb-4 p-4 rounded-xl border border-warning-200 bg-warning-50 text-warning-900 text-sm shadow-sm">
                         <div className="font-bold mb-1">
                           {locale === "pt" ? "Análise não executada" : "Analysis not executed"}
                         </div>
@@ -459,7 +459,7 @@ export default function Workspace({
                             setActiveTab("admin");
                             setActiveAdminSection("ai");
                           }}
-                          className="mt-3 bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider"
+                          className="mt-3 bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider"
                         >
                           {locale === "pt" ? "Abrir Configurações de IA" : "Open AI Settings"}
                         </button>
@@ -468,7 +468,7 @@ export default function Workspace({
 
                     {!displayAnalysisResult ? (
                       <div className="bg-slate-50 border border-slate-200 rounded-xl p-8 text-center flex flex-col items-center justify-center py-16">
-                        <TriangleAlert className="text-amber-500 mb-2" size={32} />
+                        <TriangleAlert className="text-warning-500 mb-2" size={32} />
                         <h4 className="text-sm font-bold text-slate-800 uppercase font-mono">{tx("Specifications Awaiting Analysis", "Especificações Aguardando Análise")}</h4>
                         <p className="text-xs text-slate-500 max-w-md mt-1 leading-relaxed">
                           Envie os arquivos de documentação da licitação ou as diretrizes de especificação do cliente na barra lateral e clique em <strong>"EXECUTAR ANÁLISE IA"</strong>. A IA vai extrair os requisitos estruturados, analisar possíveis riscos da licitação, montar uma lista de BOM padrão e compilar os quadros de conformidade automaticamente.
@@ -479,7 +479,7 @@ export default function Workspace({
                         <div>
                           <div className="flex items-center gap-2 mb-3">
                             <h2 className="text-lg font-light text-slate-900">{locale === "en" ? "Executive Summary" : "Resumo Executivo"}</h2>
-                            <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-bold font-mono">{tx("AI COMPLIANCE DIGEST", "RESUMO DE COMPLIANCE IA")}</span>
+                            <span className="text-[10px] bg-brand-50 text-brand-700 px-2 py-0.5 rounded-full font-bold font-mono">{tx("AI COMPLIANCE DIGEST", "RESUMO DE COMPLIANCE IA")}</span>
                           </div>
 
                           <div className="prose prose-sm text-slate-600 space-y-4">
@@ -523,10 +523,10 @@ export default function Workspace({
                             <h3 className="text-sm uppercase tracking-wider text-slate-500 font-bold mb-3 font-mono">{locale === "en" ? "Preliminary Engineering Schedule" : "Cronograma Preliminar de Engenharia"}</h3>
                             <div className="space-y-3">
                               {displayAnalysisResult.preliminary_schedule.map((phase, i) => (
-                                <div key={i} className="p-3 bg-slate-50 border-l-2 border-emerald-500 rounded shadow-sm">
+                                <div key={i} className="p-3 bg-slate-50 border-l-2 border-brand-500 rounded shadow-sm">
                                   <div className="flex justify-between items-center mb-1">
                                     <h4 className="text-xs font-bold text-slate-800 uppercase font-mono">{phase.phase_name}</h4>
-                                    <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 rounded-full font-bold">{phase.estimated_duration}</span>
+                                    <span className="text-[10px] bg-brand-100 text-brand-800 px-2 rounded-full font-bold">{phase.estimated_duration}</span>
                                   </div>
                                   <p className="text-xs text-slate-500 mb-2 font-mono">{locale === "en" ? "Activities:" : "Atividades:"} {Array.isArray(phase.activities) ? phase.activities.join(", ") : phase.activities}</p>
                                   <div className="grid grid-cols-2 gap-4 text-[10px] text-slate-400 mt-1">
@@ -590,9 +590,9 @@ export default function Workspace({
                                 </td>
                                 <td className="p-3">
                                   <span className={`px-1.5 py-0.5 rounded font-bold text-[9px] uppercase ${
-                                    req.priority === "high" ? "text-red-700 bg-red-50 border border-red-100" :
-                                    req.priority === "medium" ? "text-amber-700 bg-amber-50 border border-amber-100" :
-                                    "text-blue-700 bg-blue-50 border border-blue-100"
+                                    req.priority === "high" ? "text-danger-700 bg-danger-50 border border-danger-100" :
+                                    req.priority === "medium" ? "text-warning-700 bg-warning-50 border border-warning-100" :
+                                    "text-slate-600 bg-slate-100 border border-slate-200"
                                   }`}>
                                     {req.priority}
                                   </span>
@@ -610,10 +610,10 @@ export default function Workspace({
                                       });
                                       handleUpdateRequirement(req.requirement_id, e.target.value as any, req.notes);
                                     }}
-                                    className={`text-[11px] font-bold p-1 rounded border cursor-pointer focus:outline-none focus:ring-1 focus:ring-emerald-500 ${
-                                      req.compliance_status === "compliant" ? "text-emerald-700 bg-emerald-50 border-emerald-200" :
-                                      req.compliance_status === "partially_compliant" ? "text-amber-700 bg-amber-50 border-amber-200" :
-                                      "text-red-700 bg-red-50 border-red-200"
+                                    className={`text-[11px] font-bold p-1 rounded border cursor-pointer focus:outline-none focus:ring-1 focus:ring-brand-500 ${
+                                      req.compliance_status === "compliant" ? "text-success-700 bg-success-50 border-success-200" :
+                                      req.compliance_status === "partially_compliant" ? "text-warning-700 bg-warning-50 border-warning-200" :
+                                      "text-danger-700 bg-danger-50 border-danger-200"
                                     }`}
                                   >
                                     <option value="compliant">{tx("Compliant", "Conforme")}</option>
@@ -626,7 +626,7 @@ export default function Workspace({
                                   <button
                                     onClick={() => { setEditingNotesReqId(req.requirement_id); setEditingNotesDraft(req.notes || ""); }}
                                     className={`text-[11px] font-bold px-2 py-1 rounded border transition-colors cursor-pointer whitespace-nowrap ${
-                                      req.notes ? "text-emerald-700 bg-emerald-50 border-emerald-200 hover:bg-emerald-100" : "text-slate-500 bg-slate-50 border-slate-200 hover:bg-slate-100"
+                                      req.notes ? "text-brand-700 bg-brand-50 border-brand-200 hover:bg-brand-100" : "text-slate-500 bg-slate-50 border-slate-200 hover:bg-slate-100"
                                     }`}
                                   >
                                     {req.notes ? "Ver Notas de Engenharia" : "+ Notas de Engenharia"}
@@ -658,7 +658,7 @@ export default function Workspace({
                                 value={editingNotesDraft}
                                 onChange={(e) => setEditingNotesDraft(e.target.value)}
                                 placeholder="Adicionar observações técnicas de conformidade..."
-                                className="w-full h-full min-h-[200px] p-3 rounded border border-slate-200 text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-emerald-500 resize-none"
+                                className="w-full h-full min-h-[200px] p-3 rounded border border-slate-200 text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none"
                                 autoFocus
                               />
                             </div>
@@ -683,7 +683,7 @@ export default function Workspace({
                                   }
                                   setEditingNotesReqId(null);
                                 }}
-                                className="px-4 py-2 text-xs font-bold uppercase bg-emerald-600 hover:bg-emerald-700 text-white rounded transition-colors cursor-pointer"
+                                className="px-4 py-2 text-xs font-bold uppercase bg-brand-600 hover:bg-brand-700 text-white rounded transition-colors cursor-pointer"
                               >
                                 Salvar
                               </button>
@@ -732,11 +732,11 @@ export default function Workspace({
                                   <td className="p-3">
                                     <p className="font-semibold text-slate-800 leading-normal">{risk.title}</p>
                                     <p className="text-xs text-slate-500 leading-normal mt-0.5">{risk.description}</p>
-                                    <p className="text-[11px] text-red-600 mt-1 font-mono">⚠️ Impact: {risk.impact}</p>
+                                    <p className="text-[11px] text-danger-600 mt-1 font-mono">⚠️ Impact: {risk.impact}</p>
                                   </td>
                                   <td className="p-3">
                                     <span className={`px-1.5 py-0.5 rounded font-bold text-[9px] uppercase ${
-                                      risk.severity === "critical" || risk.severity === "high" ? "text-red-700 bg-red-50" : "text-amber-700 bg-amber-50"
+                                      risk.severity === "critical" || risk.severity === "high" ? "text-danger-700 bg-danger-50" : "text-warning-700 bg-warning-50"
                                     }`}>
                                       {risk.severity}
                                     </span>
@@ -751,14 +751,14 @@ export default function Workspace({
                                       value={risk.mitigation || ""}
                                       placeholder={tx("Detail pre-sales engineering countermeasure...", "Detalhar contramedida técnica de pré-vendas...")}
                                       onChange={(e) => handleUpdateRisk(risk.risk_id, e.target.value, risk.requires_customer_clarification)}
-                                      className="border border-slate-200 p-2.5 rounded text-xs w-full h-16 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                      className="border border-slate-200 p-2.5 rounded text-xs w-full h-16 focus:outline-none focus:ring-1 focus:ring-brand-500"
                                     />
                                   </td>
                                   <td className="p-3 text-center">
                                     <button
                                       onClick={() => handleUpdateRisk(risk.risk_id, risk.mitigation || "", !risk.requires_customer_clarification)}
                                       className={`text-[10px] font-bold px-2 py-1 rounded border transition-all ${
-                                        risk.requires_customer_clarification ? "bg-amber-50 text-amber-700 border-amber-300" : "bg-slate-50 text-slate-400 border-slate-200"
+                                        risk.requires_customer_clarification ? "bg-warning-50 text-warning-700 border-warning-300" : "bg-slate-50 text-slate-400 border-slate-200"
                                       }`}
                                     >
                                       {risk.requires_customer_clarification ? "Flagged QA" : "Flag QA"}
@@ -805,11 +805,11 @@ export default function Workspace({
                                     <p className="font-semibold text-slate-800">{opp.title}</p>
                                     <p className="text-xs text-slate-500 mt-0.5">{opp.description}</p>
                                   </td>
-                                  <td className="p-3 font-semibold text-emerald-700 leading-normal">{opp.business_value}</td>
+                                  <td className="p-3 font-semibold text-success-700 leading-normal">{opp.business_value}</td>
                                   <td className="p-3 text-slate-700 font-semibold">{opp.suggested_solution}</td>
                                   <td className="p-3 text-slate-600">{opp.sales_strategy}</td>
                                   <td className="p-3 uppercase">
-                                    <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-bold text-[9px]">
+                                    <span className="text-success-700 bg-success-50 px-2 py-0.5 rounded font-bold text-[9px]">
                                       {opp.priority}
                                     </span>
                                   </td>
@@ -836,7 +836,7 @@ export default function Workspace({
                         </div>
                         <div className="flex items-center gap-2">
                         {displayAnalysisResult?.is_bom_enrichment_stale === true && (
-                          <span className="flex items-center gap-1 text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1" title={tx("This BOM was enriched with an earlier version of the matching logic.", "Este BOM foi enriquecido com uma versão anterior da lógica de correspondência.")}>
+                          <span className="flex items-center gap-1 text-[10px] text-warning-800 bg-warning-50 border border-warning-200 rounded px-2 py-1" title={tx("This BOM was enriched with an earlier version of the matching logic.", "Este BOM foi enriquecido com uma versão anterior da lógica de correspondência.")}>
                             <TriangleAlert size={11} /> {tx("Outdated logic", "Lógica desatualizada")}
                           </span>
                         )}
@@ -844,7 +844,7 @@ export default function Workspace({
                           const flaggedCount = (displayAnalysisResult?.bom || []).filter((b) => b.brand_policy_applicable && b.brand_policy_compliant === false).length;
                           if (flaggedCount === 0) return null;
                           return (
-                            <span className="flex items-center gap-1 text-[10px] text-red-800 bg-red-50 border border-red-200 rounded px-2 py-1">
+                            <span className="flex items-center gap-1 text-[10px] text-danger-800 bg-danger-50 border border-danger-200 rounded px-2 py-1">
                               ⚠️ {flaggedCount} {tx("item(s) off the brand policy", "item(ns) fora da política de marca")}
                             </span>
                           );
@@ -868,7 +868,7 @@ export default function Workspace({
                             const updatedBOM = [...analysisResult.bom, newBOMItem];
                             saveBOM(updatedBOM);
                           }}
-                          className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-white text-xs px-2.5 py-1.5 rounded font-bold font-mono transition-all shadow-sm cursor-pointer"
+                          className="flex items-center gap-1 bg-brand-600 hover:bg-brand-700 text-white text-xs px-2.5 py-1.5 rounded font-bold font-mono transition-all shadow-sm cursor-pointer"
                         >
                           <Plus size={13} /> Adicionar Item
                         </button>
@@ -915,7 +915,7 @@ export default function Workspace({
                                 <tr key={item.item_id || idx} className="hover:bg-slate-50/50">
                                   <td className="p-3">
                                     <input type="text" value={item.sku} onChange={(e) => updateField("sku", e.target.value)}
-                                      className="font-mono text-slate-700 bg-slate-50 px-1 py-0.5 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500 w-24" />
+                                      className="font-mono text-slate-700 bg-slate-50 px-1 py-0.5 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-brand-500 w-24" />
                                   </td>
                                   <td className="p-3">
                                     <input type="text" value={item.part_number}
@@ -934,24 +934,24 @@ export default function Workspace({
                                         }
                                         delete partNumberFocusValues.current[item.item_id];
                                       }}
-                                      className="font-mono text-slate-700 bg-slate-50 px-1 py-0.5 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500 w-28" />
+                                      className="font-mono text-slate-700 bg-slate-50 px-1 py-0.5 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-brand-500 w-28" />
                                     {item.edited_by ? (
                                       <span
-                                        className="inline-block mt-1 text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded-full"
+                                        className="inline-block mt-1 text-[9px] font-bold text-success-700 bg-success-50 border border-success-100 px-1.5 py-0.5 rounded-full"
                                         title="Valor corrigido/verificado manualmente"
                                       >
                                         ✏️ Editado por {item.edited_by}
                                       </span>
                                     ) : item.sourced_via_knowledge_base ? (
                                       <span
-                                        className="inline-block mt-1 text-[9px] font-bold text-purple-700 bg-purple-50 border border-purple-100 px-1.5 py-0.5 rounded-full"
+                                        className="inline-block mt-1 text-[9px] font-bold text-brand-700 bg-brand-50 border border-brand-100 px-1.5 py-0.5 rounded-full"
                                         title="Resolvido a partir da Base de Conhecimento aprovada (conhecimento validado de projetos anteriores)"
                                       >
                                         📚 Via Base de Conhecimento
                                       </span>
                                     ) : item.sourced_via_web_search && (
                                       <span
-                                        className="inline-block mt-1 text-[9px] font-bold text-blue-700 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded-full"
+                                        className="inline-block mt-1 text-[9px] font-bold text-warning-700 bg-warning-50 border border-warning-100 px-1.5 py-0.5 rounded-full"
                                         title="Sugerido por busca real na web, não citado no documento - valide antes de usar na proposta final"
                                       >
                                         🌐 Sugestão via busca web
@@ -960,15 +960,15 @@ export default function Workspace({
                                   </td>
                                   <td className="p-3">
                                     <input type="text" value={item.equipment_name} onChange={(e) => updateField("equipment_name", e.target.value)}
-                                      className="font-bold text-slate-800 bg-slate-50 px-1 py-0.5 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500" />
+                                      className="font-bold text-slate-800 bg-slate-50 px-1 py-0.5 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-brand-500" />
                                     {typeof item.confidence === "number" && (item.manufacturer?.trim() || item.part_number?.trim()) && (
                                       <span
                                         className={`inline-block mt-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
                                           item.confidence < 0.5
-                                            ? "text-amber-700 bg-amber-50 border-amber-100"
+                                            ? "text-warning-700 bg-warning-50 border-warning-100"
                                             : item.confidence < 0.8
                                               ? "text-slate-600 bg-slate-100 border-slate-200"
-                                              : "text-emerald-700 bg-emerald-50 border-emerald-100"
+                                              : "text-success-700 bg-success-50 border-success-100"
                                         }`}
                                         title={tx(
                                           "AI-reported confidence that this equipment/specification correctly captures what the source document demands - not the same as whether a real product match was found.",
@@ -981,11 +981,11 @@ export default function Workspace({
                                   </td>
                                   <td className="p-3">
                                     <input type="text" value={item.manufacturer} onChange={(e) => updateField("manufacturer", e.target.value)}
-                                      className="text-slate-700 bg-slate-50 px-1 py-0.5 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500" />
+                                      className="text-slate-700 bg-slate-50 px-1 py-0.5 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-brand-500" />
                                     {item.brand_policy_applicable && item.brand_policy_compliant === false && (
                                       <span
                                         className={`inline-block mt-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
-                                          item.brand_policy_confidence === "high" ? "text-red-700 bg-red-50 border-red-100" : "text-amber-700 bg-amber-50 border-amber-100"
+                                          item.brand_policy_confidence === "high" ? "text-danger-700 bg-danger-50 border-danger-100" : "text-warning-700 bg-warning-50 border-warning-100"
                                         }`}
                                         title={item.brand_policy_note || tx("Does not match this project's mandatory brand policy", "Não corresponde à política de marca obrigatória deste projeto")}
                                       >
@@ -1004,7 +1004,7 @@ export default function Workspace({
                                   <td className="p-3 text-slate-700">{item.category}</td>
                                   <td className="p-3">
                                     <textarea value={item.specification} onChange={(e) => updateField("specification", e.target.value)}
-                                      className="text-xs text-slate-500 w-full h-12 bg-slate-50 p-1 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500" />
+                                      className="text-xs text-slate-500 w-full h-12 bg-slate-50 p-1 rounded border border-slate-200 focus:outline-none focus:ring-1 focus:ring-brand-500" />
                                   </td>
                                   <td className="p-3 text-slate-400 font-mono text-[10px]">{item.source_reference}</td>
                                   <td className="p-3">
@@ -1013,7 +1013,7 @@ export default function Workspace({
                                         const updatedBOM = analysisResult!.bom.filter(b => b.item_id !== item.item_id);
                                         saveBOM(updatedBOM);
                                       }}
-                                      className="text-slate-400 hover:text-red-600 transition-colors"
+                                      className="text-slate-400 hover:text-danger-600 transition-colors"
                                     >
                                       <Trash2 size={13} />
                                     </button>
@@ -1038,7 +1038,7 @@ export default function Workspace({
                         <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">Matriz de Ponto a Ponto Técnica</h3>
                         {analysisResult.point_to_point_table.filter((m) => Array.isArray(m?.columns) && Array.isArray(m?.rows)).map((matrix, mIdx) => (
                           <div key={mIdx} className="space-y-2">
-                            <h4 className="text-xs font-bold uppercase tracking-wide text-emerald-700 font-mono">{matrix.discipline}</h4>
+                            <h4 className="text-xs font-bold uppercase tracking-wide text-brand-700 font-mono">{matrix.discipline}</h4>
                             <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto shadow-sm">
                               <table className="w-full text-left text-xs border-collapse">
                                 <thead className="bg-slate-100 border-b border-slate-200 font-mono text-[10px] uppercase text-slate-500">
@@ -1089,7 +1089,7 @@ export default function Workspace({
                         const Icon = meta.icon;
                         return (
                           <div key={proposalType} className="p-5 bg-slate-50 border border-slate-200 rounded-xl flex flex-col gap-3 shadow-sm">
-                            <div className="w-10 h-10 bg-emerald-500/10 text-emerald-700 rounded-lg flex items-center justify-center">
+                            <div className="w-10 h-10 bg-brand-500/10 text-brand-700 rounded-lg flex items-center justify-center">
                               <Icon size={20} />
                             </div>
                             <h4 className="text-sm font-bold text-slate-800 uppercase font-mono leading-none">{tx(meta.titleEn, meta.titlePt)}</h4>
@@ -1099,7 +1099,7 @@ export default function Workspace({
                               <select
                                 value={selectedTemplateIdByType[proposalType] || ""}
                                 onChange={(e) => setSelectedTemplateIdByType((current) => ({ ...current, [proposalType]: e.target.value }))}
-                                className="text-xs p-1.5 rounded border border-slate-300 w-full focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                className="text-xs p-1.5 rounded border border-slate-300 w-full focus:outline-none focus:ring-1 focus:ring-brand-500"
                               >
                                 {proposalTemplates.filter(t => t.template_type === proposalType && t.active).map(t => (
                                   <option key={t.id} value={t.id}>{t.name} ({t.version})</option>
@@ -1109,7 +1109,7 @@ export default function Workspace({
                             <button
                               onClick={() => handleGenerateProposal(proposalType)}
                               disabled={!analysisResult || !hasPermission("proposal:generate")}
-                              className="mt-3 bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-2 px-4 rounded shadow-sm transition-all text-center cursor-pointer disabled:opacity-50"
+                              className="mt-3 bg-brand-600 hover:bg-brand-700 text-white font-mono text-xs font-bold py-2 px-4 rounded shadow-sm transition-all text-center cursor-pointer disabled:opacity-50"
                             >
                               {tx(`Generate ${PROPOSAL_TYPE_LABELS[proposalType]} (DOCX/PDF)`, `Gerar ${PROPOSAL_TYPE_LABELS[proposalType]} (DOCX/PDF)`)}
                             </button>
@@ -1131,14 +1131,14 @@ export default function Workspace({
                       <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
                         <button
                           onClick={() => setCurrentFolder("")}
-                          className="hover:text-emerald-600 font-mono flex items-center gap-1 bg-white border border-slate-200 px-2 py-1 rounded shadow-xs transition-colors"
+                          className="hover:text-brand-600 font-mono flex items-center gap-1 bg-white border border-slate-200 px-2 py-1 rounded shadow-xs transition-colors"
                         >
                           📂 {locale === "pt" ? "Raiz do Projeto" : "Project Root"}
                         </button>
                         {currentFolder && (
                           <>
                             <span className="text-slate-400">/</span>
-                            <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-1 rounded font-mono font-bold max-w-[200px] truncate">
+                            <span className="bg-brand-50 text-brand-800 border border-brand-200 px-2 py-1 rounded font-mono font-bold max-w-[200px] truncate">
                               {currentFolder}
                             </span>
                           </>
@@ -1159,7 +1159,7 @@ export default function Workspace({
                               value={newFolderNameValue}
                               onChange={(e) => setNewFolderNameValue(e.target.value)}
                               placeholder={locale === "pt" ? "Nome da pasta..." : "Folder name..."}
-                              className="text-xs px-2 py-1 border border-emerald-500 rounded focus:outline-none bg-white w-32"
+                              className="text-xs px-2 py-1 border border-brand-500 rounded focus:outline-none bg-white w-32"
                               onKeyDown={(e) => {
                                 if (e.key === "Enter") {
                                   if (!newFolderNameValue.trim()) return;
@@ -1187,7 +1187,7 @@ export default function Workspace({
                                 setNewFolderNameValue("");
                                 setShowNewFolderInput(false);
                               }}
-                              className="bg-emerald-600 text-white text-xs px-2.5 py-1 rounded hover:bg-emerald-700 font-bold font-mono"
+                              className="bg-brand-600 text-white text-xs px-2.5 py-1 rounded hover:bg-brand-700 font-bold font-mono"
                             >
                               ✓
                             </button>
@@ -1204,7 +1204,7 @@ export default function Workspace({
                         ) : (
                           <button
                             onClick={() => setShowNewFolderInput(true)}
-                            className="bg-white border border-slate-200 text-slate-700 hover:border-emerald-500 hover:text-emerald-600 text-xs px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs font-mono"
+                            className="bg-white border border-slate-200 text-slate-700 hover:border-brand-500 hover:text-brand-600 text-xs px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs font-mono"
                           >
                             <FolderPlus size={14} /> {locale === "pt" ? "Nova Pasta" : "New Folder"}
                           </button>
@@ -1217,7 +1217,7 @@ export default function Workspace({
                             setNewFileContent("");
                             setShowCreateFileModal(true);
                           }}
-                          className="bg-white border border-slate-200 text-slate-700 hover:border-emerald-500 hover:text-emerald-600 text-xs px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs font-mono"
+                          className="bg-white border border-slate-200 text-slate-700 hover:border-brand-500 hover:text-brand-600 text-xs px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs font-mono"
                         >
                           <FilePlus size={14} /> {locale === "pt" ? "Novo Documento" : "New Document"}
                         </button>
@@ -1248,11 +1248,11 @@ export default function Workspace({
                             return (
                               <div
                                 key={folder}
-                                className="bg-white border border-slate-200 hover:border-emerald-500 hover:shadow-sm rounded-xl p-4 flex flex-col justify-between h-28 cursor-pointer transition-all group relative"
+                                className="bg-white border border-slate-200 hover:border-brand-500 hover:shadow-sm rounded-xl p-4 flex flex-col justify-between h-28 cursor-pointer transition-all group relative"
                                 onClick={() => setCurrentFolder(folder)}
                               >
                                 <div className="flex justify-between items-start">
-                                  <div className="w-9 h-9 rounded-lg bg-amber-50 text-amber-500 flex items-center justify-center border border-amber-100 group-hover:bg-emerald-50 group-hover:text-emerald-600 group-hover:border-emerald-100 transition-colors">
+                                  <div className="w-9 h-9 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center border border-brand-100 group-hover:bg-brand-100 group-hover:text-brand-700 group-hover:border-brand-200 transition-colors">
                                     <FolderOpen size={18} />
                                   </div>
 
@@ -1278,7 +1278,7 @@ export default function Workspace({
                                         saveFoldersToStorage(projectFolders.filter(f => f !== folder));
                                       }
                                     }}
-                                    className="text-slate-400 hover:text-red-500 p-1 rounded hover:bg-slate-100 opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
+                                    className="text-slate-400 hover:text-danger-500 p-1 rounded hover:bg-slate-100 opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
                                     title={locale === "pt" ? "Excluir Pasta" : "Delete Folder"}
                                   >
                                     <X size={12} />
@@ -1306,7 +1306,7 @@ export default function Workspace({
                         {currentFolder !== "" && (
                           <button
                             onClick={() => setCurrentFolder("")}
-                            className="text-emerald-600 hover:text-emerald-700 text-xs font-bold flex items-center gap-1 hover:underline cursor-pointer"
+                            className="text-brand-600 hover:text-brand-700 text-xs font-bold flex items-center gap-1 hover:underline cursor-pointer"
                           >
                             <ArrowLeft size={12} /> {locale === "pt" ? "Voltar para Raiz" : "Back to Root"}
                           </button>
@@ -1342,11 +1342,11 @@ export default function Workspace({
                               {virtualDocs.map(file => (
                                 <div
                                   key={file.id}
-                                  className="bg-white border border-slate-200 hover:border-emerald-500 rounded-xl p-4 flex flex-col justify-between min-h-[120px] transition-all group relative"
+                                  className="bg-white border border-slate-200 hover:border-brand-500 rounded-xl p-4 flex flex-col justify-between min-h-[120px] transition-all group relative"
                                 >
                                   <div className="flex justify-between items-start gap-2">
                                     <div className="flex items-start gap-2.5 min-w-0">
-                                      <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center font-mono text-[9px] font-bold border border-emerald-100 shrink-0">
+                                      <div className="w-8 h-8 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center font-mono text-[9px] font-bold border border-brand-100 shrink-0">
                                         MD
                                       </div>
                                       <div className="leading-tight min-w-0">
@@ -1355,7 +1355,7 @@ export default function Workspace({
                                             type="text"
                                             value={editingFileNameValue}
                                             onChange={(e) => setEditingFileNameValue(e.target.value)}
-                                            className="text-xs font-bold text-slate-800 p-0.5 border border-emerald-500 rounded focus:outline-none w-full"
+                                            className="text-xs font-bold text-slate-800 p-0.5 border border-brand-500 rounded focus:outline-none w-full"
                                             onKeyDown={(e) => {
                                               if (e.key === "Enter") {
                                                 if (!editingFileNameValue.trim()) return;
@@ -1402,7 +1402,7 @@ export default function Workspace({
                                             saveVirtualFilesToStorage(virtualFiles.filter(vf => vf.id !== file.id));
                                           }
                                         }}
-                                        className="text-slate-400 hover:text-red-500 p-1 rounded hover:bg-slate-100 cursor-pointer"
+                                        className="text-slate-400 hover:text-danger-500 p-1 rounded hover:bg-slate-100 cursor-pointer"
                                         title={locale === "pt" ? "Excluir" : "Delete"}
                                       >
                                         <Trash2 size={11} />
@@ -1414,7 +1414,7 @@ export default function Workspace({
                                     <span>{file.size} bytes</span>
                                     <button
                                       onClick={() => setActiveFileViewer(file)}
-                                      className="text-emerald-600 hover:text-white hover:bg-emerald-600 border border-emerald-200 px-2.5 py-1 rounded-lg font-bold font-mono transition-all cursor-pointer"
+                                      className="text-brand-600 hover:text-white hover:bg-brand-600 border border-brand-200 px-2.5 py-1 rounded-lg font-bold font-mono transition-all cursor-pointer"
                                     >
                                       {locale === "pt" ? "PREVIEW / EDIT" : "PREVIEW / EDIT"}
                                     </button>
@@ -1428,7 +1428,7 @@ export default function Workspace({
                                 return (
                                   <div
                                     key={doc.id}
-                                    className="bg-white border border-slate-200 hover:border-emerald-500 rounded-xl p-4 flex flex-col justify-between min-h-[120px] transition-all group relative"
+                                    className="bg-white border border-slate-200 hover:border-brand-500 rounded-xl p-4 flex flex-col justify-between min-h-[120px] transition-all group relative"
                                   >
                                     <div className="flex justify-between items-start gap-2">
                                       <div className="flex items-start gap-2.5 min-w-0">
@@ -1441,7 +1441,7 @@ export default function Workspace({
                                               type="text"
                                               value={editingFileNameValue}
                                               onChange={(e) => setEditingFileNameValue(e.target.value)}
-                                              className="text-xs font-bold text-slate-800 p-0.5 border border-emerald-500 rounded focus:outline-none w-full"
+                                              className="text-xs font-bold text-slate-800 p-0.5 border border-brand-500 rounded focus:outline-none w-full"
                                               onKeyDown={async (e) => {
                                                 if (e.key === "Enter") {
                                                   const newName = editingFileNameValue.trim();
@@ -1501,7 +1501,7 @@ export default function Workspace({
                                         </button>
                                         <button
                                           onClick={() => handleDeleteDocument(doc.id)}
-                                          className="text-slate-400 hover:text-red-500 p-1 rounded hover:bg-slate-100 cursor-pointer"
+                                          className="text-slate-400 hover:text-danger-500 p-1 rounded hover:bg-slate-100 cursor-pointer"
                                           title={locale === "pt" ? "Excluir" : "Delete"}
                                         >
                                           <Trash2 size={11} />
@@ -1570,7 +1570,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                         <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-2xl w-full flex flex-col max-h-[85vh]">
                           <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-2xl">
                             <div className="flex items-center gap-2">
-                              <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold text-xs font-mono">
+                              <div className="w-8 h-8 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center font-bold text-xs font-mono">
                                 {activeFileViewer.isRealDoc ? "R" : "V"}
                               </div>
                               <h3 className="text-xs font-bold uppercase tracking-wider font-mono text-slate-800 max-w-sm truncate" title={activeFileViewer.name}>
@@ -1605,7 +1605,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                                     // Update modal
                                     setActiveFileViewer({ ...activeFileViewer, content: updatedContent });
                                   }}
-                                  className="w-full h-80 p-3 font-mono text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-slate-50"
+                                  className="w-full h-80 p-3 font-mono text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-500 bg-slate-50"
                                 />
                               </div>
                             )}
@@ -1649,7 +1649,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                                 placeholder="Ex: notas_reuniao.md"
                                 value={newFileName}
                                 onChange={(e) => setNewFileName(e.target.value)}
-                                className="w-full p-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                className="w-full p-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-500"
                               />
                             </div>
 
@@ -1661,7 +1661,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                                 placeholder={locale === "pt" ? "Escreva aqui as anotações..." : "Write your technical notes here..."}
                                 value={newFileContent}
                                 onChange={(e) => setNewFileContent(e.target.value)}
-                                className="w-full h-40 p-2 font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                className="w-full h-40 p-2 font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-500"
                               />
                             </div>
                           </div>
@@ -1689,7 +1689,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                                 saveVirtualFilesToStorage([...virtualFiles, newVirtual]);
                                 setShowCreateFileModal(false);
                               }}
-                              className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-[10px] font-bold py-1.5 px-4 rounded shadow cursor-pointer"
+                              className="bg-brand-600 hover:bg-brand-700 text-white font-mono text-[10px] font-bold py-1.5 px-4 rounded shadow cursor-pointer"
                             >
                               {locale === "pt" ? "Criar Documento" : "Create File"}
                             </button>
@@ -1734,7 +1734,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                                 }
                                 setShowMoveFileModal(null);
                               }}
-                              className="w-full p-2 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-slate-50"
+                              className="w-full p-2 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500 bg-slate-50"
                             >
                               <option value="">📂 {locale === "pt" ? "Raiz do Projeto" : "Project Root"}</option>
                               {projectFolders.map(folder => (
@@ -1787,7 +1787,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                       <button
                         onClick={handleExportClarificationQuestions}
                         disabled={exportingQuestions}
-                        className="text-[10px] font-bold text-emerald-700 hover:text-emerald-800 uppercase font-mono disabled:opacity-50 cursor-pointer"
+                        className="text-[10px] font-bold text-brand-700 hover:text-brand-800 uppercase font-mono disabled:opacity-50 cursor-pointer"
                       >
                         {exportingQuestions ? "Exportando..." : "Exportar (DOCX)"}
                       </button>
@@ -1801,14 +1801,14 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                   ) : (
                     <div className="space-y-2 flex-1 overflow-y-auto pr-1">
                       {displayAnalysisResult.clarification_questions.map((q, idx) => (
-                        <div key={idx} className="p-3 bg-white border-l-4 border-amber-400 rounded shadow-sm">
+                        <div key={idx} className="p-3 bg-white border-l-4 border-warning-400 rounded shadow-sm">
                           <p className="text-xs font-bold text-slate-800 leading-tight mb-1">{q.question}</p>
                           <p className="text-[11px] text-slate-500 leading-relaxed font-mono">Motivo: {q.reason}</p>
                           {q.source_reference && (
                             <p className="text-[11px] text-slate-400 leading-relaxed font-mono">Ref.: {q.source_reference}</p>
                           )}
                           <div className="flex justify-between items-center text-[9px] text-slate-400 mt-1.5 pt-1.5 border-t border-slate-100 font-mono">
-                            <span className="uppercase font-bold text-amber-600">Prioridade {q.priority === "high" ? "Alta" : q.priority === "medium" ? "Média" : "Baixa"}</span>
+                            <span className="uppercase font-bold text-warning-700">Prioridade {q.priority === "high" ? "Alta" : q.priority === "medium" ? "Média" : "Baixa"}</span>
                             <span className="text-slate-500 font-semibold">{q.target_audience}</span>
                           </div>
                         </div>
@@ -1822,12 +1822,12 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                     the space for clarification questions (the more important content here). */}
                 <button
                   onClick={() => setShowCopilotChat(true)}
-                  className="mt-3 flex items-center justify-center gap-2 bg-white hover:bg-emerald-50 border border-slate-200 hover:border-emerald-200 rounded-lg shadow-sm py-2.5 transition-colors cursor-pointer shrink-0"
+                  className="mt-3 flex items-center justify-center gap-2 bg-white hover:bg-brand-50 border border-slate-200 hover:border-brand-200 rounded-lg shadow-sm py-2.5 transition-colors cursor-pointer shrink-0"
                 >
-                  <MessageSquare size={15} className="text-emerald-600" />
+                  <MessageSquare size={15} className="text-brand-600" />
                   <span className="text-xs font-bold text-slate-700 font-mono">Copiloto de Especificações</span>
                   {chatHistory.length > 0 && (
-                    <span className="text-[9px] bg-emerald-100 text-emerald-800 rounded-full px-1.5 font-bold">{chatHistory.length}</span>
+                    <span className="text-[9px] bg-brand-100 text-brand-800 rounded-full px-1.5 font-bold">{chatHistory.length}</span>
                   )}
                 </button>
                 </>
@@ -1840,7 +1840,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                   <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg h-[70vh] flex flex-col">
                     <div className="flex items-center justify-between p-4 border-b border-slate-100">
                       <div className="flex items-center gap-2">
-                        <MessageSquare size={16} className="text-emerald-600" />
+                        <MessageSquare size={16} className="text-brand-600" />
                         <span className="text-xs font-bold uppercase tracking-wider font-mono text-slate-700">Copiloto de Especificações de Pré-Vendas</span>
                       </div>
                       <button onClick={() => setShowCopilotChat(false)} className="text-slate-400 hover:text-slate-700 cursor-pointer">
@@ -1856,7 +1856,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                       {chatHistory.map((msg, i) => (
                         <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                           <div className={`p-2.5 rounded-lg max-w-[85%] border shadow-sm ${
-                            msg.role === "user" ? "bg-slate-100 text-slate-800 border-slate-200" : "bg-emerald-50 text-slate-800 border-emerald-100"
+                            msg.role === "user" ? "bg-slate-100 text-slate-800 border-slate-200" : "bg-brand-50 text-slate-800 border-brand-100"
                           }`}>
                             <span className="font-mono text-[9px] text-slate-400 block uppercase mb-0.5">
                               {msg.role === "user" ? "Você" : "Assistente AI"}
@@ -1867,12 +1867,12 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                       ))}
                       {isChatSending && (
                         <div className="flex justify-start">
-                          <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-100 shadow-sm">
+                          <div className="p-2.5 rounded-lg bg-brand-50 border border-brand-100 shadow-sm">
                             <span className="font-mono text-[9px] text-slate-400 block uppercase mb-0.5">Assistente AI</span>
                             <span className="flex items-center gap-1 py-0.5">
-                              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></span>
-                              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></span>
-                              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></span>
+                              <span className="w-1.5 h-1.5 bg-brand-500 rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></span>
+                              <span className="w-1.5 h-1.5 bg-brand-500 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></span>
+                              <span className="w-1.5 h-1.5 bg-brand-500 rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></span>
                             </span>
                           </div>
                         </div>
@@ -1888,13 +1888,13 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                         onChange={(e) => setChatMessage(e.target.value)}
                         disabled={isChatSending}
                         placeholder="Pergunte sobre as especificações deste projeto..."
-                        className="flex-1 text-xs px-3 py-1.5 border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-slate-50 disabled:opacity-60"
+                        className="flex-1 text-xs px-3 py-1.5 border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-brand-500 bg-slate-50 disabled:opacity-60"
                         autoFocus
                       />
                       <button
                         type="submit"
                         disabled={isChatSending}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono font-bold text-xs px-3 rounded shadow-sm transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                        className="bg-brand-600 hover:bg-brand-700 text-white font-mono font-bold text-xs px-3 rounded shadow-sm transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                       >
                         {isChatSending ? "..." : "ENVIAR"}
                       </button>
