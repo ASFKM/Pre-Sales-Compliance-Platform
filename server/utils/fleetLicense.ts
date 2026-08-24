@@ -74,22 +74,68 @@ interface HeartbeatLatestRelease {
   published_at: string | null;
 }
 
+// Ordena chaves em PROFUNDIDADE e serializa SEM replacer, para que o objeto reconstruído seja
+// idêntico ao original a menos da ordem das chaves - que é justamente o que precisa ser estável
+// para uma assinatura determinística. Portada byte a byte de canonicalJsonDeep do CMSaaS
+// (`server/utils/licenseSigning.ts`, que assina) e do CMCRM
+// (`production/infra/temporal/src/platform/cmsaas-client.ts`, que verifica): três implementações
+// da mesma canonicalização só continuam intercambiáveis enquanto forem a MESMA implementação -
+// duas que divergem no primeiro campo novo fazem um dos lados recusar comando válido.
+function canonicalizeDeep(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalizeDeep);
+  if (value !== null && typeof value === "object") {
+    const ordenado: Record<string, unknown> = {};
+    for (const chave of Object.keys(value as Record<string, unknown>).sort()) {
+      ordenado[chave] = canonicalizeDeep((value as Record<string, unknown>)[chave]);
+    }
+    return ordenado;
+  }
+  return value;
+}
+
+export function canonicalJsonDeep(value: unknown): string {
+  return JSON.stringify(canonicalizeDeep(value));
+}
+
 // CMS-001 / AUD-001 (auditoria de segurança, 2026-07-19): commands (inclusive apply_update, que
 // dispara git checkout + build + restart real nesta própria instalação) e latest_release vinham
 // como siblings de license no heartbeat, protegidos só por TLS + API key - qualquer resposta
 // adulterada (Fleet Manager comprometido, MITM, bug num proxy) podia injetar um apply_update
-// arbitrário sem essa checagem. Assinatura separada da de license (mesma chave, ver
-// signCommandsEnvelope em licenseSigning.ts do lado CMSaaS) - falha fechado: sem assinatura válida,
-// nem commands nem latest_release são processados nesta rodada de heartbeat (mas o heartbeat em si
-// não falha - CMSaaS antigo/não atualizado simplesmente não tem commands/latest_release confiáveis
-// até ser atualizado, mesmo espírito fail-open já usado no resto deste arquivo pra não derrubar a
-// instalação por causa do Fleet Manager).
-function verifyCommandsSignature(commands: HeartbeatCommand[], latestRelease: HeartbeatLatestRelease | null, signature: string | undefined): boolean {
+// arbitrário sem essa checagem. Assinatura separada da de license (mesma chave, envelope
+// próprio), e falha fechado: sem assinatura válida, nem commands nem latest_release são
+// processados nesta rodada de heartbeat (mas o heartbeat em si não falha - license/ia_kb/mensagens
+// continuam normalmente, mesmo espírito fail-open já usado no resto deste arquivo pra não derrubar
+// a instalação por causa do Fleet Manager).
+//
+// CDC14-F2-001 (24/08/2026): ATÉ ESTA DATA, A MITIGAÇÃO ACIMA NUNCA ESTEVE VALENDO. Esta função
+// verificava com `JSON.stringify(payload, Object.keys(payload).sort())`, e o segundo argumento do
+// JSON.stringify NÃO é uma lista de ordenação: é um REPLACER ARRAY, aplicado RECURSIVAMENTE a todo
+// objeto aninhado. Como as únicas chaves da lista eram `commands` e `latest_release`, todo objeto
+// DENTRO de `commands` e o próprio `latest_release` perdiam todas as chaves na serialização. O que
+// era verificado era sempre a mesma string, medida com um apply_update real:
+//
+//     {"commands":[{}],"latest_release":{}}
+//
+// Trocar `code_ref`, `release_id`, `id` ou `type` de um comando não mudava um byte do que era
+// verificado - e `code_ref` é exatamente o valor que segue para triggerImmediateUpdate, que faz
+// git checkout + build + restart nesta instalação. A única coisa que a v1 prendia era a QUANTIDADE
+// de comandos e se latest_release era nulo. A auditoria de 2026-07-19 não pegou porque os DOIS
+// lados usavam a mesma serialização defeituosa: a verificação passava, sem proteger nada.
+//
+// A licença NÃO tem esse defeito e por isso verifyPayload acima segue inalterada:
+// LicenseStatusPayload é um objeto plano e `modules` é array de primitivos, que o replacer array
+// não toca (medido, não deduzido). Como é a licença que decide block_mode, ela nunca esteve exposta.
+//
+// Correção: passa a verificar `commands_signature_v2` (ver a chamada em runHeartbeatForTenant),
+// sobre canonicalização recursiva de verdade. Não é "consertar a v1 no lugar": enquanto o CMSaaS
+// emitir as duas, o nome antigo continua carregando os bytes antigos, e é a leitura deste lado que
+// muda de campo.
+export function verifyCommandsSignature(commands: HeartbeatCommand[], latestRelease: HeartbeatLatestRelease | null, signature: string | undefined): boolean {
   if (!signature) return false;
   try {
     const publicKey = crypto.createPublicKey({ key: Buffer.from(FLEET_MANAGER_PUBLIC_KEY, "base64"), format: "der", type: "spki" });
     const payload = { commands, latest_release: latestRelease };
-    const data = Buffer.from(JSON.stringify(payload, Object.keys(payload).sort()), "utf8");
+    const data = Buffer.from(canonicalJsonDeep(payload), "utf8");
     return crypto.verify(null, data, publicKey, Buffer.from(signature, "base64"));
   } catch {
     return false;
@@ -412,18 +458,34 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
       }
       await redis.set(lastLogSyncKey(tenantId), new Date().toISOString());
 
-      // CMS-001 / AUD-001: commands e latest_release só são processados com uma assinatura Ed25519
-      // válida cobrindo os dois juntos - falha fechado (nem persiste latest_release, nem age em
-      // nenhum command, nem faz ack deles) se a assinatura estiver ausente ou não bater, sem
-      // derrubar o resto do heartbeat (license/ia_kb/mensagens continuam funcionando normalmente).
-      const commandsVerified = verifyCommandsSignature(data.commands || [], data.latest_release || null, data.commands_signature);
+      // CMS-001 / AUD-001 + CDC14-F2-001: commands e latest_release só são processados com uma
+      // assinatura Ed25519 válida cobrindo os dois juntos - falha fechado (nem persiste
+      // latest_release, nem age em nenhum command, nem faz ack deles) se a assinatura estiver
+      // ausente ou não bater, sem derrubar o resto do heartbeat (license/ia_kb/mensagens continuam
+      // funcionando normalmente).
+      //
+      // O campo lido é `commands_signature_v2`, e a mudança de nome é o conserto, não um detalhe:
+      // a v1 (`commands_signature`) cobria só a QUANTIDADE de comandos, nunca o conteúdo deles -
+      // ver o comentário longo de CDC14-F2-001 em verifyCommandsSignature. A premissa registrada
+      // aqui até 24/08/2026 - "assinatura válida cobrindo os dois juntos" - venceu no dia em que
+      // se mediu que ela não cobria: um apply_update adulterado em trânsito era aceito, e o
+      // code_ref recebido ia direto para triggerImmediateUpdate.
+      //
+      // `data` é `await res.json()` sem tipo estrito, então ler o campo novo não muda interface
+      // nenhuma. O CMSaaS emite as duas assinaturas em todo heartbeat desde 23/08/2026, e a v1 só
+      // sai de circulação depois que toda instalação PreSales estiver neste código - retirá-la
+      // antes faria cada uma delas recusar comandos no instante do deploy. Se um CMSaaS mais
+      // antigo que essa data responder, não haverá v2 e este lado recusa: é a falha fechada
+      // fazendo o que deve, e o preço deliberado de não aceitar mais uma assinatura que não
+      // assina.
+      const commandsVerified = verifyCommandsSignature(data.commands || [], data.latest_release || null, data.commands_signature_v2);
       if (!commandsVerified) {
         logger.error({ tenantId }, "Fleet manager commands/latest_release signature verification FAILED - ignoring commands and latest_release for this heartbeat");
       }
 
       // Sistema de Atualização de Produção: caches this heartbeat's latest_release (sibling of
-      // license/commands/messages, signed together via commands_signature - see
-      // signCommandsEnvelope on the Fleet Manager side and CMS-001 above) alongside a fresh
+      // license/commands/messages, signed together via commands_signature_v2 - see
+      // signCommandsEnvelopeV2 on the Fleet Manager side and CDC14-F2-001 above) alongside a fresh
       // snapshot of the version this process is actually running.
       if (commandsVerified) {
         await persistLatestRelease(tenantId, data.latest_release || null).catch((err) =>
