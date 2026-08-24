@@ -54,7 +54,7 @@ aqui — é de lá que o dono copia para abrir a próxima conversa.
 | 0 | Tokens `@theme` + rede de segurança visual | **✓ concluída** (24/08/2026) | `906668f` (PR #52) | 36 capturas de baseline; 11 tokens de marca + 4 rampas semânticas; zero mudança visual, provada |
 | 1 | Ativos de marca (vetor, favicon, logo) | **✓ concluída** (24/08/2026) | `c68067c` (PR #53) | símbolo e wordmark vetorizados dos pixels oficiais; 11 ativos em `public/brand/`; favicon criado do zero |
 | 2 | Shell e portas de entrada | **✓ concluída** (24/08/2026) | `f7dc15b` (PR #54) | 86 trocas em 5 arquivos + "Reportar problema" movido para o rodapé; login em `brand-950`/`brand-600` (5,20:1); `draft` neutro e idêntico nas 3 telas |
-| 3 | Área de Trabalho | não iniciada | — | maior densidade de cor do produto |
+| 3 | Área de Trabalho | **✓ concluída** (24/08/2026) | `4a5c4f9` (PR #55) | 106 trocas num arquivo só; matriz de conformidade preservada e medida (5,09 / 4,85 / 5,87:1); 12 imagens do baseline regravadas |
 | 4 | Propostas, Aprovação e Conhecimento | não iniciada | — | — |
 | 5 | Módulo POC | não iniciada | — | add-on por entitlement |
 | 6 | Módulo Precificação | não iniciada | — | add-on por entitlement |
@@ -549,18 +549,144 @@ começou de um estado provadamente são.
 
 ---
 
-## Fase 3 — Área de Trabalho
+## Fase 3 — Área de Trabalho — ✓ CONCLUÍDA (24/08/2026)
 
-**Arquivo:** `Workspace.tsx` (101 emerald / 39 amber / 1.908 linhas) — a maior densidade de cor do
-produto e o coração do fluxo (requisitos, riscos, BOM, matriz de conformidade).
+**Arquivo:** `Workspace.tsx` (1.908 linhas) — a maior densidade de cor do produto e o coração do
+fluxo (requisitos, riscos, BOM, matriz de conformidade).
 
-**Atenção especial:** é aqui que "conforme / não conforme / parcial" vive. É o lugar onde pintar
-sucesso de azul faria mais estrago. A matriz de conformidade mantém verde/âmbar/vermelho
-semânticos; o que vira `brand` é ação e navegação (abas, botões, barra de progresso em
-`:431/:462`).
+**106 trocas de cor num único arquivo, cada uma decidida pelo contexto.** O mapeamento do plano
+falava em 101 `emerald` e 39 `amber`; a varredura completa achou **173 ocorrências de cor não
+neutra** — os 140 previstos mais 19 `red`, 11 `blue` e 3 `purple`, que nenhum grep de
+`emerald|amber` encontraria e que fazem parte das mesmas famílias visuais. Depois da fase,
+`Workspace.tsx` tem **zero** ocorrência de `emerald`, `amber`, `red`, `blue` ou `purple`: tudo é
+`brand` (106), `success` (12), `warning` (32), `danger` (19) ou `slate`.
 
-**Critério de aceite:** matriz de conformidade preserva integralmente o significado das cores;
-ações e abas em azul da marca; nenhuma regressão nas sub-abas.
+O script de aplicação (descartado depois de rodar) ancorava cada troca em
+`(arquivo, linha, texto exato)` com a **contagem esperada de ocorrências na linha**, e abortava sem
+gravar nada se uma só não casasse. Com 173 ocorrências num arquivo só, esse é o único jeito seguro:
+metade das linhas tinha duas cores diferentes na mesma string de classes.
+
+### A matriz de conformidade: o que foi preservado, e como ficou provado
+
+O significado das cores está **integralmente preservado**. Conforme continua verde, parcial
+continua âmbar, não conforme continua vermelho — só passaram a ser escritos por intenção. Provado
+medindo a cor **pintada num canvas 1×1**, não a classe no JSX:
+
+```
+conforme      fundo #ecfdf5  texto #007a55  VERDE     contraste 5,09:1  ✓ AA
+parcial       fundo #fffbeb  texto #bb4d00  ÂMBAR     contraste 4,85:1  ✓ AA
+não conforme  fundo #fef2f2  texto #c10007  VERMELHO  contraste 5,87:1  ✓ AA
+ação          fundo #236cc7 (brand-600) sobre branco  contraste 5,20:1  ✓ AA
+```
+
+Os quatro estados foram medidos em **amostras sintéticas com as classes reais do componente**,
+porque o projeto de captura só tem requisitos num estado — medir só o que está no banco provaria um
+quarto da matriz.
+
+Também ficaram verdes, como manda o escopo: os **badges de confiança do BOM** (85%/90%/95%, escala
+`warning`/`slate`/`success`) e o aviso **"Lógica desatualizada"** em âmbar.
+
+### O que virou marca, e por quê
+
+| Papel | Onde | Resultado |
+|---|---|---|
+| Navegação | as 6 sub-abas (`border-emerald-600` na aba ativa) | `border-brand-600` |
+| Ação | "Salvar", "Gerar Proposta", "Criar Documento", "ENVIAR", "Adicionar Item", "Abrir Configurações de IA", "Exportar (DOCX)", "Voltar para Raiz" | `brand-600`, hover `brand-700` |
+| Foco e seleção | 14 `focus:ring`, breadcrumb da pasta corrente, bordas de hover dos cartões | `brand-500` / `brand-600` |
+| Barras de progresso | `:421`, `:431`, `:442` (os dois call-sites de âmbar-como-ação do plano, mais o irmão azul) | `brand-600` sobre trilha `brand-200` |
+| Identidade | selo "RESUMO DE COMPLIANCE IA", ícones dos 7 cartões do Estúdio, bolhas e ícone do Copiloto | `brand-*` |
+
+### Seis decisões que um `sed` teria errado
+
+1. **Os 3 cartões de KPI do resumo são uma família, não três ocorrências.** Eram verde
+   (Especificações), âmbar (Mitigações) e azul (Dúvidas) — três cores arbitrárias para três
+   contagens do mesmo projeto. Trocar só o verde deixaria o cartão 1 idêntico ao cartão 3. Os três
+   viraram `brand-*`: a distinção já é feita pelo rótulo e pelo número, e o âmbar deixou de sugerir
+   alerta onde só há contagem. Mesmo tratamento que os 4 KPIs da Home na Fase 2, e **reversível numa
+   linha**.
+2. **As oportunidades continuam verdes.** `business_value` e o badge de prioridade em
+   `emerald-700` não são "conforme", mas estão na **mesma sub-aba** da tabela de riscos, que é
+   vermelha e âmbar. O verde ali é a polaridade positiva contraposta ao risco — pintá-lo de azul
+   apagaria o contraste que a tela inteira comunica. Ficam verdes, escritos `success-*`.
+3. **"Prioridade baixa" deixou de ser azul.** A escala de prioridade dos requisitos era
+   vermelho/âmbar/**azul**. Com a marca virando azul, "baixa prioridade" passaria a parecer ação.
+   Virou `slate` — e a escala melhorou: vermelho → âmbar → neutro é uma urgência decrescente
+   legível, que o azul não expressava.
+4. **A procedência do part number é uma família de três estados exclusivos**, e o azul dela também
+   colidiria com a marca. Cada um foi para o token fiel ao seu próprio `title`: "Editado por
+   {pessoa}" (*"valor corrigido/verificado manualmente"*) → `success`; "Via Base de Conhecimento"
+   (era `purple`, cor sem papel no vocabulário) → `brand`; "Sugestão via busca web" (*"valide antes
+   de usar na proposta final"*) → `warning`.
+5. **O botão primário da sub-aba BOM era cinza-escuro.** "Adicionar Item" estava em `slate-800`
+   enquanto todos os outros primários do arquivo eram `emerald-600`: mesmo papel, duas cores, e
+   invisível para um grep de `emerald|amber`. É o mesmo defeito do `sky-600` do MFA na Fase 2. Foi
+   para `brand-600`.
+6. **"Flagged QA" continua âmbar de propósito.** A varredura final aponta quatro `<button>` com
+   fundo âmbar — e eles estão certos: é o marcador de "risco precisa de esclarecimento do cliente",
+   um indicador de pendência que por acaso é clicável, não um botão de ação. O critério "nenhum
+   botão primário verde ou âmbar" está cumprido; este não é primário.
+
+### O ícone de pasta: a crítica visual mudou a decisão
+
+Os quatro cartões de diretório do Explorador tinham ícone `amber-50`/`amber-500` com hover verde.
+Âmbar ali era falso alerta (as quatro pastas têm a mesma cor, logo não distingue nada), então a
+primeira versão neutralizou para `slate`. **Olhando a captura, ficou errado:** o ícone sumia dentro
+do cartão branco e a grade perdia o ponto que ancora o olhar. Ficou `bg-brand-50`/`text-brand-600`
+em repouso, intensificando para `brand-100`/`brand-700` no hover — presença de volta, sem prometer
+atenção onde não há. É o tipo de coisa que só aparece **olhando** a imagem, não conferindo classes.
+
+### Como ficou provado
+
+Antes de tocar em qualquer arquivo, `npm run test:visual` deu **36/36 verdes** — a fase começou de
+um estado provadamente são. No fim, com o baseline regravado, **36/36 de novo**.
+
+No próprio dev: `npm run lint` limpo, `npm run build` completo, `npm run test` com **16 arquivos e
+98 testes passando** (executados duas vezes, antes e depois do ajuste do ícone de pasta).
+
+A varredura final classificou **por matiz do pixel pintado** todo elemento visível das 6 sub-abas:
+1.439 elementos com cor, e nenhum `<button>` ou `<a>` com fundo verde ou âmbar exceto os quatro
+"Flagged QA" descritos acima. Os verdes restantes são os 17 badges de confiança do BOM, os 4 badges
+de oportunidade e o ponto de saúde do LLM no rodapé (`App.tsx`, Fase 2) — todos semânticos.
+
+**12 das 36 imagens do baseline foram regravadas** (as 6 sub-abas × 2 larguras) e revisadas uma a
+uma. `workspace-summary.png` mudou 62.237 pixels, trocando `#009966` (emerald-600) por `#236cc7`
+(brand-600): é a borda da aba ativa, exatamente o que a fase existe para fazer.
+
+### Cuidados que só apareceram executando
+
+- **`home.png` e `pricing.png` "mudaram" sem terem mudado.** A recaptura marcou as duas como
+  modificadas; a comparação pixel a pixel achou **11 e 16 pixels com delta ±1** nos cantos
+  arredondados — ruído de antialiasing do Chromium entre execuções, não cor. Passam no
+  `toHaveScreenshot` porque `maxDiffPixels: 0` convive com o `threshold` perceptual padrão (0,2),
+  que ignora delta de 1/255. As duas foram **restauradas do HEAD** para o PR conter só o escopo da
+  fase. Diferença de tamanho de arquivo (aqui, 1 byte) não prova nada: compare os pixels.
+- **Amostra sintética só mede classe que existe no CSS construído.** `bg-brand-700` voltou
+  transparente na medição porque essa classe **não aparece como estática** em lugar nenhum do
+  código — só como `hover:bg-brand-700`, e o Tailwind v4 gera apenas o que o scanner encontra. Não
+  era defeito do produto: os estados de hover foram provados procurando as regras
+  (`hover\:bg-brand-700` e as outras dez) no CSS de `dist/`.
+- **`.git/index` estava root-owned pela terceira fase seguida** (Fases 0, 2 e 3). O `chown` é o
+  primeiro comando, antes de qualquer `git`.
+- **Orçamento de login:** 6 rodadas de Playwright (comparação inicial, captura para análise,
+  medidor de cor, recaptura do baseline, comparação final), dentro do teto de 20 por IP a cada 15
+  minutos.
+
+### Achados registrados, fora do escopo desta fase
+
+- **"Precisa de Informação" é pintado de vermelho igual a "Não Conforme".** A cadeia de
+  `compliance_status` tem quatro valores mas só três ramos: `not_enough_information` cai no `else`
+  de `non_compliant`. Um requisito que só falta informação aparece como reprovado — e no projeto de
+  captura os **10 requisitos** estão nesse estado. Dar cor própria ao quarto valor é decisão de
+  produto, não de repaletização. **Levar para a Fase 9.**
+- **A coluna "Prioridade" da tabela de oportunidades tem cor fixa.** O badge é verde para `high`,
+  `medium` e `low` igualmente — a cor não carrega a informação que a coluna promete. Comparar com a
+  coluna homônima dos requisitos, que é uma escala real. **Levar para a Fase 9.**
+- **`waiting_internal` não encosta nesta fase.** A Área de Trabalho tem **zero** ocorrência desse
+  status (só `App.tsx`, `Home.tsx` e `ProjectsList.tsx` o exibem), então a divergência
+  `purple` × `amber` herdada da Fase 2 segue intocada e continua sendo assunto da Fase 9.
+- **As tabelas de requisitos, riscos e BOM transbordam em 1440px** — a coluna "Status de
+  Conformidade" fica cortada na captura de 1440. É **pré-existente** (idêntico no baseline da Fase
+  2) e é defeito de layout, não de cor.
 
 ---
 
