@@ -940,7 +940,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
             </div>
           ) : (
             <div className="h-10 max-w-[190px] flex items-center justify-center">
-              <img src="/logo-mountain.png" alt="CloudMountain" className="max-h-9 max-w-[170px] object-contain" />
+              <img src="/brand/symbol-on-dark.svg" alt="Pre-Sales Compliance Platform" className="max-h-9 max-w-[170px] object-contain" />
             </div>
           )}
           <div className="flex flex-col">

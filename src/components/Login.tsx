@@ -28,7 +28,6 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
   // Localization Dictionary
   const dict = {
     en: {
-      title: "Commercial Assistant AI",
       subtitle: "Enterprise Pre-Sales & Proposal Hardening Platform",
       emailLabel: "Work Email",
       passwordLabel: "Password",
@@ -51,7 +50,6 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
       pwdTooShort: "The new password must be at least 8 characters long."
     },
     pt: {
-      title: "Commercial Assistant AI",
       subtitle: "Plataforma de Engenharia de Pré-Vendas e Propostas",
       emailLabel: "E-mail Corporativo",
       passwordLabel: "Senha",
@@ -184,8 +182,7 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
       >
         {/* Header Branding */}
         <div className="text-center mb-8">
-          <img src="/logo-mountain.png" alt="CloudMountain" className="mx-auto h-14 w-auto object-contain mb-4" />
-          <h1 className="text-xl font-bold text-white tracking-tight leading-none mb-1.5">{dict.title}</h1>
+          <img src="/brand/logo-on-dark.svg" alt="Pre-Sales Compliance Platform" className="mx-auto h-14 w-auto object-contain mb-4" />
           <p className="text-xs text-slate-400 max-w-xs mx-auto leading-relaxed">{dict.subtitle}</p>
         </div>
 
