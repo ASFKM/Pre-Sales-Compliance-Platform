@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import ApiClient from "./lib/api";
 import Login from "./components/Login";
 import SystemMessageBanner from "./components/SystemMessageBanner";
+import BugReportButton from "./diagnostics/BugReportButton";
 import AdminConsole from "./components/AdminConsole";
 import Workspace from "./components/Workspace";
 import ProjectsList from "./components/ProjectsList";
@@ -909,7 +910,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
   if (authChecking) {
     return (
       <div id="app-loading-screen" className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
-        <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4" />
+        <div className="w-10 h-10 border-4 border-brand-500 border-t-transparent rounded-full animate-spin mb-4" />
         <p className="text-slate-400 font-mono text-xs">{tx("COMMERCIAL ASSISTANT AI - SECURE PORTAL BOOTING...", "COMMERCIAL ASSISTANT AI - INICIANDO PORTAL SEGURO...")}</p>
       </div>
     );
@@ -923,7 +924,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
     <div className="flex flex-col h-screen w-full bg-[#f8fafc] text-slate-900 font-sans overflow-hidden">
 
       {newVersionAvailable && (
-        <div className="shrink-0 z-20 bg-amber-500 text-amber-950 text-xs font-bold px-4 py-2 flex items-center justify-center gap-3">
+        <div className="shrink-0 z-20 bg-brand-600 text-white text-xs font-bold px-4 py-2 flex items-center justify-center gap-3">
           <span>{tx("A new version was installed on the server.", "Uma nova versão foi instalada no servidor.")}</span>
           <button onClick={() => window.location.reload()} className="underline">
             {tx("Reload page", "Recarregar página")}
@@ -953,7 +954,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
           <div className="flex items-center">
             <button
               onClick={() => setActiveTab("home")}
-              className={`py-4 px-1 border-b-2 transition-all ${activeTab === "home" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
+              className={`py-4 px-1 border-b-2 transition-all ${activeTab === "home" ? "text-white border-brand-500 font-semibold" : "border-transparent hover:text-white"}`}
             >
               {locale === "pt" ? "Início" : "Home"}
             </button>
@@ -962,7 +963,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
           <div className="flex items-center">
             <button
               onClick={() => setActiveTab("projectsList")}
-              className={`py-4 px-1 border-b-2 transition-all ${activeTab === "projectsList" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
+              className={`py-4 px-1 border-b-2 transition-all ${activeTab === "projectsList" ? "text-white border-brand-500 font-semibold" : "border-transparent hover:text-white"}`}
             >
               Projetos
             </button>
@@ -971,7 +972,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
           <div className="flex items-center">
             <button
               onClick={() => setActiveTab("workspace")}
-              className={`py-4 px-1 border-b-2 transition-all ${activeTab === "workspace" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
+              className={`py-4 px-1 border-b-2 transition-all ${activeTab === "workspace" ? "text-white border-brand-500 font-semibold" : "border-transparent hover:text-white"}`}
             >
               {t("workspace")}
             </button>
@@ -980,7 +981,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
           <div className="flex items-center">
             <button
               onClick={() => setActiveTab("proposals")}
-              className={`py-4 px-1 border-b-2 transition-all ${activeTab === "proposals" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
+              className={`py-4 px-1 border-b-2 transition-all ${activeTab === "proposals" ? "text-white border-brand-500 font-semibold" : "border-transparent hover:text-white"}`}
             >
               {t("proposalsStudio")}
             </button>
@@ -989,7 +990,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
           <div className="flex items-center">
             <button
               onClick={() => setActiveTab("approval")}
-              className={`py-4 px-1 border-b-2 transition-all ${activeTab === "approval" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
+              className={`py-4 px-1 border-b-2 transition-all ${activeTab === "approval" ? "text-white border-brand-500 font-semibold" : "border-transparent hover:text-white"}`}
             >
               {t("approvalCenter")}
             </button>
@@ -998,7 +999,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
           <div className="flex items-center">
             <button
               onClick={() => setActiveTab("knowledgeBase")}
-              className={`py-4 px-1 border-b-2 transition-all flex items-center gap-1.5 ${activeTab === "knowledgeBase" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
+              className={`py-4 px-1 border-b-2 transition-all flex items-center gap-1.5 ${activeTab === "knowledgeBase" ? "text-white border-brand-500 font-semibold" : "border-transparent hover:text-white"}`}
             >
               Base de Conhecimento
               {hasModule("ia_kb") && (
@@ -1021,10 +1022,10 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
             <div className="flex items-center">
               <button
                 onClick={() => setActiveTab("pocManagement")}
-                className={`py-4 px-1 border-b-2 transition-all flex items-center gap-2 ${activeTab === "pocManagement" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
+                className={`py-4 px-1 border-b-2 transition-all flex items-center gap-2 ${activeTab === "pocManagement" ? "text-white border-brand-500 font-semibold" : "border-transparent hover:text-white"}`}
               >
                 Gestão de POC
-                <span className="text-[9px] font-bold tracking-wide uppercase text-emerald-400 bg-emerald-400/10 border border-emerald-400/40 rounded-full px-1.5 py-0.5">
+                <span className="text-[9px] font-bold tracking-wide uppercase text-brand-400 bg-brand-400/10 border border-brand-400/40 rounded-full px-1.5 py-0.5">
                   Add-on
                 </span>
               </button>
@@ -1035,10 +1036,10 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
             <div className="flex items-center">
               <button
                 onClick={() => setActiveTab("pricing")}
-                className={`py-4 px-1 border-b-2 transition-all flex items-center gap-2 ${activeTab === "pricing" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
+                className={`py-4 px-1 border-b-2 transition-all flex items-center gap-2 ${activeTab === "pricing" ? "text-white border-brand-500 font-semibold" : "border-transparent hover:text-white"}`}
               >
                 Precificação
-                <span className="text-[9px] font-bold tracking-wide uppercase text-emerald-400 bg-emerald-400/10 border border-emerald-400/40 rounded-full px-1.5 py-0.5">
+                <span className="text-[9px] font-bold tracking-wide uppercase text-brand-400 bg-brand-400/10 border border-brand-400/40 rounded-full px-1.5 py-0.5">
                   Add-on
                 </span>
               </button>
@@ -1055,7 +1056,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                   }
                   setActiveTab("admin");
                 }}
-                className={`py-4 px-1 border-b-2 transition-all ${activeTab === "admin" ? "text-white border-emerald-500 font-semibold" : "border-transparent hover:text-white"}`}
+                className={`py-4 px-1 border-b-2 transition-all ${activeTab === "admin" ? "text-white border-brand-500 font-semibold" : "border-transparent hover:text-white"}`}
               >
                 {t("adminConsole")}
               </button>
@@ -1069,12 +1070,12 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
             <div
               className="flex items-center gap-2 bg-slate-800 p-1.5 rounded-lg border border-slate-700/80 transition-colors"
             >
-              <div className="w-7 h-7 rounded-md bg-emerald-600 flex items-center justify-center text-xs font-bold text-white uppercase font-sans">
+              <div className="w-7 h-7 rounded-md bg-brand-600 flex items-center justify-center text-xs font-bold text-white uppercase font-sans">
                 {currentSessionUser.name ? currentSessionUser.name.split(" ").map(n => n[0]).join("") : "U"}
               </div>
               <div className="hidden md:flex flex-col text-left">
                 <span className="text-xs font-semibold leading-tight text-white">{currentSessionUser.name}</span>
-                <span className="text-[10px] text-emerald-400 font-mono leading-none font-bold">{currentSessionUser.role}</span>
+                <span className="text-[10px] text-brand-400 font-mono leading-none font-bold">{currentSessionUser.role}</span>
               </div>
             </div>
 
@@ -1101,7 +1102,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
             <select
               value={selectedProjectId}
               onChange={(e) => setSelectedProjectId(e.target.value)}
-              className="font-bold text-slate-900 bg-slate-50 border border-slate-200 px-2 py-1 rounded hover:bg-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+              className="font-bold text-slate-900 bg-slate-50 border border-slate-200 px-2 py-1 rounded hover:bg-slate-100 focus:outline-none focus:ring-1 focus:ring-brand-600 cursor-pointer"
             >
               {projects.map(p => (
                 <option key={p.id} value={p.id}>{p.name}</option>
@@ -1114,10 +1115,10 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
             <span className="text-slate-400">
               {locale === "pt" ? "Status" : "Pipeline"}:
               <span className={`ml-1 text-[11px] font-bold px-2 py-0.5 rounded border ${
-                activeProject?.status === "completed" ? "text-emerald-700 bg-emerald-50 border-emerald-200" :
+                activeProject?.status === "completed" ? "text-success-700 bg-success-50 border-success-200" :
                 activeProject?.status === "analysis_in_progress" ? "text-blue-700 bg-blue-50 border-blue-200" :
                 activeProject?.status === "waiting_internal" ? "text-purple-700 bg-purple-50 border-purple-200" :
-                "text-amber-700 bg-amber-50 border-amber-200"
+                "text-slate-700 bg-slate-100 border-slate-200"
               }`}>
                 {locale === "pt" ?
                   (activeProject?.status === "completed" ? "CONCLUÍDO" :
@@ -1166,7 +1167,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
             <h3 className="text-[10px] uppercase tracking-widest text-slate-500 font-bold font-mono">{t("bidsManager")}</h3>
             <button
               onClick={() => setShowNewProjectModal(true)}
-              className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] px-2 py-1 rounded font-bold transition-all shadow-sm"
+              className="flex items-center gap-1 bg-brand-600 hover:bg-brand-700 text-white text-[11px] px-2 py-1 rounded font-bold transition-all shadow-sm"
             >
               <Plus size={12} /> {t("newBid")}
             </button>
@@ -1194,11 +1195,11 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
           <section className="flex-1 flex flex-col min-h-[180px] bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
             <h3 className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-2 flex justify-between items-center font-mono">
               <span>{t("specifications")} ({docsCount})</span>
-              <span className="text-emerald-600 text-xs font-semibold">{t("tenderDocs")}</span>
+              <span className="text-brand-600 text-xs font-semibold">{t("tenderDocs")}</span>
             </h3>
 
              {/* File Input */}
-             <div className="relative border-2 border-dashed border-slate-200 hover:border-emerald-500 rounded p-3 mb-2 text-center transition-all">
+             <div className="relative border-2 border-dashed border-slate-200 hover:border-brand-600 rounded p-3 mb-2 text-center transition-all">
                <input
                  type="file"
                  multiple
@@ -1218,7 +1219,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
              {/* Quick Sample Upload */}
              <button
                onClick={handleUploadSampleDocument}
-               className="text-[10px] text-emerald-600 hover:text-emerald-700 font-bold mb-3 hover:underline text-center cursor-pointer block leading-none"
+               className="text-[10px] text-brand-600 hover:text-brand-700 font-bold mb-3 hover:underline text-center cursor-pointer block leading-none"
              >
                ✨ {locale === "pt" ? "Enviar Documento de Exemplo" : "Upload Sample Document"}
              </button>
@@ -1242,7 +1243,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                            </p>
                            <button
                              onClick={() => setShowDocumentTypeModal(doc)}
-                             className="text-[9px] bg-slate-200 text-slate-600 px-1 rounded hover:bg-emerald-50 hover:text-emerald-700 font-mono font-bold uppercase transition-all mt-0.5 block"
+                             className="text-[9px] bg-slate-200 text-slate-600 px-1 rounded hover:bg-brand-50 hover:text-brand-700 font-mono font-bold uppercase transition-all mt-0.5 block"
                            >
                              {doc.manual_document_type || doc.detected_document_type} ✏️
                            </button>
@@ -1268,12 +1269,12 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               disabled={isProjectAnalyzing || documents.length === 0}
               className={`relative w-full py-2.5 rounded font-bold text-sm tracking-wide shadow-sm flex items-center justify-center gap-2 transition-all cursor-pointer overflow-hidden ${
                 isProjectAnalyzing ? "bg-slate-700 text-slate-300" :
-                documents.length === 0 ? "bg-slate-200 text-slate-400 cursor-not-allowed" : "bg-emerald-600 hover:bg-emerald-700 text-white font-mono"
+                documents.length === 0 ? "bg-slate-200 text-slate-400 cursor-not-allowed" : "bg-brand-600 hover:bg-brand-700 text-white font-mono"
               }`}
             >
               {isProjectAnalyzing && (
                 <span
-                  className="absolute inset-y-0 left-0 bg-emerald-600/40 transition-all duration-500"
+                  className="absolute inset-y-0 left-0 bg-brand-600/40 transition-all duration-500"
                   style={{ width: `${typeof projectAnalysisTask?.progress_pct === "number" ? projectAnalysisTask.progress_pct : 8}%` }}
                 />
               )}
@@ -1471,11 +1472,11 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
       <SystemMessageBanner locale={locale} hasPermission={hasPermission} />
 
       {/* 4. DIAGNOSTIC SYSTEM FOOTER */}
-      <footer className="h-8 bg-slate-900 border-t border-slate-800 px-3 lg:px-6 flex items-center justify-between gap-4 text-[10px] font-mono text-slate-400 shrink-0 shadow-lg overflow-x-auto whitespace-nowrap">
-        <div className="flex gap-6 items-center">
-          <span>{tx("Session", "Sessão")}: <span className="text-emerald-400">{currentSessionUser.name || "-"}</span> <span className="text-slate-500">({currentSessionUser.role || "-"})</span></span>
-          <span>{tx("Database", "Banco de Dados")}: <span className="text-emerald-400">PostgreSQL</span></span>
-          <span>{tx("Workspace Storage", "Armazenamento do Workspace")}: <span className="text-emerald-400 uppercase">
+      <footer className="h-8 bg-slate-900 border-t border-slate-800 px-3 lg:px-6 flex items-center justify-between gap-4 text-[10px] font-mono text-slate-400 shrink-0 shadow-lg overflow-hidden whitespace-nowrap">
+        <div className="flex gap-6 items-center min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <span>{tx("Session", "Sessão")}: <span className="text-brand-400">{currentSessionUser.name || "-"}</span> <span className="text-slate-500">({currentSessionUser.role || "-"})</span></span>
+          <span>{tx("Database", "Banco de Dados")}: <span className="text-brand-400">PostgreSQL</span></span>
+          <span>{tx("Workspace Storage", "Armazenamento do Workspace")}: <span className="text-brand-400 uppercase">
             {platformSettings?.storage_mode === "s3"
               ? `S3: ${platformSettings?.s3_bucket || "not configured"}`
               : platformSettings?.storage_mode === "gcs"
@@ -1483,11 +1484,11 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                 : `LOCAL: ${platformSettings?.local_storage_path || "./uploads"}`}
           </span></span>
           <span className="flex items-center gap-1.5 border-l border-slate-700 pl-6">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            LLM Análise: <span className="text-emerald-400 font-bold uppercase">{PROVIDER_DISPLAY_NAME[effectiveTaskProvider("document_analysis", platformSettings?.document_analysis_provider)] || effectiveTaskProvider("document_analysis", platformSettings?.document_analysis_provider)}</span>
+            <span className="w-2 h-2 rounded-full bg-success-500 animate-pulse"></span>
+            LLM Análise: <span className="text-brand-400 font-bold uppercase">{PROVIDER_DISPLAY_NAME[effectiveTaskProvider("document_analysis", platformSettings?.document_analysis_provider)] || effectiveTaskProvider("document_analysis", platformSettings?.document_analysis_provider)}</span>
           </span>
           <span className="flex items-center gap-1.5">
-            LLM Propostas: <span className="text-emerald-400 font-bold uppercase">{PROVIDER_DISPLAY_NAME[effectiveTaskProvider("proposal_generation", platformSettings?.proposal_generation_provider)] || effectiveTaskProvider("proposal_generation", platformSettings?.proposal_generation_provider)}</span>
+            LLM Propostas: <span className="text-brand-400 font-bold uppercase">{PROVIDER_DISPLAY_NAME[effectiveTaskProvider("proposal_generation", platformSettings?.proposal_generation_provider)] || effectiveTaskProvider("proposal_generation", platformSettings?.proposal_generation_provider)}</span>
           </span>
           {(() => {
             // Single fixed-width slot for ALL active job types (was two separate shrink-0
@@ -1537,7 +1538,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
             const extra = displayTasks.slice(1);
             return (
               <span className="flex items-center gap-2 border-l border-slate-700 pl-6 w-[260px] shrink-0">
-                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0"></span>
+                <span className="w-2 h-2 rounded-full bg-brand-400 animate-pulse shrink-0"></span>
                 <span className="flex-1 min-w-0 overflow-hidden">
                   <span className="inline-block whitespace-nowrap animate-footer-task-ticker">
                     {footerTaskLabel(primary.type)}: {primary.current_step}
@@ -1546,13 +1547,13 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                 </span>
                 <span className="w-16 h-1.5 bg-slate-700 rounded-full overflow-hidden shrink-0">
                   <span
-                    className="block h-full bg-amber-400 transition-all duration-500"
+                    className="block h-full bg-brand-400 transition-all duration-500"
                     style={{ width: `${typeof primary.progress_pct === "number" ? primary.progress_pct : 5}%` }}
                   />
                 </span>
                 {extra.length > 0 && (
                   <span
-                    className="shrink-0 text-amber-300 font-bold"
+                    className="shrink-0 text-brand-300 font-bold"
                     title={extra.map((t) => `${footerTaskLabel(t.type)}: ${t.current_step}`).join(", ")}
                   >
                     +{extra.length}
@@ -1562,19 +1563,20 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
             );
           })()}
         </div>
-        <div className="flex gap-4">
+        <div className="flex gap-4 shrink-0">
           <a
             href="/manuals/manual-usuario.html"
             target="_blank"
             rel="noopener"
-            className="text-slate-300 hover:text-emerald-400 hover:underline cursor-pointer transition-colors"
+            className="text-slate-300 hover:text-brand-400 hover:underline cursor-pointer transition-colors"
           >
             Manual do Usuário
           </a>
+          <BugReportButton />
           {hasPermission("admin:audit") && (
             <button
               onClick={() => setShowAuditModal(true)}
-              className="text-slate-300 hover:text-emerald-400 hover:underline cursor-pointer transition-colors"
+              className="text-slate-300 hover:text-brand-400 hover:underline cursor-pointer transition-colors"
             >
               Audit Logs ({auditLogs.length})
             </button>
@@ -1582,7 +1584,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
           {hasAnyPermission(["admin:debug", "admin:diagnostics"]) && (
             <button
               onClick={() => setShowDebugConsole(true)}
-              className="text-slate-300 hover:text-emerald-400 hover:underline cursor-pointer font-bold transition-colors"
+              className="text-slate-300 hover:text-brand-400 hover:underline cursor-pointer font-bold transition-colors"
             >
               Debug Console
             </button>

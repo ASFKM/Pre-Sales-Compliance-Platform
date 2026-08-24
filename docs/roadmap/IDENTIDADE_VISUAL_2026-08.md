@@ -53,7 +53,7 @@ aqui — é de lá que o dono copia para abrir a próxima conversa.
 |---|---|---|---|---|
 | 0 | Tokens `@theme` + rede de segurança visual | **✓ concluída** (24/08/2026) | `906668f` (PR #52) | 36 capturas de baseline; 11 tokens de marca + 4 rampas semânticas; zero mudança visual, provada |
 | 1 | Ativos de marca (vetor, favicon, logo) | **✓ concluída** (24/08/2026) | `c68067c` (PR #53) | símbolo e wordmark vetorizados dos pixels oficiais; 11 ativos em `public/brand/`; favicon criado do zero |
-| 2 | Shell e portas de entrada | não iniciada | — | App/Login/Home/ProjectsList/Banner |
+| 2 | Shell e portas de entrada | **✓ concluída** (24/08/2026) | `PLACEHOLDER_COMMIT` (PR #PLACEHOLDER_PR) | 86 trocas em 5 arquivos + "Reportar problema" movido para o rodapé; login em `brand-950`/`brand-600` (5,20:1); `draft` neutro e idêntico nas 3 telas |
 | 3 | Área de Trabalho | não iniciada | — | maior densidade de cor do produto |
 | 4 | Propostas, Aprovação e Conhecimento | não iniciada | — | — |
 | 5 | Módulo POC | não iniciada | — | add-on por entitlement |
@@ -414,21 +414,138 @@ a tolerância intacta em `maxDiffPixels: 0`.
 
 ---
 
-## Fase 2 — Shell e portas de entrada
+## Fase 2 — Shell e portas de entrada — ✓ CONCLUÍDA (24/08/2026)
 
 **Arquivos:** `App.tsx` (45 emerald / 11 amber), `Login.tsx` (4/8), `Home.tsx` (19/7),
 `ProjectsList.tsx` (8/4), `SystemMessageBanner.tsx` (0/3).
 
-**Escopo:** aplicar a regra de papéis ao shell — topbar, rodapé de diagnóstico, tarja de sistema,
-tela de login (campos, foco e botão saem do âmbar), KPIs e gráficos da Home.
+**86 trocas de cor em 5 arquivos, cada uma decidida pelo contexto** — o script de aplicação
+(descartado depois de rodar) ancorava cada troca em `(arquivo, linha, texto exato)` e abortava sem
+gravar nada se um só trecho não casasse. Foi o que aconteceu na primeira execução: quatro âncoras
+tinham a linha errada, e nenhum arquivo foi tocado. É o antídoto do `sed` cego que o plano proíbe.
 
-**Corrigir aqui o defeito já identificado:** `draft` é `slate-100` em `ProjectsList.tsx:17` e
-`amber-500` em `Home.tsx:375`. Mesmo estado, duas cores. Passa a ser neutro nas duas telas —
-rascunho não é alerta.
+### O que virou marca, o que continuou semântico
 
-**Critério de aceite:** nenhum botão primário verde ou âmbar no shell; login usando `brand-950`
-como fundo e `brand-600` como ação; `draft` neutro e idêntico nas duas telas; baseline comparado
-com crítica visual real, não só "renderizou".
+| Papel | Onde | Resultado |
+|---|---|---|
+| Ação e identidade | botões primários, links, foco de campo, nav ativa, avatar, barras de progresso, badge "Add-on", dropzone | `brand-600` em fundo claro (hover `brand-700`), `brand-400`/`brand-500` em fundo escuro |
+| **Sucesso** | ponto de saúde do LLM no rodapé, badge "CONCLUÍDO", status `completed` nos gráficos | **continua verde**, agora escrito `success-*` |
+| **Atenção** | `ShieldAlert` da troca obrigatória de senha, status "aguardando" em `ProjectsList` | **continua âmbar**, agora escrito `warning-*` |
+| **Erro** | status "cancelado" | continua vermelho, agora `danger-*` |
+| **Neutro** | `draft` nas três telas | `slate-100`/`slate-700` (badge) e `slate-400` (barra) |
+
+**Em fundo escuro o hover clareia, não escurece.** A regra do plano (`brand-600` → hover
+`brand-700`) foi escrita para fundo claro. No login os três botões já clareavam no hover
+(`amber-600`→`amber-500`, `emerald-600`→`emerald-500`); manter `hover:bg-brand-500` preserva a
+affordance. Escurecer sobre `brand-950` faria o botão sumir ao passar o mouse.
+
+### Quatro coisas que o mapeamento do plano não previa
+
+1. **O login tinha TRÊS botões primários, em três cores.** Âmbar (trocar senha), verde (entrar) e
+   **`sky-600`** (verificar MFA) — este último invisível para um grep de `emerald|amber`, que é
+   como o escopo da fase foi dimensionado. Mesmo papel, três cores; e `sky` é um azul que
+   competiria diretamente com a marca. Os três viraram `brand-600`, e o foco do campo de MFA
+   (`sky-500`) acompanhou.
+2. **O fundo do login era pintado por `rgba()` literal, não por classe.** Dois gradientes radiais
+   decorativos com `rgba(16,185,129,…)` (emerald-500) e `rgba(14,165,233,…)` (sky-500) escritos à
+   mão. O verde aposentado estava literalmente pintando o fundo da porta de entrada do produto e
+   nenhum grep de classe o encontraria. Primeira tentativa com alfa alto (0,10 / 0,18) clareou o
+   fundo a ponto de o cartão perder destaque — corrigido para 0,08 / 0,05, ambos `brand-500`.
+3. **O defeito do `draft` tinha uma terceira ocorrência.** O plano mapeava duas
+   (`ProjectsList.tsx:17` neutro, `Home.tsx:375` âmbar). Havia uma terceira em `App.tsx:1120`: o
+   badge de status na barra do projeto, que cai no `else` da cadeia de status e portanto pintava
+   **RASCUNHO de âmbar em todas as telas internas do produto**. As três agora são idênticas,
+   provado por cor computada.
+4. **`SystemMessageBanner.tsx` não usava classe Tailwind nenhuma.** Fundo e borda eram
+   `style={{ background: "#78350f" }}` inline — `amber-900`/`amber-800` em hexadecimal. Passou a
+   `bg-brand-800 border-brand-600` com tokens. Comunicado de manutenção não tem campo de
+   severidade no modelo de dados; pintá-lo de âmbar prometia "atenção" para qualquer aviso.
+
+### Pedido do dono durante a execução: "Reportar problema" saiu de cima do rodapé
+
+A pastilha `position: fixed` do CloudMountain Diagnostics Agent (`BugReportButton.tsx`, renderizada
+em `main.tsx` fora da árvore do `App`) ficava ancorada no canto inferior direito e **cobria o
+próprio rodapé de diagnóstico** — tapava "Audit Logs" e parte do "Debug Console". Está visível
+assim em todas as 36 imagens do baseline da Fase 1, e ninguém tinha reparado até o dono apontar.
+
+Virou um link do rodapé, ao lado de "Manual do Usuário", com exatamente as mesmas classes dos
+vizinhos. Isso expôs um transbordo que a pastilha escondia: **o rodapé já não cabia em 1440px**.
+O bloco de links ganhou `shrink-0` (ação tem prioridade sobre valor informativo) e o bloco de
+diagnóstico virou rolável com a barra suprimida
+(`overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden`) — encolhe primeiro, mas
+nada fica inacessível. Resolver o transbordo de vez exige decidir **o que sai** do rodapé, e isso
+é decisão do dono: fica para a Fase 9.
+
+### Decisões conscientes de NÃO trocar
+
+- **`getDocTag()` em `App.tsx:670-672`** — as tags de extensão (PDF vermelho, DOCX azul, XLSX
+  verde, CAD roxo, IMG âmbar) são uma legenda **categórica** por tipo de arquivo, não um papel
+  semântico. Trocar o verde por azul faria XLSX colidir com DOCX; neutralizar tudo apagaria a
+  legenda. Ficam como estão — as duas únicas ocorrências de `emerald`/`amber` que sobrevivem nos
+  cinco arquivos da fase.
+- **Os 4 cards de KPI da Home foram tratados como conjunto, não como uma ocorrência.** Eram
+  emerald / blue / purple / âmbar — quatro cores arbitrárias. Trocar só o verde deixaria o card 1
+  idêntico ao card 2. Os quatro ícones passaram a `brand-50`/`brand-100`/`brand-600`: a distinção
+  já é feita pelo ícone e pelo rótulo, e o âmbar do card "POCs Ativas" deixou de sugerir alerta
+  onde só há contagem. **Reversível numa linha** se o dono preferir a variedade cromática.
+
+### Como ficou provado
+
+**Cor computada no navegador, não classe no JSX** — a lição da Fase 1 aplicada à cor. Um script
+temporário mediu `getComputedStyle` e, como o Tailwind v4 serializa as cores embutidas em
+`oklch()`, **pintou cada valor num canvas 1×1 e leu o pixel**: é a cor que o usuário vê.
+
+```
+fundo do login          #03102c  (brand-950)      cartão do login   #061a3d  (brand-900)
+botão "Entrar"          #236cc7  sobre #ffffff -> 5,20:1  PASSA WCAG AA  (era 3,77:1)
+foco do campo           #288bf9  (brand-500)      nav ativa         #288bf9
+avatar                  #236cc7  (brand-600)      valor do rodapé   #52a1f4  (brand-400)
+ponto de saúde do LLM   #00bc7d  VERDE preservado
+badge RASCUNHO          #f1f5f9 / #314158  IDÊNTICO em App.tsx, Home.tsx e ProjectsList.tsx
+barra "Rascunho"        #90a1b9  (slate-400)
+```
+
+A varredura final classificou **por matiz do pixel pintado** (não por string de classe) o fundo de
+todo `<button>` e `<a>` das três telas do shell: zero elementos com matiz verde (90°–175°) ou
+âmbar (25°–70°). Os verdes que ainda aparecem no Admin Console são escopo da Fase 7.
+
+No próprio dev: `npm run lint` limpo, `npm run build` completo, `npm run test` com **16 arquivos e
+98 testes passando**, e as 36 capturas do baseline regravadas e revisadas. Antes de qualquer
+edição a rede visual foi executada contra o baseline da Fase 1 e deu **36/36 verdes** — a fase
+começou de um estado provadamente são.
+
+### Cuidados que só apareceram executando
+
+- **`getComputedStyle` mente sobre a cor quando ela vem do Tailwind v4.** As rampas embutidas
+  (`slate`, `emerald`, e as rampas semânticas da Fase 0, copiadas de `theme.css`) são `oklch()`, e
+  o Chromium devolve `oklch(0.696 0.17 162.48)`. Um parser ingênuo de números leu isso como
+  `#0100a2` e reprovou o ponto de saúde verde do rodapé — um falso defeito do medidor, não do
+  produto. Só os tokens `brand-*`, que a Fase 0 escreveu em hexadecimal, voltam como `rgb()`.
+  **Deixe o navegador pintar e leia o pixel.**
+- **`tsx` quebra `page.evaluate()` com funções internas nomeadas.** O esbuild injeta o auxiliar
+  `__name`, que não existe dentro do navegador, e o erro é `ReferenceError: __name is not
+  defined` — sem relação aparente com o código. Passar a função como string resolve.
+- **`text-is('RASCUNHO')` não encontra um badge que diz RASCUNHO.** O texto no DOM é `Rascunho`;
+  as maiúsculas vêm de `uppercase` no CSS. O Playwright casa contra o DOM.
+- **`.auth/capture-state.json` não sobrevive entre rodadas** — qualquer verificação com Playwright
+  gasta uma das 20 tentativas de login por IP a cada 15 minutos. Esta fase consumiu 6 (comparação
+  inicial, captura para análise, três execuções do medidor, recaptura do baseline) e não chegou
+  perto do teto, mas o orçamento precisa ser planejado antes, não descoberto no meio.
+- **`.git/index` estava root-owned de novo** ao começar a fase, exatamente como na Fase 0. O
+  `chown` é o primeiro comando, antes de qualquer `git`.
+
+### Achados registrados, fora do escopo desta fase
+
+- **`waiting_internal` tem duas cores diferentes.** É `purple` em `App.tsx`/`Home.tsx` e `amber`
+  em `ProjectsList.tsx` — o mesmo defeito do `draft`, num estado que o escopo desta fase não
+  mandava corrigir. Decidir entre "aguardando = pendência (âmbar)" e "aguardando = etapa do
+  pipeline (roxo)" é decisão de produto, não de repaletização. **Levar para a Fase 9.**
+- **A topbar quebra com nome de usuário longo.** O cartão do usuário cobre o último item de
+  navegação ("Base de Conhecimento") em 1440px. É **pré-existente** — está idêntico no baseline da
+  Fase 1 — e é defeito de layout, não de cor.
+- **`analysis_in_progress` é `blue-*`**, vizinho do azul da marca. Não colide hoje (`blue-700` vs
+  `brand-600` são distinguíveis) mas convém revisar quando as fases 3–7 aumentarem a densidade de
+  azul.
 
 ---
 
