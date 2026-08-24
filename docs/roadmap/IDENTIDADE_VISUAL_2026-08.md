@@ -52,7 +52,7 @@ aqui — é de lá que o dono copia para abrir a próxima conversa.
 | Fase | Nome | Status | Commit | Observações |
 |---|---|---|---|---|
 | 0 | Tokens `@theme` + rede de segurança visual | **✓ concluída** (24/08/2026) | `906668f` (PR #52) | 36 capturas de baseline; 11 tokens de marca + 4 rampas semânticas; zero mudança visual, provada |
-| 1 | Ativos de marca (vetor, favicon, logo) | não iniciada | — | depende da 0 |
+| 1 | Ativos de marca (vetor, favicon, logo) | **✓ concluída** (24/08/2026) | `c68067c` (PR #PLACEHOLDER_PR) | símbolo e wordmark vetorizados dos pixels oficiais; 11 ativos em `public/brand/`; favicon criado do zero |
 | 2 | Shell e portas de entrada | não iniciada | — | App/Login/Home/ProjectsList/Banner |
 | 3 | Área de Trabalho | não iniciada | — | maior densidade de cor do produto |
 | 4 | Propostas, Aprovação e Conhecimento | não iniciada | — | — |
@@ -286,29 +286,131 @@ completo e `npm run test` com **16 arquivos e 98 testes passando**. O gate é ex
 **Rollback:** remover o bloco `@theme` de `src/index.css` e a devDependency. Nada além disso foi
 tocado no código do produto.
 
-## Fase 1 — Ativos de marca
+## Fase 1 — Ativos de marca — ✓ CONCLUÍDA (24/08/2026)
 
-**Escopo:**
-- **Vetorizar o símbolo** (hexágono isométrico "P" + check) como SVG limpo. É geometria chapada,
-  vetorizável com fidelidade; o gradiente do hexágono vira `linearGradient` com as paradas reais
-  (`#288bf9` → `#75c1fd`).
-- Gerar a partir do vetor: logo horizontal para fundo claro e para fundo escuro, símbolo isolado,
-  favicon (16/32/180/512) e app icon.
-- **Nomear por destino, não por cor da arte**: `logo-on-light`, `logo-on-dark` — a pasta do Drive
-  usa "Dark" com dois sentidos opostos ([[feedback_marca_polaridade_dark_light_invertida]]).
-- Substituir nos 3 pontos de uso: `App.tsx:943` (topbar), `Login.tsx:187` (logo principal),
-  favicon. `Login.tsx:388` mantém a Cloud Mountain no "POWERED BY".
-- `AdminConsole.tsx:2653` (`cmsaas-icon.png`) não é marca do produto — não tocar.
+**Por que existia:** o produto se apresentava com a marca da **empresa** (Cloud Mountain, montanha
+azul-glacial H≈202°) nos dois lugares onde deveria estar a marca do **produto**, e não tinha
+favicon nenhum — a aba usava o ícone padrão do navegador. A rampa `brand-*` que a Fase 0 instalou
+saiu dos pixels da logo do produto; sem trocar o ativo, a cor nova ficaria ancorada numa marca que
+não aparecia em lugar nenhum da tela.
 
-**Cuidados registrados:** os PNGs do Drive são RGB **sem canal alfa**, com o xadrez rasterizado —
-não usar direto. Validar o que é **pintado**, não o que é baixado
-([[feedback_picture_no_cliente_busca_fallback]]).
+### O que foi entregue
 
-**Testes:** conferir nitidez real a 16px e 32px; confirmar por `currentSrc` que cada tema recebe a
-arte certa; verificar que não sobrou fundo xadrez em nenhuma superfície.
+**1. O símbolo virou vetor de verdade.** Não existe original vetorial (decisão do dono), então a
+geometria foi **medida nos pixels** de `PreSales Ico Transparent.png` (1254²), não desenhada a
+olho: rastreamento de contorno das três peças (anel hexagonal, haste do "P", check) seguido de
+simplificação, e cada vértice do desenho final é uma coordenada medida. A silhueta reconstruída
+diverge do bitmap oficial em **1,47%** dos pixels — só borda de anti-aliasing.
 
-**Critério de aceite:** logo do produto nítida na topbar e no login, favicon correto na aba, zero
-xadrez, Cloud Mountain preservada só no rodapé do login.
+O resultado é um SVG de **2,5 KB com 8 paths**: cinco faces do prisma isométrico, a haste e o
+check. As sete faces recebem `linearGradient` com `gradientUnits="userSpaceOnUse"`, e as paradas
+saíram das medições — inclusive `#75c1fd`, que aparece literalmente na face superior-direita da
+versão para fundo escuro (`#77c2fe` medido).
+
+**2. Wordmark vetorizado a partir da arte real.** "PRESALES" e "COMPLIANCE PLATFORM" foram
+rastreados de `PreSales Logo.png` e ajustados com curvas de Bézier cúbicas (algoritmo de
+Schneider). A escolha foi deliberada: identificar a fonte e recompor o texto produziria um
+wordmark *parecido*, não o aprovado — o arquivo tem tracking próprio. A reconstrução diverge do
+bitmap em **0,76%** (linha 1) e **3,04%** (linha 2), toda a divergência em anti-aliasing.
+
+**3. Onze ativos, nomeados por destino.** Em `public/brand/` (e `public/favicon.ico` na raiz, onde
+os navegadores procuram por convenção):
+
+| Arquivo | Papel |
+|---|---|
+| `symbol.svg` / `symbol-on-dark.svg` | símbolo isolado, uma variante por fundo |
+| `logo-on-light.svg` / `logo-on-dark.svg` | logo horizontal (símbolo + wordmark) |
+| `favicon.svg` + `favicon-16.png` + `favicon-32.png` | ícone de aba |
+| `favicon.ico` | 16 + 32 + 48, cada tamanho rasterizado do próprio vetor |
+| `apple-touch-icon.png` (180) / `icon-512.png` / `app-icon.svg` | ícone de aplicativo |
+
+**Nomear por destino, e não pela cor da arte, era o ponto.** A pasta do Drive usa "Dark" com dois
+sentidos opostos — em `Logo Dark` significa "para fundo escuro" (arte clara), em `Ico Dark`
+significa "arte escura" — e o mesmo erro já custou uma sessão em outro produto
+([[feedback_marca_polaridade_dark_light_invertida]]).
+
+**4. Pontos de uso trocados.**
+
+| Onde | Antes | Depois |
+|---|---|---|
+| `App.tsx` topbar | `/logo-mountain.png` | `/brand/symbol-on-dark.svg` |
+| `Login.tsx` marca do cartão | `/logo-mountain.png` | `/brand/logo-on-dark.svg` |
+| `index.html` | **nenhum `<link rel="icon">`** | 6 declarações + `theme-color` |
+| `Login.tsx` rodapé "POWERED BY" | `/logo-cloudmountain-full.png` | **inalterado, de propósito** |
+| `AdminConsole.tsx` `cmsaas-icon.png` | — | **não tocado** (não é marca do produto) |
+
+O logo por tenant (`brandLogoDataUrl`) continua vencendo quando existe — a troca foi só no
+*fallback*. Nenhuma classe de cor foi alterada: esta é fase de ativo, e misturá-la com
+repaletização destruiria a validação visual.
+
+**Na topbar entrou o símbolo isolado, não a logo horizontal**, porque o `<span>` ao lado já diz
+"Plataforma de Compliance de Pré-Vendas" — a horizontal repetiria o nome do produto duas vezes
+lado a lado. No login a horizontal cabe: lá o wordmark é a apresentação da marca.
+
+**5. "Commercial Assistant AI" saiu do login** (pedido do dono durante a execução). Era o `<h1>`
+logo abaixo da logo, e depois da troca ficava contradizendo o wordmark PRESALES que passou a estar
+acima dele. Saíram o `<h1>` e as duas chaves `title` do dicionário, que ficariam órfãs.
+
+### Cuidados que só apareceram executando
+
+- **SVG sem `width`/`height` no elemento raiz colapsa para 0×0 dentro de um `<img>` dimensionado
+  só por `max-*`.** Foi o defeito que quase passou: a primeira versão dos ativos tinha apenas
+  `viewBox`, e a logo **desapareceu de todas as telas** — sem erro de rede, sem falha de console,
+  com `complete: true` e `naturalWidth: 150` (o *default sizing* do Chrome). O `test:visual`
+  acusou até **45% da tela** diferente em mobile, porque a topbar sem a imagem reflowou de duas
+  linhas para uma e empurrou a página inteira. O sintoma parecia deslocamento de layout; a causa
+  era a logo não existir. Corrigido adicionando `width`/`height` explícitos ao `<svg>`.
+  Ver [[feedback_svg_sem_width_height_colapsa_em_img]].
+- **Validar o que é PINTADO, não o que é baixado.** O SVG era servido com `200` e
+  `Content-Type: image/svg+xml` correto *enquanto a logo não aparecia na tela*. Só a inspeção do
+  `getBoundingClientRect()` no navegador revelou o `0x0`. Os seis ícones declarados no
+  `index.html` foram conferidos um a um por `currentSrc` + dimensão natural real.
+- **O xadrez não pode aparecer porque nenhum pixel do original foi copiado.** Os PNGs do Drive são
+  RGB sem canal alfa, com o xadrez de transparência rasterizado (~`#f4f4f4`). Como os ativos são
+  geometria medida e não bitmap reamostrado, a prova é estrutural: zero `<image>` e zero `base64`
+  nos seis SVGs, e `symbol.svg`/`logo-on-light.svg` rasterizados a 512px têm **0,000%** de pixels
+  na faixa do xadrez.
+- **O favicon precisou de fundo próprio.** O símbolo transparente funciona em aba clara e
+  **desaparece em aba escura** — a haste e o V do "P" são navy (`#112447`) contra o `#35363a` da
+  aba escura do Chrome. Quatro desenhos foram rasterizados a 16px e 32px sobre os dois fundos e
+  comparados; venceu o símbolo *on-dark* sobre o navy oficial da marca (`#03102c`, `brand-950`),
+  com 8% de margem e raio de 18% — idêntico nas duas abas e coerente com o app icon oficial, que
+  também é símbolo claro sobre navy.
+- **A 16px o check é sugerido, não legível.** É limite do desenho, não da vetorização: o símbolo
+  tem detalhe interno fino. A 32px — o que a maioria dos navegadores usa em tela HiDPI — está
+  nítido. Nenhum ajuste óptico foi aplicado à marca para forçar os 16px.
+- **O limitador de login mordeu de novo.** Cada `capture:ui` e cada `test:visual` gasta uma das
+  20 tentativas por IP a cada 15 minutos, e esta fase precisou de várias rodadas (comparar, achar
+  o `0x0`, corrigir, comparar de novo, remover o `<h1>`, comparar mais uma vez). A rodada que
+  estoura o teto falha com `TimeoutError` esperando o `#login-card` — de novo um problema de
+  orçamento de requisições disfarçado de defeito de interface.
+
+### Como ficou provado
+
+`npm run lint` limpo, `npm run build` completo e `npm run test` com **16 arquivos e 98 testes**
+passando, tudo no próprio `home-comercial-01`.
+
+Na comparação visual, a diferença ficou **confinada às faixas onde a marca aparece**: em desktop,
+`y[10,54]` (a topbar) em 17 telas e `y[197,703]` no cartão de login; em mobile, `y[2,37]` e a
+mesma região do login. Nenhum deslocamento vertical de conteúdo. Os dois únicos pixels fora dessa
+regra são o anti-aliasing do canto arredondado do avatar na Home mobile (`#019866` → `#038f62`).
+O deslocamento **horizontal** dos itens da topbar é consequência direta e esperada da troca: a
+montanha ocupava 67×36 px, o símbolo do produto é quadrado e ocupa 36×36.
+
+Baseline regravado com `npm run capture:ui` e `npm run test:visual` de volta a **36 verdes**, com
+a tolerância intacta em `maxDiffPixels: 0`.
+
+### O que ficou aberto
+
+- **"Commercial Assistant AI" ainda vive em três lugares fora da interface**, e sair de cada um
+  tem custo próprio: `server/utils/security.ts:441` é o **issuer do TOTP** — mudá-lo invalida a
+  entrada no aplicativo autenticador de quem já cadastrou MFA, e é migração, não renomeação;
+  `server/utils/docx.ts:371-372` são metadados do documento gerado, que já são escopo declarado da
+  **Fase 8**; `server/routes/diagnostics.ts:150` é o rótulo do motor na tela de diagnóstico.
+- **`public/logo-mountain.png` ficou órfão** — nenhum ponto de uso o referencia. Mantido de
+  propósito: é a marca da empresa e a Fase 8 mexe em branding por tenant.
+- **`logo-on-light.svg` ainda não tem consumidor na interface** (o produto é escuro nos dois
+  pontos de marca). Foi gerado para o DOCX e o branding por tenant da Fase 8.
 
 ---
 
