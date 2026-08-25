@@ -205,7 +205,7 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
               </div>
 
               {error && (
-                <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-3 rounded-lg flex items-center gap-2 text-xs">
+                <div className="bg-danger-500/10 border border-danger-500/20 text-danger-400 p-3 rounded-lg flex items-center gap-2 text-xs">
                   <CircleAlert className="w-4 h-4 shrink-0" />
                   <span>{error}</span>
                 </div>
@@ -277,7 +277,7 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
               className="space-y-4"
             >
               {error && (
-                <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-3 rounded-lg flex items-center gap-2 text-xs">
+                <div className="bg-danger-500/10 border border-danger-500/20 text-danger-400 p-3 rounded-lg flex items-center gap-2 text-xs">
                   <CircleAlert className="w-4 h-4 shrink-0" />
                   <span>{error}</span>
                 </div>
@@ -334,7 +334,7 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
               className="space-y-4"
             >
               <div className="text-center mb-4">
-                <div className="mx-auto w-10 h-10 bg-sky-500/10 border border-sky-500/30 rounded-xl flex items-center justify-center mb-3 text-sky-400">
+                <div className="mx-auto w-10 h-10 bg-brand-500/10 border border-brand-500/30 rounded-xl flex items-center justify-center mb-3 text-brand-400">
                   <Key className="w-5 h-5" />
                 </div>
                 <h3 className="text-sm font-semibold text-white">{dict.mfaTitle}</h3>
@@ -342,7 +342,7 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
               </div>
 
               {error && (
-                <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-3 rounded-lg flex items-center gap-2 text-xs">
+                <div className="bg-danger-500/10 border border-danger-500/20 text-danger-400 p-3 rounded-lg flex items-center gap-2 text-xs">
                   <CircleAlert className="w-4 h-4 shrink-0" />
                   <span>{error}</span>
                 </div>

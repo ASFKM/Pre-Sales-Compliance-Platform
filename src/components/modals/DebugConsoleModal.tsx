@@ -16,7 +16,7 @@ export default function DebugConsoleModal({ debugLogs, locale, tx, hasPermission
       <div className="bg-white rounded-xl border border-slate-200 w-[850px] h-[650px] overflow-hidden shadow-2xl flex flex-col">
         <div className="bg-slate-950 text-white p-4 flex justify-between items-center shrink-0">
           <div className="flex items-center gap-2">
-            <Cpu size={16} className="text-emerald-500" />
+            <Cpu size={16} className="text-brand-400" />
             <h3 className="text-sm font-bold uppercase font-mono tracking-wider">
               {locale === "pt" ? "Logs de Rastreamento da Orquestração de IA" : "Pre-Sales AI Orchestration Trace logs"}
             </h3>
@@ -26,8 +26,8 @@ export default function DebugConsoleModal({ debugLogs, locale, tx, hasPermission
 
         <div className="p-4 bg-slate-900 border-b border-slate-800 flex justify-between items-center shrink-0">
           <div className="flex gap-4 text-xs font-mono text-slate-400">
-            <span>{tx("Debug Records", "Registros de Debug")}: <span className="text-emerald-400 font-bold">{debugLogs.length}</span></span>
-            <span>{tx("Diagnostics", "Diagnóstico")}: <span className="text-emerald-400 font-bold">{tx("Sanitized", "Sanitizado")}</span></span>
+            <span>{tx("Debug Records", "Registros de Debug")}: <span className="text-brand-400 font-bold">{debugLogs.length}</span></span>
+            <span>{tx("Diagnostics", "Diagnóstico")}: <span className="text-brand-400 font-bold">{tx("Sanitized", "Sanitizado")}</span></span>
           </div>
           <button
             onClick={() => {
@@ -37,7 +37,7 @@ export default function DebugConsoleModal({ debugLogs, locale, tx, hasPermission
               }
               onExportDiagnostics();
             }}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-3 rounded shadow-sm transition-all cursor-pointer"
+            className="bg-brand-600 hover:bg-brand-500 text-white font-mono text-xs font-bold py-1.5 px-3 rounded shadow-sm transition-all cursor-pointer"
           >
             {locale === "pt" ? "Baixar Pacote de Diagnóstico" : "Download Diagnostic Package"}
           </button>
@@ -48,7 +48,7 @@ export default function DebugConsoleModal({ debugLogs, locale, tx, hasPermission
             <div key={dbg.id} className="p-2.5 bg-slate-900/50 rounded border border-slate-850 hover:bg-slate-900 transition-colors">
               <div className="flex justify-between items-start mb-1">
                 <span className={`font-bold uppercase tracking-wider text-[10px] px-1.5 rounded ${
-                  dbg.log_level === "ERROR" ? "bg-red-500/20 text-red-400" : (dbg.log_level === "WARN" ? "bg-amber-500/20 text-amber-400" : "bg-emerald-500/20 text-emerald-400")
+                  dbg.log_level === "ERROR" ? "bg-danger-500/20 text-danger-400" : (dbg.log_level === "WARN" ? "bg-warning-500/20 text-warning-400" : "bg-brand-500/20 text-brand-400")
                 }`}>{dbg.log_level}</span>
                 <span className="text-slate-500 text-[10px]">{dbg.timestamp}</span>
               </div>

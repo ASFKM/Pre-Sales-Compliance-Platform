@@ -58,7 +58,7 @@ aqui — é de lá que o dono copia para abrir a próxima conversa.
 | 4 | Propostas, Aprovação e Conhecimento | **✓ concluída** (24/08/2026) | `63157e9` (PR #56) | 195 trocas em 7 arquivos; ciclo de vida da proposta em 5 cores distintas; 4 modais fora do baseline provados por captura, medição e hover real |
 | 5 | Módulo POC | **✓ concluída** (24/08/2026) | `27e8628` (PR #57) | 243 trocas em 4 arquivos; Gantt decidido barra a barra; animação `poc-start-glow` tokenizada; 5 sub-abas fora do baseline provadas no navegador |
 | 6 | Módulo Precificação | **✓ concluída** (24/08/2026) | `db4f031` (PR #58) | 103 trocas em 7 arquivos; primeiro gráfico recharts do programa tokenizado; duas escalas decididas inteiras; 6 superfícies para 1 imagem do baseline |
-| 7 | Admin Console e resíduos | não iniciada | — | maior arquivo (3.338 linhas) |
+| 7 | Admin Console e a varredura final | **✓ concluída** (25/08/2026) | `__COMMIT__` (PR #59) | 222 trocas em 8 arquivos; `sky` e `rose` decididos; família dos 5 badges de arquivo unificada; `waiting_internal` com uma cor; zero cor não-semântica em todo o `src/` |
 | 8 | DOCX + branding por tenant | não iniciada | — | torna real a tela "Identidade Visual" |
 | 9 | Validação visual, contraste e release | não iniciada | — | **gate humano** |
 
@@ -1181,30 +1181,277 @@ No próprio dev: `npm run lint` limpo, `npm run build` completo, `npm run test` 
 
 ---
 
-## Fase 7 — Admin Console e resíduos
+## Fase 7 — Admin Console e a varredura final — ✓ CONCLUÍDA (25/08/2026)
 
-**Arquivos:** `AdminConsole.tsx` (90/15, 3.338 linhas), `DebugConsoleModal.tsx`,
-`AuditLogsModal.tsx`.
+**Arquivos:** `AdminConsole.tsx` (3.338 linhas — o maior do produto), `App.tsx`, `Login.tsx`,
+`ProjectsList.tsx`, `Home.tsx`, `DebugConsoleModal.tsx`, `AuditLogsModal.tsx`, e
+`diagnostics/BugReportModal.tsx` (entrou pela varredura de hex).
 
-**Escopo adicional — varredura final:** eliminar literais hex remanescentes em `src/` e
-trocá-los pelos tokens. Ao final desta fase, `grep -rE '#[0-9a-fA-F]{6}' src/` não deve retornar
-cor de marca hardcoded. **Medido depois da Fase 6** (que já resolveu os 4 do gráfico da
-Precificação), sobram **9 ocorrências fora de `src/index.css`**:
+**222 trocas em 8 arquivos:** as **219 classes** que o levantamento previa, casadas exatamente,
+mais **3 literais** fora de classe Tailwind. As **214 âncoras** do script de aplicação
+`(arquivo, linha, token, contagem naquela linha)` — com aborto sem gravar se uma só não casasse —
+**casaram de primeira**, sexta fase seguida. O aplicador desta fase acrescentou uma trava nova:
+além de exigir que cada âncora exista, ele **recusa a linha se sobrar na string qualquer token de
+família sem âncora**. É o que garante que nenhuma cor escapou por descuido de mapeamento, e não só
+que as mapeadas foram trocadas.
+
+**A varredura final valeu para o produto inteiro, não só para os sete arquivos:** depois desta
+fase, `grep -rE '(emerald|amber|red|blue|sky|rose|purple|green|orange|yellow|indigo|violet|teal|cyan|fuchsia|pink|lime)-[0-9]{2,3}' src/`
+não retorna **nada**. As sete famílias do critério de aceite e mais dez que ninguém tinha
+procurado: zero ocorrências em todo o `src/`.
+
+### `sky` e `rose`: as duas famílias que nenhuma fase anterior encontrou
+
+Foram decididas **antes** de qualquer troca, lendo os call-sites:
+
+- **`sky` (7 ocorrências) é a seção "Atualizações do Sistema" inteira** — a tarja de informe
+  (`systemUpdateMessage`), o texto "Atualização em andamento...", a barra de progresso e o degrau
+  `in_progress` do histórico. Não é uma cor decorativa: é **progresso e informação**, e a escala já
+  fixada diz que progresso é marca. Foi para `brand`. O ganho não é só tirar a colisão com o azul
+  da marca — é que o produto tinha **dois azuis vizinhos** dizendo coisas diferentes na mesma tela,
+  e agora tem um.
+- **`rose` (5 ocorrências) são dois botões destrutivos** — "Remover" um provedor de IA e "Apagar"
+  um template de proposta. O produto já tem `danger` para destrutivo, e a três telas de distância
+  o "Apagar" de um fluxo de aprovação era `red-50/700` enquanto o de um template era
+  `rose-200/600`: **mesmo papel, dois vermelhos**. Foram para `danger`, e o par ficou simétrico.
+
+**A barra de progresso subiu de tom, de propósito.** `sky-500` virou **`brand-600`**, não
+`brand-500`: a trilha é `slate-100` e `brand-500` sobre ela dá **3,12:1**, raspando o piso de 3:1
+de objeto gráfico. `brand-600` dá 5,20:1. Mesma lógica da linha do gráfico da Fase 6.
+
+### A família dos 5 badges de tipo de arquivo, decidida inteira
+
+`getDocTag()` (`App.tsx:669-673`) pintava PDF de vermelho, DOCX de azul, XLSX de verde, CAD de roxo
+e IMG de âmbar — **cinco cores para cinco categorias**, num produto onde vermelho significa erro,
+âmbar significa pendência e verde significa conforme. Um PDF numa lista de documentos aparecia
+igual a um item com problema.
+
+A Fase 2 tinha decidido **não** tocá-los ("trocar o verde por azul faria XLSX colidir com DOCX;
+neutralizar tudo apagaria a legenda"). A Fase 4 resolveu o caso gêmeo — os 4 chips de perspectiva
+do parecer de IA — uniformizando a família e deixando o ícone e o rótulo distinguirem. **Aqui o
+argumento é mais forte ainda: o rótulo do badge JÁ É a extensão** ("PDF", "DOCX", "XLSX"). A cor
+não acrescenta informação que o texto não dê; só compete com o vocabulário semântico.
+
+Os cinco viraram `bg-brand-100 / text-brand-700 / border-brand-200` — **6,10:1**, uma família só.
+Não foram para `slate` porque o badge vive dentro de um cartão `bg-slate-50` e desapareceria.
+**Reversível numa linha**, como os KPIs das Fases 2 e 3, se o dono preferir a variedade cromática.
+
+Esta é a única decisão da fase que muda pixel **fora** dos sete arquivos: `getDocTag` é passado
+como prop para o `Workspace`, então o badge aparece nas **6 sub-abas da Área de Trabalho** também.
+
+### Os dois consoles escuros: uma frase, e por que ela vence o VT100
+
+`DebugConsoleModal` e `AuditLogsModal` usavam `emerald-400`/`emerald-500` como verde de terminal
+sobre fundo escuro. É idioma legítimo — console é verde fosforado desde o VT100 — e mesmo assim
+saiu:
+
+> **O verde fosforado é idioma de terminal, mas neste produto o verde acabou de ser reservado para
+> "conforme" — e num painel onde o vizinho do INFO é o ERROR vermelho e o WARN âmbar, verde lê como
+> "passou", que é exatamente o que o nível INFO não afirma.**
+
+O trio `ERROR`/`WARN`/`INFO` **é uma escala de severidade**, e o INFO é o degrau mais baixo dela,
+não um desfecho bom. Ficou `danger` / `warning` / **`brand`** — a mesma decisão que o informe da
+seção "Atualizações do Sistema" recebeu, em dois lugares distintos do produto. Medido no navegador,
+com a transparência `/20` composta pelos ancestrais:
 
 ```
-src/App.tsx:352 #059669   :353 #10b981   :464 #059669   :465 #10b981   :924 #f8fafc
-src/components/AdminConsole.tsx:2987 #10b981   :3005 #cccccc   :3051 #10b981
-src/diagnostics/BugReportModal.tsx:79 #b23b3b
+ERROR  #ff6467 sobre #391526   5,13:1  ✓        (danger-400 sobre danger-500/20)
+WARN   #ffb900 sobre #3a2b1b   7,17:1  ✓        (warning-400 sobre warning-500/20)
+INFO   #52a1f4 sobre #142e54   4,99:1  ✓        (brand-400 sobre brand-500/20)
 ```
 
-`#059669`/`#10b981` são `emerald-600`/`emerald-500` — a marca aposentada. Os 16 hex de
-`src/index.css` são os valores literais dos tokens e **ficam**.
+**Em botão sólido de fundo escuro o piso é `brand-600`, não `brand-500`.** A regra da Fase 2 diz
+"ação em fundo escuro → `brand-500`/`brand-400`", mas ela vale para texto e ícone. Os dois botões
+dos consoles têm **texto branco**: sobre `brand-500` isso daria 2,54:1. Ficaram
+`bg-brand-600 hover:bg-brand-500` — 5,20:1 em repouso, e o hover **clareia**, como no login.
+
+### `waiting_internal`: uma cor no produto inteiro
+
+O achado aberto desde a Fase 2 — `purple` em `App.tsx:1120` e `Home.tsx:439`, `warning` em
+`ProjectsList.tsx` — foi resolvido: **o âmbar venceu**. Três razões, nesta ordem:
+
+1. **Roxo não existe no vocabulário do produto.** Não tem papel atribuído em nenhuma das sete
+   fases; é uma cor órfã que sobrou do desenho original.
+2. **"Aguardando Interno" é literalmente uma pendência** — alguém do nosso lado precisa agir. Âmbar
+   é o papel canônico de atenção, e o irmão `waiting_customer` já era âmbar nas três telas.
+3. **`ProjectsList` já estava em âmbar desde a Fase 2**, então unificar no âmbar mexe em duas telas
+   em vez de três.
+
+Na mesma passada, `analysis_in_progress` saiu de `blue` para **`brand`** nas três telas — o achado
+que a Fase 2 registrou como "vizinho do azul da marca, revisar quando a densidade de azul
+aumentar". Ele não era só vizinho: **"em progresso" é marca** pela escala fixada desde a Fase 3. A
+escala de status de projeto agora é idêntica em `App.tsx`, `Home.tsx` e `ProjectsList.tsx`:
+
+```
+RASCUNHO             slate-100 / slate-700    9,45:1
+ANÁLISE EM ANDAMENTO brand-50  / brand-700    6,90:1     (era azul genérico)
+AGUARDANDO INTERNO   warning-50/ warning-700  4,85:1     (era ROXO em 2 das 3 telas)
+CONCLUÍDO            success-50/ success-700  5,09:1
+```
+
+### Os 9 hex: 3 resolvidos, 6 adiados com o motivo escrito
+
+| Onde | O que era | Desfecho |
+|---|---|---|
+| `App.tsx:924` | `bg-[#f8fafc]`, o fundo da aplicação inteira | → `bg-slate-50`, **pixel-idêntico** |
+| `AdminConsole.tsx:3005` | `"#cccccc"`, amostra de cor sem valor | → `var(--color-neutral-300)` (`#cad5e2`) |
+| `BugReportModal.tsx:79` | `"#b23b3b"` inline, texto de erro | → `var(--color-danger-700)`, **6,42:1** |
+| `App.tsx:352/353/464/465` · `AdminConsole.tsx:2987/3051` | `#059669`/`#10b981` | **adiados para a Fase 8** |
+
+**`bg-slate-50` foi confirmado pintando o pixel, não presumido**: computa `#f8fafc`, o mesmo valor
+do literal que substituiu. É a única troca da fase com zero diferença de pixel.
+
+**Por que os seis foram adiados — e não é preguiça.** Eles são o *default* da cor de marca por
+tenant (`brandPrimaryColor`/`primary_color`). `BrandingSettings.primaryColor` é `String` **sem
+default no schema**: os literais do código são o fallback de leitura e o default de criação de um
+estilo novo. Trocá-los agora, sem a migration da Fase 8, criaria **duas verdades** —
+um tenant com `#059669` já gravado (valor que ele nunca escolheu) continuaria verde, enquanto um
+tenant sem registro nasceria azul — e a tela "Identidade Visual" mostraria azul enquanto o DOCX
+gerado, que lê do banco por `resolveBrandingHeader`, sairia verde. A troca certa é
+`código + migration ancorada no valor real por linha`, que é escopo declarado da Fase 8
+([[feedback_migration_seed_nunca_afrouxa_default]]). Fazer metade agora é pior que não fazer.
+
+O `#b23b3b` **não** ficou de fora, ao contrário do que o levantamento supunha: o modal não usa
+Tailwind, mas CSS var resolve em `style={{}}` inline como resolve em atributo SVG (Fases 5 e 6).
+Custou uma linha e subiu o contraste de ~5,3:1 para 6,42:1.
+
+### Como as seções fora do baseline e os dois modais foram verificados
+
+O Admin Console tem **11 seções** e o baseline fotografa **4** (`overview`, `users`, `branding`,
+`audit`). As outras sete — `ai`, `templates`, `approval_flow`, `subscription`, `system_updates`,
+`integrations`, `storage` — e os **dois modais**, que o baseline **nunca** cobre, foram abertos um
+a um no navegador e capturados em pasta separada (`--out /tmp/fase7/...`, sem tocar no baseline).
+São **13 superfícies**, e cada uma foi capturada **duas vezes**: com `git stash` + `npm run build`
+no HEAD para o "antes", e de novo com a mudança. As 13 mudaram, e a troca dominante de cada uma é
+exatamente a que a fase existe para fazer — `#009966` (emerald-600) → `#236cc7` (brand-600) em oito
+delas.
+
+A varredura mediu **19.709 elementos com cor** classificados **por matiz do pixel pintado**, e o
+resultado é o critério de aceite: **zero `<button>` ou `<a>` com fundo verde ou âmbar** nas 13
+superfícies.
+
+**O dado de dev cobre menos da metade da matriz, e o banco disse isso em segundos:**
+
+- **os 8 projetos estão TODOS em `draft`** — os badges `analysis_in_progress`, `waiting_internal` e
+  `completed` que esta fase acabou de unificar **nunca renderizam** com dado real;
+- as **3 linhas do histórico de atualização estão TODAS em `failed`**, e o estado atual é `failed`
+  sem agendamento: dos onze pontos de cor da seção, cinco não aparecem;
+- as **5 versões de prompt estão TODAS ativas** — o botão "Ativar" (que era âmbar-como-ação) não
+  renderiza;
+- a tabela `brand_styles` está **vazia** — a amostra de cor e a lixeira não renderizam;
+- só **4 PDFs e 2 TXTs** entre os documentos: **4 dos 5 badges de tipo** nunca aparecem.
+
+O que o banco não cobre foi medido em **33 amostras sintéticas com as classes reais do
+componente**, montadas dentro da aplicação viva — e todas passam AA. O que existe em repouso foi
+medido no elemento vivo; o que só existe em interação, com interação de verdade: `page.hover()` no
+primário (`#236cc7` → `#1a539e`, 5,20 → 7,57), no atalho de configuração (borda `#f1f5f9` →
+`#77b8f8`) e no "Apagar" fluxo (invertendo para sólido `#e7000b` com texto branco), e **foco real
+de campo** com o anel em `#288bf9` (`brand-500`), lido de `--tw-ring-color`.
+
+Os quatro estados que **nem o banco nem a interação alcançam** — o hover do "Remover" provedor de
+IA (`hover:bg-danger-50`, `hover:border-danger-300`, `hover:text-danger-700`) e o do "Ativar"
+versão (`hover:bg-brand-100`) — foram provados **procurando as regras no CSS construído**, como a
+Fase 3 fez: as 12 regras de `hover:` da fase existem em `dist/assets/*.css`.
+
+### Um achado corrigido: os chips da topbar PASSAM AA
+
+A Fase 5 registrou os chips "ADD-ON" e "IA/KB" da topbar em **2,46:1 e 1,61:1** e mandou para a
+Fase 9. **Medidos com a transparência composta pelos ancestrais, eles dão 5,68:1 e 7,49:1.**
+
+O mecanismo do erro antigo: os chips são `text-*-300/400` sobre `bg-*-500/10`, e esse `/10` vive
+sobre a **topbar escura**. Medir o texto claro contra o `/10` renderizado sobre **branco** (que é o
+que um medidor sem composição faz) dá exatamente ~1,6:1. O fundo real composto é `#112340`, não
+`#e8f2ff`. **Achado retirado da Fase 9** — e vale a regra geral: cor com alfa só pode ser medida
+subindo pelos ancestrais até encontrar opacidade 1.
+
+### Como ficou provado
+
+`npm run test:visual` deu **36/36 verdes antes de qualquer mudança** — a fase começou de um estado
+provadamente são — e **36/36 de novo** com o baseline regravado, tolerância intacta em
+`maxDiffPixels: 0`. No próprio dev: `npm run lint` limpo, `npm run build` completo e `npm run test`
+com **16 arquivos e 98 testes** passando.
+
+**20 das 36 imagens do baseline foram regravadas** e revisadas uma a uma:
+
+- as **4 telas admin × 2 larguras** (8 imagens) — `admin-users` mudou 129.143 px, quase tudo
+  `#ecfdf5 → #ebf6ff`: são os ~60 chips de permissão dos 3 perfis;
+- as **6 sub-abas do Workspace no desktop** (6 imagens), todas com os mesmos 1.276 px em
+  `y[587,618]` — o badge PDF do painel de documentos, `#fef2f2 → #d2eafe`. É a única mudança fora
+  dos sete arquivos, e é consequência direta da decisão da família de badges;
+- **`knowledge-base`, `poc` e `pricing`** nas duas larguras (6 imagens), com ~915 px em `y[18,35]`
+  (desktop) e `y[114,131]` (telefone): o chip "IA/KB" da topbar, `#8ec5ff → #77b8f8`.
+
+**`home.png` apareceu "modificada" e a comparação pixel a pixel deu 11 px com Δmax=3** — delta ≤1
+por canal, o ruído de antialiasing do Chromium. **Restaurada do HEAD.** Aconteceu nas Fases 3, 4,
+5, 6 e agora 7: é regra, não exceção. Diferença de tamanho de arquivo nunca prova mudança de
+imagem.
+
+### Duas correções de contraste que só a medição encontrou
+
+O `text-red-400` de dois botões destrutivos **em fundo claro** foi traduzido para `danger-400` na
+primeira passada, preservando o tom — e a medição mostrou **2,89:1** (ícone de excluir comunicado,
+`AdminConsole:1195`) e **2,76:1** (o "×" de excluir vertical, `:2337`, texto de 12px/600). Abaixo
+do piso de 3:1 de objeto gráfico e dos 4,5:1 de texto. Subiram para `danger-600` (**4,77:1**).
+
+Os `danger-400` que **ficaram** são os de fundo **escuro** — `App.tsx:1084` na topbar e o `ERROR`
+do console (5,13:1) — onde claro-sobre-escuro é justamente o certo.
+
+### Cuidados que só apareceram executando
+
+- **`Escape` não fecha os modais do produto.** O overlay `fixed inset-0` continua no DOM e
+  **intercepta o clique seguinte**, com o erro apontando para o elemento errado ("`<p>` … subtree
+  intercepts pointer events"). Fechar pelo botão de fechar; e gravar o resultado da varredura
+  **a cada passo**, não no fim, senão uma falha no último passo joga fora a rodada inteira.
+- **Script fora da raiz do repositório não resolve módulo do repositório** — a lição da Fase 6
+  vale para `pngjs` e `@playwright/test` tanto quanto para `@prisma/client`. `node /tmp/x.mjs`
+  falha com `ERR_MODULE_NOT_FOUND`.
+- **Prisma 7: os nomes do cliente são camelCase, os do banco são snake_case.** `isActive` (não
+  `is_active`), `defaultTemplate`, `logLevel`, `originalFilename`, `storageMode`,
+  `lastAttemptStatus`. Ler o `schema.prisma` antes de escrever o `select`, terceira fase seguida
+  em que isso custa uma rodada.
+- **Script temporário na raiz quebra `npm run lint`.** O `tsc --noEmit` varre a raiz inteira, e um
+  script de sondagem com um nome de campo errado reprova o gate sem que nada do produto esteja
+  errado. Apagar os scripts antes de rodar os gates finais — e não confundir o erro deles com erro
+  do código.
+- **Classe que não existe no CSS construído volta preta na amostra sintética.** `text-danger-500`
+  mediu `#000000` (20,07:1!) porque nenhum arquivo do produto a usa. O número absurdo é o sinal —
+  a lição da Fase 3, agora com o sintoma nomeado.
+- **`.git/index` não estava root-owned** — quarta fase seguida com a varredura limpa
+  (`find . -path ./node_modules -prune -o -not -user sakae -print` vazio antes e depois).
+- **Orçamento de login: 1 tentativa gastada em 9 execuções de navegador.** O
+  `.auth/capture-state.json` foi reaproveitado em **todas** as rodadas de verificação — a melhor
+  marca do programa (a Fase 6 gastou 4 em 7). Testar o estado salvo antes de logar paga sempre.
+
+### Achados registrados, fora do escopo desta fase
+
+- **O primário `bg-slate-900` de novo, agora na quarta tela.** "Atualizar Agora", o botão que
+  dispara a atualização do sistema, é cinza-escuro ao lado de um cartão cuja informação principal
+  está em azul de marca. É a mesma família do "Salvar" das Fases 4 e 5, do par de modo da Fase 6 e
+  do "Adicionar Item" que a Fase 3 corrigiu. **Fase 9.**
+- **As 4 barras do "Pipeline de Status" da Home reprovam o piso de 3:1 contra a trilha
+  `slate-100`** — e a que esta fase trocou é a **única** que passa: `brand-500` **3,12:1**,
+  `warning-500` 1,95:1, `success-500` 2,26:1, `slate-400` 2,40:1. Manter o degrau `-500` preservou
+  a escala herdada da Fase 2; subir um só a desequilibraria. A escala inteira é decisão de
+  desenho. **Fase 9.**
+- **"Precisa de Informação" segue como a Fase 3 o deixou.** `not_enough_information` só aparece em
+  `Workspace.tsx` (como `<option>` do seletor, linha 622) — o ramo faltante da cadeia de
+  `compliance_status` está na Área de Trabalho, **não** no Admin Console. **Fase 9**, como o
+  escopo previa.
+- **A coluna "Prioridade" da tabela de oportunidades** também vive no `Workspace.tsx`. **Fase 9.**
+- **Erro exibido como aviso** (6 lugares), o `disabled:opacity-60` do primário e a
+  **Precificação não responsiva a 390px** seguem como as Fases 4, 5 e 6 os deixaram. **Fase 9.**
+- **Os chips "ADD-ON" e "IA/KB" saem da lista da Fase 9** — passam AA (5,68:1 e 7,49:1), medidos
+  com o alfa composto.
 
 ---
 
 ## Fase 8 — DOCX + branding por tenant
 
 **Escopo:**
+- **Os 6 literais hex que a Fase 7 adiou** (`App.tsx:352/353/464/465`, `AdminConsole.tsx:2987/3051`)
+  saem junto com a migration, nunca antes: trocar o fallback do código sem migrar as linhas cria
+  duas verdades (tenant com `#059669` gravado fica verde, tenant sem registro nasce azul) e faz a
+  tela divergir do DOCX gerado.
 - Default de `BrandingSettings.primaryColor` passa a `#236cc7`. **Migração ancorada no valor real
   por linha** — instalações que já customizaram a cor mantêm a sua; só quem está no default antigo
   migra ([[feedback_migration_seed_nunca_afrouxa_default]]).

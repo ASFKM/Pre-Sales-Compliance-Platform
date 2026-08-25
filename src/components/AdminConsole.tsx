@@ -830,7 +830,7 @@ export default function AdminConsole({
                     href="/manuals/manual-administracao.html"
                     target="_blank"
                     rel="noopener"
-                    className="mt-3 inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-400 hover:text-emerald-300 hover:underline"
+                    className="mt-3 inline-flex items-center gap-1.5 text-[11px] font-semibold text-brand-400 hover:text-brand-300 hover:underline"
                   >
                     <BookOpen size={12} />
                     {locale === "pt" ? "Manual de Administração" : "Administration Manual"}
@@ -929,7 +929,7 @@ export default function AdminConsole({
                           </h3>
                           <button
                             onClick={() => setActiveAdminSection("integrations")}
-                            className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2 py-1 rounded"
+                            className="text-[10px] font-bold text-brand-700 bg-brand-50 border border-brand-200 px-2 py-1 rounded"
                           >
                             {locale === "pt" ? "Gerenciar" : "Manage"}
                           </button>
@@ -950,7 +950,7 @@ export default function AdminConsole({
                               <div key={conn.id} className="p-2 bg-slate-50 border border-slate-100 rounded-lg">
                                 <div className="flex items-center justify-between gap-2">
                                   <span className="font-semibold text-slate-700 text-xs truncate">{conn.name}</span>
-                                  <span className={`text-[9px] px-1.5 py-0.5 rounded uppercase font-bold shrink-0 ${conn.status === "connected" ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500"}`}>
+                                  <span className={`text-[9px] px-1.5 py-0.5 rounded uppercase font-bold shrink-0 ${conn.status === "connected" ? "bg-success-100 text-success-700" : "bg-slate-200 text-slate-500"}`}>
                                     {conn.status}
                                   </span>
                                 </div>
@@ -968,7 +968,7 @@ export default function AdminConsole({
                           </h3>
                           <button
                             onClick={() => setActiveAdminSection("ai")}
-                            className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2 py-1 rounded"
+                            className="text-[10px] font-bold text-brand-700 bg-brand-50 border border-brand-200 px-2 py-1 rounded"
                           >
                             {locale === "pt" ? "Configurar" : "Configure"}
                           </button>
@@ -979,7 +979,7 @@ export default function AdminConsole({
                             <div key={prov.id} className="p-2.5 bg-slate-50 border border-slate-100 rounded-lg">
                               <div className="flex justify-between items-center gap-2">
                                 <span className="font-semibold text-slate-700 text-xs truncate">{prov.name}</span>
-                                <span className={`text-[9px] font-bold ${prov.configured ? "text-emerald-600" : "text-slate-400"}`}>
+                                <span className={`text-[9px] font-bold ${prov.configured ? "text-success-700" : "text-slate-400"}`}>
                                   {prov.configured ? (locale === "pt" ? "Configurado" : "Configured") : (locale === "pt" ? "Não configurado" : "Not configured")}
                                 </span>
                               </div>
@@ -1025,19 +1025,19 @@ export default function AdminConsole({
                           {locale === "pt" ? "Atalhos de Configuração" : "Configuration Shortcuts"}
                         </h3>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                          <button onClick={() => setActiveAdminSection("branding")} className="p-2.5 text-left bg-slate-50 border border-slate-100 rounded-lg hover:border-emerald-300">
+                          <button onClick={() => setActiveAdminSection("branding")} className="p-2.5 text-left bg-slate-50 border border-slate-100 rounded-lg hover:border-brand-300">
                             <span className="font-bold text-slate-700 block">{locale === "pt" ? "Visual" : "Branding"}</span>
                             <span className="text-[10px] text-slate-500">{locale === "pt" ? "Logo/cores" : "Logo/colors"}</span>
                           </button>
-                          <button onClick={() => setActiveAdminSection("templates")} className="p-2.5 text-left bg-slate-50 border border-slate-100 rounded-lg hover:border-emerald-300">
+                          <button onClick={() => setActiveAdminSection("templates")} className="p-2.5 text-left bg-slate-50 border border-slate-100 rounded-lg hover:border-brand-300">
                             <span className="font-bold text-slate-700 block">{locale === "pt" ? "Templates" : "Templates"}</span>
                             <span className="text-[10px] text-slate-500">{locale === "pt" ? "Modelos" : "Models"}</span>
                           </button>
-                          <button onClick={() => setActiveAdminSection("approval_flow")} className="p-2.5 text-left bg-slate-50 border border-slate-100 rounded-lg hover:border-emerald-300">
+                          <button onClick={() => setActiveAdminSection("approval_flow")} className="p-2.5 text-left bg-slate-50 border border-slate-100 rounded-lg hover:border-brand-300">
                             <span className="font-bold text-slate-700 block">{locale === "pt" ? "Aprovação" : "Approval"}</span>
                             <span className="text-[10px] text-slate-500">{locale === "pt" ? "Fluxo" : "Workflow"}</span>
                           </button>
-                          <button onClick={() => setActiveAdminSection("storage")} className="p-2.5 text-left bg-slate-50 border border-slate-100 rounded-lg hover:border-emerald-300">
+                          <button onClick={() => setActiveAdminSection("storage")} className="p-2.5 text-left bg-slate-50 border border-slate-100 rounded-lg hover:border-brand-300">
                             <span className="font-bold text-slate-700 block">Storage</span>
                             <span className="text-[10px] text-slate-500">{locale === "pt" ? "Arquivos" : "Files"}</span>
                           </button>
@@ -1116,7 +1116,7 @@ export default function AdminConsole({
                             alert(err.message || (locale === "pt" ? "Não foi possível enviar." : "Could not send."));
                           }
                         }}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 rounded shrink-0"
+                        className="bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold px-4 rounded shrink-0"
                       >
                         {locale === "pt" ? "Enviar" : "Send"}
                       </button>
@@ -1163,7 +1163,7 @@ export default function AdminConsole({
                                 </select>
                                 <button
                                   onClick={() => handleUpdateMessage(m.id)}
-                                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-1.5 rounded"
+                                  className="bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold px-3 py-1.5 rounded"
                                 >
                                   {locale === "pt" ? "Salvar" : "Save"}
                                 </button>
@@ -1192,7 +1192,7 @@ export default function AdminConsole({
                                   <button onClick={() => startEditingMessage(m)} className="text-slate-400 hover:text-slate-700 p-1" title={locale === "pt" ? "Editar" : "Edit"}>
                                     <Pencil size={13} />
                                   </button>
-                                  <button onClick={() => handleDeleteMessage(m.id)} className="text-red-400 hover:text-red-700 p-1" title={locale === "pt" ? "Excluir" : "Delete"}>
+                                  <button onClick={() => handleDeleteMessage(m.id)} className="text-danger-600 hover:text-danger-700 p-1" title={locale === "pt" ? "Excluir" : "Delete"}>
                                     <X size={13} />
                                   </button>
                                 </div>
@@ -1215,7 +1215,7 @@ export default function AdminConsole({
                           <p className="text-[10px] uppercase font-mono text-slate-400 mt-3 mb-2">{locale === "pt" ? "Permissões do perfil" : "Role permissions"}</p>
                           <div className="flex flex-wrap gap-1.5">
                             {(role.permissions || []).map(mod => (
-                              <span key={mod} className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100 font-bold">
+                              <span key={mod} className="text-[10px] px-2 py-0.5 rounded-full bg-brand-50 text-brand-700 border border-brand-100 font-bold">
                                 {mod}
                               </span>
                             ))}
@@ -1333,7 +1333,7 @@ export default function AdminConsole({
                             />
                             <button
                               onClick={handleCreateUser}
-                              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded px-3 py-2"
+                              className="bg-brand-600 hover:bg-brand-700 text-white font-bold rounded px-3 py-2"
                             >
                               {locale === "pt" ? "Criar Usuário" : "Create User"}
                             </button>
@@ -1363,7 +1363,7 @@ export default function AdminConsole({
                                   value={u.name}
                                   onChange={(e) => setUsers(users.map((usr) => usr.id === u.id ? { ...usr, name: e.target.value } : usr))}
                                   onBlur={(e) => handleUpdateUser(u.id, { name: e.target.value })}
-                                  className="w-full bg-transparent border border-transparent hover:border-slate-200 focus:border-emerald-500 rounded px-2 py-1 outline-none"
+                                  className="w-full bg-transparent border border-transparent hover:border-slate-200 focus:border-brand-500 rounded px-2 py-1 outline-none"
                                 />
                               </td>
                               <td className="p-3 font-semibold text-slate-500">
@@ -1371,7 +1371,7 @@ export default function AdminConsole({
                                   value={u.email}
                                   onChange={(e) => setUsers(users.map((usr) => usr.id === u.id ? { ...usr, email: e.target.value } : usr))}
                                   onBlur={(e) => handleUpdateUser(u.id, { email: e.target.value })}
-                                  className="w-full bg-transparent border border-transparent hover:border-slate-200 focus:border-emerald-500 rounded px-2 py-1 outline-none"
+                                  className="w-full bg-transparent border border-transparent hover:border-slate-200 focus:border-brand-500 rounded px-2 py-1 outline-none"
                                 />
                               </td>
                               <td className="p-3 font-semibold uppercase text-slate-600">
@@ -1427,7 +1427,7 @@ export default function AdminConsole({
                                     </button>
                                     <button
                                       onClick={() => handleDeleteUser(u.id)}
-                                      className="bg-red-50 hover:bg-red-600 hover:text-white text-red-700 px-2 py-1 rounded text-[10px] font-bold"
+                                      className="bg-danger-50 hover:bg-danger-600 hover:text-white text-danger-700 px-2 py-1 rounded text-[10px] font-bold"
                                       disabled={u.id === currentSessionUser.id}
                                       title={u.id === currentSessionUser.id ? (locale === "pt" ? "Não é possível apagar o usuário logado." : "Cannot delete the current logged-in user.") : ""}
                                     >
@@ -1456,7 +1456,7 @@ export default function AdminConsole({
                                             setForcePasswordChangeOnReset(true);
                                             alert(locale === "pt" ? "Senha atualizada." : "Password updated.");
                                           }}
-                                          className="bg-emerald-600 text-white px-2 py-1 rounded text-[10px] font-bold"
+                                          className="bg-brand-600 text-white px-2 py-1 rounded text-[10px] font-bold"
                                         >
                                           OK
                                         </button>
@@ -1489,7 +1489,7 @@ export default function AdminConsole({
                       </h3>
 
                       {iaKbModuleEnabled && (
-                        <div className="p-3 rounded-lg border bg-blue-50 border-blue-200 text-blue-800">
+                        <div className="p-3 rounded-lg border bg-brand-50 border-brand-200 text-brand-800">
                           <p className="text-[10px] uppercase font-bold tracking-wider font-mono">
                             {locale === "pt" ? "Add-on IA/KB ativo" : "IA/KB add-on active"}
                           </p>
@@ -1504,7 +1504,7 @@ export default function AdminConsole({
                       {!iaKbModuleEnabled && (<>
                       <div className="space-y-3">
                         {PROVIDER_STATUS.map((prov) => (
-                          <div key={prov.id} className={`p-3 rounded-lg border ${prov.configured ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-amber-50 border-amber-200 text-amber-800"}`}>
+                          <div key={prov.id} className={`p-3 rounded-lg border ${prov.configured ? "bg-success-50 border-success-200 text-success-800" : "bg-warning-50 border-warning-200 text-warning-800"}`}>
                             <div className="flex items-center justify-between gap-3 mb-2">
                               <div>
                                 <p className="text-[10px] uppercase font-bold tracking-wider font-mono">{prov.name}</p>
@@ -1536,7 +1536,7 @@ export default function AdminConsole({
                                   handleSaveAiApiKey(prov.id, aiKeyDrafts[prov.id] || "");
                                   setAiKeyDrafts((prev) => ({ ...prev, [prov.id]: "" }));
                                 }}
-                                className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 rounded text-[10px] font-bold font-mono shrink-0"
+                                className="bg-brand-600 hover:bg-brand-700 text-white px-3 rounded text-[10px] font-bold font-mono shrink-0"
                               >
                                 {locale === "pt" ? "Salvar" : "Save"}
                               </button>
@@ -1571,7 +1571,7 @@ export default function AdminConsole({
                                   <p className="text-[11px] font-bold text-slate-700 truncate">{p.display_name} <span className="text-slate-400 font-normal">({p.provider_key})</span></p>
                                   <p className="text-[10px] text-slate-400 font-mono truncate">{p.base_url} · {p.default_model} · {p.api_key_masked}</p>
                                   {(p.supports_vision || p.supports_web_search) && (
-                                    <p className="text-[9px] text-emerald-600 font-mono mt-0.5">
+                                    <p className="text-[9px] text-brand-700 font-mono mt-0.5">
                                       {[p.supports_vision && (locale === "pt" ? "PDF/visão" : "PDF/vision"), p.supports_web_search && (locale === "pt" ? "busca web" : "web search")]
                                         .filter(Boolean)
                                         .join(" · ")}
@@ -1580,7 +1580,7 @@ export default function AdminConsole({
                                 </div>
                                 <button
                                   onClick={() => handleDeleteAiProvider(p.id)}
-                                  className="bg-white hover:bg-rose-50 border border-slate-300 hover:border-rose-300 text-slate-500 hover:text-rose-600 px-2 py-1 rounded text-[10px] font-bold font-mono shrink-0"
+                                  className="bg-white hover:bg-danger-50 border border-slate-300 hover:border-danger-300 text-slate-500 hover:text-danger-700 px-2 py-1 rounded text-[10px] font-bold font-mono shrink-0"
                                 >
                                   {locale === "pt" ? "Remover" : "Remove"}
                                 </button>
@@ -1689,7 +1689,7 @@ export default function AdminConsole({
                                   setNewProviderSupportsWebSearch(false);
                                 }
                               }}
-                              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-3 rounded shadow-sm transition-all cursor-pointer"
+                              className="w-full bg-brand-600 hover:bg-brand-700 text-white font-mono text-xs font-bold py-1.5 px-3 rounded shadow-sm transition-all cursor-pointer"
                             >
                               {locale === "pt" ? "Adicionar Provedor" : "Add Provider"}
                             </button>
@@ -1769,7 +1769,7 @@ export default function AdminConsole({
                                         handleSavePlatformSettings(modelField, newModelOptions[0]);
                                       }
                                     }}
-                                    className="w-1/2 p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-semibold text-slate-700"
+                                    className="w-1/2 p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-semibold text-slate-700"
                                   >
                                     <option value="gemini">Google Gemini</option>
                                     <option value="anthropic">Anthropic Claude {!PROVIDER_STATUS.find(p => p.id === "anthropic")?.configured ? (locale === "pt" ? "(não conectado)" : "(not connected)") : ""}</option>
@@ -1782,7 +1782,7 @@ export default function AdminConsole({
                                     value={modelOptions.includes(currentModel) ? currentModel : (modelOptions[0] || "")}
                                     onChange={(e) => handleSavePlatformSettings(modelField, e.target.value)}
                                     disabled={modelOptions.length === 0}
-                                    className="w-1/2 p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-mono text-slate-700 disabled:opacity-50"
+                                    className="w-1/2 p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-mono text-slate-700 disabled:opacity-50"
                                   >
                                     {modelOptions.length === 0 && (
                                       <option value="">{locale === "pt" ? "Sem modelo válido" : "No valid model"}</option>
@@ -1797,13 +1797,13 @@ export default function AdminConsole({
                                   const rec = RECOMMENDED_MODEL[taskKey];
                                   const isRecommended = effectiveProvider === rec.provider && effectiveModel === rec.model;
                                   return isRecommended ? (
-                                    <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
+                                    <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-success-700 bg-success-50 border border-success-200 rounded-full px-2 py-0.5">
                                       <Check size={10} />
                                       {locale === "pt" ? "Configuração recomendada" : "Recommended configuration"}
                                     </div>
                                   ) : (
-                                    <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
-                                      <Star size={10} className="fill-amber-500 text-amber-500" />
+                                    <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-warning-700 bg-warning-50 border border-warning-200 rounded-full px-2 py-0.5">
+                                      <Star size={10} className="fill-warning-500 text-warning-500" />
                                       {locale === "pt" ? "Recomendado" : "Recommended"}: {PROVIDER_DISPLAY_NAME[rec.provider]} · {rec.model}
                                     </div>
                                   );
@@ -1824,7 +1824,7 @@ export default function AdminConsole({
                             placeholder={locale === "pt" ? "Sem teto" : "Uncapped"}
                             value={platformSettings?.monthly_cost_cap_usd ?? ""}
                             onChange={(e) => handleSavePlatformSettings("monthly_cost_cap_usd", e.target.value ? parseFloat(e.target.value) : null)}
-                            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-semibold text-slate-700"
+                            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-semibold text-slate-700"
                           />
                           <p className="text-[10px] text-slate-400 mt-1">
                             {locale === "pt"
@@ -1839,12 +1839,12 @@ export default function AdminConsole({
                               setOrchestratorSaved(true);
                               setTimeout(() => setOrchestratorSaved(false), 2500);
                             }}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer"
+                            className="bg-brand-600 hover:bg-brand-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer"
                           >
                             {locale === "pt" ? "Salvar" : "Save"}
                           </button>
                           {orchestratorSaved && (
-                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
+                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-success-700">
                               <Check size={13} />
                               {locale === "pt" ? "Salvo" : "Saved"}
                             </span>
@@ -2011,11 +2011,11 @@ export default function AdminConsole({
                                   ))}
                                 </select>
                                 {prm.is_active ? (
-                                  <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-bold uppercase font-mono">{tx("ACTIVE", "ATIVA")}</span>
+                                  <span className="text-[10px] bg-brand-50 text-brand-700 px-2 py-0.5 rounded font-bold uppercase font-mono">{tx("ACTIVE", "ATIVA")}</span>
                                 ) : (
                                   <button
                                     onClick={() => handleActivatePromptVersion(prm.id)}
-                                    className="text-[10px] bg-amber-50 text-amber-700 hover:bg-amber-100 px-2 py-1 rounded font-bold uppercase font-mono cursor-pointer"
+                                    className="text-[10px] bg-brand-50 text-brand-700 hover:bg-brand-100 px-2 py-1 rounded font-bold uppercase font-mono cursor-pointer"
                                   >
                                     {locale === "pt" ? "Ativar Esta Versão" : "Activate This Version"}
                                   </button>
@@ -2027,7 +2027,7 @@ export default function AdminConsole({
                               onChange={(e) => setPromptDrafts((prev) => ({ ...prev, [prm.id]: e.target.value }))}
                               disabled={!isEditing}
                               id={`textarea-prm-${prm.id}`}
-                              className="w-full h-24 p-3 rounded font-mono text-xs bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none leading-normal text-slate-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                              className="w-full h-24 p-3 rounded font-mono text-xs bg-white border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none leading-normal text-slate-700 disabled:opacity-60 disabled:cursor-not-allowed"
                             />
                             <div className="flex justify-end gap-2 flex-wrap">
                               {!isEditing ? (
@@ -2073,7 +2073,7 @@ export default function AdminConsole({
                                       handleUpdatePromptTemplate(prm.id, promptDrafts[prm.id] ?? prm.content);
                                       setEditingPromptId(null);
                                     }}
-                                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-3 rounded shadow-sm transition-all cursor-pointer"
+                                    className="bg-brand-600 hover:bg-brand-700 text-white font-mono text-xs font-bold py-1.5 px-3 rounded shadow-sm transition-all cursor-pointer"
                                   >
                                     {locale === "pt" ? "Salvar" : "Save"}
                                   </button>
@@ -2092,7 +2092,7 @@ export default function AdminConsole({
                                     value={newVersionLabel}
                                     onChange={(e) => setNewVersionLabel(e.target.value)}
                                     placeholder="v1.3"
-                                    className="flex-1 p-2 rounded font-mono text-xs bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                                    className="flex-1 p-2 rounded font-mono text-xs bg-white border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none"
                                   />
                                   <button
                                     onClick={() => { setNewVersionFormForType(null); setNewVersionLabel(""); }}
@@ -2119,7 +2119,7 @@ export default function AdminConsole({
                                         setSelectedPromptVersionByType((prev) => ({ ...prev, [type]: created.id }));
                                       }
                                     }}
-                                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-3 rounded shadow-sm transition-all cursor-pointer"
+                                    className="bg-brand-600 hover:bg-brand-700 text-white font-mono text-xs font-bold py-1.5 px-3 rounded shadow-sm transition-all cursor-pointer"
                                   >
                                     {locale === "pt" ? "Criar Versão (a partir do texto acima)" : "Create Version (from the text above)"}
                                   </button>
@@ -2156,7 +2156,7 @@ export default function AdminConsole({
                           setTemplateUploadFile(file);
                           setTemplateUploadFileName(file?.name || "");
                         }}
-                        className={`p-4 border-2 border-dashed rounded-xl text-center space-y-3 transition-colors ${isTemplateDragOver ? "border-emerald-500 bg-emerald-50/40" : "border-slate-300 bg-slate-50"}`}
+                        className={`p-4 border-2 border-dashed rounded-xl text-center space-y-3 transition-colors ${isTemplateDragOver ? "border-brand-500 bg-brand-50/40" : "border-slate-300 bg-slate-50"}`}
                       >
                         <input
                           type="file"
@@ -2220,7 +2220,7 @@ export default function AdminConsole({
                                 <h4 className="text-xs font-bold text-slate-800 uppercase font-mono">
                                   {tpl.name}
                                   {tpl.default_template && (
-                                    <span className="ml-2 text-[9px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-bold uppercase align-middle">
+                                    <span className="ml-2 text-[9px] bg-brand-50 text-brand-700 px-1.5 py-0.5 rounded font-bold uppercase align-middle">
                                       {locale === "pt" ? "Padrão" : "Default"}
                                     </span>
                                   )}
@@ -2241,7 +2241,7 @@ export default function AdminConsole({
                                 >
                                   {locale === "pt" ? "Ativar" : "Set Active"}
                                 </button>
-                                <button onClick={() => handleDeleteProposalTemplate(tpl.id)} className="px-2 py-1 rounded bg-white border border-rose-200 text-rose-600 text-[10px] font-bold cursor-pointer">
+                                <button onClick={() => handleDeleteProposalTemplate(tpl.id)} className="px-2 py-1 rounded bg-white border border-danger-200 text-danger-700 text-[10px] font-bold cursor-pointer">
                                   {locale === "pt" ? "Apagar" : "Delete"}
                                 </button>
                               </div>
@@ -2275,7 +2275,7 @@ export default function AdminConsole({
                           {entries.map((entry) => (
                             <div key={entry.name} className="text-xs border-b border-slate-200 last:border-0 pb-2 last:pb-0">
                               <div className="flex items-center justify-between gap-2">
-                                <code className={`text-[11px] font-mono ${entry.kind === "loop" ? "font-bold text-emerald-700" : "text-slate-800"}`}>
+                                <code className={`text-[11px] font-mono ${entry.kind === "loop" ? "font-bold text-brand-700" : "text-slate-800"}`}>
                                   {entry.kind === "loop" ? `{{#${entry.name}}}` : `{{${entry.name}}}`}
                                 </code>
                                 <button
@@ -2323,7 +2323,7 @@ export default function AdminConsole({
                         placeholder={locale === "pt" ? "Nova vertical..." : "New vertical..."}
                         className="flex-1 p-2 rounded bg-slate-50 border border-slate-200 text-xs"
                       />
-                      <button onClick={handleCreateVertical} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 rounded">
+                      <button onClick={handleCreateVertical} className="bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold px-4 rounded">
                         {locale === "pt" ? "Adicionar" : "Add"}
                       </button>
                     </div>
@@ -2334,7 +2334,7 @@ export default function AdminConsole({
                           <button onClick={() => handleToggleVertical(v)} className="text-slate-400 hover:text-slate-700" title={v.is_active ? (locale === "pt" ? "Desativar" : "Deactivate") : (locale === "pt" ? "Ativar" : "Activate")}>
                             {v.is_active ? "⏸" : "▶"}
                           </button>
-                          <button onClick={() => handleDeleteVertical(v.id)} className="text-red-400 hover:text-red-700" title={locale === "pt" ? "Excluir" : "Delete"}>
+                          <button onClick={() => handleDeleteVertical(v.id)} className="text-danger-600 hover:text-danger-700" title={locale === "pt" ? "Excluir" : "Delete"}>
                             ×
                           </button>
                         </span>
@@ -2390,7 +2390,7 @@ export default function AdminConsole({
                         </div>
                         <button
                           onClick={handleCreateApprovalWorkflow}
-                          className="mt-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded"
+                          className="mt-3 bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold px-3 py-2 rounded"
                         >
                           {locale === "pt" ? "Criar Fluxo" : "Create Workflow"}
                         </button>
@@ -2437,7 +2437,7 @@ export default function AdminConsole({
                                   <span className="text-[10px] font-mono text-slate-400 uppercase">{locale === "pt" ? "Etapa" : "Stage"} {idx + 1}</span>
                                   <button
                                     onClick={() => updateApprovalWorkflowLocal(flow.id, (f) => ({ ...f, stages: f.stages.filter((_: any, i: number) => i !== idx) }))}
-                                    className="text-[10px] text-red-600 font-bold"
+                                    className="text-[10px] text-danger-600 font-bold"
                                     disabled={(flow.stages || []).length <= 1}
                                   >
                                     {locale === "pt" ? "Remover" : "Remove"}
@@ -2536,10 +2536,10 @@ export default function AdminConsole({
                               <button onClick={() => handleDuplicateApprovalWorkflow(flow)} className="bg-white border border-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded">
                                 {locale === "pt" ? "Duplicar" : "Duplicate"}
                               </button>
-                              <button onClick={() => handleDeleteApprovalWorkflow(flow.id)} className="bg-red-50 text-red-700 hover:bg-red-600 hover:text-white text-xs font-bold px-3 py-1.5 rounded">
+                              <button onClick={() => handleDeleteApprovalWorkflow(flow.id)} className="bg-danger-50 text-danger-700 hover:bg-danger-600 hover:text-white text-xs font-bold px-3 py-1.5 rounded">
                                 {locale === "pt" ? "Apagar" : "Delete"}
                               </button>
-                              <button onClick={() => handleSaveApprovalWorkflow(flow)} className="bg-emerald-600 text-white text-xs font-bold px-3 py-1.5 rounded">
+                              <button onClick={() => handleSaveApprovalWorkflow(flow)} className="bg-brand-600 text-white text-xs font-bold px-3 py-1.5 rounded">
                                 {locale === "pt" ? "Salvar Fluxo" : "Save Workflow"}
                               </button>
                             </div>
@@ -2585,7 +2585,7 @@ export default function AdminConsole({
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
                           <div className="p-3 bg-slate-50 border border-slate-100 rounded-lg">
                             <span className="text-[10px] text-slate-400 font-mono block uppercase">{locale === "pt" ? "Plano Contratado" : "Contracted Plan"}</span>
-                            <span className="text-sm font-extrabold text-emerald-600 font-mono block mt-1">
+                            <span className="text-sm font-extrabold text-brand-600 font-mono block mt-1">
                               {fleetLicenseStatus.plan_name || (locale === "pt" ? "Sem plano (módulos avulsos)" : "No plan (individual modules)")}
                             </span>
                           </div>
@@ -2594,10 +2594,10 @@ export default function AdminConsole({
                             <span
                               className={`text-sm font-extrabold font-mono mt-1 block ${
                                 fleetLicenseStatus.status === "active"
-                                  ? "text-emerald-600"
+                                  ? "text-success-700"
                                   : fleetLicenseStatus.block_mode === "read_only"
-                                  ? "text-amber-600"
-                                  : "text-red-600"
+                                  ? "text-warning-700"
+                                  : "text-danger-600"
                               }`}
                             >
                               {fleetLicenseStatus.status === "active"
@@ -2623,7 +2623,7 @@ export default function AdminConsole({
                           <div className="flex gap-1.5 flex-wrap">
                             {fleetLicenseStatus.modules.length > 0 ? (
                               fleetLicenseStatus.modules.map((m) => (
-                                <span key={m} className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100">
+                                <span key={m} className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-brand-50 text-brand-700 border border-brand-100">
                                   {m}
                                 </span>
                               ))
@@ -2666,7 +2666,7 @@ export default function AdminConsole({
                         type="checkbox"
                         checked={platformSettings?.fleet_manager_enabled || false}
                         onChange={(e) => handleSavePlatformSettings("fleet_manager_enabled", e.target.checked)}
-                        className="rounded text-emerald-600"
+                        className="rounded text-brand-600"
                       />
                       {locale === "pt" ? "Ativar relatório periódico ao CMSaaS" : "Enable periodic reporting to CMSaaS"}
                     </label>
@@ -2699,7 +2699,7 @@ export default function AdminConsole({
                 {activeAdminSection === "system_updates" && canAccessAdminSection("system_updates") && (
                   <div className="w-full space-y-4">
                     {systemUpdateMessage && (
-                      <div className="text-xs rounded p-3 bg-sky-50 border border-sky-100 text-sky-700">{systemUpdateMessage}</div>
+                      <div className="text-xs rounded p-3 bg-brand-50 border border-brand-100 text-brand-700">{systemUpdateMessage}</div>
                     )}
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
@@ -2712,7 +2712,7 @@ export default function AdminConsole({
                           <p className="text-[11px] font-mono text-slate-400">SHA {systemUpdateState.current_git_sha}</p>
                         )}
                         {systemUpdateState?.current_version?.endsWith("-dirty") && (
-                          <span className="inline-block text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-amber-50 text-amber-600 border border-amber-100">
+                          <span className="inline-block text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-warning-50 text-warning-700 border border-warning-100">
                             {locale === "pt" ? "Alterações locais não commitadas" : "Uncommitted local changes"}
                           </span>
                         )}
@@ -2721,18 +2721,18 @@ export default function AdminConsole({
                           const pct = stepIdx >= 0 ? Math.round(((stepIdx + 1) / UPDATE_STEPS.length) * 100) : 5;
                           return (
                             <div className="space-y-1.5">
-                              <p className="text-xs font-bold text-sky-600">
+                              <p className="text-xs font-bold text-brand-600">
                                 {systemUpdateState.current_step || (locale === "pt" ? "Atualização em andamento..." : "Update in progress...")}
                               </p>
                               <div className="w-full h-1.5 rounded-full bg-slate-100 overflow-hidden">
-                                <div className="h-full bg-sky-500 transition-all duration-500" style={{ width: `${pct}%` }} />
+                                <div className="h-full bg-brand-600 transition-all duration-500" style={{ width: `${pct}%` }} />
                               </div>
                               <p className="text-[10px] text-slate-400">{pct}%</p>
                             </div>
                           );
                         })()}
                         {(systemUpdateState?.last_attempt_status === "failed" || systemUpdateState?.last_attempt_status === "rolled_back") && (
-                          <p className="text-xs font-bold text-red-600">
+                          <p className="text-xs font-bold text-danger-600">
                             {locale === "pt" ? "Última tentativa falhou" : "Last attempt failed"}
                             {systemUpdateState.last_attempt_status === "rolled_back" ? ` (${locale === "pt" ? "revertida automaticamente" : "auto rolled back"})` : ""}
                           </p>
@@ -2758,10 +2758,10 @@ export default function AdminConsole({
                           const upToDate = !!systemUpdateState.current_version?.startsWith(`${codeRef}-`) || systemUpdateState.current_version === codeRef;
                           return (
                             <>
-                              <p className="text-sm font-bold text-emerald-600">{systemUpdateState.latest_release!.version}</p>
+                              <p className="text-sm font-bold text-brand-600">{systemUpdateState.latest_release!.version}</p>
                               <p className="text-[11px] font-mono text-slate-400">ref {codeRef} · canal {systemUpdateState.latest_release!.channel}</p>
                               {upToDate && (
-                                <span className="inline-block text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-600 border border-emerald-100">
+                                <span className="inline-block text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-success-50 text-success-700 border border-success-100">
                                   {locale === "pt" ? "Já instalada" : "Already installed"}
                                 </span>
                               )}
@@ -2802,7 +2802,7 @@ export default function AdminConsole({
                             {locale === "pt" ? "Agendada para " : "Scheduled for "}
                             <span className="font-bold">{new Date(systemUpdateState.scheduled_update_at).toLocaleString(locale === "pt" ? "pt-BR" : "en-US")}</span>
                           </p>
-                          <button onClick={cancelSchedule} className="text-xs font-bold text-red-600 underline">
+                          <button onClick={cancelSchedule} className="text-xs font-bold text-danger-600 underline">
                             {locale === "pt" ? "Cancelar agendamento" : "Cancel schedule"}
                           </button>
                         </div>
@@ -2847,9 +2847,9 @@ export default function AdminConsole({
                             <span className="flex items-center gap-2">
                               <span
                                 className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
-                                  h.status === "success" ? "bg-emerald-50 text-emerald-600" :
-                                  h.status === "in_progress" ? "bg-sky-50 text-sky-600" :
-                                  "bg-red-50 text-red-600"
+                                  h.status === "success" ? "bg-success-50 text-success-700" :
+                                  h.status === "in_progress" ? "bg-brand-50 text-brand-700" :
+                                  "bg-danger-50 text-danger-700"
                                 }`}
                               >
                                 {h.status}
@@ -2884,7 +2884,7 @@ export default function AdminConsole({
                           e.preventDefault();
                           handleBrandLogoUpload(e.dataTransfer.files?.[0]);
                         }}
-                        className="p-6 bg-slate-50 border-2 border-dashed border-slate-300 rounded-lg space-y-3 text-center hover:border-emerald-500 hover:bg-emerald-50/30 transition-colors"
+                        className="p-6 bg-slate-50 border-2 border-dashed border-slate-300 rounded-lg space-y-3 text-center hover:border-brand-500 hover:bg-brand-50/30 transition-colors"
                       >
                         <p className="text-sm font-bold text-slate-700">
                           {locale === "pt" ? "Arraste e solte a logo aqui" : "Drag and drop the logo here"}
@@ -2899,7 +2899,7 @@ export default function AdminConsole({
                           <input type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" onChange={(e) => handleBrandLogoUpload(e.target.files?.[0])} className="hidden" />
                         </label>
                         <div>
-                          <button onClick={() => handleRemoveBrandLogo(brandLogoDataUrl)} className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-4 py-2 rounded disabled:opacity-40 disabled:cursor-not-allowed" disabled={!brandLogoDataUrl}>
+                          <button onClick={() => handleRemoveBrandLogo(brandLogoDataUrl)} className="bg-danger-600 hover:bg-danger-700 text-white text-xs font-bold px-4 py-2 rounded disabled:opacity-40 disabled:cursor-not-allowed" disabled={!brandLogoDataUrl}>
                             {locale === "pt" ? "Remover Logo Personalizada" : "Remove Custom Logo"}
                           </button>
                         </div>
@@ -2931,7 +2931,7 @@ export default function AdminConsole({
 
                       <button
                         onClick={() => handleSaveBrandingSettings({ primary_color: brandPrimaryColor, accent_color: brandAccentColor })}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 py-2 rounded"
+                        className="bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold px-4 py-2 rounded"
                       >
                         {locale === "pt" ? "Salvar Cores" : "Save Colors"}
                       </button>
@@ -3002,7 +3002,7 @@ export default function AdminConsole({
                           {brandStyles.map((style) => (
                             <div key={style.id} className="flex items-center justify-between py-2">
                               <div className="flex items-center gap-2">
-                                <div className="w-5 h-5 rounded border border-slate-200 shrink-0" style={{ backgroundColor: style.primary_color || "#cccccc" }} />
+                                <div className="w-5 h-5 rounded border border-slate-200 shrink-0" style={{ backgroundColor: style.primary_color || "var(--color-neutral-300)" }} />
                                 <span className="text-sm font-semibold text-slate-700">{style.name}</span>
                                 {style.company_name && <span className="text-xs text-slate-400">({style.company_name})</span>}
                               </div>
@@ -3010,7 +3010,7 @@ export default function AdminConsole({
                                 <button onClick={() => setEditingBrandStyle(style)} className="text-slate-400 hover:text-slate-700 cursor-pointer" title={locale === "pt" ? "Editar" : "Edit"}>
                                   <Pencil size={14} />
                                 </button>
-                                <button onClick={() => deleteBrandStyle(style.id)} className="text-slate-400 hover:text-red-600 cursor-pointer" title={locale === "pt" ? "Remover" : "Delete"}>
+                                <button onClick={() => deleteBrandStyle(style.id)} className="text-slate-400 hover:text-danger-600 cursor-pointer" title={locale === "pt" ? "Remover" : "Delete"}>
                                   <Trash2 size={14} />
                                 </button>
                               </div>
@@ -3067,7 +3067,7 @@ export default function AdminConsole({
                               <button
                                 onClick={saveBrandStyle}
                                 disabled={savingBrandStyle}
-                                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold uppercase px-3 py-1.5 rounded disabled:opacity-50 cursor-pointer"
+                                className="bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold uppercase px-3 py-1.5 rounded disabled:opacity-50 cursor-pointer"
                               >
                                 {savingBrandStyle ? (locale === "pt" ? "Salvando..." : "Saving...") : (locale === "pt" ? "Salvar" : "Save")}
                               </button>
@@ -3098,14 +3098,14 @@ export default function AdminConsole({
                           setNewConnectorUrl("https://api.salesforce.com/v1");
                           setNewConnectorToken("");
                         }}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-1.5 rounded font-bold transition-all shadow-sm cursor-pointer"
+                        className="bg-brand-600 hover:bg-brand-700 text-white text-xs px-3 py-1.5 rounded font-bold transition-all shadow-sm cursor-pointer"
                       >
                         {showNewConnectorForm ? (locale === "pt" ? "Cancelar" : "Cancel") : (locale === "pt" ? "+ Adicionar Conector" : "+ Add Connector")}
                       </button>
                     </div>
 
                     {showNewConnectorForm && (
-                      <div className="p-4 bg-slate-50 border border-emerald-500/30 rounded-lg space-y-3">
+                      <div className="p-4 bg-slate-50 border border-brand-500/30 rounded-lg space-y-3">
                         <h4 className="text-xs font-bold text-slate-800 uppercase font-mono border-b border-slate-200 pb-1">
                           {locale === "pt" ? "Adicionar Novo Conector de Integração" : "Add New Integration Connector"}
                         </h4>
@@ -3149,7 +3149,7 @@ export default function AdminConsole({
                           )}
                         </div>
                         <div className="flex justify-end">
-                          <button type="button" onClick={handleCreateConnector} className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-3 rounded shadow">
+                          <button type="button" onClick={handleCreateConnector} className="bg-brand-600 hover:bg-brand-700 text-white font-mono text-xs font-bold py-1.5 px-3 rounded shadow">
                             {locale === "pt" ? "Salvar Conector" : "Save Connector"}
                           </button>
                         </div>
@@ -3169,7 +3169,7 @@ export default function AdminConsole({
                                 const ok = confirm(locale === "pt" ? `Deseja apagar a integração "${conn.name}"?` : `Delete integration "${conn.name}"?`);
                                 if (ok) handleDeleteConnector(conn.id);
                               }}
-                              className="absolute top-4 right-4 bg-red-50 text-red-700 hover:bg-red-600 hover:text-white cursor-pointer px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1"
+                              className="absolute top-4 right-4 bg-danger-50 text-danger-700 hover:bg-danger-600 hover:text-white cursor-pointer px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1"
                               title={locale === "pt" ? "Apagar integração" : "Delete integration"}
                             >
                               <Trash2 size={12} /> {locale === "pt" ? "Apagar" : "Delete"}
@@ -3182,7 +3182,7 @@ export default function AdminConsole({
                             </div>
                             <input type="text" value={conn.url || `https://api.${conn.id}.enterprise.com/v1`} onChange={(e) => { const updated = [...integrations]; updated[cIdx].url = e.target.value; setIntegrations(updated); }} className="w-full p-1.5 text-[11px] font-mono bg-white border border-slate-200 rounded" />
                             <input type="password" value={conn.token || "••••••••••••••••••••"} onChange={(e) => { const updated = [...integrations]; updated[cIdx].token = e.target.value; setIntegrations(updated); }} className="w-full p-1.5 text-[11px] font-mono bg-white border border-slate-200 rounded" />
-                            {conn.error_message && <p className="text-[9px] text-red-500 font-mono italic">Error: {conn.error_message}</p>}
+                            {conn.error_message && <p className="text-[9px] text-danger-600 font-mono italic">Error: {conn.error_message}</p>}
                             <div className="flex justify-end gap-2 pt-1 border-t border-slate-200/50">
                               <button
                                 onClick={async () => {
@@ -3243,7 +3243,7 @@ export default function AdminConsole({
                         <select
                           value={platformSettings?.storage_mode || "local"}
                           onChange={(e) => handleSavePlatformSettings("storage_mode", e.target.value)}
-                          className="w-full p-2 rounded-lg bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-semibold text-slate-700 font-sans shadow-sm"
+                          className="w-full p-2 rounded-lg bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-semibold text-slate-700 font-sans shadow-sm"
                         >
                           <option value="local">{locale === "pt" ? "Diretórios Locais" : "Local directories"}</option>
                           <option value="s3">AWS S3</option>
@@ -3283,7 +3283,7 @@ export default function AdminConsole({
                     </div>
 
                     {storageValidateResult && (
-                      <div className={`p-3 rounded-lg border text-xs ${storageValidateResult.success ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-red-50 border-red-200 text-red-800"}`}>
+                      <div className={`p-3 rounded-lg border text-xs ${storageValidateResult.success ? "bg-success-50 border-success-200 text-success-800" : "bg-danger-50 border-danger-200 text-danger-800"}`}>
                         <p className="font-bold uppercase font-mono">{locale === "pt" ? "Resultado do Validatee" : "Validate Result"}</p>
                         <p className="mt-1">{storageValidateResult.message}</p>
                         <p className="mt-1 font-mono break-all">
@@ -3326,7 +3326,7 @@ export default function AdminConsole({
                         {locale === "pt" ? "Diagnóstico Técnico" : "Technical Diagnostics"}
                       </h3>
                       <p className="text-xs text-slate-500">{locale === "pt" ? "Console de debug, rastreio de integrações e pacote de diagnóstico." : "Debug console, integration traces and diagnostic package."}</p>
-                      <button onClick={() => setShowDebugConsole(true)} className="bg-emerald-600 text-white px-3 py-2 rounded text-xs font-bold">
+                      <button onClick={() => setShowDebugConsole(true)} className="bg-brand-600 text-white px-3 py-2 rounded text-xs font-bold">
                         {locale === "pt" ? "Abrir Console de Diagnóstico" : "Open Diagnostic Console"}
                       </button>
                     </div>

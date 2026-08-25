@@ -212,7 +212,7 @@ export default function Home({
                         </div>
                         <button
                           onClick={() => handleDeleteTask(task.id)}
-                          className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 cursor-pointer shrink-0"
+                          className="text-slate-400 hover:text-danger-500 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 cursor-pointer shrink-0"
                           title={locale === "pt" ? "Excluir tarefa" : "Delete task"}
                         >
                           <Trash2 size={13} />
@@ -370,8 +370,8 @@ export default function Home({
                         };
                         const statusColors: Record<string, string> = {
                           completed: "bg-success-500",
-                          analysis_in_progress: "bg-blue-500",
-                          waiting_internal: "bg-purple-500",
+                          analysis_in_progress: "bg-brand-500",
+                          waiting_internal: "bg-warning-500",
                           draft: "bg-slate-400"
                         };
                         return (
@@ -435,8 +435,8 @@ export default function Home({
                             <td className="p-3.5">
                               <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
                                 proj.status === "completed" ? "text-success-700 bg-success-50 border-success-200" :
-                                proj.status === "analysis_in_progress" ? "text-blue-700 bg-blue-50 border-blue-200" :
-                                proj.status === "waiting_internal" ? "text-purple-700 bg-purple-50 border-purple-200" :
+                                proj.status === "analysis_in_progress" ? "text-brand-700 bg-brand-50 border-brand-200" :
+                                proj.status === "waiting_internal" ? "text-warning-700 bg-warning-50 border-warning-200" :
                                 "text-slate-700 bg-slate-100 border-slate-200"
                               }`}>
                                 {locale === "pt" ?
