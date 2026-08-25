@@ -8,7 +8,7 @@ cd "$BASE_DIR"
 # inalterado), mas o servidor de desenvolvimento roda APP_RUNTIME_MODE=production e recusa a senha
 # de seed que este script usa - la a unica forma de executar de verdade e apontar para uma
 # instancia descartavel em modo demo, noutra porta.
-REG_BASE="${REGRESSION_BASE_URL:-$REG_BASE}"
+REG_BASE="${REGRESSION_BASE_URL:-http://127.0.0.1:3000}"
 
 echo "=== REGRESSION: APPROVAL RBAC / STAGE TARGETS / RELEASE ==="
 
