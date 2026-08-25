@@ -1,6 +1,6 @@
 import { Dispatch, SetStateAction, useEffect, useState } from "react";
 import { Trash2, Star, Check, BookOpen, Pencil, X } from "lucide-react";
-import { BRAND_DEFAULT_PRIMARY, decideBrandTheme } from "../brandTheme";
+import { BRAND_DEFAULT_PRIMARY, contrastRatio, decideBrandTheme, normalizeHex } from "../brandTheme";
 import {
   AuditLog,
   BrandingSettings,
@@ -15,6 +15,19 @@ import {
 } from "../types";
 import { useAdminConsole } from "../hooks/useAdminConsole";
 import ApiClient from "../lib/api";
+/**
+ * A pre-visualizacao da identidade visual e o unico lugar da interface pintado pelas DUAS cores do
+ * tenant ao mesmo tempo, num gradiente primary -> accent. Texto branco sobre um gradiente que
+ * termina em branco e ilegivel - e era exatamente o caso de `tenant_default`, cujo accent e
+ * #ffffff: a auditoria de contraste da Fase 9 mediu 1,00:1 ali. O rotulo passa a seguir a PIOR das
+ * duas pontas, com a mesma funcao de contraste que o servidor usa para aceitar a cor de um tenant.
+ */
+function previaAceitaTextoClaro(primary: string, accent: string): boolean {
+  return [primary, accent].every((cor) => {
+    const hex = normalizeHex(cor);
+    return hex ? contrastRatio(hex, "#ffffff") >= 4.5 : true;
+  });
+}
 
 interface FleetLicenseStatus {
   connected: boolean;
@@ -818,13 +831,13 @@ export default function AdminConsole({
 
               <aside className="w-full lg:w-72 bg-slate-950 text-slate-300 border-b lg:border-b-0 lg:border-r border-slate-800 flex flex-col shrink-0 max-h-72 lg:max-h-none">
                 <div className="p-5 border-b border-slate-800">
-                  <p className="text-[10px] uppercase tracking-[0.25em] text-slate-500 font-mono mb-1">
+                  <p className="text-[10px] uppercase tracking-[0.25em] text-slate-400 font-mono mb-1">
                     {locale === "pt" ? "Administração" : "Administration"}
                   </p>
                   <h2 className="text-lg font-bold text-white">
                     {locale === "pt" ? "Configurações" : "Settings"}
                   </h2>
-                  <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                  <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
                     {locale === "pt" ? "Central de configuração global do sistema." : "Global system configuration center."}
                   </p>
                   <a
@@ -862,7 +875,7 @@ export default function AdminConsole({
                       }`}
                     >
                       <span className="block text-xs font-bold">{label}</span>
-                      <span className="block text-[10px] text-slate-500 mt-0.5">{desc}</span>
+                      <span className="block text-[10px] text-slate-400 mt-0.5">{desc}</span>
                     </button>
                   ))}
                 </div>
@@ -951,7 +964,7 @@ export default function AdminConsole({
                               <div key={conn.id} className="p-2 bg-slate-50 border border-slate-100 rounded-lg">
                                 <div className="flex items-center justify-between gap-2">
                                   <span className="font-semibold text-slate-700 text-xs truncate">{conn.name}</span>
-                                  <span className={`text-[9px] px-1.5 py-0.5 rounded uppercase font-bold shrink-0 ${conn.status === "connected" ? "bg-success-100 text-success-700" : "bg-slate-200 text-slate-500"}`}>
+                                  <span className={`text-[9px] px-1.5 py-0.5 rounded uppercase font-bold shrink-0 ${conn.status === "connected" ? "bg-success-100 text-success-700" : "bg-slate-200 text-slate-700"}`}>
                                     {conn.status}
                                   </span>
                                 </div>
@@ -1283,7 +1296,7 @@ export default function AdminConsole({
                             alert(locale === "pt" ? "Erro ao criar perfil." : "Error creating role.");
                           }
                         }}
-                        className="bg-slate-900 text-white text-xs font-bold px-4 py-2 rounded"
+                        className="bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold px-4 py-2 rounded"
                       >
                         {locale === "pt" ? "Criar Perfil" : "Create Role"}
                       </button>
@@ -1294,7 +1307,7 @@ export default function AdminConsole({
                         <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">{tx("User Access Directory", "Diretório de Acesso de Usuários")}</h3>
                         <button
                           onClick={() => setShowNewUserForm(!showNewUserForm)}
-                          className="bg-slate-900 text-white text-xs font-bold px-3 py-1.5 rounded"
+                          className="bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold px-3 py-1.5 rounded"
                         >
                           {showNewUserForm ? (locale === "pt" ? "Cancelar" : "Cancel") : (locale === "pt" ? "+ Novo Usuário" : "+ New User")}
                         </button>
@@ -2204,7 +2217,7 @@ export default function AdminConsole({
                           <p>{locale === "pt" ? "Nenhum arquivo selecionado para pré-visualização." : "No file selected for preview."}</p>
                         )}
                       </div>
-                      <button onClick={handleCreateProposalTemplate} className="w-full bg-slate-900 hover:bg-slate-800 text-white rounded py-2 text-xs font-bold cursor-pointer">
+                      <button onClick={handleCreateProposalTemplate} className="w-full bg-brand-600 hover:bg-brand-700 text-white rounded py-2 text-xs font-bold cursor-pointer">
                         {locale === "pt" ? "Preparar Template para Versionamento" : "Prepare Template for Versioning"}
                       </button>
                     </div>
@@ -2238,7 +2251,7 @@ export default function AdminConsole({
                                 <button
                                   onClick={() => handleSetDefaultProposalTemplate(tpl.id)}
                                   disabled={tpl.default_template}
-                                  className="px-2 py-1 rounded bg-slate-900 text-white text-[10px] font-bold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                  className="px-2 py-1 rounded bg-brand-600 hover:bg-brand-700 text-white text-[10px] font-bold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                                 >
                                   {locale === "pt" ? "Ativar" : "Set Active"}
                                 </button>
@@ -2358,7 +2371,7 @@ export default function AdminConsole({
                       </div>
                       <button
                         onClick={() => setShowNewApprovalWorkflowForm(!showNewApprovalWorkflowForm)}
-                        className="bg-slate-900 text-white text-xs font-bold px-3 py-1.5 rounded"
+                        className="bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold px-3 py-1.5 rounded"
                       >
                         {showNewApprovalWorkflowForm ? (locale === "pt" ? "Cancelar" : "Cancel") : (locale === "pt" ? "+ Novo Fluxo" : "+ New Workflow")}
                       </button>
@@ -2781,7 +2794,7 @@ export default function AdminConsole({
                                   <button
                                     onClick={runUpdateNow}
                                     disabled={systemUpdateState.last_attempt_status === "in_progress"}
-                                    className="text-xs font-bold px-3 py-1.5 rounded-lg text-white bg-slate-900 disabled:opacity-50"
+                                    className="text-xs font-bold px-3 py-1.5 rounded-lg text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-50"
                                   >
                                     {locale === "pt" ? "Atualizar Agora" : "Update Now"}
                                   </button>
@@ -2818,7 +2831,7 @@ export default function AdminConsole({
                           <button
                             onClick={submitSchedule}
                             disabled={!scheduleDraft || !systemUpdateState?.latest_release}
-                            className="text-xs font-bold px-3 py-1.5 rounded-lg text-white bg-slate-900 disabled:opacity-50"
+                            className="text-xs font-bold px-3 py-1.5 rounded-lg text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-50"
                           >
                             {locale === "pt" ? "Agendar" : "Schedule"}
                           </button>
@@ -2895,7 +2908,7 @@ export default function AdminConsole({
                             ? "Formatos aceitos: PNG, JPG, SVG ou WebP. Tamanho máximo: 1 MB. Dimensão recomendada: 320 x 80 px."
                             : "Accepted formats: PNG, JPG, SVG or WebP. Max size: 1 MB. Recommended dimension: 320 x 80 px."}
                         </p>
-                        <label className="inline-flex items-center justify-center bg-slate-900 text-white text-xs font-bold px-4 py-2 rounded cursor-pointer">
+                        <label className="inline-flex items-center justify-center bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold px-4 py-2 rounded cursor-pointer">
                           {locale === "pt" ? "Selecionar Arquivo" : "Select File"}
                           <input type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" onChange={(e) => handleBrandLogoUpload(e.target.files?.[0])} className="hidden" />
                         </label>
@@ -3016,7 +3029,10 @@ export default function AdminConsole({
                         </div>
                       </div>
 
-                      <div className="p-4 rounded-lg text-white space-y-2" style={{ background: `linear-gradient(135deg, ${brandPrimaryColor}, ${brandAccentColor})` }}>
+                      <div
+                        className={`p-4 rounded-lg space-y-2 ${previaAceitaTextoClaro(brandPrimaryColor, brandAccentColor) ? "text-white" : "text-slate-900"}`}
+                        style={{ background: `linear-gradient(135deg, ${brandPrimaryColor}, ${brandAccentColor})` }}
+                      >
                         <p className="font-bold">{brandingSettings?.company_name || (locale === "pt" ? "Pré-visualização da identidade visual" : "Brand preview")}</p>
                         <p className="text-xs opacity-90">{tx("Pre-Sales Compliance Platform", "Plataforma de Compliance de Pré-Vendas")}</p>
                       </div>
@@ -3029,7 +3045,7 @@ export default function AdminConsole({
                         </h3>
                         <button
                           onClick={() => setEditingBrandStyle({ name: "", primary_color: BRAND_DEFAULT_PRIMARY })}
-                          className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-3 py-1.5 rounded cursor-pointer"
+                          className="bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold px-3 py-1.5 rounded cursor-pointer"
                         >
                           + {locale === "pt" ? "Novo Estilo" : "New Style"}
                         </button>
@@ -3245,11 +3261,11 @@ export default function AdminConsole({
                                     }
                                   } catch (e) { console.error(e); }
                                 }}
-                                className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-mono text-[9px] font-bold py-1 px-2.5 rounded"
+                                className="bg-brand-600 hover:bg-brand-700 text-white font-mono text-[9px] font-bold py-1 px-2.5 rounded"
                               >
                                 {locale === "pt" ? "Salvar" : "Save"}
                               </button>
-                              <button onClick={() => handleValidateIntegration(conn.id)} className="bg-slate-800 hover:bg-slate-700 text-white font-mono text-[9px] font-bold py-1 px-2.5 rounded">
+                              <button onClick={() => handleValidateIntegration(conn.id)} className="bg-brand-50 hover:bg-brand-100 text-brand-700 border border-brand-200 font-mono text-[9px] font-bold py-1 px-2.5 rounded">
                                 {locale === "pt" ? "Validar" : "Validate"}
                               </button>
                             </div>
@@ -3273,7 +3289,7 @@ export default function AdminConsole({
                       </div>
                       <button
                         onClick={handleValidateStorageSettings}
-                        className="bg-slate-900 text-white text-xs font-bold px-3 py-2 rounded"
+                        className="bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold px-3 py-2 rounded"
                       >
                         {locale === "pt" ? "Validar Storage" : "Validate Storage"}
                       </button>
@@ -3361,7 +3377,7 @@ export default function AdminConsole({
                         {locale === "pt" ? "Auditoria" : "Audit"}
                       </h3>
                       <p className="text-xs text-slate-500">{locale === "pt" ? "Acesse e exporte logs operacionais do sistema." : "Access and export operational system logs."}</p>
-                      <button onClick={() => setShowAuditModal(true)} className="bg-slate-900 text-white px-3 py-2 rounded text-xs font-bold">
+                      <button onClick={() => setShowAuditModal(true)} className="bg-brand-600 hover:bg-brand-700 text-white px-3 py-2 rounded text-xs font-bold">
                         Audit Logs ({auditLogs.length})
                       </button>
                     </div>

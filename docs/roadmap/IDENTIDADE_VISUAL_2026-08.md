@@ -60,7 +60,7 @@ aqui — é de lá que o dono copia para abrir a próxima conversa.
 | 6 | Módulo Precificação | **✓ concluída** (24/08/2026) | `db4f031` (PR #58) | 103 trocas em 7 arquivos; primeiro gráfico recharts do programa tokenizado; duas escalas decididas inteiras; 6 superfícies para 1 imagem do baseline |
 | 7 | Admin Console e a varredura final | **✓ concluída** (25/08/2026) | `cf644b1` (PR #59) | 222 trocas em 8 arquivos; `sky` e `rose` decididos; família dos 5 badges de arquivo unificada; `waiting_internal` com uma cor; zero cor não-semântica em todo o `src/` |
 | 8 | DOCX + branding por tenant | **✓ concluída** (25/08/2026) | `c41bc14` (PR #60) | 6 hex resolvidos + migration ancorada linha a linha; rampa de 11 degraus derivada da cor do tenant, com guarda de contraste; DOCX provado nos 3 caminhos de precedência |
-| 9 | Validação visual, contraste e release | não iniciada | — | **gate humano** |
+| 9 | Validação visual, contraste e release | **✓ concluída** (25/08/2026) — **release aguardando o dono** | (esta branch) | 36/36 imagens comparadas com o produto verde; auditoria de contraste com 1.752 amostras; 14 achados fechados e 55 pontos corrigidos; os 7 comandos verdes no dev |
 
 ### Trilha B — Enriquecimento com a biblioteca de componentes
 
@@ -1667,19 +1667,133 @@ Três lições da recaptura:
 
 ---
 
-## Fase 9 — Validação visual, contraste e release (gate humano)
+## Fase 9 — Validação visual, contraste e release — ✓ CONCLUÍDA (25/08/2026), **release aguardando o dono**
 
-- Comparar baseline (Fase 0) × final em todas as telas capturadas, nos dois breakpoints.
-- Auditoria de contraste de todos os pares texto/fundo introduzidos — meta: zero par abaixo de
-  4,5:1 para texto e 3:1 para elementos de UI.
-- Rodar a suíte completa e os 3 scripts de regressão (`regression:approval-rbac`,
-  `regression:workspace-documents`, `regression:admin-console`).
-- Atualizar as capturas dos manuais (`docs/manuais/screenshots/`) — 30+ imagens que hoje mostram a
-  interface verde e ficariam mentindo.
-- **Não avança sozinha:** aprovação explícita do dono antes de cortar release.
-- Release: tag `vX.Y.Z-identidade-visual` + Release no CMSaaS + apply step-up-gated. A "PreSales
-  Demo" está fora do ar desde 30/07 — publicar continua correto (é canary), mas ela só recebe
-  quando voltar.
+**Dossiê completo:** `docs/roadmap/DOSSIE_IDENTIDADE_VISUAL_FASE9.md`.
+**Auditoria par a par:** `docs/roadmap/auditoria-contraste-fase9.json`.
+
+**Arquivos:** `scripts/audit-contrast.ts` (novo, ferramenta de auditoria), os três
+`scripts/regression-*.sh` (URL parametrizada), `package.json` (`audit:contrast`), 26 imagens do
+baseline regravadas e **55 pontos de código** em 13 componentes.
+
+Esta fase não trocou cor para mudar a aparência: ela **provou** o que as oito anteriores fizeram e
+fechou o que elas deixaram registrado. As 55 trocas saíram todas de achado escrito ou de medição —
+nenhuma de gosto.
+
+### A comparação que o programa existia para permitir
+
+`test:visual` compara o vivo com o baseline **atual**, que foi regravado fase a fase; ele nunca
+responderia "o programa fez o que dizia?". A resposta veio de comparar
+`git show 906668f:docs/visual-baseline/…` (o produto verde da Fase 0) com o baseline de hoje, imagem
+a imagem: **as 36 mudaram**, 2.964.070 pixels no total, e cada diferença foi classificada por matiz
+do pixel e localizada por caixa envolvente antes de receber um nome. A troca com mais pixels em 11
+das 18 telas de desktop é `#009966 → #236cc7`. O `login` mudou 100% dos pixels — a superfície inteira
+saiu de `slate-950` para `brand-950` e o cartão trocou o título pelo wordmark oficial. Seis telas
+foram inspecionadas lado a lado, não só medidas.
+
+### A auditoria de contraste, e o que ela achou
+
+`npm run audit:contrast` mede a cor **pintada** (canvas 1×1 no próprio navegador), compõe o alfa
+subindo pelos ancestrais e usa `contrastRatio` de `src/brandTheme.ts` — a mesma função do servidor,
+para não haver duas verdades sobre o que é 4,5:1. Além das 17 telas vivas, monta amostras sintéticas
+com as classes reais do código, para alcançar o que o banco de desenvolvimento não renderiza.
+
+**1.752 amostras · 88 pares únicos · 14 abaixo do piso — e nenhum deles usa cor de marca.** As 14
+são de três famílias da escala de cinza herdada, todas anteriores ao programa: a prova é contável —
+`text-slate-400` aparecia **371 vezes** no código do produto verde e aparece 376 hoje, sendo as 5
+novas correções desta fase que *melhoram* o contraste em superfície escura.
+
+O achado mais instrutivo veio das amostras sintéticas, não das telas: a barra de progresso da Base
+de Conhecimento (`brand-500` sobre trilha `brand-100`) dava **2,75:1** e **nenhuma varredura de tela
+viva a encontraria** — ela só existe durante uma análise em andamento, que o dev não tem.
+
+### Dois defeitos semânticos que ninguém tinha visto
+
+- **"Precisa de Informação" era pintado de vermelho.** O seletor de `compliance_status` tem quatro
+  opções e a cadeia de cor tinha três ramos: o quarto caía no `else` de `danger`. Falta de
+  informação aparecia como não-conformidade. Agora é neutro — coerente com o servidor, que já exclui
+  esse status dos dois lados do cálculo (`server/routes/dashboard.ts:24`).
+- **A coluna "Prioridade" das oportunidades pintava as três prioridades de verde.** Virou escala de
+  intensidade em marca. Não usa a escala de severidade da tabela de requisitos de propósito: ali
+  prioridade alta é risco, aqui é oportunidade comercial.
+
+### O primário cinza-escuro era maior que o registrado
+
+O achado falava de quatro telas; o levantamento encontrou **20 botões de ação sólida sobre fundo
+claro** em `slate-900`/`slate-800`/`slate-950`, contra 84 já em `brand-600` — mesmo papel, duas
+cores, às vezes na mesma tela ("Criar Perfil" cinza ao lado de "Criar Vertical" azul). Em
+`AdminConsole.tsx:3248/3252` a hierarquia estava invertida: "Salvar" era `slate-200` e "Validar"
+`slate-800`. As superfícies escuras estruturais **não** foram tocadas — barra superior, rodapé,
+barra lateral do Admin, cabeçalho de modal, balão do Gantt e véu de modal: ali cinza-escuro não é
+ação.
+
+### A escala do "Pipeline de Status", tomada inteira — com uma exceção que a inspeção visual impôs
+
+Medido contra a trilha `slate-100`: no degrau 500 três das quatro barras reprovavam e no degrau 600
+o âmbar **ainda** reprovava (2,92:1). O degrau 700 é o único em que as quatro passam, e é o tom que o
+rótulo do badge de cada status já usa. Mas a barra de rascunho ficou em **`slate-500`**: a captura
+mostrou que `slate-700` passava o contraste e **invertia a hierarquia** — o estado mais neutro virava
+o elemento mais escuro da tela. Contraste não é o único critério; foi a única decisão da fase que a
+imagem mudou depois de o número já estar certo.
+
+### Os três scripts de regressão: por que nunca rodaram, e como rodaram agora
+
+Na primeira tentativa os três morreram no primeiro passo com `Invalid credentials`. A causa não tem
+relação com cor: eles autenticam contas de seed com a senha demo, e este servidor roda
+`APP_RUNTIME_MODE=production`, que a recusa de propósito. **O próprio workflow do CI documenta
+isso** — define `APP_RUNTIME_MODE: demo` com um comentário dizendo que sem ele esses três passos
+falhariam. Eram inexecutáveis fora do CI **por desenho**, desde antes deste programa (a credencial
+embutida é a mesma em `906668f`), e esta fase não tocou nenhum arquivo de servidor.
+
+Em vez de só registrar, a fase os tornou executáveis: as **109 URLs fixas** viraram
+`${REGRESSION_BASE_URL:-http://127.0.0.1:3000}` (o default preserva o CI) e os três rodaram contra
+uma instância descartável em modo demo — Postgres e Redis em contêineres temporários, banco próprio
+semeado do zero, aplicação em porta alta. **Os três passaram.** O ambiente foi derrubado, os dois
+arquivos gerados em `uploads/` foram removidos por nome e o banco de desenvolvimento terminou com as
+mesmas contagens com que começou.
+
+### Como ficou provado
+
+`npm run lint` limpo · `npm run test` **18 arquivos, 123 testes** · `npm run build` completo ·
+`npm run test:visual` **36/36** com `maxDiffPixels: 0` intacto · os **três** scripts de regressão
+com `REGRESSION PASSED`. Tudo no próprio dev.
+
+### Cuidados que só apareceram executando
+
+- **`tsx` compila com `keepNames` e o esbuild injeta `__name` dentro das funções serializadas para o
+  navegador.** Toda `page.evaluate` morre com "`__name is not defined`" — erro do compilador, não do
+  produto. O atalho é injetar `globalThis.__name = (f) => f` antes de cada `evaluate`.
+- **Fundo pintado por gradiente não é cor chapada.** Medir só o `backgroundColor` por baixo dele fez
+  a prévia da identidade visual aparecer como branco sobre branco. Mas o alarme era **verdadeiro por
+  outro motivo**: com `accent_color = #ffffff`, o texto branco sobre o gradiente é ilegível de fato.
+  Corrigido, e o medidor agora pula o que não sabe medir em vez de inventar um número.
+- **Uma string de classes com dois `text-*` é um ternário**, não uma combinação: medir os dois juntos
+  inventa um par que a tela nunca mostra.
+- **O estado de sessão salvo caduca** e o sintoma é a tela de login no lugar do shell. A auditoria
+  passou a renovar sozinha: custa **um** login dos 20 da janela, contra a rodada inteira perdida.
+- **`pkill -f <padrão>` casa com o próprio comando SSH** que o carrega, e mata a sessão. Matar por
+  PID exato, como a política já mandava.
+- **O Redis do host exige TLS** (`REDIS_SSL_CA_PATH` no `.env`), e a instância descartável apontada a
+  um Redis sem TLS **pendura o login sem erro visível** — o `curl` fica esperando para sempre. O
+  diagnóstico saiu de `/proc/<pid>/stack` (`pipe_read`) e do log da aplicação, não da mensagem.
+- **`find . -not -user sakae` vazio** antes e depois — sexta fase seguida com a varredura limpa.
+
+### O que fica aberto, com número
+
+| pendência | tamanho | por quê não aqui |
+|---|---|---|
+| `text-slate-400` como texto auxiliar (2,13–2,63:1) | ~236 renderizações, ~310 pontos de código | exige decisão por chamada: sobre superfície escura o mesmo token dá 6,5–7,7:1 e trocá-lo pioraria |
+| `text-slate-500` sobre `slate-100`/`brand-50` (4,35:1) | 46 renderizações | mesma família |
+| borda de campo abaixo de 3:1 (1,23–1,49:1) | 66 controles | sistêmico, WCAG 1.4.11, anterior ao programa |
+| botão desabilitado (1,38:1) | 10 pontos | **decidido**: a WCAG isenta; revisitar na primitiva `Button` de E0 |
+| Precificação a 390px | 1 tela | estrutura, não cor — "redesenho de layout" está fora de escopo |
+| `accent_color` sem papel na interface | — | **decidido**: continua sem; a consequência dele na prévia foi corrigida |
+| capturas dos manuais | 31 imagens | **falta a credencial** do tenant de demonstração — ver §8.2 do dossiê |
+
+### O gate
+
+**Nenhuma tag, nenhum Release no CMSaaS, nenhum apply.** O produto está pronto para
+`vX.Y.Z-identidade-visual`; o corte depende do "pode ir" do dono.
 
 ---
 

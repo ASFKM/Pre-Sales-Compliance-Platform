@@ -182,13 +182,13 @@ export default function PocTestCases({ pocId, canManage, activeTasks, waitForTas
           <span className="truncate">{generationTask.current_step}</span>
           <span className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
             <span
-              className="block h-full bg-brand-500 transition-all duration-500"
+              className="block h-full bg-brand-600 transition-all duration-500"
               style={{ width: `${typeof generationTask.progress_pct === "number" ? generationTask.progress_pct : 5}%` }}
             />
           </span>
         </div>
       )}
-      {generateError && <div className="p-3 rounded bg-warning-50 border border-warning-200 text-warning-900 text-xs">{generateError}</div>}
+      {generateError && <div className="p-3 rounded bg-danger-50 border border-danger-200 text-danger-900 text-xs">{generateError}</div>}
       {knowledgeBaseWarning && (
         <div className="p-3 rounded bg-warning-50 border border-warning-200 text-warning-900 text-xs">
           <span className="font-bold">Base de Conhecimento insuficiente: </span>

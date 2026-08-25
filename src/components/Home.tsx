@@ -170,7 +170,7 @@ export default function Home({
                   />
                   <button
                     type="submit"
-                    className="bg-slate-950 hover:bg-slate-800 text-white font-bold text-xs px-4 py-2 rounded-lg transition-all cursor-pointer shadow-xs font-mono"
+                    className="bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs px-4 py-2 rounded-lg transition-all cursor-pointer shadow-xs font-mono"
                   >
                     + {locale === "pt" ? "ADICIONAR" : "ADD TASK"}
                   </button>
@@ -369,10 +369,10 @@ export default function Home({
                           draft: locale === "pt" ? "Rascunho" : "Draft"
                         };
                         const statusColors: Record<string, string> = {
-                          completed: "bg-success-500",
-                          analysis_in_progress: "bg-brand-500",
-                          waiting_internal: "bg-warning-500",
-                          draft: "bg-slate-400"
+                          completed: "bg-success-700",
+                          analysis_in_progress: "bg-brand-700",
+                          waiting_internal: "bg-warning-700",
+                          draft: "bg-slate-500"
                         };
                         return (
                           <div key={status} className="space-y-1">
@@ -450,7 +450,7 @@ export default function Home({
                             <td className="p-3.5 text-right">
                               <button
                                 onClick={() => handleViewProjectWorkspace(proj.id)}
-                                className="bg-slate-800 hover:bg-brand-600 text-white hover:text-white px-3 py-1.5 rounded-lg font-semibold transition-all shadow-sm cursor-pointer inline-flex items-center gap-1 text-[11px]"
+                                className="bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 rounded-lg font-semibold transition-all shadow-sm cursor-pointer inline-flex items-center gap-1 text-[11px]"
                               >
                                 {locale === "pt" ? "Ir para Área de Trabalho" : "Open Workspace"} <ChevronRight size={12} />
                               </button>

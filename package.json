@@ -20,7 +20,8 @@
     "regression:workspace-documents": "bash scripts/regression-workspace-documents.sh",
     "regression:admin-console": "bash scripts/regression-admin-console.sh",
     "capture:ui": "tsx scripts/capture-ui.ts",
-    "test:visual": "playwright test"
+    "test:visual": "playwright test",
+    "audit:contrast": "tsx scripts/audit-contrast.ts"
   },
   "overrides": {
     "uuid": "^11.1.1",

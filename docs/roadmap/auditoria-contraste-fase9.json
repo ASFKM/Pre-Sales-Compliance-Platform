@@ -1,0 +1,1865 @@
+{
+  "geradoEm": "2026-08-25T05:13:53.803Z",
+  "amostras": 1752,
+  "paresUnicos": 88,
+  "reprovados": 14,
+  "pisos": {
+    "texto": 4.5,
+    "textoGrande": 3,
+    "ui": 3
+  },
+  "pares": [
+    {
+      "fg": "#e2e8f0",
+      "bg": "#ffffff",
+      "tipo": "ui",
+      "razao": 1.23,
+      "piso": 3,
+      "passa": false,
+      "ocorrencias": 60,
+      "exemplos": [
+        "borda de input",
+        "borda de select",
+        "borda de textarea"
+      ],
+      "telas": [
+        "home",
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer",
+        "proposals",
+        "approval",
+        "admin-overview",
+        "admin-users",
+        "admin-branding"
+      ]
+    },
+    {
+      "fg": "#f7c1c4",
+      "bg": "#f2979c",
+      "tipo": "texto",
+      "razao": 1.38,
+      "piso": 4.5,
+      "passa": false,
+      "ocorrencias": 1,
+      "exemplos": [
+        "Remover Logo Personalizada"
+      ],
+      "telas": [
+        "admin-branding"
+      ]
+    },
+    {
+      "fg": "#cad5e2",
+      "bg": "#f8fafc",
+      "tipo": "ui",
+      "razao": 1.42,
+      "piso": 3,
+      "passa": false,
+      "ocorrencias": 3,
+      "exemplos": [
+        "borda de select"
+      ],
+      "telas": [
+        "workspace-proposal-builder"
+      ]
+    },
+    {
+      "fg": "#cad5e2",
+      "bg": "#ffffff",
+      "tipo": "ui",
+      "razao": 1.49,
+      "piso": 3,
+      "passa": false,
+      "ocorrencias": 3,
+      "exemplos": [
+        "borda de select",
+        "borda de input"
+      ],
+      "telas": [
+        "workspace-requirements",
+        "pricing"
+      ]
+    },
+    {
+      "fg": "#113774",
+      "bg": "#061a3d",
+      "tipo": "ui",
+      "razao": 1.49,
+      "piso": 3,
+      "passa": false,
+      "ocorrencias": 2,
+      "exemplos": [
+        "borda de input"
+      ],
+      "telas": [
+        "login"
+      ]
+    },
+    {
+      "fg": "#90a1b9",
+      "bg": "#e2e8f0",
+      "tipo": "texto",
+      "razao": 2.13,
+      "piso": 4.5,
+      "passa": false,
+      "ocorrencias": 1,
+      "exemplos": [
+        "bg-slate-200·text-slate-400"
+      ],
+      "telas": [
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#90a1b9",
+      "bg": "#f1f5f9",
+      "tipo": "texto",
+      "razao": 2.4,
+      "piso": 4.5,
+      "passa": false,
+      "ocorrencias": 2,
+      "exemplos": [
+        "bg-slate-100·border-slate-200·text-slate",
+        "bg-slate-100·text-slate-400"
+      ],
+      "telas": [
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#90a1b9",
+      "bg": "#f8fafc",
+      "tipo": "texto",
+      "razao": 2.51,
+      "piso": 4.5,
+      "passa": false,
+      "ocorrencias": 38,
+      "exemplos": [
+        "Executado por  Anthropic Claude (claude-sonnet-5",
+        "Selecionar Modelo de Documento",
+        "Indisponível",
+        "Etapa  1"
+      ],
+      "telas": [
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer",
+        "proposals",
+        "approval",
+        "knowledge-base",
+        "poc",
+        "admin-overview",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#90a1b9",
+      "bg": "#fbfcfd",
+      "tipo": "texto",
+      "razao": 2.56,
+      "piso": 4.5,
+      "passa": false,
+      "ocorrencias": 45,
+      "exemplos": [
+        "Projeto / Cliente",
+        "Setor",
+        "Prazo Final",
+        "Status"
+      ],
+      "telas": [
+        "home",
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer",
+        "proposals",
+        "knowledge-base"
+      ]
+    },
+    {
+      "fg": "#90a1b9",
+      "bg": "#fdfdfe",
+      "tipo": "texto",
+      "razao": 2.59,
+      "piso": 4.5,
+      "passa": false,
+      "ocorrencias": 3,
+      "exemplos": [
+        "( 0  itens )",
+        "Diretórios de Organização",
+        "Arquivos na Raiz"
+      ],
+      "telas": [
+        "workspace-explorer"
+      ]
+    },
+    {
+      "fg": "#90a1b9",
+      "bg": "#ffffff",
+      "tipo": "texto",
+      "razao": 2.63,
+      "piso": 4.5,
+      "passa": false,
+      "ocorrencias": 150,
+      "exemplos": [
+        "Foco operacional: 0 pendências para resolução im",
+        "Nenhuma tarefa pendente! Excelente trabalho.",
+        "Propostas Ativas",
+        "Conformidade Média"
+      ],
+      "telas": [
+        "home",
+        "projects",
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer",
+        "proposals",
+        "approval",
+        "knowledge-base",
+        "poc",
+        "pricing",
+        "admin-overview",
+        "admin-users",
+        "admin-branding",
+        "admin-audit",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#236cc7",
+      "bg": "#a7d3fb",
+      "tipo": "ui",
+      "razao": 3.3,
+      "piso": 3,
+      "passa": true,
+      "ocorrencias": 3,
+      "exemplos": [
+        "barra/indicador 174x4"
+      ],
+      "telas": [
+        "workspace-summary"
+      ]
+    },
+    {
+      "fg": "#288bf9",
+      "bg": "#ffffff",
+      "tipo": "ui",
+      "razao": 3.41,
+      "piso": 3,
+      "passa": true,
+      "ocorrencias": 2,
+      "exemplos": [
+        "ponto 10x10"
+      ],
+      "telas": [
+        "home"
+      ]
+    },
+    {
+      "fg": "#ffffff",
+      "bg": "#009966",
+      "tipo": "texto",
+      "razao": 3.65,
+      "piso": 4.5,
+      "passa": false,
+      "ocorrencias": 1,
+      "exemplos": [
+        "bg-success-600·border-success-600·text-w"
+      ],
+      "telas": [
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#62748e",
+      "bg": "#ebf6ff",
+      "tipo": "texto",
+      "razao": 4.35,
+      "piso": 4.5,
+      "passa": false,
+      "ocorrencias": 3,
+      "exemplos": [
+        "Arquivos",
+        "/ 6  Riscos",
+        "Perguntas"
+      ],
+      "telas": [
+        "workspace-summary"
+      ]
+    },
+    {
+      "fg": "#62748e",
+      "bg": "#f1f5f9",
+      "tipo": "texto",
+      "razao": 4.35,
+      "piso": 4.5,
+      "passa": false,
+      "ocorrencias": 43,
+      "exemplos": [
+        "0 % Concluído",
+        "Projeto",
+        "Cliente",
+        "Vertical"
+      ],
+      "telas": [
+        "home",
+        "projects",
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer",
+        "proposals",
+        "approval",
+        "knowledge-base",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#62748e",
+      "bg": "#f1f5f9",
+      "tipo": "ui",
+      "razao": 4.35,
+      "piso": 3,
+      "passa": true,
+      "ocorrencias": 1,
+      "exemplos": [
+        "barra/indicador 642x8"
+      ],
+      "telas": [
+        "home"
+      ]
+    },
+    {
+      "fg": "#62748e",
+      "bg": "#f8fafc",
+      "tipo": "texto",
+      "razao": 4.55,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 71,
+      "exemplos": [
+        "Gestor de Licitações",
+        "POT-0010",
+        "Escopo do Projeto e Entregáveis",
+        "Objetivos do Cliente"
+      ],
+      "telas": [
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer",
+        "proposals",
+        "approval",
+        "poc",
+        "pricing",
+        "admin-overview",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#62748e",
+      "bg": "#f8fafc",
+      "tipo": "ui",
+      "razao": 4.55,
+      "piso": 3,
+      "passa": true,
+      "ocorrencias": 1,
+      "exemplos": [
+        "ponto 8x8"
+      ],
+      "telas": [
+        "poc"
+      ]
+    },
+    {
+      "fg": "#007a55",
+      "bg": "#d0fae5",
+      "tipo": "texto",
+      "razao": 4.72,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 2,
+      "exemplos": [
+        "connected",
+        "bg-success-100·text-success-700"
+      ],
+      "telas": [
+        "admin-overview",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#236cc7",
+      "bg": "#ebf6ff",
+      "tipo": "texto",
+      "razao": 4.74,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 2,
+      "exemplos": [
+        "bg-brand-50·border-brand-100·text-brand-",
+        "bg-brand-50·text-brand-600"
+      ],
+      "telas": [
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#236cc7",
+      "bg": "#f1f5f9",
+      "tipo": "ui",
+      "razao": 4.74,
+      "piso": 3,
+      "passa": true,
+      "ocorrencias": 4,
+      "exemplos": [
+        "barra/indicador 161x8"
+      ],
+      "telas": [
+        "home"
+      ]
+    },
+    {
+      "fg": "#62748e",
+      "bg": "#ffffff",
+      "tipo": "texto",
+      "razao": 4.76,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 107,
+      "exemplos": [
+        "1  bid ( 25 %)",
+        "4 ( 100 %)",
+        "Departamento de Polícia Rodoviária Federal (DPRF",
+        "2026-08-26"
+      ],
+      "telas": [
+        "home",
+        "projects",
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer",
+        "approval",
+        "knowledge-base",
+        "poc",
+        "pricing",
+        "admin-overview",
+        "admin-users",
+        "admin-branding",
+        "admin-audit",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#ffffff",
+      "bg": "#e7000b",
+      "tipo": "texto",
+      "razao": 4.77,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 1,
+      "exemplos": [
+        "bg-danger-600·text-white"
+      ],
+      "telas": [
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#bb4d00",
+      "bg": "#f8fafc",
+      "tipo": "ui",
+      "razao": 4.81,
+      "piso": 3,
+      "passa": true,
+      "ocorrencias": 1,
+      "exemplos": [
+        "ponto 8x8"
+      ],
+      "telas": [
+        "poc"
+      ]
+    },
+    {
+      "fg": "#bb4d00",
+      "bg": "#fffbeb",
+      "tipo": "texto",
+      "razao": 4.85,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 12,
+      "exemplos": [
+        "Flagged QA",
+        "🌐 Sugestão via busca web",
+        "ENVIADA",
+        "parcial"
+      ],
+      "telas": [
+        "workspace-risks",
+        "workspace-bom",
+        "proposals",
+        "approval",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#236cc7",
+      "bg": "#f8fafc",
+      "tipo": "ui",
+      "razao": 4.97,
+      "piso": 3,
+      "passa": true,
+      "ocorrencias": 1,
+      "exemplos": [
+        "ponto 8x8"
+      ],
+      "telas": [
+        "poc"
+      ]
+    },
+    {
+      "fg": "#bb4d00",
+      "bg": "#ffffff",
+      "tipo": "texto",
+      "razao": 5.03,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 12,
+      "exemplos": [
+        "Prioridade Alta"
+      ],
+      "telas": [
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer"
+      ]
+    },
+    {
+      "fg": "#007a55",
+      "bg": "#ecfdf5",
+      "tipo": "texto",
+      "razao": 5.09,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 17,
+      "exemplos": [
+        "85 %",
+        "90 %",
+        "Analisado",
+        "bg-success-50·border-success-200·text-su"
+      ],
+      "telas": [
+        "workspace-bom",
+        "knowledge-base",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#007a55",
+      "bg": "#f8fafc",
+      "tipo": "texto",
+      "razao": 5.13,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 3,
+      "exemplos": [
+        "Configurado"
+      ],
+      "telas": [
+        "admin-overview"
+      ]
+    },
+    {
+      "fg": "#ffffff",
+      "bg": "#236cc7",
+      "tipo": "texto",
+      "razao": 5.2,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 48,
+      "exemplos": [
+        "CV(",
+        "+ ADICIONAR",
+        "Adicionar Nova",
+        "Ir para Área de Trabalho"
+      ],
+      "telas": [
+        "home",
+        "projects",
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer",
+        "proposals",
+        "approval",
+        "knowledge-base",
+        "poc",
+        "pricing",
+        "admin-overview",
+        "admin-users",
+        "admin-branding",
+        "admin-audit",
+        "amostra-sintetica",
+        "login"
+      ]
+    },
+    {
+      "fg": "#236cc7",
+      "bg": "#ffffff",
+      "tipo": "texto",
+      "razao": 5.2,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 13,
+      "exemplos": [
+        "Docs de Licitação",
+        "✨ Enviar Documento de Exemplo",
+        "bg-white·border-slate-200·text-brand-600"
+      ],
+      "telas": [
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#ffffff",
+      "bg": "#007a55",
+      "tipo": "texto",
+      "razao": 5.36,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 2,
+      "exemplos": [
+        "Approve"
+      ],
+      "telas": [
+        "approval"
+      ]
+    },
+    {
+      "fg": "#52a1f4",
+      "bg": "#1d293d",
+      "tipo": "texto",
+      "razao": 5.4,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 17,
+      "exemplos": [
+        "Administrator"
+      ],
+      "telas": [
+        "home",
+        "projects",
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer",
+        "proposals",
+        "approval",
+        "knowledge-base",
+        "poc",
+        "pricing",
+        "admin-overview",
+        "admin-users",
+        "admin-branding",
+        "admin-audit"
+      ]
+    },
+    {
+      "fg": "#52a1f4",
+      "bg": "#152540",
+      "tipo": "texto",
+      "razao": 5.66,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 23,
+      "exemplos": [
+        "Add-on"
+      ],
+      "telas": [
+        "home",
+        "projects",
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer",
+        "proposals",
+        "approval",
+        "knowledge-base",
+        "poc",
+        "pricing",
+        "admin-overview",
+        "admin-users",
+        "admin-branding",
+        "admin-audit"
+      ]
+    },
+    {
+      "fg": "#c10007",
+      "bg": "#fef2f2",
+      "tipo": "texto",
+      "razao": 5.87,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 10,
+      "exemplos": [
+        "high",
+        "crítico",
+        "REJEITADA",
+        "bg-danger-50·text-danger-700"
+      ],
+      "telas": [
+        "workspace-requirements",
+        "workspace-risks",
+        "proposals",
+        "approval",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#1a539e",
+      "bg": "#d2eafe",
+      "tipo": "texto",
+      "razao": 6.1,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 8,
+      "exemplos": [
+        "PDF",
+        "bg-brand-100·border-brand-200·text-brand",
+        "bg-brand-100·text-brand-700"
+      ],
+      "telas": [
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#45556c",
+      "bg": "#e2e8f0",
+      "tipo": "texto",
+      "razao": 6.15,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 6,
+      "exemplos": [
+        "Termo de Referência ✏️"
+      ],
+      "telas": [
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer"
+      ]
+    },
+    {
+      "fg": "#ffffff",
+      "bg": "#c10007",
+      "tipo": "texto",
+      "razao": 6.42,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 2,
+      "exemplos": [
+        "Reject"
+      ],
+      "telas": [
+        "approval"
+      ]
+    },
+    {
+      "fg": "#c10007",
+      "bg": "#ffffff",
+      "tipo": "texto",
+      "razao": 6.42,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 1,
+      "exemplos": [
+        "bg-white·border-danger-200·text-danger-7"
+      ],
+      "telas": [
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#90a1b9",
+      "bg": "#061a3d",
+      "tipo": "texto",
+      "razao": 6.53,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 4,
+      "exemplos": [
+        "Plataforma de Engenharia de Pré-Vendas e Propost",
+        "E-mail Corporativo",
+        "Senha",
+        "Powered by"
+      ],
+      "telas": [
+        "login"
+      ]
+    },
+    {
+      "fg": "#52a1f4",
+      "bg": "#0f172b",
+      "tipo": "texto",
+      "razao": 6.59,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 85,
+      "exemplos": [
+        "Captura Visual (baseline)",
+        "PostgreSQL",
+        "LOCAL: ./uploads",
+        "Anthropic Claude"
+      ],
+      "telas": [
+        "home",
+        "projects",
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer",
+        "proposals",
+        "approval",
+        "knowledge-base",
+        "poc",
+        "pricing",
+        "admin-overview",
+        "admin-users",
+        "admin-branding",
+        "admin-audit"
+      ]
+    },
+    {
+      "fg": "#90a1b9",
+      "bg": "#0f172b",
+      "tipo": "texto",
+      "razao": 6.78,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 120,
+      "exemplos": [
+        "Plataforma de Compliance de Pré-Vendas",
+        "Sessão :",
+        "( Administrator )",
+        "Banco de Dados :"
+      ],
+      "telas": [
+        "home",
+        "projects",
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer",
+        "proposals",
+        "approval",
+        "knowledge-base",
+        "poc",
+        "pricing",
+        "admin-overview",
+        "admin-users",
+        "admin-branding",
+        "admin-audit",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#973c00",
+      "bg": "#fffbeb",
+      "tipo": "texto",
+      "razao": 6.84,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 2,
+      "exemplos": [
+        "Lógica desatualizada",
+        "bg-warning-50·border-warning-200·text-wa"
+      ],
+      "telas": [
+        "workspace-bom",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#1a539e",
+      "bg": "#ebf6ff",
+      "tipo": "texto",
+      "razao": 6.9,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 75,
+      "exemplos": [
+        "Especificações Analisadas",
+        "Mitigações Definidas",
+        "Dúvidas Extraídas",
+        "RESUMO DE COMPLIANCE IA"
+      ],
+      "telas": [
+        "workspace-summary",
+        "workspace-requirements",
+        "proposals",
+        "admin-overview",
+        "admin-users",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#45556c",
+      "bg": "#f1f5f9",
+      "tipo": "texto",
+      "razao": 6.92,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 5,
+      "exemplos": [
+        "TR 49/2023 - Processo 08650.034547/2023-61",
+        "technical",
+        "bg-slate-100·text-slate-600",
+        "bg-slate-100·border-slate-200·text-slate"
+      ],
+      "telas": [
+        "home",
+        "workspace-requirements",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#cad5e2",
+      "bg": "#314158",
+      "tipo": "texto",
+      "razao": 6.97,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 1,
+      "exemplos": [
+        "bg-slate-700·text-slate-300"
+      ],
+      "telas": [
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#00bc7d",
+      "bg": "#0f172b",
+      "tipo": "ui",
+      "razao": 7.21,
+      "piso": 3,
+      "passa": true,
+      "ocorrencias": 17,
+      "exemplos": [
+        "ponto 8x8"
+      ],
+      "telas": [
+        "home",
+        "projects",
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer",
+        "proposals",
+        "approval",
+        "knowledge-base",
+        "poc",
+        "pricing",
+        "admin-overview",
+        "admin-users",
+        "admin-branding",
+        "admin-audit"
+      ]
+    },
+    {
+      "fg": "#006045",
+      "bg": "#ecfdf5",
+      "tipo": "texto",
+      "razao": 7.23,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 1,
+      "exemplos": [
+        "bg-success-50·border-success-200·text-su"
+      ],
+      "telas": [
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#1a539e",
+      "bg": "#f8fafc",
+      "tipo": "texto",
+      "razao": 7.23,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 6,
+      "exemplos": [
+        "Exportar (DOCX)"
+      ],
+      "telas": [
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer"
+      ]
+    },
+    {
+      "fg": "#1a539e",
+      "bg": "#f8fafc",
+      "tipo": "ui",
+      "razao": 7.23,
+      "piso": 3,
+      "passa": true,
+      "ocorrencias": 1,
+      "exemplos": [
+        "ponto 8x8"
+      ],
+      "telas": [
+        "poc"
+      ]
+    },
+    {
+      "fg": "#45556c",
+      "bg": "#f8fafc",
+      "tipo": "texto",
+      "razao": 7.25,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 19,
+      "exemplos": [
+        "\" Hikvision \"",
+        "workspace",
+        "proposals",
+        "templates"
+      ],
+      "telas": [
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer",
+        "admin-users",
+        "admin-branding",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#45556c",
+      "bg": "#f8fafc",
+      "tipo": "ui",
+      "razao": 7.25,
+      "piso": 3,
+      "passa": true,
+      "ocorrencias": 1,
+      "exemplos": [
+        "ponto 8x8"
+      ],
+      "telas": [
+        "poc"
+      ]
+    },
+    {
+      "fg": "#52a1f4",
+      "bg": "#020618",
+      "tipo": "texto",
+      "razao": 7.45,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 4,
+      "exemplos": [
+        "Manual de Administração"
+      ],
+      "telas": [
+        "admin-overview",
+        "admin-users",
+        "admin-branding",
+        "admin-audit"
+      ]
+    },
+    {
+      "fg": "#77b8f8",
+      "bg": "#112340",
+      "tipo": "texto",
+      "razao": 7.47,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 17,
+      "exemplos": [
+        "IA/KB"
+      ],
+      "telas": [
+        "home",
+        "projects",
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer",
+        "proposals",
+        "approval",
+        "knowledge-base",
+        "poc",
+        "pricing",
+        "admin-overview",
+        "admin-users",
+        "admin-branding",
+        "admin-audit"
+      ]
+    },
+    {
+      "fg": "#1a539e",
+      "bg": "#ffffff",
+      "tipo": "texto",
+      "razao": 7.57,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 2,
+      "exemplos": [
+        "Pareceres de IA Multi-Perspectiva",
+        "bg-white·border-brand-200·text-brand-700"
+      ],
+      "telas": [
+        "proposals",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#45556c",
+      "bg": "#ffffff",
+      "tipo": "texto",
+      "razao": 7.58,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 43,
+      "exemplos": [
+        "Departamento de Polícia Rodoviária Federal (DPRF",
+        "Segurança Pública e Infraestrutura Rodoviária",
+        "Departamento de Trânsito do Distrito Federal - D",
+        "Cidades Inteligentes"
+      ],
+      "telas": [
+        "projects",
+        "workspace-risks",
+        "workspace-explorer",
+        "knowledge-base",
+        "poc",
+        "pricing",
+        "admin-overview",
+        "admin-branding",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#9f0712",
+      "bg": "#fef2f2",
+      "tipo": "texto",
+      "razao": 7.64,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 1,
+      "exemplos": [
+        "bg-danger-50·border-danger-200·text-dang"
+      ],
+      "telas": [
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#90a1b9",
+      "bg": "#020618",
+      "tipo": "texto",
+      "razao": 7.66,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 49,
+      "exemplos": [
+        "Administração",
+        "Central de configuração global do sistema.",
+        "Perfis, MFA e permissões",
+        "Modelos, chaves e consumo"
+      ],
+      "telas": [
+        "admin-overview",
+        "admin-users",
+        "admin-branding",
+        "admin-audit",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#314158",
+      "bg": "#e2e8f0",
+      "tipo": "texto",
+      "razao": 8.4,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 7,
+      "exemplos": [
+        "PENDENTE",
+        "bg-slate-200·text-slate-700"
+      ],
+      "telas": [
+        "approval",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#7b3306",
+      "bg": "#fffbeb",
+      "tipo": "texto",
+      "razao": 8.73,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 1,
+      "exemplos": [
+        "bg-warning-50·border-warning-200·text-wa"
+      ],
+      "telas": [
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#82181a",
+      "bg": "#fef2f2",
+      "tipo": "texto",
+      "razao": 9.16,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 1,
+      "exemplos": [
+        "bg-danger-50·border-danger-200·text-dang"
+      ],
+      "telas": [
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#113774",
+      "bg": "#d2eafe",
+      "tipo": "texto",
+      "razao": 9.3,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 8,
+      "exemplos": [
+        "4",
+        "bg-brand-100·text-brand-800",
+        "bg-brand-100·border-brand-200·text-brand"
+      ],
+      "telas": [
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#314158",
+      "bg": "#f1f5f9",
+      "tipo": "texto",
+      "razao": 9.45,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 22,
+      "exemplos": [
+        "RASCUNHO",
+        "Rascunho",
+        "Exportar DOCX",
+        "Exportar PDF"
+      ],
+      "telas": [
+        "home",
+        "projects",
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer",
+        "proposals",
+        "approval",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#314158",
+      "bg": "#f8fafc",
+      "tipo": "texto",
+      "razao": 9.9,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 28,
+      "exemplos": [
+        "Fabricante obrigatório",
+        "Contratação de empresa especializada para fornec",
+        "A CCR Rota Sorocabana administra 460 km de rodov",
+        "Câmeras PTZ com zoom óptico mínimo 30x, IK10, IP"
+      ],
+      "telas": [
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer",
+        "knowledge-base",
+        "admin-overview",
+        "admin-branding",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#314158",
+      "bg": "#fbfcfd",
+      "tipo": "texto",
+      "razao": 10.08,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 8,
+      "exemplos": [
+        "\" N/A \"",
+        "90 dias",
+        "\" 30 dias líquidos \"",
+        "Entrega após aprovação técnica"
+      ],
+      "telas": [
+        "proposals"
+      ]
+    },
+    {
+      "fg": "#314158",
+      "bg": "#ffffff",
+      "tipo": "texto",
+      "razao": 10.36,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 106,
+      "exemplos": [
+        "2026-06-25",
+        "Segurança Pública e Infraestrutura Rodoviária",
+        "Cidades Inteligentes",
+        "Infraestrutura Aeroportuária"
+      ],
+      "telas": [
+        "home",
+        "projects",
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer",
+        "proposals",
+        "approval",
+        "knowledge-base",
+        "pricing",
+        "admin-users",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#113774",
+      "bg": "#ebf6ff",
+      "tipo": "texto",
+      "razao": 10.51,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 1,
+      "exemplos": [
+        "bg-brand-50·border-brand-200·text-brand-"
+      ],
+      "telas": [
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#cad5e2",
+      "bg": "#0f172b",
+      "tipo": "texto",
+      "razao": 12,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 174,
+      "exemplos": [
+        "Projetos",
+        "Área de Trabalho",
+        "Estúdio de Propostas",
+        "Centro de Aprovação"
+      ],
+      "telas": [
+        "home",
+        "projects",
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer",
+        "proposals",
+        "approval",
+        "knowledge-base",
+        "poc",
+        "pricing",
+        "admin-overview",
+        "admin-users",
+        "admin-branding",
+        "admin-audit",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#1d293d",
+      "bg": "#ebf6ff",
+      "tipo": "texto",
+      "razao": 13.33,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 1,
+      "exemplos": [
+        "bg-brand-50·border-brand-100·text-slate-"
+      ],
+      "telas": [
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#1d293d",
+      "bg": "#f1f5f9",
+      "tipo": "texto",
+      "razao": 13.34,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 3,
+      "exemplos": [
+        "Segurança Pública e Infraestrutura Rodoviária",
+        "bg-slate-100·text-slate-800",
+        "bg-slate-100·border-slate-200·text-slate"
+      ],
+      "telas": [
+        "home",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#cad5e2",
+      "bg": "#020618",
+      "tipo": "texto",
+      "razao": 13.56,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 42,
+      "exemplos": [
+        "Usuários e Acessos",
+        "IA, Prompts e Custos",
+        "Templates de Propostas",
+        "Fluxo de Aprovação"
+      ],
+      "telas": [
+        "admin-overview",
+        "admin-users",
+        "admin-branding",
+        "admin-audit",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#1d293d",
+      "bg": "#f8fafc",
+      "tipo": "texto",
+      "razao": 13.97,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 26,
+      "exemplos": [
+        "Anexo_01_-_Termo_de_Referencia (1).pdf",
+        "Documento de Proposta Técnica",
+        "Documento de Proposta Comercial",
+        "Documento de Proposta Técnico-Comercial"
+      ],
+      "telas": [
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer",
+        "approval",
+        "admin-overview",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#1d293d",
+      "bg": "#fbfcfd",
+      "tipo": "texto",
+      "razao": 14.23,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 1,
+      "exemplos": [
+        "Lista de Propostas e Editais Ativos"
+      ],
+      "telas": [
+        "home"
+      ]
+    },
+    {
+      "fg": "#ffffff",
+      "bg": "#1d293d",
+      "tipo": "texto",
+      "razao": 14.62,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 17,
+      "exemplos": [
+        "Captura Visual (baseline)"
+      ],
+      "telas": [
+        "home",
+        "projects",
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer",
+        "proposals",
+        "approval",
+        "knowledge-base",
+        "poc",
+        "pricing",
+        "admin-overview",
+        "admin-users",
+        "admin-branding",
+        "admin-audit"
+      ]
+    },
+    {
+      "fg": "#1d293d",
+      "bg": "#ffffff",
+      "tipo": "texto",
+      "razao": 14.62,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 58,
+      "exemplos": [
+        "Tarefas Pendentes do Usuário",
+        "Licitações por Setor / Vertical",
+        "Pipeline de Status",
+        "Monitoramento Eletrônico de Faixas de Rolamento "
+      ],
+      "telas": [
+        "home",
+        "projects",
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer",
+        "proposals",
+        "approval",
+        "pricing",
+        "admin-overview",
+        "admin-branding",
+        "admin-audit"
+      ]
+    },
+    {
+      "fg": "#1d293d",
+      "bg": "#ffffff",
+      "tipo": "texto-grande",
+      "razao": 14.62,
+      "piso": 3,
+      "passa": true,
+      "ocorrencias": 3,
+      "exemplos": [
+        "4",
+        "87.5%",
+        "1"
+      ],
+      "telas": [
+        "home"
+      ]
+    },
+    {
+      "fg": "#0f172b",
+      "bg": "#ebf6ff",
+      "tipo": "texto-grande",
+      "razao": 16.27,
+      "piso": 3,
+      "passa": true,
+      "ocorrencias": 3,
+      "exemplos": [
+        "1",
+        "6",
+        "5"
+      ],
+      "telas": [
+        "workspace-summary"
+      ]
+    },
+    {
+      "fg": "#0f172b",
+      "bg": "#f8fafc",
+      "tipo": "texto",
+      "razao": 17.04,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 2,
+      "exemplos": [
+        "CONFIDENTIALITY NOTICE: This system handles prop",
+        "bg-slate-50·text-slate-900"
+      ],
+      "telas": [
+        "admin-branding",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#0f172b",
+      "bg": "#fbfcfd",
+      "tipo": "texto",
+      "razao": 17.36,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 7,
+      "exemplos": [
+        "Resumo Executivo de Conformidade",
+        "Matriz de Requisitos ( 10 )",
+        "Riscos e Oportunidades ( 10 )",
+        "Mecanismo de BOM & Conformidade"
+      ],
+      "telas": [
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer",
+        "knowledge-base"
+      ]
+    },
+    {
+      "fg": "#ffffff",
+      "bg": "#0f172b",
+      "tipo": "texto",
+      "razao": 17.83,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 23,
+      "exemplos": [
+        "Início",
+        "Projetos",
+        "Área de Trabalho",
+        "Estúdio de Propostas"
+      ],
+      "telas": [
+        "home",
+        "projects",
+        "workspace-summary",
+        "workspace-requirements",
+        "workspace-risks",
+        "workspace-bom",
+        "workspace-proposal-builder",
+        "workspace-explorer",
+        "proposals",
+        "approval",
+        "knowledge-base",
+        "poc",
+        "pricing",
+        "admin-overview",
+        "admin-users",
+        "admin-branding",
+        "admin-audit",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#0f172b",
+      "bg": "#ffffff",
+      "tipo": "texto",
+      "razao": 17.83,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 9,
+      "exemplos": [
+        "Resumo Executivo",
+        "Validar previamente com Digifort e Hikvision a l",
+        "Espaço de Trabalho do Estúdio de Propostas",
+        "Fluxo de Aprovação de Pré-Vendas Corporativo"
+      ],
+      "telas": [
+        "workspace-summary",
+        "workspace-risks",
+        "proposals",
+        "approval",
+        "poc",
+        "admin-users",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#0f172b",
+      "bg": "#ffffff",
+      "tipo": "texto-grande",
+      "razao": 17.83,
+      "piso": 3,
+      "passa": true,
+      "ocorrencias": 4,
+      "exemplos": [
+        "Visão Geral do Sistema",
+        "Usuários e Acessos",
+        "Personalização e Identidade Visual",
+        "Auditoria e Diagnóstico"
+      ],
+      "telas": [
+        "admin-overview",
+        "admin-users",
+        "admin-branding",
+        "admin-audit"
+      ]
+    },
+    {
+      "fg": "#0f172b",
+      "bg": "#ffffff",
+      "tipo": "ui",
+      "razao": 17.83,
+      "piso": 3,
+      "passa": true,
+      "ocorrencias": 4,
+      "exemplos": [
+        "ponto 8x8"
+      ],
+      "telas": [
+        "admin-overview"
+      ]
+    },
+    {
+      "fg": "#ffffff",
+      "bg": "#03102c",
+      "tipo": "texto",
+      "razao": 18.84,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 1,
+      "exemplos": [
+        "bg-brand-950·border-brand-500·border-bra"
+      ],
+      "telas": [
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#ffffff",
+      "bg": "#020618",
+      "tipo": "texto",
+      "razao": 20.16,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 5,
+      "exemplos": [
+        "Configurações",
+        "bg-slate-950·text-white"
+      ],
+      "telas": [
+        "admin-overview",
+        "admin-users",
+        "admin-branding",
+        "admin-audit",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#020618",
+      "bg": "#ffffff",
+      "tipo": "texto",
+      "razao": 20.16,
+      "piso": 4.5,
+      "passa": true,
+      "ocorrencias": 5,
+      "exemplos": [
+        "Visão Geral",
+        "Usuários e Acessos",
+        "Identidade Visual",
+        "Auditoria e Diagnóstico"
+      ],
+      "telas": [
+        "admin-overview",
+        "admin-users",
+        "admin-branding",
+        "admin-audit",
+        "amostra-sintetica"
+      ]
+    },
+    {
+      "fg": "#020618",
+      "bg": "#ffffff",
+      "tipo": "texto-grande",
+      "razao": 20.16,
+      "piso": 3,
+      "passa": true,
+      "ocorrencias": 4,
+      "exemplos": [
+        "19",
+        "3",
+        "1"
+      ],
+      "telas": [
+        "admin-overview"
+      ]
+    }
+  ]
+}

@@ -211,7 +211,7 @@ export default function NewProjectWizard({ locale, onClose, onCreated, waitForTa
               </div>
             )}
 
-            {error && <div className="p-3 rounded bg-warning-50 border border-warning-200 text-warning-900">{error}</div>}
+            {error && <div className="p-3 rounded bg-danger-50 border border-danger-200 text-danger-900">{error}</div>}
 
             <button
               onClick={() => {
@@ -251,7 +251,7 @@ export default function NewProjectWizard({ locale, onClose, onCreated, waitForTa
 
         {step === "validate" && (
           <form onSubmit={handleConfirm} className="p-6 overflow-y-auto flex-1">
-            {error && <div className="mb-4 p-3 rounded bg-warning-50 border border-warning-200 text-warning-900 text-xs">{error}</div>}
+            {error && <div className="mb-4 p-3 rounded bg-danger-50 border border-danger-200 text-danger-900 text-xs">{error}</div>}
             <ProjectFieldsForm locale={locale} values={fields} onChange={setFields} />
 
             <div className="flex justify-end gap-2 pt-4 mt-4 border-t border-slate-200">

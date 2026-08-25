@@ -118,7 +118,7 @@ export default function Approval({
                                           matchedDecision.decision === "approved" ? "text-success-700 bg-success-50" : "text-danger-700 bg-danger-50"
                                         }`}>{matchedDecision.decision}</span>
                                       ) : (
-                                        <span className="text-[9px] font-bold bg-slate-200 text-slate-500 px-1.5 py-0.5 rounded uppercase">{tx("PENDING", "PENDENTE")}</span>
+                                        <span className="text-[9px] font-bold bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded uppercase">{tx("PENDING", "PENDENTE")}</span>
                                       )}
                                     </div>
                                     <h5 className="text-xs font-bold text-slate-800 uppercase leading-none font-mono mb-1">{stage.name}</h5>

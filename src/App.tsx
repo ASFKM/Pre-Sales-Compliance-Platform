@@ -1522,7 +1522,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
       {/* 4. DIAGNOSTIC SYSTEM FOOTER */}
       <footer className="h-8 bg-slate-900 border-t border-slate-800 px-3 lg:px-6 flex items-center justify-between gap-4 text-[10px] font-mono text-slate-400 shrink-0 shadow-lg overflow-hidden whitespace-nowrap">
         <div className="flex gap-6 items-center min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <span>{tx("Session", "Sessão")}: <span className="text-brand-400">{currentSessionUser.name || "-"}</span> <span className="text-slate-500">({currentSessionUser.role || "-"})</span></span>
+          <span>{tx("Session", "Sessão")}: <span className="text-brand-400">{currentSessionUser.name || "-"}</span> <span className="text-slate-400">({currentSessionUser.role || "-"})</span></span>
           <span>{tx("Database", "Banco de Dados")}: <span className="text-brand-400">PostgreSQL</span></span>
           <span>{tx("Workspace Storage", "Armazenamento do Workspace")}: <span className="text-brand-400 uppercase">
             {platformSettings?.storage_mode === "s3"
