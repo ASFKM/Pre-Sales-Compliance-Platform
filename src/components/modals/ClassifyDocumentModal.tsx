@@ -26,25 +26,25 @@ export default function ClassifyDocumentModal({ document, tx, onClose, onReclass
                 longer matched any category the AI could actually assign. */}
             <button
               onClick={() => onReclassify(document.id, tx("Public Tender / RFP", "Edital / Termo de Referência"))}
-              className="w-full p-2.5 text-left bg-slate-50 border border-slate-200 hover:border-emerald-500 rounded font-bold hover:bg-slate-100 block cursor-pointer text-xs"
+              className="w-full p-2.5 text-left bg-slate-50 border border-slate-200 hover:border-brand-500 rounded font-bold hover:bg-slate-100 block cursor-pointer text-xs"
             >
               📜 {tx("Public Tender / RFP", "Edital / Termo de Referência")}
             </button>
             <button
               onClick={() => onReclassify(document.id, tx("Technical Specification", "Especificação Técnica"))}
-              className="w-full p-2.5 text-left bg-slate-50 border border-slate-200 hover:border-emerald-500 rounded font-bold hover:bg-slate-100 block cursor-pointer text-xs"
+              className="w-full p-2.5 text-left bg-slate-50 border border-slate-200 hover:border-brand-500 rounded font-bold hover:bg-slate-100 block cursor-pointer text-xs"
             >
               🔧 {tx("Technical Specification", "Especificação Técnica")}
             </button>
             <button
               onClick={() => onReclassify(document.id, tx("Contract/SLA", "Contrato/SLA"))}
-              className="w-full p-2.5 text-left bg-slate-50 border border-slate-200 hover:border-emerald-500 rounded font-bold hover:bg-slate-100 block cursor-pointer text-xs"
+              className="w-full p-2.5 text-left bg-slate-50 border border-slate-200 hover:border-brand-500 rounded font-bold hover:bg-slate-100 block cursor-pointer text-xs"
             >
               📄 {tx("Contract/SLA", "Contrato/SLA")}
             </button>
             <button
               onClick={() => onReclassify(document.id, tx("Commercial Proposal", "Proposta Comercial"))}
-              className="w-full p-2.5 text-left bg-slate-50 border border-slate-200 hover:border-emerald-500 rounded font-bold hover:bg-slate-100 block cursor-pointer text-xs"
+              className="w-full p-2.5 text-left bg-slate-50 border border-slate-200 hover:border-brand-500 rounded font-bold hover:bg-slate-100 block cursor-pointer text-xs"
             >
               📝 {tx("Commercial Proposal", "Proposta Comercial")}
             </button>

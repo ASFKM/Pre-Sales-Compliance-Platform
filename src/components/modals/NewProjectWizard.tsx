@@ -181,7 +181,7 @@ export default function NewProjectWizard({ locale, onClose, onCreated, waitForTa
                 : "Upload the tender or bid documents. The AI will analyze the content and pre-fill the project details for you to review."}
             </p>
 
-            <div className="relative border-2 border-dashed border-slate-200 hover:border-emerald-500 rounded p-6 text-center transition-all">
+            <div className="relative border-2 border-dashed border-slate-200 hover:border-brand-500 rounded p-6 text-center transition-all">
               <input
                 type="file"
                 multiple
@@ -203,7 +203,7 @@ export default function NewProjectWizard({ locale, onClose, onCreated, waitForTa
                 {files.map((f) => (
                   <div key={f.id} className="p-2 bg-slate-50 border border-slate-200 rounded flex items-center justify-between">
                     <span className="truncate">{f.filename}</span>
-                    <button onClick={() => handleRemoveFile(f.id)} className="text-slate-400 hover:text-red-600 cursor-pointer">
+                    <button onClick={() => handleRemoveFile(f.id)} className="text-slate-400 hover:text-danger-600 cursor-pointer">
                       <Trash2 size={12} />
                     </button>
                   </div>
@@ -211,7 +211,7 @@ export default function NewProjectWizard({ locale, onClose, onCreated, waitForTa
               </div>
             )}
 
-            {error && <div className="p-3 rounded bg-amber-50 border border-amber-200 text-amber-900">{error}</div>}
+            {error && <div className="p-3 rounded bg-warning-50 border border-warning-200 text-warning-900">{error}</div>}
 
             <button
               onClick={() => {
@@ -220,7 +220,7 @@ export default function NewProjectWizard({ locale, onClose, onCreated, waitForTa
                 if (sessionId) fetch(`/api/project-intake/${sessionId}`, { method: "DELETE" }).catch(() => {});
                 setShowManualFallback(true);
               }}
-              className="text-emerald-600 hover:underline text-[11px] font-semibold cursor-pointer block"
+              className="text-brand-600 hover:underline text-[11px] font-semibold cursor-pointer block"
             >
               {locale === "pt" ? "Não tenho documentos ainda, criar manualmente" : "I don't have documents yet, create manually"}
             </button>
@@ -237,7 +237,7 @@ export default function NewProjectWizard({ locale, onClose, onCreated, waitForTa
                 onClick={handleAnalyze}
                 disabled={!files.length || isAnalyzing}
                 className={`font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all flex items-center gap-2 ${
-                  !files.length || isAnalyzing ? "bg-slate-200 text-slate-400 cursor-not-allowed" : "bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
+                  !files.length || isAnalyzing ? "bg-slate-200 text-slate-400 cursor-not-allowed" : "bg-brand-600 hover:bg-brand-700 text-white cursor-pointer"
                 }`}
               >
                 <Sparkles size={13} className={isAnalyzing ? "animate-pulse" : ""} />
@@ -251,7 +251,7 @@ export default function NewProjectWizard({ locale, onClose, onCreated, waitForTa
 
         {step === "validate" && (
           <form onSubmit={handleConfirm} className="p-6 overflow-y-auto flex-1">
-            {error && <div className="mb-4 p-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-xs">{error}</div>}
+            {error && <div className="mb-4 p-3 rounded bg-warning-50 border border-warning-200 text-warning-900 text-xs">{error}</div>}
             <ProjectFieldsForm locale={locale} values={fields} onChange={setFields} />
 
             <div className="flex justify-end gap-2 pt-4 mt-4 border-t border-slate-200">
@@ -265,7 +265,7 @@ export default function NewProjectWizard({ locale, onClose, onCreated, waitForTa
               <button
                 type="submit"
                 disabled={isConfirming}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
+                className="bg-brand-600 hover:bg-brand-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
               >
                 {isConfirming
                   ? (locale === "pt" ? "Criando..." : "Creating...")

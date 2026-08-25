@@ -12,19 +12,22 @@ const OPINION_PERSPECTIVE_LABEL: Record<OpinionPerspective, { pt: string; en: st
   legal: { pt: "Jurídico", en: "Legal" },
   financial: { pt: "Financeiro", en: "Financial" },
 };
-// Identidade visual por perspectiva (ícone + cor), separada da severidade (crítico/atenção) do
-// conteúdo em si - as duas informações precisam ficar visíveis ao mesmo tempo num card, sem uma
-// sobrescrever a outra (antes, só a severidade colorida o card inteiro e todo card tinha a mesma
-// aparência entre si).
+// Identidade visual por perspectiva, separada da severidade (crítico/atenção) do conteúdo em si -
+// as duas informações precisam ficar visíveis ao mesmo tempo num card, sem uma sobrescrever a
+// outra (antes, só a severidade colorida o card inteiro e todo card tinha a mesma aparência entre
+// si). Quem distingue a perspectiva é o ÍCONE (chave/aperto de mão/cifrão/escudo) mais o rótulo;
+// o chip é uniforme em brand-* de propósito. As quatro cores anteriores (azul/verde/âmbar/roxo)
+// competiam com a própria severidade do card: o chip âmbar de "Financeiro" era indistinguível do
+// badge âmbar "atenção" ao lado dele. Repaletização da Fase 4 (identidade visual, 2026-08).
 const OPINION_PERSPECTIVE_STYLE: Record<OpinionPerspective, { icon: LucideIcon; iconBg: string; iconColor: string }> = {
-  technical: { icon: Wrench, iconBg: "bg-blue-100", iconColor: "text-blue-700" },
-  commercial: { icon: Handshake, iconBg: "bg-emerald-100", iconColor: "text-emerald-700" },
-  financial: { icon: CircleDollarSign, iconBg: "bg-amber-100", iconColor: "text-amber-700" },
-  legal: { icon: ShieldAlert, iconBg: "bg-purple-100", iconColor: "text-purple-700" },
+  technical: { icon: Wrench, iconBg: "bg-brand-100", iconColor: "text-brand-700" },
+  commercial: { icon: Handshake, iconBg: "bg-brand-100", iconColor: "text-brand-700" },
+  financial: { icon: CircleDollarSign, iconBg: "bg-brand-100", iconColor: "text-brand-700" },
+  legal: { icon: ShieldAlert, iconBg: "bg-brand-100", iconColor: "text-brand-700" },
 };
 const OPINION_SEVERITY_BORDER: Record<"critical" | "warning" | "none", string> = {
-  critical: "border-l-4 border-l-red-500",
-  warning: "border-l-4 border-l-amber-500",
+  critical: "border-l-4 border-l-danger-500",
+  warning: "border-l-4 border-l-warning-500",
   none: "border-l-4 border-l-transparent",
 };
 interface OpinionItem {
@@ -203,7 +206,7 @@ export default function Proposals({
 
               {proposals.length === 0 ? (
                 <div className="bg-slate-50 border border-slate-200 rounded-xl p-8 text-center py-16">
-                  <TriangleAlert className="text-amber-500 mx-auto mb-2" size={32} />
+                  <TriangleAlert className="text-warning-500 mx-auto mb-2" size={32} />
                   <h4 className="text-sm font-bold text-slate-800 uppercase font-mono">{locale === "pt" ? "Nenhuma Proposta Compilada Ainda" : "No Proposals Compiled Yet"}</h4>
                   <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 leading-relaxed">
                     {locale === "pt" ? "Acesse a Área de Trabalho e escolha a aba 'Estúdio de Geração de Propostas' para compilar especificações técnicas ou planilhas de preços em rascunhos de documentos reais." : "Go to your Workspace tab and choose the 'Proposal Studio Generator' sub-tab to compile technical specifications or pricing tables into actual document drafts."}
@@ -218,7 +221,7 @@ export default function Proposals({
                       <div className="flex justify-between items-start border-b border-slate-100 pb-3">
                         <div className="flex gap-3 items-center">
                           <div className={`w-10 h-10 rounded-lg flex items-center justify-center font-bold text-sm ${
-                            prop.proposal_type === "technical" ? "bg-blue-50 text-blue-700" : "bg-emerald-50 text-emerald-700"
+                            prop.proposal_type === "technical" ? "bg-brand-50 text-brand-700" : "bg-brand-50 text-brand-700"
                           }`}>
                             {prop.proposal_type === "technical" ? "TECH" : "COMM"}
                           </div>
@@ -226,11 +229,11 @@ export default function Proposals({
                             <div className="flex items-center gap-2">
                               <h3 className="text-sm font-bold text-slate-800 uppercase font-mono">{prop.proposal_type === "technical" ? (locale === "pt" ? "Técnica" : "Technical") : (locale === "pt" ? "Comercial" : "Commercial")} - Draft v{prop.version}.0</h3>
                               <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${
-                                prop.status === "released" ? "text-purple-700 bg-purple-50 border-purple-200" :
-                                prop.status === "approved" ? "text-emerald-700 bg-emerald-50 border-emerald-200" :
-                                prop.status === "submitted" ? "text-blue-700 bg-blue-50 border-blue-200" :
-                                prop.status === "rejected" ? "text-red-700 bg-red-50 border-red-200" :
-                                "text-amber-700 bg-amber-50 border-amber-200"
+                                prop.status === "released" ? "text-brand-700 bg-brand-50 border-brand-200" :
+                                prop.status === "approved" ? "text-success-700 bg-success-50 border-success-200" :
+                                prop.status === "submitted" ? "text-warning-700 bg-warning-50 border-warning-200" :
+                                prop.status === "rejected" ? "text-danger-700 bg-danger-50 border-danger-200" :
+                                "text-slate-700 bg-slate-100 border-slate-200"
                               }`}>
                                 {locale === "pt" ? (
                                   prop.status === "released" ? "LIBERADA" :
@@ -249,7 +252,7 @@ export default function Proposals({
                           {prop.status === "draft" && hasPermission("proposal:edit") && (
                             <button
                               onClick={() => openEditor(prop)}
-                              className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-mono text-[11px] font-bold px-3 py-1.5 rounded border border-blue-200 transition-all shadow-sm cursor-pointer"
+                              className="flex items-center gap-1.5 bg-brand-50 hover:bg-brand-100 text-brand-700 font-mono text-[11px] font-bold px-3 py-1.5 rounded border border-brand-200 transition-all shadow-sm cursor-pointer"
                             >
                               <PenLine size={12} /> {locale === "pt" ? "Revisar e Editar" : "Review & Edit"}
                             </button>
@@ -258,7 +261,7 @@ export default function Proposals({
                             <button
                               onClick={() => checkSlaRisk(prop.id)}
                               disabled={checkingSlaId === prop.id}
-                              className="flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 font-mono text-[11px] font-bold px-3 py-1.5 rounded border border-amber-200 transition-all shadow-sm disabled:opacity-50 cursor-pointer"
+                              className="flex items-center gap-1.5 bg-brand-50 hover:bg-brand-100 text-brand-700 font-mono text-[11px] font-bold px-3 py-1.5 rounded border border-brand-200 transition-all shadow-sm disabled:opacity-50 cursor-pointer"
                             >
                               <ShieldAlert size={12} className={checkingSlaId === prop.id ? "animate-pulse" : ""} />
                               {checkingSlaId === prop.id ? (locale === "pt" ? "Verificando..." : "Checking...") : (locale === "pt" ? "Verificar Riscos de SLA" : "Check SLA Risks")}
@@ -271,7 +274,7 @@ export default function Proposals({
                               <button
                                 onClick={() => generateOpinionPanel(prop.id)}
                                 disabled={isRunning}
-                                className="flex items-center gap-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 font-mono text-[11px] font-bold px-3 py-1.5 rounded border border-purple-200 transition-all shadow-sm disabled:opacity-50 cursor-pointer"
+                                className="flex items-center gap-1.5 bg-brand-50 hover:bg-brand-100 text-brand-700 font-mono text-[11px] font-bold px-3 py-1.5 rounded border border-brand-200 transition-all shadow-sm disabled:opacity-50 cursor-pointer"
                                 title={locale === "pt" ? "Gera 4 pareceres de IA (Técnico/Comercial/Jurídico/Financeiro) - puramente informativo, nunca bloqueia o fluxo de aprovação" : "Generates 4 AI opinions (Technical/Commercial/Legal/Financial) - purely informational, never blocks the approval flow"}
                               >
                                 <Sparkles size={12} className={isRunning ? "animate-pulse" : ""} />
@@ -302,7 +305,7 @@ export default function Proposals({
                           {prop.status === "draft" && hasPermission("approval:manage") && (
                             <button
                               onClick={() => handleSubmitProposalApproval(prop.id)}
-                              className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-[11px] font-bold px-3 py-1.5 rounded shadow-sm transition-all cursor-pointer"
+                              className="bg-brand-600 hover:bg-brand-700 text-white font-mono text-[11px] font-bold px-3 py-1.5 rounded shadow-sm transition-all cursor-pointer"
                             >
                               {locale === "pt" ? "Enviar para Aprovação de Fluxo" : "Submit to Workflow Approvals"}
                             </button>
@@ -310,13 +313,13 @@ export default function Proposals({
                           {prop.status === "approved" && hasPermission("proposal:approve") && (
                             <button
                               onClick={() => handleReleaseProposal(prop.id)}
-                              className="bg-purple-600 hover:bg-purple-700 text-white font-mono text-[11px] font-bold px-3 py-1.5 rounded shadow-sm transition-all cursor-pointer"
+                              className="bg-brand-600 hover:bg-brand-700 text-white font-mono text-[11px] font-bold px-3 py-1.5 rounded shadow-sm transition-all cursor-pointer"
                             >
                               {locale === "pt" ? "Liberar Versão Final" : "Release Final Version"}
                             </button>
                           )}
                           {prop.status === "released" && (
-                            <span className="bg-purple-50 text-purple-700 border border-purple-200 font-mono text-[11px] font-bold px-3 py-1.5 rounded">
+                            <span className="bg-brand-50 text-brand-700 border border-brand-200 font-mono text-[11px] font-bold px-3 py-1.5 rounded">
                               {locale === "pt" ? "Versão Final Liberada" : "Final Version Released"}
                             </span>
                           )}
@@ -375,7 +378,7 @@ export default function Proposals({
                                     <td className="p-2.5 font-bold text-slate-900">${row.total_price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                     <td className="p-2.5">
                                       <span className={`px-1.5 py-0.5 rounded font-bold text-[9px] uppercase ${
-                                        row.is_optional ? "text-amber-700 bg-amber-50 border border-amber-100" : "text-emerald-700 bg-emerald-50 border border-emerald-100"
+                                        row.is_optional ? "text-warning-700 bg-warning-50 border border-warning-100" : "text-slate-700 bg-slate-100 border border-slate-200"
                                       }`}>
                                         {row.is_optional ? (locale === "pt" ? "Opcional" : "Optional") : (locale === "pt" ? "Obrigatório" : "Mandatory")}
                                       </span>
@@ -385,7 +388,7 @@ export default function Proposals({
                                 {/* Totals block */}
                                 <tr className="bg-slate-100 font-sans font-bold text-slate-800">
                                   <td colSpan={5} className="p-3 text-right uppercase tracking-wider font-mono text-[10px] text-slate-500">{locale === "pt" ? "Preço de Licitação Bruto Total:" : "Gross Contract Bid Price:"}</td>
-                                  <td colSpan={2} className="p-3 text-sm text-emerald-800 font-mono">
+                                  <td colSpan={2} className="p-3 text-sm text-brand-800 font-mono">
                                     ${(prop.manual_pricing_table || []).reduce((acc, r) => acc + r.total_price, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                                   </td>
                                 </tr>
@@ -421,17 +424,17 @@ export default function Proposals({
 
                       {slaCheckResults[prop.id] !== undefined && (
                         slaCheckResults[prop.id].length === 0 ? (
-                          <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                          <div className="flex items-center gap-2 text-xs text-success-700 bg-success-50 border border-success-200 rounded-lg p-3">
                             <ShieldAlert size={14} />
                             {locale === "pt" ? "Nenhum risco histórico encontrado na Base de Conhecimento para os termos propostos." : "No historical risk found in the Knowledge Base for the proposed terms."}
                           </div>
                         ) : (
                           <div className="space-y-2">
-                            <h4 className="text-xs uppercase font-bold text-amber-700 tracking-wider font-mono">{locale === "pt" ? "Riscos de SLA Sinalizados pela Base de Conhecimento" : "SLA Risks Flagged by the Knowledge Base"}</h4>
+                            <h4 className="text-xs uppercase font-bold text-warning-700 tracking-wider font-mono">{locale === "pt" ? "Riscos de SLA Sinalizados pela Base de Conhecimento" : "SLA Risks Flagged by the Knowledge Base"}</h4>
                             {slaCheckResults[prop.id].map((risk, i) => (
                               <div key={i} className={`text-xs rounded-lg p-3 border ${
-                                risk.severity === "high" ? "bg-red-50 border-red-200 text-red-800" :
-                                risk.severity === "medium" ? "bg-amber-50 border-amber-200 text-amber-800" :
+                                risk.severity === "high" ? "bg-danger-50 border-danger-200 text-danger-800" :
+                                risk.severity === "medium" ? "bg-warning-50 border-warning-200 text-warning-800" :
                                 "bg-slate-50 border-slate-200 text-slate-700"
                               }`}>
                                 <p className="font-bold uppercase text-[10px] tracking-wider mb-1">
@@ -448,11 +451,11 @@ export default function Proposals({
 
                       {opinionRuns[prop.id] && (
                         <div className="space-y-2">
-                          <h4 className="text-xs uppercase font-bold text-purple-700 tracking-wider font-mono flex items-center gap-1.5">
+                          <h4 className="text-xs uppercase font-bold text-brand-700 tracking-wider font-mono flex items-center gap-1.5">
                             <Sparkles size={12} />
                             {locale === "pt" ? "Pareceres de IA Multi-Perspectiva" : "Multi-Perspective AI Opinions"}
                             {opinionRuns[prop.id]!.status === "partial" && (
-                              <span className="text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full normal-case tracking-normal">
+                              <span className="text-[9px] font-bold text-warning-700 bg-warning-50 border border-warning-200 px-1.5 py-0.5 rounded-full normal-case tracking-normal">
                                 {locale === "pt" ? "parcial" : "partial"}
                               </span>
                             )}
@@ -491,7 +494,7 @@ export default function Proposals({
                                       <span className="font-bold uppercase text-[10px] tracking-wider flex items-center gap-1.5">
                                         {label}
                                         {severityLabel && (
-                                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full normal-case tracking-normal ${severityKey === "critical" ? "bg-red-50 text-red-700 border border-red-200" : "bg-amber-50 text-amber-700 border border-amber-200"}`}>
+                                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full normal-case tracking-normal ${severityKey === "critical" ? "bg-danger-50 text-danger-700 border border-danger-200" : "bg-warning-50 text-warning-700 border border-warning-200"}`}>
                                             {severityLabel}
                                           </span>
                                         )}
@@ -532,7 +535,7 @@ export default function Proposals({
                       <textarea
                         value={editedContent}
                         onChange={(e) => setEditedContent(e.target.value)}
-                        className="w-full h-full min-h-[400px] p-3 rounded border border-slate-200 font-mono text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-emerald-500 resize-none"
+                        className="w-full h-full min-h-[400px] p-3 rounded border border-slate-200 font-mono text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none"
                         spellCheck={false}
                       />
                     </div>
@@ -546,7 +549,7 @@ export default function Proposals({
                       <button
                         onClick={saveEditedContent}
                         disabled={savingEdit}
-                        className="px-4 py-2 text-xs font-bold uppercase bg-emerald-600 hover:bg-emerald-700 text-white rounded transition-colors cursor-pointer disabled:opacity-50"
+                        className="px-4 py-2 text-xs font-bold uppercase bg-brand-600 hover:bg-brand-700 text-white rounded transition-colors cursor-pointer disabled:opacity-50"
                       >
                         {savingEdit ? (locale === "pt" ? "Salvando..." : "Saving...") : (locale === "pt" ? "Salvar e Regenerar Documento" : "Save & Regenerate Document")}
                       </button>
