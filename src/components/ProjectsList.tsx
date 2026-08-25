@@ -15,7 +15,7 @@ const STATUS_LABEL: Record<string, string> = {
 
 const STATUS_COLOR: Record<string, string> = {
   draft: "bg-slate-100 text-slate-700",
-  analysis_in_progress: "bg-blue-50 text-blue-700",
+  analysis_in_progress: "bg-brand-50 text-brand-700",
   waiting_customer: "bg-warning-50 text-warning-700",
   waiting_internal: "bg-warning-50 text-warning-700",
   completed: "bg-success-50 text-success-700",
@@ -149,7 +149,7 @@ export default function ProjectsList({ locale, projects, hasPermission, onOpenPr
                     {canEdit && (
                       <button
                         onClick={() => openEdit(p)}
-                        className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors cursor-pointer"
+                        className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors cursor-pointer"
                         title="Editar Projeto"
                       >
                         <Pen size={14} />
@@ -158,7 +158,7 @@ export default function ProjectsList({ locale, projects, hasPermission, onOpenPr
                     {canDelete && (
                       <button
                         onClick={() => setConfirmDeleteId(p.id)}
-                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                        className="p-1.5 text-slate-400 hover:text-danger-600 hover:bg-danger-50 rounded transition-colors cursor-pointer"
                         title="Excluir Projeto"
                       >
                         <Trash2 size={14} />
@@ -188,7 +188,7 @@ export default function ProjectsList({ locale, projects, hasPermission, onOpenPr
             </div>
             <div className="p-5">
               {editError && (
-                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-xs text-red-700">{editError}</div>
+                <div className="mb-4 p-3 bg-danger-50 border border-danger-200 rounded text-xs text-danger-700">{editError}</div>
               )}
               <ProjectFieldsForm locale={locale} values={editValues} onChange={setEditValues} />
             </div>
@@ -228,7 +228,7 @@ export default function ProjectsList({ locale, projects, hasPermission, onOpenPr
               <button
                 onClick={() => confirmDelete(confirmDeleteId)}
                 disabled={deletingId === confirmDeleteId}
-                className="px-4 py-2 text-xs font-bold uppercase bg-red-600 hover:bg-red-700 text-white rounded transition-colors cursor-pointer disabled:opacity-50"
+                className="px-4 py-2 text-xs font-bold uppercase bg-danger-600 hover:bg-danger-700 text-white rounded transition-colors cursor-pointer disabled:opacity-50"
               >
                 {deletingId === confirmDeleteId ? "Excluindo..." : "Excluir Definitivamente"}
               </button>

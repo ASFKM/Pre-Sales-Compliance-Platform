@@ -76,7 +76,7 @@ export default function BugReportModal({ onClose }: Props) {
         ) : (
           <form onSubmit={handleSubmit}>
             <h3 style={{ marginTop: 0 }}>Reportar problema</h3>
-            {error && <p style={{ color: "#b23b3b", fontSize: 13 }}>{error}</p>}
+            {error && <p style={{ color: "var(--color-danger-700)", fontSize: 13 }}>{error}</p>}
             <label style={{ display: "block", fontSize: 12, fontWeight: "bold", marginTop: 8 }}>O que aconteceu?</label>
             <textarea required value={whatHappened} onChange={(e) => setWhatHappened(e.target.value)} rows={2} style={{ width: "100%" }} />
             <label style={{ display: "block", fontSize: 12, fontWeight: "bold", marginTop: 8 }}>O que deveria acontecer?</label>

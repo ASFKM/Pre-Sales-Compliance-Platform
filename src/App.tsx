@@ -666,11 +666,11 @@ export default function App() {
 
   const getDocTag = (filename: string) => {
     const ext = filename.split(".").pop()?.toUpperCase() || "DOC";
-    if (ext === "PDF") return { label: "PDF", style: "bg-red-50 text-red-700 border border-red-200" };
-    if (["DOCX", "DOC"].includes(ext)) return { label: ext, style: "bg-blue-50 text-blue-700 border border-blue-200" };
-    if (["XLSX", "XLS", "CSV"].includes(ext)) return { label: ext, style: "bg-emerald-50 text-emerald-700 border border-emerald-200" };
-    if (["DWG", "DXF", "CAD"].includes(ext)) return { label: "CAD", style: "bg-purple-50 text-purple-700 border border-purple-200" };
-    if (["PNG", "JPG", "JPEG"].includes(ext)) return { label: "IMG", style: "bg-amber-50 text-amber-700 border border-amber-200" };
+    if (ext === "PDF") return { label: "PDF", style: "bg-brand-100 text-brand-700 border border-brand-200" };
+    if (["DOCX", "DOC"].includes(ext)) return { label: ext, style: "bg-brand-100 text-brand-700 border border-brand-200" };
+    if (["XLSX", "XLS", "CSV"].includes(ext)) return { label: ext, style: "bg-brand-100 text-brand-700 border border-brand-200" };
+    if (["DWG", "DXF", "CAD"].includes(ext)) return { label: "CAD", style: "bg-brand-100 text-brand-700 border border-brand-200" };
+    if (["PNG", "JPG", "JPEG"].includes(ext)) return { label: "IMG", style: "bg-brand-100 text-brand-700 border border-brand-200" };
     return { label: ext, style: "bg-slate-50 text-slate-700 border border-slate-200" };
   };
 
@@ -921,7 +921,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
   }
 
   return (
-    <div className="flex flex-col h-screen w-full bg-[#f8fafc] text-slate-900 font-sans overflow-hidden">
+    <div className="flex flex-col h-screen w-full bg-slate-50 text-slate-900 font-sans overflow-hidden">
 
       {newVersionAvailable && (
         <div className="shrink-0 z-20 bg-brand-600 text-white text-xs font-bold px-4 py-2 flex items-center justify-center gap-3">
@@ -1009,7 +1009,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                 // (managed AI + shared global Knowledge Base), not just the local/base experience.
                 <span
                   title="Add-on IA/KB ativo: IA gerenciada e Base de Conhecimento global compartilhada via CMSaaS"
-                  className="inline-flex items-center gap-1 text-[9px] font-mono font-bold uppercase text-blue-300 bg-blue-500/10 border border-blue-400/30 rounded-full px-1.5 py-0.5"
+                  className="inline-flex items-center gap-1 text-[9px] font-mono font-bold uppercase text-brand-300 bg-brand-500/10 border border-brand-400/30 rounded-full px-1.5 py-0.5"
                 >
                   <Globe size={9} />
                   IA/KB
@@ -1081,7 +1081,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
 
             <button
               onClick={handleLogout}
-              className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer flex items-center justify-center border border-transparent hover:border-slate-700"
+              className="p-1.5 text-slate-400 hover:text-danger-400 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer flex items-center justify-center border border-transparent hover:border-slate-700"
               title={locale === "pt" ? "Sair da Conta" : "Logout"}
             >
               <LogOut className="w-4.5 h-4.5" />
@@ -1116,8 +1116,8 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               {locale === "pt" ? "Status" : "Pipeline"}:
               <span className={`ml-1 text-[11px] font-bold px-2 py-0.5 rounded border ${
                 activeProject?.status === "completed" ? "text-success-700 bg-success-50 border-success-200" :
-                activeProject?.status === "analysis_in_progress" ? "text-blue-700 bg-blue-50 border-blue-200" :
-                activeProject?.status === "waiting_internal" ? "text-purple-700 bg-purple-50 border-purple-200" :
+                activeProject?.status === "analysis_in_progress" ? "text-brand-700 bg-brand-50 border-brand-200" :
+                activeProject?.status === "waiting_internal" ? "text-warning-700 bg-warning-50 border-warning-200" :
                 "text-slate-700 bg-slate-100 border-slate-200"
               }`}>
                 {locale === "pt" ?
@@ -1251,7 +1251,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                        </div>
                        <button
                          onClick={() => handleDeleteDocument(doc.id)}
-                         className="text-slate-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity p-0.5"
+                         className="text-slate-400 hover:text-danger-600 opacity-0 group-hover:opacity-100 transition-opacity p-0.5"
                        >
                          <Trash2 size={12} />
                        </button>

@@ -14,7 +14,7 @@ export default function AuditLogsModal({ auditLogs, tx, onClose, onExportCSV }: 
       <div className="bg-white rounded-xl border border-slate-200 w-[800px] h-[600px] overflow-hidden shadow-2xl flex flex-col">
         <div className="bg-slate-950 text-white p-4 flex justify-between items-center shrink-0">
           <div className="flex items-center gap-2">
-            <ShieldAlert size={16} className="text-emerald-500" />
+            <ShieldAlert size={16} className="text-brand-400" />
             <h3 className="text-sm font-bold uppercase font-mono tracking-wider">{tx("Enterprise Compliance Audit Log Ledger", "Livro de Auditoria de Compliance Empresarial")}</h3>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-white cursor-pointer"><X size={16} /></button>
@@ -24,7 +24,7 @@ export default function AuditLogsModal({ auditLogs, tx, onClose, onExportCSV }: 
           <span className="text-xs text-slate-500 font-mono">{tx("Filter: All Pre-Sales Operations Logs", "Filtro: Todos os Logs de Operações de Pré-Vendas")}</span>
           <button
             onClick={onExportCSV}
-            className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold px-3 py-1.5 rounded shadow-sm transition-all cursor-pointer"
+            className="flex items-center gap-1.5 bg-brand-600 hover:bg-brand-500 text-white font-mono text-xs font-bold px-3 py-1.5 rounded shadow-sm transition-all cursor-pointer"
           >
             <Download size={13} /> {tx("Export Ledger (CSV)", "Exportar Livro (CSV)")}
           </button>
@@ -34,7 +34,7 @@ export default function AuditLogsModal({ auditLogs, tx, onClose, onExportCSV }: 
           {auditLogs.map(log => (
             <div key={log.id} className="p-2 border-b border-slate-800 flex justify-between items-start">
               <div>
-                <span className="text-emerald-400 font-bold block">[{new Date(log.created_at).toISOString()}] {log.action}</span>
+                <span className="text-brand-400 font-bold block">[{new Date(log.created_at).toISOString()}] {log.action}</span>
                 <p className="text-slate-400 mt-0.5">{tx("Executor", "Executor")}: {log.user_id} | {tx("Entity", "Entidade")}: {log.entity_type} ({log.entity_id})</p>
                 {log.metadata && (
                   <span className="text-slate-500 text-[10px] block">{tx("Metadata", "Metadados")}: {log.metadata}</span>
