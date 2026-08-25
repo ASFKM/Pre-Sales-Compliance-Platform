@@ -261,7 +261,7 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
           // Discreet but visually distinct from the plain-text sources below - this content came
           // from outside the tenant's own org (the Fleet Manager's curated global Base de
           // Conhecimento), which is worth a glance-level distinction, not just a label.
-          <span className="inline-flex items-center gap-1 text-[10px] text-blue-600 font-mono bg-blue-50 border border-blue-100 rounded-full px-2 py-0.5">
+          <span className="inline-flex items-center gap-1 text-[10px] text-brand-600 font-mono bg-brand-50 border border-brand-100 rounded-full px-2 py-0.5">
             <Globe size={10} />
             {SOURCE_LABEL.fleet_manager_global}
           </span>
@@ -290,7 +290,7 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
             <button
               onClick={() => decideEntry(entry, "approved")}
               disabled={savingEntryId === entry.id}
-              className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors cursor-pointer disabled:opacity-50"
+              className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded bg-success-50 text-success-700 hover:bg-success-100 transition-colors cursor-pointer disabled:opacity-50"
             >
               <Check size={12} /> Aprovar
             </button>
@@ -298,7 +298,7 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
           <button
             onClick={() => openEdit(entry)}
             disabled={savingEntryId === entry.id}
-            className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors cursor-pointer disabled:opacity-50"
+            className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded bg-brand-50 text-brand-700 hover:bg-brand-100 transition-colors cursor-pointer disabled:opacity-50"
           >
             <Pen size={12} /> Editar
           </button>
@@ -306,7 +306,7 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
             <button
               onClick={() => decideEntry(entry, "rejected")}
               disabled={savingEntryId === entry.id}
-              className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded bg-red-50 text-red-700 hover:bg-red-100 transition-colors cursor-pointer disabled:opacity-50"
+              className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded bg-danger-50 text-danger-700 hover:bg-danger-100 transition-colors cursor-pointer disabled:opacity-50"
             >
               <X size={12} /> Rejeitar
             </button>
@@ -347,7 +347,7 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Buscar na base..."
-          className="text-[11px] font-mono border border-slate-200 rounded pl-6 pr-2 py-1.5 bg-white text-slate-600 w-40 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+          className="text-[11px] font-mono border border-slate-200 rounded pl-6 pr-2 py-1.5 bg-white text-slate-600 w-40 focus:outline-none focus:ring-1 focus:ring-brand-500"
         />
       </div>
       <select
@@ -367,7 +367,7 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
   return (
     <div className="flex-1 p-6 overflow-y-auto space-y-6">
       <div className="flex items-center gap-2">
-        <BookOpen className="text-emerald-600" size={18} />
+        <BookOpen className="text-brand-600" size={18} />
         <h2 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">Base de Conhecimento</h2>
       </div>
       <p className="text-xs text-slate-500 -mt-4 leading-relaxed">
@@ -377,9 +377,9 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
       </p>
 
       {error && (
-        <div className="p-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-xs flex justify-between items-start">
+        <div className="p-3 rounded bg-warning-50 border border-warning-200 text-warning-900 text-xs flex justify-between items-start">
           <span>{error}</span>
-          <button onClick={() => setError("")} className="text-amber-700 hover:text-amber-900 cursor-pointer"><X size={14} /></button>
+          <button onClick={() => setError("")} className="text-warning-700 hover:text-warning-900 cursor-pointer"><X size={14} /></button>
         </div>
       )}
 
@@ -388,19 +388,19 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
         <div className="flex items-center gap-6 px-4 h-12 border-b border-slate-200 text-xs font-semibold bg-slate-50/50">
           <button
             onClick={() => goToSubTab("upload")}
-            className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider cursor-pointer ${subTab === "upload" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+            className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider cursor-pointer ${subTab === "upload" ? "border-brand-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
           >
             Upload de Arquivos {documents.length > 0 && `(${documents.length})`}
           </button>
           <button
             onClick={() => goToSubTab("approvals")}
-            className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider cursor-pointer ${subTab === "approvals" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+            className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider cursor-pointer ${subTab === "approvals" ? "border-brand-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
           >
             Aprovações {counts.pending > 0 && `(${counts.pending})`}
           </button>
           <button
             onClick={() => goToSubTab("approved")}
-            className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider cursor-pointer ${subTab === "approved" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+            className={`h-full px-1 border-b-2 transition-all font-bold uppercase tracking-wider cursor-pointer ${subTab === "approved" ? "border-brand-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
           >
             Base de Conhecimento {counts.approved > 0 && `(${counts.approved})`}
           </button>
@@ -418,7 +418,7 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
                   className={`font-mono text-[11px] font-bold py-1.5 px-3 rounded shadow transition-all flex items-center gap-2 ${
                     isAnalyzing || !!analysisTask || pendingDocsCount === 0
                       ? "bg-slate-100 text-slate-400 cursor-not-allowed"
-                      : "bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
+                      : "bg-brand-600 hover:bg-brand-700 text-white cursor-pointer"
                   }`}
                 >
                   <Sparkles size={13} className={isAnalyzing || !!analysisTask ? "animate-pulse" : ""} />
@@ -430,15 +430,15 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
             </div>
 
             {analysisTask && (
-              <div className="px-4 py-3 bg-emerald-50/50 border-b border-emerald-100 flex items-center gap-3">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
-                <span className="text-[11px] font-mono text-emerald-800 truncate">
+              <div className="px-4 py-3 bg-brand-50/50 border-b border-brand-100 flex items-center gap-3">
+                <span className="w-2 h-2 rounded-full bg-brand-500 animate-pulse shrink-0"></span>
+                <span className="text-[11px] font-mono text-brand-800 truncate">
                   {analysisTask.current_step}
                   {typeof analysisTask.progress_pct === "number" && ` (${analysisTask.progress_pct}%)`}
                 </span>
-                <div className="flex-1 h-1.5 bg-emerald-100 rounded-full overflow-hidden">
+                <div className="flex-1 h-1.5 bg-brand-100 rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-emerald-500 transition-all duration-500"
+                    className="h-full bg-brand-500 transition-all duration-500"
                     style={{ width: `${typeof analysisTask.progress_pct === "number" ? analysisTask.progress_pct : 5}%` }}
                   />
                 </div>
@@ -447,7 +447,7 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
 
             <div className="p-4 space-y-3">
               {canWrite && (
-                <div className="relative border-2 border-dashed border-slate-200 hover:border-emerald-500 rounded p-5 text-center transition-all">
+                <div className="relative border-2 border-dashed border-slate-200 hover:border-brand-500 rounded p-5 text-center transition-all">
                   <input
                     type="file"
                     multiple
@@ -472,7 +472,7 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
                   {documents.map((doc) => {
                     const isBeingAnalyzedNow = !!analysisTask && !doc.analyzed_at && analysisTask.current_step?.includes(doc.original_filename);
                     return (
-                      <div key={doc.id} className={`p-2.5 border rounded text-xs ${isBeingAnalyzedNow ? "bg-emerald-50/50 border-emerald-200" : "bg-slate-50 border-slate-200"}`}>
+                      <div key={doc.id} className={`p-2.5 border rounded text-xs ${isBeingAnalyzedNow ? "bg-brand-50/50 border-brand-200" : "bg-slate-50 border-slate-200"}`}>
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2 min-w-0">
                             <FileText size={14} className="text-slate-400 shrink-0" />
@@ -485,14 +485,14 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
                             <span className={`px-2 py-0.5 rounded font-bold text-[9px] uppercase ${
-                              isBeingAnalyzedNow ? "bg-emerald-100 text-emerald-700" : doc.analyzed_at ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"
+                              isBeingAnalyzedNow ? "bg-brand-100 text-brand-700" : doc.analyzed_at ? "bg-success-50 text-success-700" : "bg-slate-100 text-slate-500"
                             }`}>
                               {isBeingAnalyzedNow ? "Analisando..." : doc.analyzed_at ? "Analisado" : "Pendente"}
                             </span>
                             {canWrite && (
                               <button
                                 onClick={() => handleDeleteDocument(doc.id)}
-                                className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                                className="p-1 text-slate-400 hover:text-danger-600 hover:bg-danger-50 rounded transition-colors cursor-pointer"
                                 title="Excluir Documento"
                               >
                                 <Trash2 size={13} />
@@ -501,9 +501,9 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
                           </div>
                         </div>
                         {isBeingAnalyzedNow && typeof analysisTask?.progress_pct === "number" && (
-                          <div className="mt-2 h-1 bg-emerald-100 rounded-full overflow-hidden">
+                          <div className="mt-2 h-1 bg-brand-100 rounded-full overflow-hidden">
                             <div
-                              className="h-full bg-emerald-500 transition-all duration-500"
+                              className="h-full bg-brand-500 transition-all duration-500"
                               style={{ width: `${analysisTask.progress_pct}%` }}
                             />
                           </div>
@@ -588,7 +588,7 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
                   value={editTrigger}
                   onChange={(e) => setEditTrigger(e.target.value)}
                   rows={3}
-                  className="w-full text-xs border border-slate-200 rounded p-2 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  className="w-full text-xs border border-slate-200 rounded p-2 focus:outline-none focus:ring-1 focus:ring-brand-500"
                 />
               </div>
               <div>
@@ -597,7 +597,7 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
                   value={editKnowledge}
                   onChange={(e) => setEditKnowledge(e.target.value)}
                   rows={3}
-                  className="w-full text-xs border border-slate-200 rounded p-2 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  className="w-full text-xs border border-slate-200 rounded p-2 focus:outline-none focus:ring-1 focus:ring-brand-500"
                 />
               </div>
             </div>
@@ -611,7 +611,7 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
               <button
                 onClick={saveEntryEdit}
                 disabled={savingEntryId === editingEntry.id}
-                className="px-4 py-2 text-xs font-bold uppercase bg-emerald-600 hover:bg-emerald-700 text-white rounded transition-colors cursor-pointer disabled:opacity-50"
+                className="px-4 py-2 text-xs font-bold uppercase bg-brand-600 hover:bg-brand-700 text-white rounded transition-colors cursor-pointer disabled:opacity-50"
               >
                 {savingEntryId === editingEntry.id ? "Salvando..." : "Salvar Alterações"}
               </button>

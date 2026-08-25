@@ -111,7 +111,7 @@ export default function ProjectFieldsForm({ locale, values, onChange }: ProjectF
             value={values.name}
             onChange={(e) => onChange({ ...values, name: e.target.value })}
             placeholder={locale === "pt" ? "ex: Modernização de Rodovias ITS" : "e.g. Highway ITS Modernization"}
-            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none"
           />
         </div>
         <div>
@@ -121,7 +121,7 @@ export default function ProjectFieldsForm({ locale, values, onChange }: ProjectF
             value={values.customer_name}
             onChange={(e) => onChange({ ...values, customer_name: e.target.value })}
             placeholder={locale === "pt" ? "ex: Concessionária de Rodovias" : "e.g. Metropolitan Transit Authority"}
-            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none"
           />
         </div>
       </div>
@@ -134,7 +134,7 @@ export default function ProjectFieldsForm({ locale, values, onChange }: ProjectF
             value={values.opportunity_name}
             onChange={(e) => onChange({ ...values, opportunity_name: e.target.value })}
             placeholder="e.g. ITS-MTA-2026"
-            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none"
           />
         </div>
         <div>
@@ -142,7 +142,7 @@ export default function ProjectFieldsForm({ locale, values, onChange }: ProjectF
           <select
             value={values.vertical}
             onChange={(e) => onChange({ ...values, vertical: e.target.value })}
-            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none"
           >
             {verticals.map((v) => (
               <option key={v.id} value={v.name}>
@@ -159,7 +159,7 @@ export default function ProjectFieldsForm({ locale, values, onChange }: ProjectF
           value={values.description} required
           onChange={(e) => onChange({ ...values, description: e.target.value })}
           placeholder={locale === "pt" ? "Detalhe o escopo de entregáveis de alto nível..." : "Detail high level deliverables scope..."}
-          className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none h-20"
+          className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none h-20"
         />
       </div>
 
@@ -170,7 +170,7 @@ export default function ProjectFieldsForm({ locale, values, onChange }: ProjectF
             type="date" required
             value={values.deadline}
             onChange={(e) => onChange({ ...values, deadline: e.target.value })}
-            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none"
           />
         </div>
         <div>
@@ -178,7 +178,7 @@ export default function ProjectFieldsForm({ locale, values, onChange }: ProjectF
           <select
             value={values.output_language}
             onChange={(e) => onChange({ ...values, output_language: e.target.value as any })}
-            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none"
           >
             <option value="English">{locale === "pt" ? "Inglês" : "English"}</option>
             <option value="Spanish">{locale === "pt" ? "Espanhol" : "Spanish"}</option>
@@ -203,7 +203,7 @@ export default function ProjectFieldsForm({ locale, values, onChange }: ProjectF
                   procurement_subtype: val === "Leilão" ? "Leilão Inglês" : (val === "Licitação" ? "Pregão" : ""),
                 });
               }}
-              className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none font-semibold text-slate-800"
+              className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none font-semibold text-slate-800"
             >
               <option value="Licitação">{locale === "pt" ? "Licitação" : "Bidding / Tender"}</option>
               <option value="Leilão">{locale === "pt" ? "Leilão" : "Auction"}</option>
@@ -216,7 +216,7 @@ export default function ProjectFieldsForm({ locale, values, onChange }: ProjectF
               <select
                 value={values.procurement_subtype}
                 onChange={(e) => onChange({ ...values, procurement_subtype: e.target.value })}
-                className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none font-semibold text-slate-800"
+                className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none font-semibold text-slate-800"
               >
                 <option value="Leilão Inglês">{locale === "pt" ? "Leilão Inglês" : "English Auction"}</option>
                 <option value="Leilão Holandês">{locale === "pt" ? "Leilão Holandês" : "Dutch Auction"}</option>
@@ -231,7 +231,7 @@ export default function ProjectFieldsForm({ locale, values, onChange }: ProjectF
               <select
                 value={values.procurement_subtype}
                 onChange={(e) => onChange({ ...values, procurement_subtype: e.target.value })}
-                className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none font-semibold text-slate-800"
+                className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none font-semibold text-slate-800"
               >
                 <option value="Pregão">Pregão</option>
                 <option value="Concorrência">Concorrência</option>
@@ -248,7 +248,7 @@ export default function ProjectFieldsForm({ locale, values, onChange }: ProjectF
                 value={values.custom_modality}
                 onChange={(e) => onChange({ ...values, custom_modality: e.target.value })}
                 placeholder={locale === "pt" ? "Especifique a modalidade..." : "Specify custom modality..."}
-                className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none font-semibold text-slate-800"
+                className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none font-semibold text-slate-800"
               />
             )}
           </div>
@@ -261,7 +261,7 @@ export default function ProjectFieldsForm({ locale, values, onChange }: ProjectF
           <select
             value={values.ai_orientation_mode}
             onChange={(e) => onChange({ ...values, ai_orientation_mode: e.target.value })}
-            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none font-bold text-slate-800"
+            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none font-bold text-slate-800"
           >
             <option value="Vendor-neutral">{locale === "pt" ? "Fabricante Neutro (foco em estrita conformidade)" : "Vendor-neutral (strict compliance focus)"}</option>
             <option value="Preferred manufacturer">{locale === "pt" ? "Fabricante Preferencial (marcas recomendadas)" : "Preferred manufacturer (recommended brands)"}</option>
@@ -270,15 +270,15 @@ export default function ProjectFieldsForm({ locale, values, onChange }: ProjectF
             <option value="Free AI recommendation">{locale === "pt" ? "Recomendação Livre da IA" : "Free AI recommendation"}</option>
           </select>
           {isManufacturerMode ? (
-            <div className="p-2 rounded bg-slate-50 border border-slate-200 focus-within:ring-1 focus-within:ring-emerald-500">
+            <div className="p-2 rounded bg-slate-50 border border-slate-200 focus-within:ring-1 focus-within:ring-brand-500">
               <div className="flex flex-wrap gap-1.5 mb-1.5">
                 {manufacturerTags.map((tag) => (
-                  <span key={tag} className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-800 text-[11px] font-bold px-2 py-1 rounded-full">
+                  <span key={tag} className="inline-flex items-center gap-1 bg-brand-100 text-brand-800 text-[11px] font-bold px-2 py-1 rounded-full">
                     {tag}
                     <button
                       type="button"
                       onClick={() => removeManufacturerTag(tag)}
-                      className="text-emerald-600 hover:text-emerald-900 cursor-pointer leading-none"
+                      className="text-brand-600 hover:text-brand-900 cursor-pointer leading-none"
                     >
                       ×
                     </button>
@@ -302,14 +302,14 @@ export default function ProjectFieldsForm({ locale, values, onChange }: ProjectF
                 <button
                   type="button"
                   onClick={addManufacturerTag}
-                  className="px-3 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm cursor-pointer"
+                  className="px-3 rounded bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm cursor-pointer"
                   title={locale === "pt" ? "Adicionar fabricante" : "Add manufacturer"}
                 >
                   +
                 </button>
               </div>
               {manufacturerTags.length === 0 && (
-                <p className="text-[10px] text-amber-600 mt-1">{locale === "pt" ? "Adicione ao menos um fabricante." : "Add at least one manufacturer."}</p>
+                <p className="text-[10px] text-warning-700 mt-1">{locale === "pt" ? "Adicione ao menos um fabricante." : "Add at least one manufacturer."}</p>
               )}
             </div>
           ) : (
@@ -318,7 +318,7 @@ export default function ProjectFieldsForm({ locale, values, onChange }: ProjectF
               value={values.ai_orientation_text}
               onChange={(e) => onChange({ ...values, ai_orientation_text: e.target.value })}
               placeholder={locale === "pt" ? "Especifique regras de marcas, ex: Recomendar leitores faciais homologados..." : "Specify brand rules e.g., Recommend certified facial readers..."}
-              className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none font-semibold text-slate-800"
+              className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none font-semibold text-slate-800"
             />
           )}
         </div>
@@ -330,7 +330,7 @@ export default function ProjectFieldsForm({ locale, values, onChange }: ProjectF
           <select
             value={values.brand_style_id || ""}
             onChange={(e) => onChange({ ...values, brand_style_id: e.target.value || null })}
-            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none font-semibold text-slate-800"
+            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none font-semibold text-slate-800"
           >
             <option value="">{locale === "pt" ? "Padrão do tenant" : "Tenant default"}</option>
             {brandStyles.map((style) => (

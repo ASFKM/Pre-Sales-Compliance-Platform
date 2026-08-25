@@ -56,7 +56,7 @@ export default function CreateProjectModal({ locale, onClose, onCreated }: Creat
             </button>
             <button
               type="submit"
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer"
+              className="bg-brand-600 hover:bg-brand-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer"
             >
               {locale === "pt" ? "Confirmar Configuração de Especificações" : "Confirm Specifications Setup"}
             </button>

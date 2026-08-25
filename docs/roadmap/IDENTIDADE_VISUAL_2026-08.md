@@ -55,7 +55,7 @@ aqui — é de lá que o dono copia para abrir a próxima conversa.
 | 1 | Ativos de marca (vetor, favicon, logo) | **✓ concluída** (24/08/2026) | `c68067c` (PR #53) | símbolo e wordmark vetorizados dos pixels oficiais; 11 ativos em `public/brand/`; favicon criado do zero |
 | 2 | Shell e portas de entrada | **✓ concluída** (24/08/2026) | `f7dc15b` (PR #54) | 86 trocas em 5 arquivos + "Reportar problema" movido para o rodapé; login em `brand-950`/`brand-600` (5,20:1); `draft` neutro e idêntico nas 3 telas |
 | 3 | Área de Trabalho | **✓ concluída** (24/08/2026) | `4a5c4f9` (PR #55) | 106 trocas num arquivo só; matriz de conformidade preservada e medida (5,09 / 4,85 / 5,87:1); 12 imagens do baseline regravadas |
-| 4 | Propostas, Aprovação e Conhecimento | não iniciada | — | — |
+| 4 | Propostas, Aprovação e Conhecimento | **✓ concluída** (24/08/2026) | `COMMIT4` (PR #PR4) | 195 trocas em 7 arquivos; ciclo de vida da proposta em 5 cores distintas; 4 modais fora do baseline provados por captura, medição e hover real |
 | 5 | Módulo POC | não iniciada | — | add-on por entitlement |
 | 6 | Módulo Precificação | não iniciada | — | add-on por entitlement |
 | 7 | Admin Console e resíduos | não iniciada | — | maior arquivo (3.338 linhas) |
@@ -690,14 +690,147 @@ uma. `workspace-summary.png` mudou 62.237 pixels, trocando `#009966` (emerald-60
 
 ---
 
-## Fase 4 — Propostas, Aprovação e Conhecimento
+## Fase 4 — Propostas, Aprovação e Conhecimento — ✓ CONCLUÍDA (24/08/2026)
 
-**Arquivos:** `Proposals.tsx` (19/24), `KnowledgeBase.tsx` (29/5), `Approval.tsx` (9/4),
-`ProjectFieldsForm.tsx` (21/1), `NewProjectWizard.tsx` (6/6), `CreateProjectModal.tsx`,
-`ClassifyDocumentModal.tsx`.
+**Arquivos:** `Proposals.tsx` (559 linhas), `KnowledgeBase.tsx` (624), `Approval.tsx` (164),
+`ProjectFieldsForm.tsx` (349), `NewProjectWizard.tsx` (280), `ClassifyDocumentModal.tsx` (56),
+`CreateProjectModal.tsx` (68).
 
-**Atenção:** `Proposals.tsx` tem mais âmbar que verde (24 vs 19) — é o painel de pareceres, onde
-severidade é informação. Severidade fica; cor de ação sai.
+**195 trocas de cor em 7 arquivos, cada uma decidida pelo contexto.** O mapeamento original do
+plano contava 130 (`emerald`+`amber`); a varredura completa achou **195** — as outras 65 eram
+`red`, `blue` e `purple`, as famílias que criam colisão com o azul da marca. Depois da fase os sete
+arquivos têm **zero** ocorrência de `emerald`, `amber`, `red`, `blue` ou `purple`: tudo é `brand`,
+`success`, `warning`, `danger` ou `slate`.
+
+As 113 âncoras do script de aplicação — `(arquivo, linha, texto exato, contagem esperada)`, com
+aborto sem gravar se uma só não casasse — **casaram de primeira**, como na Fase 3.
+
+### O ciclo de vida da proposta: cinco estados, cinco cores
+
+O mesmo bloco de status aparece em `Proposals.tsx` e em `Approval.tsx`. Era
+roxo/verde/azul/vermelho/âmbar; dois desses (o roxo sem papel no vocabulário e o azul de
+"ENVIADA") competiam com a marca, e o âmbar de "RASCUNHO" repetia o defeito que a Fase 2 já tinha
+corrigido nas outras três telas. Ficou assim, com os cinco distinguíveis e todos aprovando AA:
+
+```
+RASCUNHO   slate-100 / slate-700     9,45:1   alinhado às Fases 2 e 3 (draft é neutro)
+ENVIADA    warning-50 / warning-700   4,85:1   aguardando decisão É uma pendência
+APROVADA   success-50 / success-700   5,09:1   inalterado, verde
+REJEITADA  danger-50 / danger-700     5,87:1   inalterado, vermelho
+LIBERADA   brand-50 / brand-700       6,90:1   marco final, casa com o botão que o produz
+```
+
+**"ENVIADA" trocou de matiz (azul → âmbar).** É a decisão mais visível da fase e a mais fácil de
+reverter numa linha: mantê-la azul faria um badge de estado parecer ação em toda a tela de
+aprovação. Mesma lógica da "prioridade baixa deixou de ser azul" na Fase 3.
+
+### Aprovação e curadoria: onde o verde ficou de propósito
+
+- **`Approval.tsx` — os botões "Approve"/"Reject" continuam verde e vermelho.** Ali a cor **é** a
+  informação: são um par de decisão binária, não o botão primário da tela (esse é "Liberar Versão
+  Final", que virou `brand-600`). O critério "nenhum botão primário verde ou âmbar" está cumprido.
+  Aproveitou-se para corrigir o contraste: `emerald-600` (3,77:1, **reprova** AA) virou
+  `success-700` (**5,36:1**), e `red-600` (4,77:1) virou `danger-700` (**6,42:1**).
+- **`KnowledgeBase.tsx` — "Aprovar" verde, "Rejeitar" vermelho, "Editar" azul.** Só o "Editar",
+  que é ação neutra e era `blue`, foi para a marca.
+- **Cartões de etapa e badges de decisão** (`approved`/`rejected`/`PENDENTE`) intactos em
+  `success`/`danger`/`slate`.
+
+### Seis decisões que um `sed` teria errado
+
+1. **Os 4 chips de perspectiva do parecer de IA são uma família.** Eram azul (Técnico), verde
+   (Comercial), âmbar (Financeiro) e roxo (Jurídico) — e o cartão que os contém já carrega
+   severidade em vermelho/âmbar na borda esquerda e num badge. O chip âmbar de "Financeiro" era
+   indistinguível do badge âmbar "atenção" ao lado dele. Os quatro viraram `brand-100`/`brand-700`:
+   quem distingue a perspectiva é o **ícone** (chave, aperto de mão, cifrão, escudo) e o rótulo, e
+   a cor do cartão passa a significar **só** severidade — que é literalmente o que o comentário no
+   topo do arquivo dizia querer. O comentário foi reescrito para registrar isso.
+2. **"Analisando..." e "Analisado" eram dois verdes quase iguais.** Progresso virou `brand-100`,
+   conclusão ficou `success-50`. A distinção que o rótulo prometia passou a existir na cor.
+3. **A barra de progresso da análise da Base de Conhecimento não é sucesso.** `emerald-500`
+   pulsando durante o trabalho virou `brand-500` — mesma decisão das barras de progresso da Fase 3.
+4. **"Obrigatório" deixou de ser verde.** Na tabela de preços, o par era verde (Obrigatório) e
+   âmbar (Opcional). Obrigatório é o caso **padrão** — toda linha ganhava um badge verde chamativo,
+   ruído puro. Virou `slate`; "Opcional", que é a exceção que muda o total, ficou em `warning`.
+5. **Os três botões secundários de `Proposals.tsx` eram azul, âmbar e roxo.** "Revisar e Editar",
+   "Verificar Riscos de SLA" e "Gerar Pareceres de IA" tinham três cores para o mesmo papel, ao
+   lado de dois "Exportar" cinza e um primário verde: sete cores numa barra. Viraram um tratamento
+   secundário único (`brand-50`/`brand-700`/borda `brand-200`), e a barra passou a ter hierarquia
+   real — um primário sólido, três secundários de marca, dois terciários neutros.
+6. **O total bruto da planilha não é "sucesso".** `emerald-800` no maior número da tabela virou
+   `brand-800` (10,52:1): destaque de identidade, sem prometer aprovação.
+
+O quadrado `TECH`/`COMM` seguiu o mesmo tratamento dos KPIs da Fase 3: os dois em `brand-50`, já
+que o próprio texto do quadrado e o título ao lado dizem qual é. Reversível numa linha.
+
+### Os 4 modais: como foram verificados, já que o baseline não os cobre
+
+**41 das 195 trocas estão em modais, e as 36 imagens do baseline não contêm modal nenhum.**
+`test:visual` verde não prova nada sobre eles. Os quatro foram abertos no navegador, um a um:
+
+| Modal | Como foi aberto | O que ficou provado |
+|---|---|---|
+| `NewProjectWizard` | "Nova Proposta" na Área de Trabalho | link e primário em `brand-600`; erro em `warning-*` |
+| `CreateProjectModal` | "criar manualmente" dentro do wizard | primário `brand-600`; renderiza o `ProjectFieldsForm` inteiro |
+| `ProjectFieldsForm` | edição de projeto em Projetos | 15 anéis de foco em `brand-500`; chip de fabricante `brand-100/800` |
+| `ClassifyDocumentModal` | botão de reclassificar no painel de documentos | **hover real**: borda `#e2e8f0` → `#288bf9` (`brand-500`) |
+
+O `ClassifyDocumentModal` é o caso extremo: suas 4 trocas são **só** `hover:border-emerald-500`, um
+estado que não existe em repouso e que amostra sintética não mede (Fase 3). Foi provado com
+`page.hover()` de verdade, medindo a borda antes e depois. Os outros hovers da fase foram medidos
+do mesmo jeito — primário `brand-600`→`brand-700`, "Editar" `brand-50`→`brand-100`, "Rejeitar"
+`danger-50`→`danger-100`, excluir documento neutro→`danger`.
+
+### Como ficou provado
+
+`npm run test:visual` deu **36/36 verdes antes de qualquer mudança** e **36/36 de novo** com o
+baseline regravado. No próprio dev: `npm run lint` limpo, `npm run build` completo, `npm run test`
+com **16 arquivos e 98 testes** passando.
+
+**O banco de desenvolvimento não tem proposta em todos os estados** — a fila de aprovação da Base
+de Conhecimento está zerada e nenhuma proposta está `approved`, `rejected` ou `released`. Como na
+Fase 3, os estados que o dado não cobre foram medidos em **amostras sintéticas com as classes reais
+do componente**, pela cor **pintada num canvas 1×1**: 51 amostras, todas ≥ 4,5:1 exceto dois badges
+`slate` pré-existentes que a fase não tocou (`PENDENTE` 3,86:1 e `Pendente` 4,35:1).
+
+**6 das 36 imagens do baseline foram regravadas** (proposals, approval e knowledge-base × 2
+larguras) e revisadas uma a uma.
+
+### Cuidados que só apareceram executando
+
+- **`home.png` e `pricing.png` "mudaram" de novo, e de novo não mudaram.** 11 e 16 pixels com
+  delta ±1 — o mesmíssimo ruído de antialiasing da Fase 3, nas mesmas duas imagens. Restauradas do
+  HEAD. Compare pixels, nunca `ls -la`.
+- **Navegar direto para uma aba não reproduz o baseline.** As telas do baseline rodam em série na
+  mesma página, e `proposals`/`approval` só têm conteúdo porque uma tela anterior abriu o projeto
+  certo. Um script que vai direto para a aba encontra o **estado vazio** e mede o nada — foi o que
+  aconteceu na primeira verificação desta fase, e por pouco não passou por "tela sem cor".
+- **`.git/index` NÃO estava root-owned** — a primeira vez em quatro fases. O `chown` continua
+  sendo o primeiro comando, mas a varredura veio limpa.
+- **Orçamento de login: 4 rodadas** (comparação inicial, verificação, recaptura, comparação final).
+  As medições de cor e de hover reaproveitaram `.auth/capture-state.json` da rodada anterior em vez
+  de logar de novo — vale a pena tentar o reuso antes de gastar uma tentativa.
+
+### Decisão registrada: `AuditLogsModal` e `DebugConsoleModal` ficam na Fase 7
+
+`src/components/modals/` tem outros dois arquivos com cor — `AuditLogsModal.tsx` (4 `emerald`) e
+`DebugConsoleModal.tsx` (7 `emerald`, 2 `amber`, 2 `red`). **O plano já os aloca na Fase 7**, junto
+com o `AdminConsole.tsx`, e é onde eles pertencem: são abertos pelo rodapé de diagnóstico, não pelo
+fluxo de propostas. **Não foram incluídos nesta fase**, deliberadamente.
+
+### Achados registrados, fora do escopo desta fase
+
+- **Erro exibido como aviso.** Em `NewProjectWizard.tsx` (:214, :254) e `KnowledgeBase.tsx` (:380)
+  a variável se chama `error` mas o bloco é pintado de âmbar, não de vermelho. A fase manteve a
+  aparência (`warning-*`) porque trocar aviso por erro é decisão de produto, não repaletização.
+  **Levar para a Fase 9.**
+- **`waiting_internal` não encosta nesta fase.** Nem `Proposals.tsx` nem `Approval.tsx` exibem esse
+  status — a divergência `purple` × `amber` herdada da Fase 2 segue intocada.
+- **A coluna "Prioridade" e o quarto valor de `compliance_status`** continuam como a Fase 3 os
+  deixou: assunto da Fase 9.
+- **`ProjectsList.tsx:152` tem `hover:text-blue-600 hover:bg-blue-50` sobrevivente da Fase 2** — o
+  botão "Editar Projeto" da tabela. É arquivo da Fase 2, não desta; some na varredura final da
+  Fase 7.
 
 ---
 

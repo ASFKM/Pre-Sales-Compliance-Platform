@@ -58,7 +58,7 @@ export default function Approval({
               {/* Dynamic list of proposals and their approval workflow milestones */}
               {proposals.length === 0 ? (
                 <div className="bg-slate-50 border border-slate-200 rounded-xl p-8 text-center py-16">
-                  <TriangleAlert className="text-amber-500 mx-auto mb-2" size={32} />
+                  <TriangleAlert className="text-warning-500 mx-auto mb-2" size={32} />
                   <h4 className="text-sm font-bold text-slate-800 uppercase font-mono">{locale === "pt" ? "Nenhuma Proposta Enviada" : "No Proposals Submitted"}</h4>
                 </div>
               ) : (
@@ -73,11 +73,11 @@ export default function Approval({
                             <h3 className="text-sm font-bold text-slate-800 uppercase font-mono mt-0.5">{prop.proposal_type === "technical" ? (locale === "pt" ? "TÉCNICA" : "TECHNICAL") : (locale === "pt" ? "COMERCIAL" : "COMMERCIAL")} PROPOSAL BID v1.0</h3>
                           </div>
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${
-                            prop.status === "released" ? "text-purple-700 bg-purple-50 border-purple-200" :
-                            prop.status === "approved" ? "text-emerald-700 bg-emerald-50 border-emerald-200" :
-                            prop.status === "submitted" ? "text-blue-700 bg-blue-50 border-blue-200" :
-                            prop.status === "rejected" ? "text-red-700 bg-red-50 border-red-200" :
-                            "text-amber-700 bg-amber-50 border-amber-200"
+                            prop.status === "released" ? "text-brand-700 bg-brand-50 border-brand-200" :
+                            prop.status === "approved" ? "text-success-700 bg-success-50 border-success-200" :
+                            prop.status === "submitted" ? "text-warning-700 bg-warning-50 border-warning-200" :
+                            prop.status === "rejected" ? "text-danger-700 bg-danger-50 border-danger-200" :
+                            "text-slate-700 bg-slate-100 border-slate-200"
                           }`}>
                             {locale === "pt" ? (
                               prop.status === "released" ? "LIBERADA" :
@@ -92,7 +92,7 @@ export default function Approval({
                           <div className="flex justify-end">
                             <button
                               onClick={() => handleReleaseProposal(prop.id)}
-                              className="bg-purple-600 hover:bg-purple-700 text-white font-mono text-[11px] font-bold px-3 py-1.5 rounded shadow-sm transition-all cursor-pointer"
+                              className="bg-brand-600 hover:bg-brand-700 text-white font-mono text-[11px] font-bold px-3 py-1.5 rounded shadow-sm transition-all cursor-pointer"
                             >
                               {locale === "pt" ? "Liberar Versão Final" : "Release Final Version"}
                             </button>
@@ -109,13 +109,13 @@ export default function Approval({
                                 const matchedDecision = (Array.isArray(approvalDecisions) ? approvalDecisions : []).find(d => d.proposal_id === prop.id && d.stage_id === stage.id);
                                 return (
                                   <div key={stage.id} className={`p-4 rounded-lg border ${
-                                    matchedDecision ? (matchedDecision.decision === "approved" ? "bg-emerald-50/50 border-emerald-200" : "bg-red-50/50 border-red-200") : "bg-slate-50 border-slate-200"
+                                    matchedDecision ? (matchedDecision.decision === "approved" ? "bg-success-50/50 border-success-200" : "bg-danger-50/50 border-danger-200") : "bg-slate-50 border-slate-200"
                                   }`}>
                                     <div className="flex justify-between items-start mb-2">
                                       <span className="text-[10px] font-mono text-slate-400 uppercase font-bold">{locale === "pt" ? "Etapa" : "Stage"} {stage.order}</span>
                                       {matchedDecision ? (
                                         <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
-                                          matchedDecision.decision === "approved" ? "text-emerald-700 bg-emerald-50" : "text-red-700 bg-red-50"
+                                          matchedDecision.decision === "approved" ? "text-success-700 bg-success-50" : "text-danger-700 bg-danger-50"
                                         }`}>{matchedDecision.decision}</span>
                                       ) : (
                                         <span className="text-[9px] font-bold bg-slate-200 text-slate-500 px-1.5 py-0.5 rounded uppercase">{tx("PENDING", "PENDENTE")}</span>
@@ -129,13 +129,13 @@ export default function Approval({
                                       <div className="mt-3 pt-3 border-t border-slate-200 flex gap-1">
                                         <button
                                           onClick={() => handleApprovalDecision(prop.id, stage, "approved", "Pre-Sales specs verified and margins approved.")}
-                                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-[9px] font-bold py-1 px-2 rounded cursor-pointer"
+                                          className="bg-success-700 hover:bg-success-800 text-white font-mono text-[9px] font-bold py-1 px-2 rounded cursor-pointer"
                                         >
                                           Approve
                                         </button>
                                         <button
                                           onClick={() => handleApprovalDecision(prop.id, stage, "rejected", "Requires compliance revision.")}
-                                          className="bg-red-600 hover:bg-red-700 text-white font-mono text-[9px] font-bold py-1 px-2 rounded cursor-pointer"
+                                          className="bg-danger-700 hover:bg-danger-800 text-white font-mono text-[9px] font-bold py-1 px-2 rounded cursor-pointer"
                                         >
                                           Reject
                                         </button>
