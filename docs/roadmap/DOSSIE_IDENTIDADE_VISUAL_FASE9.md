@@ -2,8 +2,8 @@
 
 **Programa:** identidade visual do Pre-Sales Compliance Platform (`docs/roadmap/IDENTIDADE_VISUAL_2026-08.md`)
 **Data:** 25/08/2026 · **Branch:** `feature/identidade-visual-fase9-validacao-release`
-**Estado:** validação concluída. **Nenhuma tag, nenhum Release, nenhum apply foi feito** — esta
-fase para no gate humano.
+**Estado:** validação concluída; release **autorizada pelo dono e publicada** em 25/08/2026
+(tag `v0.1.22-identidade-visual`, Release em canary no CMSaaS). **Nenhum apply foi forçado.**
 
 ---
 
@@ -296,10 +296,18 @@ copiloto) que precisam de passos próprios.
 
 ## 8. O que precisa da sua decisão
 
-**8.1 — Cortar o release.** A validação está fechada e o produto está pronto para
-`vX.Y.Z-identidade-visual` + Release no CMSaaS + apply step-up-gated. **Nada disso foi feito.**
-A "PreSales Demo" está fora do ar desde 30/07 — publicar continua correto (é canary), mas ela só
-recebe quando voltar.
+**8.1 — Release: AUTORIZADO E EXECUTADO em 25/08/2026.** O dono autorizou "criar a release e
+publicar", sem forçar instalação. O que foi feito, nesta ordem: CI verde em "Lint, test, and build",
+merge do PR #61 (`707ff74`), tag anotada **`v0.1.22-identidade-visual`** e Release publicada no
+CMSaaS no canal **canary** — o mesmo canal em que as duas anteriores (v0.1.20 e v0.1.21) foram
+publicadas. Criada e publicada pelas rotas HTTP reais (`POST /releases` + `/publish`), com a
+identidade de operador dedicada do CMSaaS, deixada `INACTIVE` ao fim.
+
+**Nenhum comando `apply_update` foi enfileirado** — a atualização fica disponível, não imposta.
+E a "PreSales Demo" **voltou**: o registro dela no CMSaaS tem heartbeat de 25/08 às 05:26, contra os
+30/07 que o plano registrava. Ela está no canal canary e passa a enxergar `v0.1.22` como
+`latest_release`; a instalação de desenvolvimento, no canal `stable`, segue vendo `v0.1.19` —
+inalterada, como esperado.
 
 **8.2 — Capturas dos manuais.** Preciso de uma destas três:
    - a senha de `admin@manual-demo.local` (o caminho mais limpo: nada muda no banco);

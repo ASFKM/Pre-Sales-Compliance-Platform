@@ -60,7 +60,7 @@ aqui — é de lá que o dono copia para abrir a próxima conversa.
 | 6 | Módulo Precificação | **✓ concluída** (24/08/2026) | `db4f031` (PR #58) | 103 trocas em 7 arquivos; primeiro gráfico recharts do programa tokenizado; duas escalas decididas inteiras; 6 superfícies para 1 imagem do baseline |
 | 7 | Admin Console e a varredura final | **✓ concluída** (25/08/2026) | `cf644b1` (PR #59) | 222 trocas em 8 arquivos; `sky` e `rose` decididos; família dos 5 badges de arquivo unificada; `waiting_internal` com uma cor; zero cor não-semântica em todo o `src/` |
 | 8 | DOCX + branding por tenant | **✓ concluída** (25/08/2026) | `c41bc14` (PR #60) | 6 hex resolvidos + migration ancorada linha a linha; rampa de 11 degraus derivada da cor do tenant, com guarda de contraste; DOCX provado nos 3 caminhos de precedência |
-| 9 | Validação visual, contraste e release | **✓ concluída** (25/08/2026) — **release aguardando o dono** | (esta branch) | 36/36 imagens comparadas com o produto verde; auditoria de contraste com 1.752 amostras; 14 achados fechados e 55 pontos corrigidos; os 7 comandos verdes no dev |
+| 9 | Validação visual, contraste e release | **✓ concluída** (25/08/2026) — **release publicada** | `707ff74` (PR #61) · tag `v0.1.22-identidade-visual` | 36/36 imagens comparadas com o produto verde; auditoria de contraste com 1.752 amostras; 14 achados fechados e 55 pontos corrigidos; os 7 comandos verdes no dev |
 
 ### Trilha B — Enriquecimento com a biblioteca de componentes
 
@@ -1667,7 +1667,7 @@ Três lições da recaptura:
 
 ---
 
-## Fase 9 — Validação visual, contraste e release — ✓ CONCLUÍDA (25/08/2026), **release aguardando o dono**
+## Fase 9 — Validação visual, contraste e release — ✓ CONCLUÍDA (25/08/2026), **release publicada**
 
 **Dossiê completo:** `docs/roadmap/DOSSIE_IDENTIDADE_VISUAL_FASE9.md`.
 **Auditoria par a par:** `docs/roadmap/auditoria-contraste-fase9.json`.
@@ -1790,10 +1790,21 @@ com `REGRESSION PASSED`. Tudo no próprio dev.
 | `accent_color` sem papel na interface | — | **decidido**: continua sem; a consequência dele na prévia foi corrigida |
 | capturas dos manuais | 31 imagens | **falta a credencial** do tenant de demonstração — ver §8.2 do dossiê |
 
-### O gate
+### O gate, e o que veio depois dele
 
-**Nenhuma tag, nenhum Release no CMSaaS, nenhum apply.** O produto está pronto para
-`vX.Y.Z-identidade-visual`; o corte depende do "pode ir" do dono.
+A fase parou no gate com o dossiê montado, como mandava o escopo. **O dono autorizou** — "criar a
+release e publicar, não precisa forçar instalação" — e a cadeia foi até o fim, nesta ordem: CI verde
+em "Lint, test, and build", merge do PR #61 (`707ff74`), tag anotada **`v0.1.22-identidade-visual`**
+e Release publicada no CMSaaS no canal **canary**, pelas rotas HTTP reais (`POST /releases` +
+`/publish`) com a identidade de operador dedicada, deixada `INACTIVE` ao fim.
+
+**Sem `promote` e sem `apply_update`.** Promover para `stable` ofereceria a versão a toda instalação
+estável, que é mais do que o autorizado; e nenhum comando de instalação foi enfileirado — a
+atualização fica disponível, não imposta.
+
+**A "PreSales Demo" voltou.** O plano a registrava fora do ar desde 30/07; o CMSaaS mostra heartbeat
+de 25/08 às 05:26. Ela está em `canary` e passa a enxergar `v0.1.22` como `latest_release`. A
+instalação de desenvolvimento, em `stable`, segue vendo `v0.1.19` — inalterada, como esperado.
 
 ---
 
