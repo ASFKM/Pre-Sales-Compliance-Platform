@@ -34,3 +34,33 @@ Configurações (`src/components/AdminConsole.tsx`) apontam pra essas rotas, abr
 O app não usa React Router — a navegação é toda por estado (`activeTab`), então não dá pra
 screenshotar por URL direta. Use Playwright pilotando a UI de verdade (clicar nas abas), num
 tenant descartável dedicado a isso — nunca contra dado real de cliente.
+
+**Desde 25/08/2026 isso está automatizado:**
+
+```bash
+npm run capture:manuals                      # regrava docs/manuais/screenshots/
+npm run capture:manuals -- --out /tmp/x      # captura noutro lugar, sem tocar no que está versionado
+npm run capture:manuals -- --only 03-home,14-copiloto
+```
+
+`scripts/capture-manuals.ts` percorre a interface no tenant `manual_demo_tenant`, com a conta
+dedicada de `.env.manual.local` (fora do git, como a do baseline visual). A cor gravada nesse tenant
+é a da marca, e a rampa derivada dela é idêntica à oficial nos onze degraus — a interface capturada
+é a padrão do produto, não a de um cliente co-marcado.
+
+Três coisas que a primeira execução ensinou e que já estão resolvidas no script:
+
+- fora do `@playwright/test` **não existe `actionTimeout`**: um seletor que não aparece pendura a
+  captura para sempre, calada. O script fixa `setDefaultTimeout`;
+- **três das imagens são modais**, e o overlay `fixed inset-0` de um modal aberto intercepta o clique
+  da tela seguinte — o erro aparece na navegação, apontando para o elemento errado. Cada tela começa
+  fechando o que estiver aberto (recarregar a página entre telas estouraria o limitador de 1.000
+  requisições por IP a cada 15 minutos);
+- rótulo em caixa alta por CSS **não muda o texto do DOM**, e o do Explorador de Arquivos começa com
+  um emoji: o casamento é sem diferenciar maiúsculas e tolerante a prefixo.
+
+**Uma imagem citada no manual não é capturável por esta conta:** `sistema-atualizacao.png`, da seção
+"Atualizações do Sistema" do manual de administração. A seção só aparece para quem tem a permissão
+`admin:system_updates`, que o papel do tenant de demonstração **não** tem — é por isso que essa
+imagem nunca existiu no diretório. Para produzi-la, é preciso conceder a permissão a esse papel
+antes de rodar a captura.
