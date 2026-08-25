@@ -256,20 +256,30 @@ fechar as três famílias registradas.
 4. **Existe um usuário dedicado:** `admin@manual-demo.local`, com MFA desligado — exatamente o perfil
    que uma captura reprodutível pede.
 
-**O que falta, e é a única pendência de execução desta fase:** a **senha** dessa conta não existe em
-lugar nenhum do repositório nem em `.env.capture.local` (que guarda apenas a conta de captura do
-baseline, do `tenant_default`), e este servidor roda `APP_RUNTIME_MODE=production`, onde a senha de
-seed não vale. Sem credencial não há como pilotar a interface daquele tenant — e as capturas
-**precisam** ser feitas nele: fazê-las com a conta do baseline traria os dados reais de
-desenvolvimento para dentro dos manuais, o que é pior do que a cor desatualizada.
+**RESOLVIDO em 25/08/2026, com autorização do dono.** A senha de `admin@manual-demo.local` não
+existia em lugar nenhum do repositório, e este servidor roda `APP_RUNTIME_MODE=production`, onde a
+senha de seed não vale. O dono autorizou o caminho que não mexe na conta existente: uma **conta
+dedicada de captura** (`manual-capture@manual-demo.local`, senha em `.env.manual.local`, fora do
+git), o mesmo padrão que a Fase 0 usou para o baseline visual.
 
-Também não existe script de captura para os manuais: as 31 imagens foram feitas à mão, e o
-`README.md` da pasta diz que o caminho certo é "Playwright pilotando a UI de verdade, num tenant
-descartável dedicado a isso". A ferramenta de navegação já existe (`scripts/uiScreens.ts`) e cobre
-18 das superfícies; as demais são fluxos (assistente de novo projeto, envio na base de conhecimento,
-copiloto) que precisam de passos próprios.
+Também não existia script: as 31 imagens tinham sido feitas à mão. Agora existe
+`scripts/capture-manuals.ts` (`npm run capture:manuals`), que pilota a interface de verdade — como o
+`README.md` da pasta sempre mandou — e **30 das 31 imagens foram recapturadas**.
 
-**A decisão é do dono** e está no item 8.
+A que falta é `sistema-atualizacao.png`, e a investigação explicou um mistério: ela é **citada no
+manual e nunca existiu no diretório** porque a seção "Atualizações do Sistema" só aparece para quem
+tem a permissão `admin:system_updates`, que o papel do tenant de demonstração **não tem** (verificado
+no banco). Produzi-la exige conceder a permissão a esse papel primeiro — registrado no README.
+
+Três armadilhas que a primeira execução expôs, todas resolvidas no script:
+
+- **fora do `@playwright/test` não existe `actionTimeout`**: um seletor que não aparece pendura a
+  captura para sempre, calada. A primeira rodada travou assim depois de 11 imagens.
+- **Três das imagens SÃO modais**, e o overlay `fixed inset-0` de um modal aberto intercepta o clique
+  da tela seguinte. Recarregar entre telas resolveria e é o que não se pode fazer: 31 cargas frias
+  passam do teto do limitador.
+- **Rótulo em caixa alta por CSS não muda o texto do DOM**, e o do Explorador de Arquivos começa com
+  um emoji.
 
 ---
 
@@ -309,13 +319,10 @@ E a "PreSales Demo" **voltou**: o registro dela no CMSaaS tem heartbeat de 25/08
 `latest_release`; a instalação de desenvolvimento, no canal `stable`, segue vendo `v0.1.19` —
 inalterada, como esperado.
 
-**8.2 — Capturas dos manuais.** Preciso de uma destas três:
-   - a senha de `admin@manual-demo.local` (o caminho mais limpo: nada muda no banco);
-   - autorização para **criar** uma conta de captura dedicada nesse tenant, com senha em
-     `.env.manual.local` fora do git — exatamente o que a Fase 0 fez com `visual-capture@presales.local`,
-     sem tocar na conta que já existe;
-   - ou deixar as capturas para depois do release, assumindo que os manuais mostram o produto antigo
-     por mais um tempo.
+**8.2 — Capturas dos manuais: RESOLVIDO.** O dono autorizou a conta de captura dedicada; 30 das 31
+imagens foram recapturadas e a captura virou `npm run capture:manuals`. Fica **uma** pendência, com
+decisão sua: `sistema-atualizacao.png` exige conceder `admin:system_updates` ao papel do tenant de
+demonstração. Detalhes no item 6.
 
 **8.3 — As três famílias de contraste registradas** (achados A e B). Elas são anteriores ao programa
 e a correção muda o tom de todo texto secundário e de toda borda de campo do produto — é uma fase
@@ -335,5 +342,6 @@ esquecimento: dar ou não papel de interface ao `accent_color`, e a Precificaç�
 | Auditoria de contraste, par a par | `docs/roadmap/auditoria-contraste-fase9.json` (88 pares, com razão, piso, telas e exemplos) |
 | Ferramenta da auditoria | `scripts/audit-contrast.ts` · `npm run audit:contrast` |
 | Baseline visual atual | `docs/visual-baseline/` (36 imagens, 26 regravadas nesta fase) |
+| Capturas dos manuais | `docs/manuais/screenshots/` (30 recapturadas) · `npm run capture:manuals` |
 | Comparação Fase 0 × hoje | item 2 deste dossiê |
 | Relato completo da fase | seção "Fase 9" de `docs/roadmap/IDENTIDADE_VISUAL_2026-08.md` |
