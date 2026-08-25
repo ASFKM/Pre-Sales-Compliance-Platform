@@ -13,9 +13,9 @@ const STATUS_LABEL: Record<PocTestCaseStatus, string> = {
 
 const STATUS_COLOR: Record<PocTestCaseStatus, string> = {
   pending: "bg-slate-100 text-slate-600",
-  in_progress: "bg-blue-50 text-blue-700",
-  approved: "bg-emerald-50 text-emerald-700",
-  failed: "bg-red-50 text-red-700",
+  in_progress: "bg-brand-50 text-brand-700",
+  approved: "bg-success-50 text-success-700",
+  failed: "bg-danger-50 text-danger-700",
 };
 
 interface ManualFormState {
@@ -149,9 +149,9 @@ export default function PocTestCases({ pocId, canManage, activeTasks, waitForTas
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between gap-3 bg-emerald-50/60 border border-emerald-100 rounded-lg px-3 py-2.5 flex-wrap">
+      <div className="flex items-center justify-between gap-3 bg-brand-50/60 border border-brand-100 rounded-lg px-3 py-2.5 flex-wrap">
         <div className="flex items-center gap-2 text-xs text-slate-600">
-          <span className="text-[10px] font-bold text-emerald-700 bg-white border border-emerald-200 rounded-full px-2 py-0.5">
+          <span className="text-[10px] font-bold text-brand-700 bg-white border border-brand-200 rounded-full px-2 py-0.5">
             Gerado por IA
           </span>
           Casos de teste derivados do objetivo e dos critérios de sucesso desta POC.
@@ -168,7 +168,7 @@ export default function PocTestCases({ pocId, canManage, activeTasks, waitForTas
             <button
               onClick={generate}
               disabled={generating || !!generationTask}
-              className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
             >
               <Sparkles size={13} className={generating || generationTask ? "animate-pulse" : ""} />
               {generationTask ? generationTask.current_step || "Gerando..." : generating ? "Gerando..." : "Regenerar com IA"}
@@ -178,19 +178,19 @@ export default function PocTestCases({ pocId, canManage, activeTasks, waitForTas
       </div>
       {generationTask && (
         <div className="flex items-center gap-2 text-[11px] text-slate-500 px-1">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
+          <span className="w-2 h-2 rounded-full bg-brand-500 animate-pulse shrink-0"></span>
           <span className="truncate">{generationTask.current_step}</span>
           <span className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
             <span
-              className="block h-full bg-emerald-500 transition-all duration-500"
+              className="block h-full bg-brand-500 transition-all duration-500"
               style={{ width: `${typeof generationTask.progress_pct === "number" ? generationTask.progress_pct : 5}%` }}
             />
           </span>
         </div>
       )}
-      {generateError && <div className="p-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-xs">{generateError}</div>}
+      {generateError && <div className="p-3 rounded bg-warning-50 border border-warning-200 text-warning-900 text-xs">{generateError}</div>}
       {knowledgeBaseWarning && (
-        <div className="p-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-xs">
+        <div className="p-3 rounded bg-warning-50 border border-warning-200 text-warning-900 text-xs">
           <span className="font-bold">Base de Conhecimento insuficiente: </span>
           {knowledgeBaseWarning}
         </div>
@@ -199,27 +199,27 @@ export default function PocTestCases({ pocId, canManage, activeTasks, waitForTas
       {showForm && (
         <div className="border border-slate-200 rounded-lg p-4 bg-slate-50 space-y-3">
           <input
-            className="w-full p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+            className="w-full p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none"
             placeholder="Título do caso de teste"
             value={form.title}
             onChange={(e) => setForm({ ...form, title: e.target.value })}
           />
           <textarea
-            className="w-full p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+            className="w-full p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none"
             placeholder="Objetivo do teste"
             rows={2}
             value={form.objective}
             onChange={(e) => setForm({ ...form, objective: e.target.value })}
           />
           <textarea
-            className="w-full p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+            className="w-full p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none"
             placeholder="Passos (um por linha)"
             rows={3}
             value={form.steps}
             onChange={(e) => setForm({ ...form, steps: e.target.value })}
           />
           <textarea
-            className="w-full p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+            className="w-full p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none"
             placeholder="Resultado esperado"
             rows={2}
             value={form.expected_result}
@@ -232,7 +232,7 @@ export default function PocTestCases({ pocId, canManage, activeTasks, waitForTas
             <button
               onClick={submitManual}
               disabled={saving}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
+              className="bg-brand-600 hover:bg-brand-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
             >
               Salvar
             </button>
@@ -249,24 +249,24 @@ export default function PocTestCases({ pocId, canManage, activeTasks, waitForTas
               {editingId === tc.id ? (
                 <div className="space-y-2">
                   <input
-                    className="w-full p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none font-semibold"
+                    className="w-full p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none font-semibold"
                     value={editBuffer.title}
                     onChange={(e) => setEditBuffer({ ...editBuffer, title: e.target.value })}
                   />
                   <textarea
-                    className="w-full p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                    className="w-full p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none"
                     rows={2}
                     value={editBuffer.objective}
                     onChange={(e) => setEditBuffer({ ...editBuffer, objective: e.target.value })}
                   />
                   <textarea
-                    className="w-full p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                    className="w-full p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none"
                     rows={3}
                     value={editBuffer.steps}
                     onChange={(e) => setEditBuffer({ ...editBuffer, steps: e.target.value })}
                   />
                   <textarea
-                    className="w-full p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                    className="w-full p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none"
                     rows={2}
                     value={editBuffer.expected_result}
                     onChange={(e) => setEditBuffer({ ...editBuffer, expected_result: e.target.value })}
@@ -279,7 +279,7 @@ export default function PocTestCases({ pocId, canManage, activeTasks, waitForTas
                     <button
                       onClick={() => saveEdit(tc)}
                       disabled={saving}
-                      className="inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
+                      className="inline-flex items-center gap-1 bg-brand-600 hover:bg-brand-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
                     >
                       <Check size={12} />
                       Salvar
@@ -293,7 +293,7 @@ export default function PocTestCases({ pocId, canManage, activeTasks, waitForTas
                       <span className="text-[10px] font-mono text-slate-400">{tc.code}</span>
                       <span className="text-sm font-semibold text-slate-900">{tc.title}</span>
                       {tc.edited_manually && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-700 bg-blue-50 rounded px-1.5 py-0.5">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-600 bg-slate-100 rounded px-1.5 py-0.5">
                           <Pen size={9} />
                           editado
                         </span>
@@ -318,7 +318,7 @@ export default function PocTestCases({ pocId, canManage, activeTasks, waitForTas
                           <button onClick={() => startEdit(tc)} className="text-slate-400 hover:text-slate-700">
                             <Pen size={13} />
                           </button>
-                          <button onClick={() => removeCase(tc)} className="text-slate-300 hover:text-red-500">
+                          <button onClick={() => removeCase(tc)} className="text-slate-300 hover:text-danger-500">
                             <Trash2 size={13} />
                           </button>
                         </>

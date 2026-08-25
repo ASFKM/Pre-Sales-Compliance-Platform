@@ -347,9 +347,9 @@ export default function PocGanttChart({ poc, canManage, activeTasks, waitForTask
     <div className="space-y-3">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-4 text-[11px] text-slate-500">
-          <span className="flex items-center gap-1.5"><span className="w-3 h-2 rounded-sm bg-slate-400 inline-block" />Concluída</span>
-          <span className="flex items-center gap-1.5"><span className="w-3 h-2 rounded-sm bg-emerald-600 inline-block" />Caminho crítico</span>
-          <span className="flex items-center gap-1.5"><span className="w-3 h-2 rounded-sm bg-blue-400 inline-block" />Fora do caminho crítico</span>
+          <span className="flex items-center gap-1.5"><span className="w-3 h-2 rounded-sm bg-slate-500 inline-block" />Concluída</span>
+          <span className="flex items-center gap-1.5"><span className="w-3 h-2 rounded-sm bg-warning-700 inline-block" />Caminho crítico</span>
+          <span className="flex items-center gap-1.5"><span className="w-3 h-2 rounded-sm bg-brand-600 inline-block" />Fora do caminho crítico</span>
           {canManage && <span className="text-slate-400 italic">arraste para mover · arraste a borda direita para redimensionar</span>}
         </div>
         {canManage && (
@@ -357,14 +357,14 @@ export default function PocGanttChart({ poc, canManage, activeTasks, waitForTask
             <button
               onClick={generateSchedule}
               disabled={generating || !!generationTask}
-              className="inline-flex items-center gap-1.5 border border-emerald-600 text-emerald-700 hover:bg-emerald-50 font-mono text-xs font-bold py-1.5 px-4 rounded transition-all cursor-pointer disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 border border-brand-600 text-brand-700 hover:bg-brand-50 font-mono text-xs font-bold py-1.5 px-4 rounded transition-all cursor-pointer disabled:opacity-60"
             >
               <Sparkles size={13} className={generating || generationTask ? "animate-pulse" : ""} />
               {generationTask ? generationTask.current_step || "Gerando..." : generating ? "Gerando..." : "Sugerir cronograma com IA"}
             </button>
             <button
               onClick={() => setShowForm(true)}
-              className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer"
+              className="inline-flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer"
             >
               <Plus size={13} />
               Nova tarefa
@@ -374,20 +374,20 @@ export default function PocGanttChart({ poc, canManage, activeTasks, waitForTask
       </div>
       {generationTask && (
         <div className="flex items-center gap-2 text-[11px] text-slate-500 px-1">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
+          <span className="w-2 h-2 rounded-full bg-brand-500 animate-pulse shrink-0"></span>
           <span className="truncate">{generationTask.current_step}</span>
           <span className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
             <span
-              className="block h-full bg-emerald-500 transition-all duration-500"
+              className="block h-full bg-brand-500 transition-all duration-500"
               style={{ width: `${typeof generationTask.progress_pct === "number" ? generationTask.progress_pct : 5}%` }}
             />
           </span>
         </div>
       )}
 
-      {generateError && <div className="p-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-xs">{generateError}</div>}
+      {generateError && <div className="p-3 rounded bg-warning-50 border border-warning-200 text-warning-900 text-xs">{generateError}</div>}
       {knowledgeBaseWarning && (
-        <div className="p-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-xs">
+        <div className="p-3 rounded bg-warning-50 border border-warning-200 text-warning-900 text-xs">
           <span className="font-bold">Base de Conhecimento insuficiente: </span>
           {knowledgeBaseWarning}
         </div>
@@ -397,28 +397,28 @@ export default function PocGanttChart({ poc, canManage, activeTasks, waitForTask
         <div className="border border-slate-200 rounded-lg p-4 bg-slate-50 space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
             <input
-              className="p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs sm:col-span-2"
+              className="p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs sm:col-span-2"
               placeholder="Nome da tarefa"
               value={formName}
               onChange={(e) => setFormName(e.target.value)}
             />
             <input
               type="date"
-              className="p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs"
+              className="p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs"
               value={formStart}
               onChange={(e) => setFormStart(e.target.value)}
             />
             <input
               type="number"
               min={1}
-              className="p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs"
+              className="p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs"
               placeholder="Duração (dias)"
               value={formDuration}
               onChange={(e) => setFormDuration(Math.max(1, Number(e.target.value) || 1))}
             />
           </div>
           <select
-            className="p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs w-full sm:w-auto"
+            className="p-2 rounded bg-white border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs w-full sm:w-auto"
             value={formDependsOn}
             onChange={(e) => setFormDependsOn(e.target.value)}
           >
@@ -427,7 +427,7 @@ export default function PocGanttChart({ poc, canManage, activeTasks, waitForTask
               <option key={t.id} value={t.id}>Depende de: {t.name}</option>
             ))}
           </select>
-          {formError && <div className="p-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-xs">{formError}</div>}
+          {formError && <div className="p-3 rounded bg-warning-50 border border-warning-200 text-warning-900 text-xs">{formError}</div>}
           <div className="flex items-center gap-2 pt-1">
             <button onClick={() => setShowForm(false)} className="px-3 py-1.5 border border-slate-300 rounded hover:bg-slate-100 font-mono text-xs cursor-pointer text-slate-500">
               Cancelar
@@ -435,7 +435,7 @@ export default function PocGanttChart({ poc, canManage, activeTasks, waitForTask
             <button
               onClick={submitCreate}
               disabled={saving || !formName.trim()}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
+              className="bg-brand-600 hover:bg-brand-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
             >
               {saving ? "Criando..." : "Criar tarefa"}
             </button>
@@ -455,10 +455,10 @@ export default function PocGanttChart({ poc, canManage, activeTasks, waitForTask
                 </div>
                 {tasks.map((t) => (
                   <div key={t.id} className="flex items-center gap-2 px-3 border-b border-slate-100" style={{ height: ROW_H }}>
-                    {criticalTaskIds.has(t.id) && <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 shrink-0" />}
+                    {criticalTaskIds.has(t.id) && <span className="w-1.5 h-1.5 rounded-full bg-warning-700 shrink-0" />}
                     <span className="text-xs font-medium text-slate-700 truncate flex-1" title={t.name}>{t.name}</span>
                     {canManage && (
-                      <button onClick={() => removeTask(t)} className="text-slate-300 hover:text-red-500 shrink-0">
+                      <button onClick={() => removeTask(t)} className="text-slate-300 hover:text-danger-500 shrink-0">
                         <Trash2 size={12} />
                       </button>
                     )}
@@ -500,8 +500,8 @@ export default function PocGanttChart({ poc, canManage, activeTasks, waitForTask
                   ))}
 
                   {todayOffset >= 0 && todayOffset < totalDays && (
-                    <div className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-20" style={{ left: todayOffset * DAY_W + DAY_W / 2 }}>
-                      <span className="absolute -top-[18px] -translate-x-1/2 bg-red-500 text-white text-[9px] font-bold font-mono rounded px-1.5 whitespace-nowrap">HOJE</span>
+                    <div className="absolute top-0 bottom-0 w-0.5 bg-danger-500 z-20" style={{ left: todayOffset * DAY_W + DAY_W / 2 }}>
+                      <span className="absolute -top-[18px] -translate-x-1/2 bg-danger-500 text-white text-[9px] font-bold font-mono rounded px-1.5 whitespace-nowrap">HOJE</span>
                     </div>
                   )}
 
@@ -523,7 +523,7 @@ export default function PocGanttChart({ poc, canManage, activeTasks, waitForTask
                             key={t.id}
                             d={`M${r1.x2},${y1} H${midX} V${y2} H${r2.x1 - 6}`}
                             fill="none"
-                            stroke="#94a3b8"
+                            stroke="var(--color-neutral-400)"
                             strokeWidth={1.5}
                             markerEnd="url(#poc-gantt-arrow)"
                           />
@@ -531,7 +531,7 @@ export default function PocGanttChart({ poc, canManage, activeTasks, waitForTask
                       })}
                     <defs>
                       <marker id="poc-gantt-arrow" markerWidth={8} markerHeight={8} refX={6} refY={3} orient="auto">
-                        <path d="M0,0 L6,3 L0,6 z" fill="#94a3b8" />
+                        <path d="M0,0 L6,3 L0,6 z" fill="var(--color-neutral-400)" />
                       </marker>
                     </defs>
                   </svg>
@@ -540,7 +540,7 @@ export default function PocGanttChart({ poc, canManage, activeTasks, waitForTask
                     const rect = barRect(t.id);
                     const isCritical = criticalTaskIds.has(t.id);
                     const color =
-                      t.status === "done" ? "bg-slate-400" : isCritical ? "bg-emerald-600" : "bg-blue-400";
+                      t.status === "done" ? "bg-slate-500" : isCritical ? "bg-warning-700" : "bg-brand-600";
                     const eff = effective[t.id];
                     return (
                       <div
@@ -577,28 +577,28 @@ export default function PocGanttChart({ poc, canManage, activeTasks, waitForTask
                   <div key={t.id} className="p-3 bg-slate-50 space-y-2">
                     <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
                       <input
-                        className="sm:col-span-2 p-1.5 text-xs rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                        className="sm:col-span-2 p-1.5 text-xs rounded bg-white border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none"
                         placeholder="Nome da tarefa"
                         value={editName}
                         onChange={(e) => setEditName(e.target.value)}
                       />
                       <input
                         type="date"
-                        className="p-1.5 text-xs rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                        className="p-1.5 text-xs rounded bg-white border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none"
                         value={editStart}
                         onChange={(e) => setEditStart(e.target.value)}
                       />
                       <input
                         type="number"
                         min={1}
-                        className="p-1.5 text-xs rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                        className="p-1.5 text-xs rounded bg-white border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none"
                         placeholder="Duração (dias)"
                         value={editDuration}
                         onChange={(e) => setEditDuration(parseInt(e.target.value, 10) || 1)}
                       />
                     </div>
                     <select
-                      className="w-full p-1.5 text-xs rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                      className="w-full p-1.5 text-xs rounded bg-white border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none"
                       value={editDependsOn}
                       onChange={(e) => setEditDependsOn(e.target.value)}
                     >
@@ -607,7 +607,7 @@ export default function PocGanttChart({ poc, canManage, activeTasks, waitForTask
                         <option key={other.id} value={other.id}>Depende de: {other.name}</option>
                       ))}
                     </select>
-                    {editError && <p className="text-[11px] text-red-600">{editError}</p>}
+                    {editError && <p className="text-[11px] text-danger-600">{editError}</p>}
                     <div className="flex items-center gap-2">
                       <button onClick={() => setEditingTaskId(null)} className="px-2.5 py-1 border border-slate-300 rounded hover:bg-slate-100 font-mono text-[11px] cursor-pointer text-slate-500">
                         Cancelar
@@ -615,7 +615,7 @@ export default function PocGanttChart({ poc, canManage, activeTasks, waitForTask
                       <button
                         onClick={saveEditTask}
                         disabled={saving || !editName.trim()}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-[11px] font-bold py-1 px-3 rounded shadow transition-all cursor-pointer disabled:opacity-60"
+                        className="bg-brand-600 hover:bg-brand-700 text-white font-mono text-[11px] font-bold py-1 px-3 rounded shadow transition-all cursor-pointer disabled:opacity-60"
                       >
                         Salvar
                       </button>
@@ -636,7 +636,7 @@ export default function PocGanttChart({ poc, canManage, activeTasks, waitForTask
                     <button onClick={() => startEditTask(t)} className="text-slate-400 hover:text-slate-700" title="Editar tarefa">
                       <Pen size={13} />
                     </button>
-                    <button onClick={() => removeTask(t)} className="text-slate-300 hover:text-red-500" title="Remover tarefa">
+                    <button onClick={() => removeTask(t)} className="text-slate-300 hover:text-danger-500" title="Remover tarefa">
                       <Trash2 size={13} />
                     </button>
                   </div>
