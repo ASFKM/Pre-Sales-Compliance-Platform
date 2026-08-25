@@ -1,5 +1,9 @@
 /**
- * Provisiona a conta dedicada de captura dos manuais, autorizada pelo dono em 25/08/2026.
+ * Provisiona a conta dedicada de captura dos manuais (`npm run provision:manual-capture`).
+ *
+ * Existe para que `npm run capture:manuals` seja reproduzível noutra máquina: sem esta conta, quem
+ * clonar o repositório não tem como pilotar a interface do tenant de demonstração. Autorizado pelo
+ * dono em 25/08/2026.
  *
  * Mesmo padrão da conta de captura do baseline visual (`visual-capture@presales.local`, Fase 0):
  * conta própria, MFA desligado (um código que muda a cada execução impede captura reprodutível),

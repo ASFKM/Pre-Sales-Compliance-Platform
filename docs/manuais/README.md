@@ -44,7 +44,9 @@ npm run capture:manuals -- --only 03-home,14-copiloto
 ```
 
 `scripts/capture-manuals.ts` percorre a interface no tenant `manual_demo_tenant`, com a conta
-dedicada de `.env.manual.local` (fora do git, como a do baseline visual). A cor gravada nesse tenant
+dedicada de `.env.manual.local` (fora do git, como a do baseline visual). Se esse arquivo não
+existir na sua máquina, `npm run provision:manual-capture` cria a conta e o grava — ele não toca
+na conta `admin@manual-demo.local` que já existe. A cor gravada nesse tenant
 é a da marca, e a rampa derivada dela é idêntica à oficial nos onze degraus — a interface capturada
 é a padrão do produto, não a de um cliente co-marcado.
 
