@@ -22,16 +22,16 @@ const EQUIPMENT_STATUS_LABEL: Record<PocEquipmentStatus, string> = {
 };
 
 const EQUIPMENT_STATUS_COLOR: Record<PocEquipmentStatus, string> = {
-  shipped: "bg-blue-50 text-blue-700",
-  at_customer: "bg-amber-50 text-amber-700",
-  returned: "bg-emerald-50 text-emerald-700",
+  shipped: "bg-brand-50 text-brand-700",
+  at_customer: "bg-warning-50 text-warning-700",
+  returned: "bg-success-50 text-success-700",
 };
 
 const STATUS_BADGE_COLOR: Record<PocStatus, string> = {
   not_started: "bg-slate-100 text-slate-600",
-  planned: "bg-blue-50 text-blue-700",
-  in_progress: "bg-emerald-50 text-emerald-700",
-  blocked: "bg-amber-50 text-amber-700",
+  planned: "bg-brand-50 text-brand-700",
+  in_progress: "bg-brand-100 text-brand-800",
+  blocked: "bg-warning-50 text-warning-700",
   completed: "bg-slate-100 text-slate-700",
 };
 
@@ -40,9 +40,9 @@ const STATUS_BADGE_COLOR: Record<PocStatus, string> = {
 // card once it lands in "Concluída".
 const COLUMNS: { key: PocStatus; label: string; dot: string }[] = [
   { key: "not_started", label: "Não iniciada", dot: "bg-slate-400" },
-  { key: "planned", label: "Planejada", dot: "bg-blue-500" },
-  { key: "in_progress", label: "Em andamento", dot: "bg-emerald-500" },
-  { key: "blocked", label: "Bloqueada", dot: "bg-amber-500" },
+  { key: "planned", label: "Planejada", dot: "bg-brand-500" },
+  { key: "in_progress", label: "Em andamento", dot: "bg-brand-700" },
+  { key: "blocked", label: "Bloqueada", dot: "bg-warning-500" },
   { key: "completed", label: "Concluída", dot: "bg-slate-600" },
 ];
 
@@ -641,7 +641,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
             </div>
             <div className="flex items-center gap-2">
               {selectedPoc.acceptance_decision && selectedPoc.acceptance_decision !== "pending" && (
-                <span className={`text-[10px] font-bold px-2 py-1 rounded ${selectedPoc.acceptance_decision === "won" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
+                <span className={`text-[10px] font-bold px-2 py-1 rounded ${selectedPoc.acceptance_decision === "won" ? "bg-success-50 text-success-700" : "bg-danger-50 text-danger-700"}`}>
                   {selectedPoc.acceptance_decision === "won" ? "GANHA" : "PERDIDA"}
                 </span>
               )}
@@ -673,34 +673,34 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
         <div className="flex items-center gap-5 border-b border-slate-200 -mt-1">
           <button
             onClick={() => setDetailTab("overview")}
-            className={`h-9 px-1 border-b-2 transition-all text-xs font-bold uppercase tracking-wider ${detailTab === "overview" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+            className={`h-9 px-1 border-b-2 transition-all text-xs font-bold uppercase tracking-wider ${detailTab === "overview" ? "border-brand-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
           >
             Visão Geral
           </button>
           <button
             onClick={() => setDetailTab("equipment")}
-            className={`h-9 px-1 border-b-2 transition-all text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${detailTab === "equipment" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+            className={`h-9 px-1 border-b-2 transition-all text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${detailTab === "equipment" ? "border-brand-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
           >
             Equipamento
             {equipmentPendingReturn > 0 && pocIsOverdue && (
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+              <span className="w-1.5 h-1.5 rounded-full bg-warning-500" />
             )}
           </button>
           <button
             onClick={() => setDetailTab("tests")}
-            className={`h-9 px-1 border-b-2 transition-all text-xs font-bold uppercase tracking-wider ${detailTab === "tests" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+            className={`h-9 px-1 border-b-2 transition-all text-xs font-bold uppercase tracking-wider ${detailTab === "tests" ? "border-brand-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
           >
             Cadernos de Teste
           </button>
           <button
             onClick={() => setDetailTab("gantt")}
-            className={`h-9 px-1 border-b-2 transition-all text-xs font-bold uppercase tracking-wider ${detailTab === "gantt" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+            className={`h-9 px-1 border-b-2 transition-all text-xs font-bold uppercase tracking-wider ${detailTab === "gantt" ? "border-brand-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
           >
             Cronograma
           </button>
           <button
             onClick={() => setDetailTab("acceptance")}
-            className={`h-9 px-1 border-b-2 transition-all text-xs font-bold uppercase tracking-wider ${detailTab === "acceptance" ? "border-emerald-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+            className={`h-9 px-1 border-b-2 transition-all text-xs font-bold uppercase tracking-wider ${detailTab === "acceptance" ? "border-brand-600 text-slate-900" : "border-transparent text-slate-400 hover:text-slate-600"}`}
           >
             Aceite do Cliente
           </button>
@@ -762,8 +762,8 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
               <div>
                 <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono mb-2">Stakeholders</div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <div className="flex items-center gap-2 border border-slate-200 rounded-md px-3 py-2 bg-emerald-50/40">
-                    <span className="w-7 h-7 rounded-full bg-emerald-100 text-emerald-700 text-[11px] font-bold flex items-center justify-center shrink-0">
+                  <div className="flex items-center gap-2 border border-slate-200 rounded-md px-3 py-2 bg-brand-50/40">
+                    <span className="w-7 h-7 rounded-full bg-brand-100 text-brand-700 text-[11px] font-bold flex items-center justify-center shrink-0">
                       {(selectedPoc.owner_name || "?").slice(0, 2).toUpperCase()}
                     </span>
                     <div>
@@ -771,8 +771,8 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                       <div className="text-[11px] text-slate-500">Responsável interno</div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 border border-slate-200 rounded-md px-3 py-2 bg-blue-50/40">
-                    <span className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 text-[11px] font-bold flex items-center justify-center shrink-0">
+                  <div className="flex items-center gap-2 border border-slate-200 rounded-md px-3 py-2 bg-slate-50/40">
+                    <span className="w-7 h-7 rounded-full bg-slate-200 text-slate-700 text-[11px] font-bold flex items-center justify-center shrink-0">
                       {selectedPoc.customer_contact_name.slice(0, 2).toUpperCase()}
                     </span>
                     <div>
@@ -792,18 +792,18 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                     {criteria.map((c) => (
                       <div
                         key={c.id}
-                        className={`flex items-center gap-2 px-3 py-2 rounded-md border text-sm ${c.done ? "bg-emerald-50 border-emerald-100" : "bg-slate-50 border-slate-200"}`}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-md border text-sm ${c.done ? "bg-success-50 border-success-100" : "bg-slate-50 border-slate-200"}`}
                       >
                         <button
                           onClick={() => canManage && toggleCriterion(c)}
                           disabled={!canManage}
-                          className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 ${c.done ? "bg-emerald-600 border-emerald-600 text-white" : "border-slate-300 bg-white"}`}
+                          className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 ${c.done ? "bg-success-600 border-success-600 text-white" : "border-slate-300 bg-white"}`}
                         >
                           {c.done && <Check size={12} />}
                         </button>
                         <span className={`flex-1 ${c.done ? "text-slate-500 line-through" : "text-slate-800"}`}>{c.description}</span>
                         {canManage && (
-                          <button onClick={() => removeCriterion(c)} className="text-slate-300 hover:text-red-500">
+                          <button onClick={() => removeCriterion(c)} className="text-slate-300 hover:text-danger-500">
                             <Trash2 size={14} />
                           </button>
                         )}
@@ -817,7 +817,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                 {canManage && (
                   <div className="flex items-center gap-2 mt-2">
                     <input
-                      className="flex-1 p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs"
+                      className="flex-1 p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs"
                       placeholder="Novo critério de sucesso..."
                       value={newCriterionText}
                       onChange={(e) => setNewCriterionText(e.target.value)}
@@ -826,7 +826,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                     <button
                       onClick={addCriterion}
                       disabled={addingCriterion || !newCriterionText.trim()}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
+                      className="bg-brand-600 hover:bg-brand-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
                     >
                       Adicionar
                     </button>
@@ -839,7 +839,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
               <div>
                 <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Nome</label>
                 <input
-                  className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
+                  className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-sans text-slate-800"
                   value={editValues.name}
                   onChange={(e) => setEditValues({ ...editValues, name: e.target.value })}
                 />
@@ -847,7 +847,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
               <div>
                 <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Objetivo</label>
                 <textarea
-                  className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
+                  className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-sans text-slate-800"
                   rows={3}
                   value={editValues.objective}
                   onChange={(e) => setEditValues({ ...editValues, objective: e.target.value })}
@@ -857,7 +857,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                 <div>
                   <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Status</label>
                   <select
-                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
+                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-sans text-slate-800"
                     value={editValues.status}
                     onChange={(e) => setEditValues({ ...editValues, status: e.target.value as PocStatus })}
                   >
@@ -870,7 +870,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                   <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Início</label>
                   <input
                     type="date"
-                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
+                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-sans text-slate-800"
                     value={editValues.start_date}
                     onChange={(e) => setEditValues({ ...editValues, start_date: e.target.value })}
                   />
@@ -879,7 +879,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                   <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Prazo final</label>
                   <input
                     type="date"
-                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
+                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-sans text-slate-800"
                     value={editValues.end_date}
                     onChange={(e) => setEditValues({ ...editValues, end_date: e.target.value })}
                   />
@@ -887,7 +887,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                 <div>
                   <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Contato do cliente</label>
                   <input
-                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
+                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-sans text-slate-800"
                     value={editValues.customer_contact_name}
                     onChange={(e) => setEditValues({ ...editValues, customer_contact_name: e.target.value })}
                   />
@@ -896,7 +896,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
               <div>
                 <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Cargo do contato</label>
                 <input
-                  className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
+                  className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-sans text-slate-800"
                   value={editValues.customer_contact_role}
                   onChange={(e) => setEditValues({ ...editValues, customer_contact_role: e.target.value })}
                 />
@@ -908,7 +908,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                   <div>
                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">CEP</label>
                     <input
-                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-sans text-slate-800"
                       placeholder="00000-000"
                       value={editValues.address_zip}
                       onChange={(e) => setEditValues({ ...editValues, address_zip: e.target.value })}
@@ -919,7 +919,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                   <div className="sm:col-span-2">
                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Rua</label>
                     <input
-                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-sans text-slate-800"
                       value={editValues.address_street}
                       onChange={(e) => setEditValues({ ...editValues, address_street: e.target.value })}
                     />
@@ -927,7 +927,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                   <div>
                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Número</label>
                     <input
-                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-sans text-slate-800"
                       value={editValues.address_number}
                       onChange={(e) => setEditValues({ ...editValues, address_number: e.target.value })}
                     />
@@ -935,7 +935,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                   <div className="sm:col-span-2">
                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Complemento</label>
                     <input
-                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-sans text-slate-800"
                       value={editValues.address_complement}
                       onChange={(e) => setEditValues({ ...editValues, address_complement: e.target.value })}
                     />
@@ -943,7 +943,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                   <div className="sm:col-span-2">
                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Bairro</label>
                     <input
-                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-sans text-slate-800"
                       value={editValues.address_neighborhood}
                       onChange={(e) => setEditValues({ ...editValues, address_neighborhood: e.target.value })}
                     />
@@ -951,7 +951,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                   <div className="sm:col-span-2">
                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Cidade</label>
                     <input
-                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-sans text-slate-800"
                       value={editValues.address_city}
                       onChange={(e) => setEditValues({ ...editValues, address_city: e.target.value })}
                     />
@@ -959,7 +959,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                   <div>
                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">UF</label>
                     <input
-                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-sans text-slate-800"
                       maxLength={2}
                       value={editValues.address_state}
                       onChange={(e) => setEditValues({ ...editValues, address_state: e.target.value.toUpperCase() })}
@@ -968,7 +968,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                 </div>
               </div>
 
-              {saveError && <div className="p-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-xs">{saveError}</div>}
+              {saveError && <div className="p-3 rounded bg-warning-50 border border-warning-200 text-warning-900 text-xs">{saveError}</div>}
 
               <div className="flex items-center gap-2 pt-4 mt-2 border-t border-slate-200">
                 <button
@@ -980,13 +980,13 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                 <button
                   onClick={saveEdit}
                   disabled={saving}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
+                  className="bg-brand-600 hover:bg-brand-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
                 >
                   {saving ? "Salvando..." : "Salvar alterações"}
                 </button>
                 <button
                   onClick={() => { setDeleteError(""); setShowDeleteConfirm(true); }}
-                  className="ml-auto bg-red-600 hover:bg-red-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer"
+                  className="ml-auto bg-danger-600 hover:bg-danger-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer"
                 >
                   Excluir POC
                 </button>
@@ -1001,14 +1001,14 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
           <h2 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">Equipamento</h2>
 
           {equipmentPendingReturn > 0 && pocIsOverdue && (
-            <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-md px-3 py-2">
+            <div className="flex items-center gap-2 bg-warning-50 border border-warning-200 text-warning-800 text-xs rounded-md px-3 py-2">
               <TriangleAlert size={14} className="shrink-0" />
               A POC já passou do prazo final e {equipmentPendingReturn} {equipmentPendingReturn === 1 ? "item ainda não tem" : "itens ainda não têm"} devolução registrada.
             </div>
           )}
 
           {trackingError && (
-            <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-md px-3 py-2">
+            <div className="flex items-center gap-2 bg-warning-50 border border-warning-200 text-warning-800 text-xs rounded-md px-3 py-2">
               <TriangleAlert size={14} className="shrink-0" />
               {trackingError}
             </div>
@@ -1042,18 +1042,18 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                           <div className="flex items-center gap-1">
                             <input
                               autoFocus
-                              className="w-28 p-1 text-[11px] rounded bg-white border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
+                              className="w-28 p-1 text-[11px] rounded bg-white border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none"
                               placeholder="Código de rastreio"
                               value={trackingCodeInput}
                               onChange={(e) => setTrackingCodeInput(e.target.value)}
                             />
-                            <button onClick={() => saveTrackingCode(item)} className="text-emerald-600 hover:text-emerald-800"><Check size={13} /></button>
+                            <button onClick={() => saveTrackingCode(item)} className="text-brand-600 hover:text-brand-800"><Check size={13} /></button>
                             <button onClick={() => setEditingTrackingId(null)} className="text-slate-300 hover:text-slate-500"><X size={13} /></button>
                           </div>
                         ) : item.tracking_code ? (
                           <div className="space-y-0.5">
                             <div className="flex items-center gap-1">
-                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 bg-blue-50 rounded-full px-2 py-1" title={item.tracking_last_checked_at ? `Última consulta: ${new Date(item.tracking_last_checked_at).toLocaleString("pt-BR")}` : "Ainda não consultado"}>
+                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-brand-700 bg-brand-50 rounded-full px-2 py-1" title={item.tracking_last_checked_at ? `Última consulta: ${new Date(item.tracking_last_checked_at).toLocaleString("pt-BR")}` : "Ainda não consultado"}>
                                 <Truck size={11} />
                                 {item.tracking_carrier_status || "Aguardando 1ª consulta"}
                               </span>
@@ -1097,7 +1097,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                       </td>
                       <td className="py-2.5 pr-3">
                         {item.kb_match_count > 0 ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 rounded-full px-2 py-1" title="Casos de teste e cronograma são gerados com base neste conhecimento">
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-success-700 bg-success-50 rounded-full px-2 py-1" title="Casos de teste e cronograma são gerados com base neste conhecimento">
                             <BookMarked size={11} />
                             {item.kb_match_count} {item.kb_match_count === 1 ? "referência" : "referências"}
                           </span>
@@ -1107,7 +1107,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                       </td>
                       <td className="py-2.5 pr-3">
                         {item.datasheet_knowledge_base_document_id ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 rounded-md px-2 py-1">
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-success-700 bg-success-50 rounded-md px-2 py-1">
                             <Check size={11} />
                             Enviado
                           </span>
@@ -1138,7 +1138,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                             {filename ? (
                               <button
                                 onClick={() => downloadInvoice(item, which)}
-                                className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 rounded-md px-2 py-1 hover:bg-emerald-100"
+                                className="inline-flex items-center gap-1 text-[11px] font-semibold text-success-700 bg-success-50 rounded-md px-2 py-1 hover:bg-success-100"
                               >
                                 <Download size={11} />
                                 {filename.length > 18 ? filename.slice(0, 16) + "…" : filename}
@@ -1166,7 +1166,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                       })}
                       {canManage && (
                         <td className="py-2.5 pr-3 text-right">
-                          <button onClick={() => removeEquipmentItem(item)} className="text-slate-300 hover:text-red-500">
+                          <button onClick={() => removeEquipmentItem(item)} className="text-slate-300 hover:text-danger-500">
                             <Trash2 size={14} />
                           </button>
                         </td>
@@ -1214,25 +1214,25 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
           {canManage && (
             <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
               <input
-                className="flex-1 min-w-[180px] p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs"
+                className="flex-1 min-w-[180px] p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs"
                 placeholder="Nome do equipamento (ex: Firewall NGFW XG-3400)"
                 value={newEquipmentName}
                 onChange={(e) => setNewEquipmentName(e.target.value)}
               />
               <input
-                className="w-32 p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs"
+                className="w-32 p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs"
                 placeholder="Fabricante (opcional)"
                 value={newEquipmentManufacturer}
                 onChange={(e) => setNewEquipmentManufacturer(e.target.value)}
               />
               <input
-                className="w-32 p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs"
+                className="w-32 p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs"
                 placeholder="Part number (opcional)"
                 value={newEquipmentPartNumber}
                 onChange={(e) => setNewEquipmentPartNumber(e.target.value)}
               />
               <input
-                className="w-32 p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs"
+                className="w-32 p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs"
                 placeholder="Serial (opcional)"
                 value={newEquipmentSerial}
                 onChange={(e) => setNewEquipmentSerial(e.target.value)}
@@ -1240,7 +1240,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
               <button
                 onClick={addEquipmentItem}
                 disabled={addingEquipment || !newEquipmentName.trim()}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60 whitespace-nowrap"
+                className="bg-brand-600 hover:bg-brand-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60 whitespace-nowrap"
               >
                 Adicionar
               </button>
@@ -1255,7 +1255,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
             <h2 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">Cadernos de Teste</h2>
             {canManage && (
               <div className="flex items-center gap-2">
-                {saveStatusFeedback && <span className="text-[11px] text-emerald-600 font-semibold">{saveStatusFeedback}</span>}
+                {saveStatusFeedback && <span className="text-[11px] text-success-700 font-semibold">{saveStatusFeedback}</span>}
                 <button
                   onClick={() => handleSaveClick("tests")}
                   className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer"
@@ -1276,7 +1276,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
             <h2 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">Cronograma</h2>
             {canManage && (
               <div className="flex items-center gap-2">
-                {saveStatusFeedback && <span className="text-[11px] text-emerald-600 font-semibold">{saveStatusFeedback}</span>}
+                {saveStatusFeedback && <span className="text-[11px] text-success-700 font-semibold">{saveStatusFeedback}</span>}
                 <button
                   onClick={() => handleSaveClick("gantt")}
                   className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer"
@@ -1306,9 +1306,9 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
         {showSaveStatusConfirm && selectedPoc && (
           <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50">
             <div className="bg-white rounded-xl border border-slate-200 w-[420px] overflow-hidden shadow-2xl">
-              <div className="bg-blue-600 text-white p-4 flex justify-between items-center">
+              <div className="bg-brand-600 text-white p-4 flex justify-between items-center">
                 <h3 className="text-sm font-bold uppercase font-mono tracking-wider">Confirmar</h3>
-                <button onClick={() => setShowSaveStatusConfirm(null)} className="text-blue-100 hover:text-white cursor-pointer">
+                <button onClick={() => setShowSaveStatusConfirm(null)} className="text-brand-100 hover:text-white cursor-pointer">
                   <X size={16} />
                 </button>
               </div>
@@ -1327,7 +1327,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                   <button
                     onClick={confirmSaveAndPlan}
                     disabled={savingStatus}
-                    className="bg-blue-600 hover:bg-blue-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
+                    className="bg-brand-600 hover:bg-brand-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
                   >
                     {savingStatus ? "Salvando..." : "Confirmar"}
                   </button>
@@ -1340,9 +1340,9 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
         {showDeleteConfirm && (
           <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50">
             <div className="bg-white rounded-xl border border-slate-200 w-[420px] overflow-hidden shadow-2xl">
-              <div className="bg-red-600 text-white p-4 flex justify-between items-center">
+              <div className="bg-danger-600 text-white p-4 flex justify-between items-center">
                 <h3 className="text-sm font-bold uppercase font-mono tracking-wider">Excluir POC</h3>
-                <button onClick={() => setShowDeleteConfirm(false)} className="text-red-100 hover:text-white cursor-pointer">
+                <button onClick={() => setShowDeleteConfirm(false)} className="text-danger-100 hover:text-white cursor-pointer">
                   <X size={16} />
                 </button>
               </div>
@@ -1352,7 +1352,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                   remove permanentemente o equipamento, cronograma, casos de teste, relatório final e aceite associados, e
                   <span className="font-semibold"> não pode ser desfeita</span>.
                 </p>
-                {deleteError && <div className="p-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-xs">{deleteError}</div>}
+                {deleteError && <div className="p-3 rounded bg-warning-50 border border-warning-200 text-warning-900 text-xs">{deleteError}</div>}
                 <div className="flex items-center gap-2 justify-end">
                   <button
                     onClick={() => setShowDeleteConfirm(false)}
@@ -1363,7 +1363,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                   <button
                     onClick={deletePocHandler}
                     disabled={deletingPoc}
-                    className="bg-red-600 hover:bg-red-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
+                    className="bg-danger-600 hover:bg-danger-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
                   >
                     {deletingPoc ? "Excluindo..." : "Excluir definitivamente"}
                   </button>
@@ -1383,7 +1383,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
         {canManage && (
           <button
             onClick={() => { setShowCreateModal(true); setCreateError(""); }}
-            className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer"
+            className="inline-flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer"
           >
             <Plus size={14} />
             Nova POC
@@ -1398,7 +1398,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
         </button>
       </div>
 
-      {error && <p className="text-xs text-red-600">{error}</p>}
+      {error && <p className="text-xs text-danger-600">{error}</p>}
       {loading ? (
         <p className="text-xs text-slate-500">Carregando...</p>
       ) : (
@@ -1430,8 +1430,8 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                 <div className="space-y-2">
                   {colPocs.map((poc) => {
                     const borderColor =
-                      poc.acceptance_decision === "won" ? "border-emerald-400" :
-                      poc.acceptance_decision === "lost" ? "border-red-300" :
+                      poc.acceptance_decision === "won" ? "border-success-400" :
+                      poc.acceptance_decision === "lost" ? "border-danger-300" :
                       "border-slate-200";
                     const startArrived = pocStartDateArrived(poc);
                     return (
@@ -1442,12 +1442,12 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                       onDragEnd={() => setDragPocId(null)}
                       onClick={() => openDetail(poc)}
                       title={startArrived ? "Data de início já chegou - atualize o status para \"Em andamento\"" : undefined}
-                      className={`w-full text-left bg-white border-2 ${borderColor} rounded-md p-3 hover:border-emerald-400 hover:shadow-sm transition-all ${canManage ? "cursor-grab active:cursor-grabbing" : ""} ${startArrived ? "animate-poc-start-glow" : ""}`}
+                      className={`w-full text-left bg-white border-2 ${borderColor} rounded-md p-3 hover:border-brand-400 hover:shadow-sm transition-all ${canManage ? "cursor-grab active:cursor-grabbing" : ""} ${startArrived ? "animate-poc-start-glow" : ""}`}
                     >
                       <div className="text-[11px] text-slate-500 mb-0.5">{clientLabel(poc)}</div>
                       <div className="text-sm font-semibold text-slate-900 leading-snug mb-2">{poc.name}</div>
                       {poc.acceptance_decision && poc.acceptance_decision !== "pending" && (
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${poc.acceptance_decision === "won" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${poc.acceptance_decision === "won" ? "bg-success-50 text-success-700" : "bg-danger-50 text-danger-700"}`}>
                           {poc.acceptance_decision === "won" ? "GANHA" : "PERDIDA"}
                         </span>
                       )}
@@ -1477,13 +1477,13 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
               <div className="flex gap-2">
                 <button
                   onClick={() => setCreateForm({ ...createForm, mode: "project" })}
-                  className={`flex-1 font-mono text-xs font-bold py-1.5 px-3 rounded border transition-all ${createForm.mode === "project" ? "bg-emerald-600 border-emerald-600 text-white" : "border-slate-300 text-slate-500 hover:bg-slate-50"}`}
+                  className={`flex-1 font-mono text-xs font-bold py-1.5 px-3 rounded border transition-all ${createForm.mode === "project" ? "bg-brand-600 border-brand-600 text-white" : "border-slate-300 text-slate-500 hover:bg-slate-50"}`}
                 >
                   Vincular a projeto
                 </button>
                 <button
                   onClick={() => setCreateForm({ ...createForm, mode: "standalone" })}
-                  className={`flex-1 font-mono text-xs font-bold py-1.5 px-3 rounded border transition-all ${createForm.mode === "standalone" ? "bg-emerald-600 border-emerald-600 text-white" : "border-slate-300 text-slate-500 hover:bg-slate-50"}`}
+                  className={`flex-1 font-mono text-xs font-bold py-1.5 px-3 rounded border transition-all ${createForm.mode === "standalone" ? "bg-brand-600 border-brand-600 text-white" : "border-slate-300 text-slate-500 hover:bg-slate-50"}`}
                 >
                   POC avulsa
                 </button>
@@ -1493,7 +1493,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                 <div>
                   <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Projeto</label>
                   <select
-                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
+                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-sans text-slate-800"
                     value={createForm.project_id}
                     onChange={(e) => setCreateForm({ ...createForm, project_id: e.target.value })}
                   >
@@ -1508,7 +1508,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                   <div className="md:col-span-2">
                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Nome do cliente</label>
                     <input
-                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-sans text-slate-800"
                       value={createForm.standalone_customer_name}
                       onChange={(e) => setCreateForm({ ...createForm, standalone_customer_name: e.target.value })}
                     />
@@ -1516,7 +1516,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                   <div>
                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Nome do contato</label>
                     <input
-                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-sans text-slate-800"
                       value={createForm.standalone_contact_name}
                       onChange={(e) => setCreateForm({ ...createForm, standalone_contact_name: e.target.value })}
                     />
@@ -1524,7 +1524,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                   <div>
                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">E-mail</label>
                     <input
-                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-sans text-slate-800"
                       value={createForm.standalone_contact_email}
                       onChange={(e) => setCreateForm({ ...createForm, standalone_contact_email: e.target.value })}
                     />
@@ -1532,7 +1532,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                   <div className="md:col-span-2">
                     <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Telefone</label>
                     <input
-                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
+                      className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-sans text-slate-800"
                       value={createForm.standalone_contact_phone}
                       onChange={(e) => setCreateForm({ ...createForm, standalone_contact_phone: e.target.value })}
                     />
@@ -1543,7 +1543,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
               <div>
                 <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Nome da POC</label>
                 <input
-                  className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
+                  className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-sans text-slate-800"
                   value={createForm.name}
                   onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
                 />
@@ -1551,7 +1551,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
               <div>
                 <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Objetivo</label>
                 <textarea
-                  className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none h-20"
+                  className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none h-20"
                   value={createForm.objective}
                   onChange={(e) => setCreateForm({ ...createForm, objective: e.target.value })}
                 />
@@ -1561,7 +1561,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                   <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Início</label>
                   <input
                     type="date"
-                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
+                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-sans text-slate-800"
                     value={createForm.start_date}
                     onChange={(e) => setCreateForm({ ...createForm, start_date: e.target.value })}
                   />
@@ -1570,7 +1570,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                   <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Prazo final</label>
                   <input
                     type="date"
-                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
+                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-sans text-slate-800"
                     value={createForm.end_date}
                     onChange={(e) => setCreateForm({ ...createForm, end_date: e.target.value })}
                   />
@@ -1580,7 +1580,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                 <div>
                   <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Contato do cliente</label>
                   <input
-                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
+                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-sans text-slate-800"
                     value={createForm.customer_contact_name}
                     onChange={(e) => setCreateForm({ ...createForm, customer_contact_name: e.target.value })}
                   />
@@ -1588,14 +1588,14 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                 <div>
                   <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Cargo</label>
                   <input
-                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-xs font-sans text-slate-800"
+                    className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-sans text-slate-800"
                     value={createForm.customer_contact_role}
                     onChange={(e) => setCreateForm({ ...createForm, customer_contact_role: e.target.value })}
                   />
                 </div>
               </div>
 
-              {createError && <div className="p-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-xs">{createError}</div>}
+              {createError && <div className="p-3 rounded bg-warning-50 border border-warning-200 text-warning-900 text-xs">{createError}</div>}
 
               <div className="flex justify-end gap-2 pt-4 mt-4 border-t border-slate-200">
                 <button
@@ -1607,7 +1607,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                 <button
                   onClick={submitCreate}
                   disabled={creating}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
+                  className="bg-brand-600 hover:bg-brand-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
                 >
                   {creating ? "Criando..." : "Criar POC"}
                 </button>
@@ -1639,12 +1639,12 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                   <button
                     key={poc.id}
                     onClick={() => openArchivedDetail(poc)}
-                    className="w-full text-left bg-slate-50 border border-slate-200 rounded-md p-3 hover:border-emerald-400 hover:bg-white transition-all"
+                    className="w-full text-left bg-slate-50 border border-slate-200 rounded-md p-3 hover:border-brand-400 hover:bg-white transition-all"
                   >
                     <div className="text-[11px] text-slate-500 mb-0.5">{clientLabel(poc)}</div>
                     <div className="text-sm font-semibold text-slate-900 leading-snug">{poc.name}</div>
                     {poc.acceptance_decision && poc.acceptance_decision !== "pending" && (
-                      <span className={`inline-block mt-1.5 text-[10px] font-bold px-2 py-0.5 rounded ${poc.acceptance_decision === "won" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
+                      <span className={`inline-block mt-1.5 text-[10px] font-bold px-2 py-0.5 rounded ${poc.acceptance_decision === "won" ? "bg-success-50 text-success-700" : "bg-danger-50 text-danger-700"}`}>
                         {poc.acceptance_decision === "won" ? "GANHA" : "PERDIDA"}
                       </span>
                     )}

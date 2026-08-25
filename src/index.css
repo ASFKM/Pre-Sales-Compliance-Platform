@@ -166,8 +166,11 @@ input[type="date"]::-webkit-datetime-edit-year-field {
    A slow, low-amplitude ring pulse rather than animate-pulse's opacity flicker - meant to catch
    the eye in a kanban column without being distracting while it stays true. */
 @keyframes poc-start-glow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.35); }
-  50% { box-shadow: 0 0 0 5px rgba(245, 158, 11, 0); }
+  /* Fase 5 (identidade visual): o ambar deixou de ser literal e passa a vir do token de
+     atencao. E por isto que a Fase 0 usou @theme static e nao @theme - uma variavel de tema
+     podada por falta de uso em classe sumiria do CSS e esta regra quebraria em silencio. */
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-warning-500) 35%, transparent); }
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-warning-500) 0%, transparent); }
 }
 .animate-poc-start-glow {
   animation: poc-start-glow 2.4s ease-in-out infinite;

@@ -203,13 +203,13 @@ export default function PocAcceptancePanel({ pocId, canManage, pocStatus, onPocU
         </div>
       )}
       {pendingApproval && !locked && (
-        <div className="flex items-center justify-between gap-2 bg-amber-50 border border-amber-200 text-amber-900 text-xs rounded-md px-3 py-2">
+        <div className="flex items-center justify-between gap-2 bg-warning-50 border border-warning-200 text-warning-900 text-xs rounded-md px-3 py-2">
           <span className="flex items-center gap-2"><ShieldCheck size={14} className="shrink-0" />Aguardando aprovação para concluir a POC.</span>
           {canManage && (
             <button
               onClick={approve}
               disabled={approving}
-              className="bg-amber-600 hover:bg-amber-700 text-white font-mono text-[11px] font-bold py-1 px-3 rounded shadow disabled:opacity-60"
+              className="bg-brand-600 hover:bg-brand-700 text-white font-mono text-[11px] font-bold py-1 px-3 rounded shadow disabled:opacity-60"
             >
               {approving ? "Aprovando..." : "Aprovar"}
             </button>
@@ -224,7 +224,7 @@ export default function PocAcceptancePanel({ pocId, canManage, pocStatus, onPocU
             <button
               onClick={generateReport}
               disabled={generatingReport}
-              className="inline-flex items-center gap-1.5 border border-emerald-600 text-emerald-700 hover:bg-emerald-50 font-mono text-[11px] font-bold py-1 px-3 rounded transition-all cursor-pointer disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 border border-brand-600 text-brand-700 hover:bg-brand-50 font-mono text-[11px] font-bold py-1 px-3 rounded transition-all cursor-pointer disabled:opacity-60"
             >
               <Sparkles size={12} />
               {generatingReport ? "Gerando..." : questions.length > 0 ? "Gerar novamente com IA" : "Gerar com IA"}
@@ -232,9 +232,9 @@ export default function PocAcceptancePanel({ pocId, canManage, pocStatus, onPocU
           )}
         </div>
 
-        {reportError && <div className="p-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-xs mb-2">{reportError}</div>}
+        {reportError && <div className="p-3 rounded bg-warning-50 border border-warning-200 text-warning-900 text-xs mb-2">{reportError}</div>}
         {reportKbWarning && (
-          <div className="p-3 rounded bg-amber-50 border border-amber-200 text-amber-900 text-xs mb-2">
+          <div className="p-3 rounded bg-warning-50 border border-warning-200 text-warning-900 text-xs mb-2">
             <span className="font-bold">Base de Conhecimento insuficiente: </span>
             {reportKbWarning}
           </div>
@@ -253,7 +253,7 @@ export default function PocAcceptancePanel({ pocId, canManage, pocStatus, onPocU
               <div key={q.id} className="border border-slate-200 rounded-lg p-3 space-y-1.5">
                 <div className="text-xs font-semibold text-slate-800">{idx + 1}. {q.question}</div>
                 <textarea
-                  className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400 font-sans text-sm text-slate-800"
+                  className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400 font-sans text-sm text-slate-800"
                   rows={2}
                   placeholder="Resposta com o resultado real observado"
                   value={answerDrafts[q.id] ?? ""}
@@ -275,18 +275,18 @@ export default function PocAcceptancePanel({ pocId, canManage, pocStatus, onPocU
             <button
               onClick={() => toggleDecision("won")}
               disabled={readOnly || finalizing}
-              className={`flex-1 rounded-lg border-2 py-3 text-center transition-all ${localDecision === "won" ? "border-emerald-600 bg-emerald-50" : "border-slate-200 hover:border-slate-300"}`}
+              className={`flex-1 rounded-lg border-2 py-3 text-center transition-all ${localDecision === "won" ? "border-success-600 bg-success-50" : "border-slate-200 hover:border-slate-300"}`}
             >
-              <Check size={20} className={`mx-auto mb-1 ${localDecision === "won" ? "text-emerald-600" : "text-slate-300"}`} />
-              <span className={`text-sm font-bold ${localDecision === "won" ? "text-emerald-700" : "text-slate-500"}`}>Ganha</span>
+              <Check size={20} className={`mx-auto mb-1 ${localDecision === "won" ? "text-success-600" : "text-slate-300"}`} />
+              <span className={`text-sm font-bold ${localDecision === "won" ? "text-success-700" : "text-slate-500"}`}>Ganha</span>
             </button>
             <button
               onClick={() => toggleDecision("lost")}
               disabled={readOnly || finalizing}
-              className={`flex-1 rounded-lg border-2 py-3 text-center transition-all ${localDecision === "lost" ? "border-red-500 bg-red-50" : "border-slate-200 hover:border-slate-300"}`}
+              className={`flex-1 rounded-lg border-2 py-3 text-center transition-all ${localDecision === "lost" ? "border-danger-500 bg-danger-50" : "border-slate-200 hover:border-slate-300"}`}
             >
-              <XIcon size={20} className={`mx-auto mb-1 ${localDecision === "lost" ? "text-red-600" : "text-slate-300"}`} />
-              <span className={`text-sm font-bold ${localDecision === "lost" ? "text-red-600" : "text-slate-500"}`}>Perdida</span>
+              <XIcon size={20} className={`mx-auto mb-1 ${localDecision === "lost" ? "text-danger-600" : "text-slate-300"}`} />
+              <span className={`text-sm font-bold ${localDecision === "lost" ? "text-danger-700" : "text-slate-500"}`}>Perdida</span>
             </button>
           </div>
           {!readOnly && (
@@ -294,12 +294,12 @@ export default function PocAcceptancePanel({ pocId, canManage, pocStatus, onPocU
               <button
                 onClick={finalize}
                 disabled={!canFinalize || finalizing}
-                className="w-full mt-2 bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs font-bold py-2 rounded shadow transition-all cursor-pointer disabled:opacity-40"
+                className="w-full mt-2 bg-brand-600 hover:bg-brand-700 text-white font-mono text-xs font-bold py-2 rounded shadow transition-all cursor-pointer disabled:opacity-40"
                 title={!reportComplete ? "Responda todo o Relatório Final primeiro" : !localDecision ? "Selecione Ganha ou Perdida" : ""}
               >
                 {finalizing ? "Finalizando..." : "Finalizar"}
               </button>
-              {finalizeError && <p className="text-[11px] text-red-600 mt-1">{finalizeError}</p>}
+              {finalizeError && <p className="text-[11px] text-danger-600 mt-1">{finalizeError}</p>}
             </>
           )}
         </div>
@@ -309,7 +309,7 @@ export default function PocAcceptancePanel({ pocId, canManage, pocStatus, onPocU
           {acceptance.signed_document_original_filename ? (
             <button
               onClick={downloadDocument}
-              className="w-full inline-flex items-center justify-center gap-2 text-sm font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg py-3 hover:bg-emerald-100"
+              className="w-full inline-flex items-center justify-center gap-2 text-sm font-semibold text-success-700 bg-success-50 border border-success-200 rounded-lg py-3 hover:bg-success-100"
             >
               <Download size={16} />
               {acceptance.signed_document_original_filename}
@@ -342,7 +342,7 @@ export default function PocAcceptancePanel({ pocId, canManage, pocStatus, onPocU
         <div className="sm:col-span-1 lg:col-span-2">
           <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Assinado por</label>
           <input
-            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400 font-sans text-sm text-slate-800"
+            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400 font-sans text-sm text-slate-800"
             value={signedBy}
             disabled={readOnly}
             onChange={(e) => setSignedBy(e.target.value)}
@@ -353,7 +353,7 @@ export default function PocAcceptancePanel({ pocId, canManage, pocStatus, onPocU
           <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Data do aceite</label>
           <input
             type="date"
-            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400 font-sans text-sm text-slate-800"
+            className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400 font-sans text-sm text-slate-800"
             value={signedAt}
             disabled={readOnly}
             onChange={(e) => setSignedAt(e.target.value)}
@@ -363,7 +363,7 @@ export default function PocAcceptancePanel({ pocId, canManage, pocStatus, onPocU
       <div>
         <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">Observações</label>
         <textarea
-          className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400 font-sans text-sm text-slate-800"
+          className="w-full p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400 font-sans text-sm text-slate-800"
           rows={3}
           value={notes}
           disabled={readOnly}

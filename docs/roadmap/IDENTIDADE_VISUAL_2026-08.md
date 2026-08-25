@@ -56,7 +56,7 @@ aqui — é de lá que o dono copia para abrir a próxima conversa.
 | 2 | Shell e portas de entrada | **✓ concluída** (24/08/2026) | `f7dc15b` (PR #54) | 86 trocas em 5 arquivos + "Reportar problema" movido para o rodapé; login em `brand-950`/`brand-600` (5,20:1); `draft` neutro e idêntico nas 3 telas |
 | 3 | Área de Trabalho | **✓ concluída** (24/08/2026) | `4a5c4f9` (PR #55) | 106 trocas num arquivo só; matriz de conformidade preservada e medida (5,09 / 4,85 / 5,87:1); 12 imagens do baseline regravadas |
 | 4 | Propostas, Aprovação e Conhecimento | **✓ concluída** (24/08/2026) | `63157e9` (PR #56) | 195 trocas em 7 arquivos; ciclo de vida da proposta em 5 cores distintas; 4 modais fora do baseline provados por captura, medição e hover real |
-| 5 | Módulo POC | não iniciada | — | add-on por entitlement |
+| 5 | Módulo POC | **✓ concluída** (24/08/2026) | `27e8628` (PR #57) | 243 trocas em 4 arquivos; Gantt decidido barra a barra; animação `poc-start-glow` tokenizada; 5 sub-abas fora do baseline provadas no navegador |
 | 6 | Módulo Precificação | não iniciada | — | add-on por entitlement |
 | 7 | Admin Console e resíduos | não iniciada | — | maior arquivo (3.338 linhas) |
 | 8 | DOCX + branding por tenant | não iniciada | — | torna real a tela "Identidade Visual" |
@@ -834,15 +834,174 @@ fluxo de propostas. **Não foram incluídos nesta fase**, deliberadamente.
 
 ---
 
-## Fase 5 — Módulo POC
+## Fase 5 — Módulo POC — ✓ CONCLUÍDA (24/08/2026)
 
-**Arquivos:** `PocManagement.tsx` (82/21), `PocGanttChart.tsx` (22/9), `PocTestCases.tsx` (22/6),
-`PocAcceptancePanel.tsx` (17/11).
+**Arquivos:** `PocManagement.tsx` (1.660 linhas), `PocGanttChart.tsx` (651), `PocTestCases.tsx`
+(339), `PocAcceptancePanel.tsx` (390).
 
-**Atenção:** o Gantt usa cor para caminho crítico e status de etapa — semântico. E existe a
-animação `poc-start-glow` em `src/index.css` com âmbar cravado em `rgba(245,158,11,...)`: é um
-aviso legítimo (POC cuja data de início chegou), então **fica** — mas passa a referenciar o token
-de warning em vez do literal.
+**243 trocas de cor, cada uma decidida pelo contexto** — a maior fase de repaletização do
+programa. O mapeamento original contava 130 (`emerald`+`amber`); a varredura completa achou
+**239** (as outras 106 eram `red` e `blue`), mais 4 fora de classe Tailwind: os dois `#94a3b8`
+cravados no SVG do Gantt e os dois `bg-slate-400` das barras. Depois da fase os quatro arquivos
+têm **zero** ocorrência de `emerald`, `amber`, `red` ou `blue`, e **zero** hex ou `rgba()`.
+
+As **165 âncoras** do script `(arquivo, linha, texto exato, contagem esperada naquela linha)`,
+com aborto sem gravar se uma só não casasse, **casaram de primeira** — como nas Fases 3 e 4. A
+contagem por linha importou: metade das linhas tem duas cores diferentes na mesma string de
+classes, e o casamento precisou de `token(?![0-9])` para `emerald-50` não casar dentro de
+`emerald-500`.
+
+### O Gantt: onde uma substituição cega faria o dano mais caro
+
+A barra tem três estados, e a legenda os nomeia. Nenhum deles é "sucesso", e o verde de hoje
+dizia exatamente isso:
+
+```
+                    antes                    depois                  texto branco na barra
+concluída           slate-400  2,30:1        slate-500               4,76:1  ✓
+caminho crítico     emerald-600  3,77:1      warning-700  #bb4d00    5,03:1  ✓
+fora do crítico     blue-400  2,54:1         brand-600    #236cc7    5,20:1  ✓
+```
+
+**Os três reprovavam AA com o texto branco que a própria barra imprime dentro de si** — o nome da
+tarefa. Não era um detalhe: era o rótulo principal do gráfico, ilegível nos três casos.
+
+**Por que o caminho crítico virou âmbar e não vermelho.** Vermelho é a convenção de mercado, e foi
+a primeira escolha — até a leitura da tela mostrar que a **linha "HOJE" já é vermelha** (e fica),
+e que vermelho no módulo POC significa "reprovado"/"perdida". Duas informações diferentes na mesma
+cor é o defeito que a Fase 4 registrou nos chips de perspectiva. Âmbar é o papel canônico de
+atenção no vocabulário do produto e não colide com nada no Gantt. O caminho crítico exige atenção;
+não é erro nem sucesso.
+
+**"Em andamento" não pinta barra.** O prompt da fase supunha quatro estados de etapa; o código tem
+três ramos e `planned`/`in_progress` compartilham cor. Não foi inventada semântica nova — isto é
+repaletização. Fica registrado para a Fase 9.
+
+### O aceite: o terceiro lugar onde azul destruiria informação
+
+- **Ganha/Perdida continuam verde e vermelho.** Par de decisão binária, como o Approve/Reject da
+  Fase 4 — a cor **é** a informação. `text-danger-600` sobre `danger-50` dava **4,36:1** e
+  reprovava; virou `danger-700` (**5,87:1**), o mesmo tom do badge PERDIDA do cartão, e o par
+  ficou simétrico com "Ganha" (`success-700`, 5,09:1).
+- **"Finalizar" é o primário e virou `brand-600`** (5,20:1). Nenhum botão primário verde ou âmbar
+  sobrou nas quatro telas.
+- **O documento de aceite assinado continua verde** (`success-50/700/200`), assim como as NFs e o
+  datasheet na tabela de equipamento: ali o verde não é "ação de baixar", é "o documento existe" —
+  o estado alternativo é uma caixa tracejada cinza.
+
+**`PocAcceptancePanel.tsx:212` era âmbar-usado-como-ação e foi para a marca.** A linha foi lida
+antes de decidir, como o plano manda: é um `<button onClick={approve}>` com rótulo "Aprovar", não
+um marcador de pendência clicável (que teria ficado em `warning`, como os quatro "Flagged QA" da
+Fase 3). A **tarja continua âmbar** e só o botão dentro dela virou azul: 5,01:1 do botão contra o
+fundo da tarja, 5,20:1 do texto branco contra o botão.
+
+### Sete decisões que um `sed` teria errado
+
+1. **O ciclo de vida do equipamento é uma jornada, não três categorias.** "Enviado" (em trânsito)
+   → `brand`, "Na casa do cliente" (o equipamento está fora e precisa voltar) → `warning`,
+   "Devolvido" (fim do ciclo) → `success`.
+2. **As 5 colunas do kanban.** `in_progress` era verde e virou `brand` — progresso é marca, como
+   nas barras das Fases 3 e 4. `planned` era azul e teria colidido; virou o tom claro-vivo da
+   mesma família, e a dupla ficou uma **escada de peso**: dot `brand-500` (3,30:1) → `brand-700`
+   (7,40:1). A primeira tentativa usou `brand-300`, que dava **2,01:1** contra o fundo `slate-50`
+   da coluna e ficava perto demais do vizinho — só a comparação da imagem nova contra a antiga
+   mostrou isso. **`completed` ficou `slate` de propósito:** o cartão concluído já carrega o
+   desfecho em verde ou vermelho na borda, e pintar a coluna de verde brigaria com "GANHA".
+3. **O chip "editado" foi para o neutro.** Era `blue`; virar `brand` o deixaria indistinguível do
+   badge "Em execução" (`brand-50/700`) na mesma linha do mesmo cartão. Quem diz o que é são o
+   ícone de caneta e o rótulo.
+4. **Os dois avatares de stakeholder são lados opostos, não uma família.** Responsável interno →
+   `brand` (é a nossa gente); contato do cliente → `slate`. Antes eram verde e azul.
+5. **Critério de sucesso atendido continua verde**, com o checkbox marcado em `success-600`.
+6. **O feedback "Salvo!" subiu de tom.** `emerald-600` em texto de 11px dava 3,77:1 e reprovava;
+   `success-700` dá **5,36:1**. Continua verde — é sucesso de verdade.
+7. **Os modais mantiveram os papéis:** "Confirmar" virou `brand` (era azul genérico), "Excluir
+   POC" continua `danger`.
+
+### A animação `poc-start-glow`
+
+`rgba(245, 158, 11, 0.35)` era `amber-500` da paleta do **Tailwind v3** cravado em CSS puro, fora
+do alcance de qualquer busca por classe. Virou
+`color-mix(in srgb, var(--color-warning-500) 35%, transparent)`.
+
+Provado no CSS construído e no navegador, não no fonte: `--color-warning-500` sai em `:root` em
+`dist/assets/*.css`, a regra `@keyframes` a referencia, e o elemento com a classe computa
+`animation: poc-start-glow 2.4s` com `box-shadow: oklab(0.769 0.064053 0.176752 / 0.35)`. **É por
+isto que a Fase 0 usou `@theme static`:** sem `static` a variável seria podada por falta de uso em
+classe e a regra quebraria em silêncio.
+
+**O tom mudou de propósito, e isso é o ganho:** o literal era `#f59e0b` (amber-500 do v3) e o
+token pinta `#fe9a00` (o v4). O aviso agora é **o mesmo âmbar de "Bloqueada"** e de todas as
+tarjas do produto, em vez de um âmbar solto que ninguém mais usava.
+
+**Os dois `#94a3b8` do SVG do Gantt** (as setas de dependência entre etapas) viraram
+`var(--color-neutral-400)` — barato, então foi feito. Confirmado no navegador que `var()` resolve
+em atributo de apresentação SVG: `stroke` computa `oklch(0.704 0.04 256.788)`, pintado `#90a1b9`,
+o mesmo cinza neutro de antes. A varredura geral de hex continua sendo escopo da Fase 7.
+
+### Como ficou provado, já que o baseline cobre UMA tela das cinco
+
+`npm run test:visual` deu **36/36 antes de qualquer mudança** e **36/36 de novo** com o baseline
+regravado. Mas isso vale pouco aqui: **a tela `poc` do baseline é só o kanban**, e o Gantt, os
+casos de teste e o aceite vivem em sub-abas que nenhuma das 36 imagens fotografa. Foi o inverso da
+Fase 3, que tinha seis sub-abas capturadas.
+
+As cinco sub-abas foram abertas no navegador e capturadas em pasta separada
+(`--out /tmp/...`, sem tocar no baseline), com a cor **pintada num canvas 1×1** — o Tailwind v4
+serializa os tokens semânticos como `oklch()`, e um parser ingênuo de números lê
+`oklch(0.696 0.17 162.48)` como `#0100a2`.
+
+**O dado de dev cobre um quarto da matriz:** todas as tarefas estão em `planned`, todos os casos de
+teste em `pending`, todo equipamento em `shipped`. Pior: **só uma POC não está arquivada** — e é a
+vazia. As sete com tarefas, casos de teste, equipamento e aceite assinado estão atrás do botão
+"Arquivadas", e um script que ficasse no kanban mediria o nada (o mesmo buraco que a Fase 4 teve
+com `proposals`/`approval`). A verificação abre uma POC arquivada, e o que o banco não cobre foi
+medido em **29 amostras sintéticas com as classes reais**: todas ≥ 4,5:1.
+
+Estados que não existem em repouso foram provados com interação real: `page.hover()` no primário
+(`#236cc7` → `#1a539e`), no cartão do kanban (borda `#e2e8f0` → `#52a1f4`) e no secundário "Gerar
+com IA" (fundo transparente → `#ebf6ff`); foco real de campo (anel `rgb(40, 139, 249)` =
+`brand-500`); e clique em "Perdida" para medir o estado **selecionado**. A tarja "Aguardando
+aprovação", que o banco não tem em nenhuma POC, foi montada com o markup real do componente.
+
+**2 das 36 imagens do baseline foram regravadas** (`poc` nas duas larguras) e revisadas contra a
+versão antiga. As outras 34 ficaram intactas — nove delas apareceram "modificadas" na recaptura, e
+a comparação pixel a pixel mostrou 4 a 11 pixels **todos em `y=16..19, x≈1158..1185`**: a borda
+arredondada do chip "ADD-ON" da topbar, que esta fase não tocou. Restauradas do HEAD, como nas
+Fases 3 e 4.
+
+### Cuidados que só apareceram executando
+
+- **`stabilize()` zera `animation-duration` com `!important`.** A primeira medição da animação
+  devolveu `box-shadow: none` e parecia que a tokenização tinha quebrado. Não tinha: a folha de
+  estabilização da rede visual, aplicada em toda captura, congela animação de propósito. **Medir a
+  animação antes de qualquer `stabilize()`**, e ler o `@keyframes` pelo CSSOM para separar "o CSS
+  entrega" de "o elemento aplica".
+- **String em `page.evaluate()` não recebe argumento.** Além de precisar ser IIFE (Fase 4), uma
+  string `(el) => ...` passada a `locator.evaluate()` é avaliada como expressão e **a função nunca
+  é chamada com o elemento**. Para medir um elemento existente, use função de verdade (arrow sem
+  função interna nomeada não dispara o `__name` do `tsx`); para pintar um valor, interpole-o na
+  string com `JSON.stringify`.
+- **Prisma 7 exige adapter.** `new PrismaClient()` sozinho falha; é
+  `new PrismaClient({ adapter: new PrismaPg({ connectionString }) })`. E os campos do schema são
+  `pocId`, não `poc_id` — o snake_case do JSON não é o do cliente.
+- **`.auth/capture-state.json` foi reusado em 3 das 6 rodadas** de navegador. A fase gastou **5**
+  tentativas de login (comparação inicial, verificação, duas capturas e comparação final) dentro do
+  teto de 20 por 15 minutos.
+- **`.git/index` não estava root-owned** — segunda fase seguida com a varredura limpa.
+
+### Achados registrados, fora do escopo desta fase
+
+- **Erro exibido como aviso, de novo.** `reportError` (`PocAcceptancePanel.tsx:235`),
+  `generateError` e `formError` (`PocTestCases.tsx:191`, `PocGanttChart.tsx:388`/`:430`) são erros
+  pintados de âmbar. A aparência foi mantida em `warning-*`, como a Fase 4 fez em
+  `NewProjectWizard` e `KnowledgeBase` — trocar aviso por erro é decisão de produto. **Fase 9.**
+- **Os chips "ADD-ON" e "IA/KB" da topbar reprovam AA**: 2,46:1 e 1,61:1 (medidos). São da Fase 2,
+  não desta. **Fase 9.**
+- **O botão "Salvar" (`slate-800`) pesa mais que o primário de marca** nas sub-abas de teste e
+  cronograma — hierarquia herdada, não introduzida aqui.
+- `waiting_internal`, "Precisa de Informação" e a coluna "Prioridade" seguem como as Fases 3 e 4 as
+  deixaram.
 
 ---
 
