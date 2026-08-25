@@ -1788,7 +1788,7 @@ com `REGRESSION PASSED`. Tudo no próprio dev.
 | botão desabilitado (1,38:1) | 10 pontos | **decidido**: a WCAG isenta; revisitar na primitiva `Button` de E0 |
 | Precificação a 390px | 1 tela | estrutura, não cor — "redesenho de layout" está fora de escopo |
 | `accent_color` sem papel na interface | — | **decidido**: continua sem; a consequência dele na prévia foi corrigida |
-| capturas dos manuais | 31 imagens | **falta a credencial** do tenant de demonstração — ver §8.2 do dossiê |
+| capturas dos manuais | 1 imagem de 31 | **30 recapturadas** em 25/08 com conta dedicada autorizada pelo dono (`npm run capture:manuals`). Falta só `sistema-atualizacao.png`: a seção exige a permissão `admin:system_updates`, que o papel do tenant de demonstração não tem — e é por isso que essa imagem, citada no manual, nunca existiu |
 
 ### O gate, e o que veio depois dele
 
