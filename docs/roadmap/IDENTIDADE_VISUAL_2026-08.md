@@ -56,7 +56,7 @@ aqui — é de lá que o dono copia para abrir a próxima conversa.
 | 2 | Shell e portas de entrada | **✓ concluída** (24/08/2026) | `f7dc15b` (PR #54) | 86 trocas em 5 arquivos + "Reportar problema" movido para o rodapé; login em `brand-950`/`brand-600` (5,20:1); `draft` neutro e idêntico nas 3 telas |
 | 3 | Área de Trabalho | **✓ concluída** (24/08/2026) | `4a5c4f9` (PR #55) | 106 trocas num arquivo só; matriz de conformidade preservada e medida (5,09 / 4,85 / 5,87:1); 12 imagens do baseline regravadas |
 | 4 | Propostas, Aprovação e Conhecimento | **✓ concluída** (24/08/2026) | `63157e9` (PR #56) | 195 trocas em 7 arquivos; ciclo de vida da proposta em 5 cores distintas; 4 modais fora do baseline provados por captura, medição e hover real |
-| 5 | Módulo POC | **✓ concluída** (24/08/2026) | `COMMIT` (PR #57) | 243 trocas em 4 arquivos; Gantt decidido barra a barra; animação `poc-start-glow` tokenizada; 5 sub-abas fora do baseline provadas no navegador |
+| 5 | Módulo POC | **✓ concluída** (24/08/2026) | `27e8628` (PR #57) | 243 trocas em 4 arquivos; Gantt decidido barra a barra; animação `poc-start-glow` tokenizada; 5 sub-abas fora do baseline provadas no navegador |
 | 6 | Módulo Precificação | não iniciada | — | add-on por entitlement |
 | 7 | Admin Console e resíduos | não iniciada | — | maior arquivo (3.338 linhas) |
 | 8 | DOCX + branding por tenant | não iniciada | — | torna real a tela "Identidade Visual" |
