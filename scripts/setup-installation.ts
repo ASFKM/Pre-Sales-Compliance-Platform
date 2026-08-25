@@ -257,6 +257,7 @@ async function bootstrapTenant(a: Answers): Promise<{ tenantId: string; adminEma
   const { runWithTenant } = await import("../src/tenantContext");
   const { randomId } = await import("../src/idGenerator");
   const { hashPassword, encryptSecret } = await import("../server/utils/security");
+  const { BRAND_DEFAULT_PRIMARY, BRAND_DEFAULT_ACCENT } = await import("../src/brandTheme");
 
   const tenantId = `tenant_${slugify(a.companyName)}_${randomSuffix()}`;
   const normalizedEmail = a.adminEmail.toLowerCase().trim();
@@ -352,9 +353,11 @@ async function bootstrapTenant(a: Answers): Promise<{ tenantId: string; adminEma
         sidebarLogoPath: "",
         reportLogoPath: "",
         faviconPath: "",
-        primaryColor: "#0f172a",
+        primaryColor: BRAND_DEFAULT_PRIMARY,
         secondaryColor: "#1e293b",
-        accentColor: "#06b6d4",
+        accentColor: BRAND_DEFAULT_ACCENT,
+        // Fase 8: instalação nova nasce com a cor da marca já valendo na interface.
+        applyToUi: true,
         backgroundColor: "#f8fafc",
         textColor: "#0f172a",
         fontFamily: "Inter",

@@ -59,7 +59,7 @@ aqui — é de lá que o dono copia para abrir a próxima conversa.
 | 5 | Módulo POC | **✓ concluída** (24/08/2026) | `27e8628` (PR #57) | 243 trocas em 4 arquivos; Gantt decidido barra a barra; animação `poc-start-glow` tokenizada; 5 sub-abas fora do baseline provadas no navegador |
 | 6 | Módulo Precificação | **✓ concluída** (24/08/2026) | `db4f031` (PR #58) | 103 trocas em 7 arquivos; primeiro gráfico recharts do programa tokenizado; duas escalas decididas inteiras; 6 superfícies para 1 imagem do baseline |
 | 7 | Admin Console e a varredura final | **✓ concluída** (25/08/2026) | `cf644b1` (PR #59) | 222 trocas em 8 arquivos; `sky` e `rose` decididos; família dos 5 badges de arquivo unificada; `waiting_internal` com uma cor; zero cor não-semântica em todo o `src/` |
-| 8 | DOCX + branding por tenant | não iniciada | — | torna real a tela "Identidade Visual" |
+| 8 | DOCX + branding por tenant | **✓ concluída** (25/08/2026) | `c41bc14` (PR #60) | 6 hex resolvidos + migration ancorada linha a linha; rampa de 11 degraus derivada da cor do tenant, com guarda de contraste; DOCX provado nos 3 caminhos de precedência |
 | 9 | Validação visual, contraste e release | não iniciada | — | **gate humano** |
 
 ### Trilha B — Enriquecimento com a biblioteca de componentes
@@ -1445,28 +1445,225 @@ do console (5,13:1) — onde claro-sobre-escuro é justamente o certo.
 
 ---
 
-## Fase 8 — DOCX + branding por tenant
+## Fase 8 — DOCX + branding por tenant — ✓ CONCLUÍDA (25/08/2026)
 
-**Escopo:**
-- **Os 6 literais hex que a Fase 7 adiou** (`App.tsx:352/353/464/465`, `AdminConsole.tsx:2987/3051`)
-  saem junto com a migration, nunca antes: trocar o fallback do código sem migrar as linhas cria
-  duas verdades (tenant com `#059669` gravado fica verde, tenant sem registro nasce azul) e faz a
-  tela divergir do DOCX gerado.
-- Default de `BrandingSettings.primaryColor` passa a `#236cc7`. **Migração ancorada no valor real
-  por linha** — instalações que já customizaram a cor mantêm a sua; só quem está no default antigo
-  migra ([[feedback_migration_seed_nunca_afrouxa_default]]).
-- `server/utils/docx.ts` (`BrandingHeader`) e `resolveBrandingHeader` em `proposals.ts`: conferir
-  que o cabeçalho do documento gerado usa a cor nova e que `ProjectBrandStyle` continua
-  sobrepondo por projeto.
-- **Cumprir a promessa da tela "Identidade Visual":** hoje `primaryColor`/`accentColor` só chegam
-  ao DOCX; a UI ignora. Com os tokens da Fase 0 sendo CSS vars, injetar a cor do tenant em runtime
-  passa a ser viável. **Guarda obrigatória:** cor de tenant arbitrária pode reprovar contraste —
-  validar o valor e cair no default da marca se não atingir 4,5:1, nunca servir uma UI ilegível.
-- Preservar a garantia de margem: markup e preço de lista nunca chegam ao resolvedor de template
-  (`docxTemplateEngine.ts`) — vale para qualquer dado novo.
+**Arquivos:** `src/brandTheme.ts` (novo, 320 linhas) e `src/brandTheme.test.ts` (novo, 21 testes),
+`server/utils/docx.test.ts` (novo, 4 testes),
+`prisma/migrations/20260825030000_brand_color_official_palette/migration.sql` (nova),
+`prisma/schema.prisma`, `prisma/seed.ts`, `scripts/setup-installation.ts`,
+`server/routes/settings.ts`, `server/routes/proposals.ts`, `src/App.tsx`,
+`src/components/AdminConsole.tsx`, `src/dbStore.ts`, `src/types.ts`.
 
-**Critério de aceite:** proposta gerada sai com a cor da marca; tenant com cor customizada
-continua com a sua; cor que reprova contraste é rejeitada com mensagem clara, não aplicada.
+**As 22 âncoras** `(arquivo, linha, texto, contagem naquela linha)` do aplicador — com aborto sem
+gravar se uma só não casasse — casaram, **sétima fase seguida**. Três abortaram na primeira
+tentativa por linha errada e uma por texto corrompido na montagem: o aplicador pegou as quatro
+antes de gravar qualquer coisa, que é exatamente o que ele existe para fazer.
+
+### Os 6 hex adiados, e o que o banco disse antes da migration
+
+A Fase 7 adiou `App.tsx:352/353/464/465` e `AdminConsole.tsx:2987/3051` porque trocar o fallback do
+código sem migrar as linhas gravadas criaria duas verdades. O retrato do dev antes de qualquer
+mudança:
+
+| tenant | `primary_color` | `accent_color` | `updated_at` |
+|---|---|---|---|
+| `tenant_default` "Assistant AI Regression" | `#0f172b` | `#ffffff` | 08/07/2026 |
+| `manual_demo_tenant` "Plataforma de Compliance…" | `#10b981` | `#10b981` | = `created_at` |
+
+`brand_styles`: **tabela vazia**. E **nenhum dos dois estava no default do código** (`#059669`), o
+que já matava a migration ingênua: "migre quem está no default antigo" não migraria ninguém — e
+passaria batido justamente pelo tenant que carregava o verde aposentado.
+
+**A pergunta que a fase tinha de responder com argumento — `#10b981` foi escolhido ou é resíduo? —
+foi respondida pela AUDITORIA, não por reflexo:**
+
+- `tenant_default` tem um registro `Update Branding Settings` de **08/07/2026 13:16**, vindo de um
+  **navegador real** (Chrome, IP 192.168.3.199), com `metadata` = `{"primary_color":"#0f172b",
+  "accent_color":"#ffffff"}` — e antes dele outro, de 08/07 05:22, com `#ffae00`/`#000000`. Alguém
+  sentou na tela e experimentou cores. **É escolha deliberada: não se toca.**
+- `manual_demo_tenant` **não tem nenhum** registro de branding, e `updated_at` é idêntico a
+  `created_at`: a linha nasceu e nunca mais foi tocada. Nasceu com `#10b981` nos **dois** campos —
+  que não são os defaults do `seed.ts` da época (`#0f172a`/`#06b6d4`), e sim **os literais que
+  estavam cravados no código da interface**. É resíduo do default histórico. **Migra.**
+
+A migration é **idempotente por construção** — as condições casam apenas os dois hex da marca
+aposentada, que deixam de existir depois da primeira execução — e foi provada assim: reexecutados à
+mão, os três `UPDATE` de cor devolvem `UPDATE 0`. O quarto (`apply_to_ui = true` para quem ficou na
+cor da marca) reafirma o mesmo valor na mesma linha, deixando o estado final idêntico. Antes de
+aplicar, `pg_dump --data-only` das duas tabelas em `/home/sakae/backups/`.
+
+**O que cada uma das 2 linhas do dev virou:**
+
+```
+manual_demo_tenant   #10b981 -> #236cc7   #10b981 -> #288bf9   apply_to_ui = true
+tenant_default       #0f172b (intacto)    #ffffff (intacto)    apply_to_ui = false
+```
+
+### A promessa da tela, cumprida — e o problema real que ela levanta
+
+Até aqui `primary_color`/`accent_color` só chegavam ao DOCX; a interface era 100% classe Tailwind.
+O defeito mais antigo do programa (diagnóstico de 24/08) some agora: com os tokens da Fase 0 em
+`@theme static`, as 11 variáveis `--color-brand-*` existem em `:root` mesmo sem uso, e o cliente as
+sobrescreve em runtime. **É a segunda das duas razões que a Fase 0 deu para escolher `static`, e ela
+se pagou.**
+
+**O tenant configura UM valor; a interface usa uma RAMPA de 11 degraus.** Sobrescrever só o 600
+deixaria um botão da cor do tenant ao lado de um chip da cor da marca — incoerente, pior que não
+personalizar. A derivação (`deriveBrandRamp`, em OKLCH e não em HSL, porque em HSL dois tons com o
+mesmo `L` têm claridade percebida muito diferente conforme o matiz):
+
+- **o degrau 600 é a cor do tenant, exata** — é o valor que ele escolheu e o que o DOCX imprime;
+  "ajustá-lo" para caber numa escala faria a tela e o documento mostrarem cores diferentes;
+- **os outros dez herdam o perfil da rampa oficial** — luminosidade e croma reancorados no 600 do
+  tenant por um mapeamento afim em cada metade (50→600 e 600→950), com os extremos presos nos da
+  marca, então a escala vai sempre de quase-branco a quase-preto e nunca inverte;
+- **o matiz é transladado, não achatado**: a rampa oficial deriva 19° do 50 ao 950 (242°→261° em
+  OKLCH) e a derivada preserva esse desenho.
+
+**A prova de que o molde e a conta não divergiram:** derivar a rampa a partir do próprio
+`brand-600` devolve a rampa oficial inteira, com Δ ≤ 1 por canal — e um teste lê `src/index.css` de
+verdade e compara os 11 valores com a cópia que o módulo usa como molde. Divergir vira teste
+vermelho, não surpresa numa tela.
+
+**Guarda obrigatória, e ela morde:** cor de tenant é dado arbitrário. A validação roda no PUT que
+grava e no cliente que pinta — **a mesma função**, porque duas implementações da mesma regra viram
+duas verdades. Medido ao vivo com `#facc15`:
+
+```
+A cor #facc15 tem contraste 1,53:1 sobre branco e não atinge o mínimo de 4,5:1 exigido pela
+WCAG AA para texto. Ela continua valendo na proposta gerada, mas a interface segue na cor da
+marca — escolha um tom mais escuro para aplicá-la à interface.
+```
+
+**A guarda vale para a INTERFACE, não para o documento.** No DOCX a cor pinta texto e uma régua
+sobre papel branco; na interface ela vira fundo sólido de rótulo branco. Gravar `#facc15` com o
+interruptor desligado é aceito (200) e sai na proposta; religar o interruptor com ele gravado é
+recusado (400). Há um teste que fixa isso, para que ninguém "unifique" as duas regras depois e
+apague a cor que o cliente escolheu para as propostas dele.
+
+### Por que a aplicação é opt-in — e não ligada para todo mundo
+
+Campo novo `branding_settings.apply_to_ui`, **`false` para toda linha que já existia**. Não é
+timidez: essas linhas foram gravadas quando a cor significava "isto sai no documento". Ligar em
+massa mudaria a aparência do produto para quem escolheu uma cor com outra finalidade — exatamente o
+afrouxamento silencioso que [[feedback_migration_seed_nunca_afrouxa_default]] descreve, na versão
+visual. `tenant_default`, com o navy `#0f172b`, ficaria com a interface inteira quase preta sem
+ninguém pedir.
+
+Ancorado no valor real por linha, como manda a memória, o interruptor nasce:
+
+- **`true` para quem a migration acabou de mover para `#236cc7`** — essas linhas estão agora
+  exatamente na cor da marca, e a rampa derivada de `#236cc7` **é** a rampa oficial: ligar não muda
+  um pixel, e a promessa da tela passa a valer para elas de graça;
+- **`true` no bootstrap** (`prisma/seed.ts` e `scripts/setup-installation.ts`, que passaram a semear
+  `#236cc7`/`#288bf9`): instalação nova não tem histórico a preservar;
+- **`false` para quem escolheu a própria cor** — até o administrador ligar, na tela.
+
+### O endpoint que faltava para a promessa valer para todos
+
+`GET /api/branding` exige `branding:manage`. Se a interface lesse a cor de lá, **só administradores
+veriam a personalização** e a mesma aplicação teria duas aparências conforme a permissão. Entrou
+`GET /api/branding/theme`, aberto a qualquer usuário autenticado, devolvendo só o que a interface
+precisa para pintar — cor, interruptor e o contraste medido. Nenhum caminho de logo, nenhum texto
+legal.
+
+A aplicação é ligada a `isAuthenticated` de propósito: **a tela de login é a vitrine da marca do
+PRODUTO** (fundo `brand-950`, logo oficial) e não deve herdar a cor do último tenant que usou aquele
+navegador. Deslogado, o cliente remove as 11 propriedades e a paleta volta a vir inteira de
+`@theme static` — remover, e não reescrever a rampa oficial no atributo `style`, para não criar uma
+segunda cópia dos mesmos valores.
+
+### O DOCX, provado com arquivo gerado e aberto
+
+`resolveBrandingHeader` foi **exportada** para que a precedência pudesse ser provada contra o código
+real em vez de reimplementada num script — reescrever a regra de fora é o que faz uma prova
+concordar com o código errado ([[feedback_verificar_refatoracao_comportamental_preservada]]). Três
+documentos gerados pelo caminho do produto (`resolveBrandingHeader` → `buildDocxBuffer`), abertos e
+lidos:
+
+| caso | cabeçalho | cor no `word/document.xml` |
+|---|---|---|
+| `tenant_default` (cor escolhida pelo administrador) | "Assistant AI Regression" | `0f172b`, `0f172b` |
+| `manual_demo_tenant` (migrado nesta fase) | "Plataforma de Compliance de Pré-Vendas" | `236cc7`, `236cc7` |
+| projeto com `BrandStyle` atribuído | "Cliente Co-marcado S.A." | `7c3aed`, `7c3aed` |
+
+As duas ocorrências por documento são o nome da empresa (`<w:color w:val="…"/>`) e a régua abaixo
+dele. **`ProjectBrandStyle` continua sobrepondo por projeto** — o estilo de prova foi criado,
+usado, desatribuído e apagado, e `brand_styles` voltou a zero.
+
+**A garantia de margem está intacta:** `templateData` não recebeu um campo sequer. O branding chega
+ao documento por `brandingHeader`, um caminho separado que termina em `buildDocxBuffer`; o
+resolvedor de template (`docxTemplateEngine.ts`) segue recebendo apenas o `templateData` montado em
+`proposals.ts`, que nunca carregou `listPriceSnapshot`/`discountPercent`/`markupMin`/`markupMax`.
+
+### Como a rede visual convive com branding por tenant
+
+A pergunta é legítima: um baseline que dependa de uma linha do banco é frágil. **A resposta acabou
+sendo estrutural, não uma gambiarra de captura:** a conta de captura vive no `tenant_default`, que
+tem cor própria e, portanto, `apply_to_ui = false`. As 36 imagens não dependem de cor gravada
+nenhuma — dependem de o interruptor estar desligado, que é o estado de toda instalação que existia
+antes desta fase. Não foi preciso fixar cor no harness nem afrouxar a tolerância.
+
+`npm run test:visual` deu **36/36 antes de qualquer mudança** e **36/36 no fim**, com
+`maxDiffPixels: 0` intacto. **Uma única imagem regravada:** `desktop-1440/admin-branding.png`, pelo
+interruptor novo e sua linha de contraste — 199.722 px, todos em `y[376,867]`, que é a coluna
+empurrada para baixo pelo bloco novo.
+
+Três lições da recaptura:
+
+- **`capture:ui --only <tela>` produz imagem que a suíte completa não reproduz.** Regravei só a tela
+  alterada e a comparação continuou falhando, agora com 6.664 px em `y[16,35]` — a topbar, numa
+  posição de rolagem diferente. O caminho até a tela faz parte da imagem: a regravação precisa
+  percorrer o mesmo trajeto da comparação, ou seja, `capture:ui` inteiro.
+- **`home.png` (11 px, Δmax 1) e `pricing.png` (16 px, Δmax 1)** apareceram "modificadas" e não
+  mudaram: ruído de antialiasing do Chromium, restauradas do HEAD. **Sexta fase seguida** com o
+  `home.png`; agora com companhia.
+- **A 390px a mudança nem existe** — a captura da tela de Identidade Visual termina no bloco
+  "LOGOMARCA", muito acima do interruptor. A imagem de telefone que o `--only` gravou diferia só
+  pela rolagem da barra de navegação, e foi restaurada do HEAD.
+
+### Cuidados que só apareceram executando
+
+- **`runWithTenant` recebe um CONTEXTO (`{ tenantId }`), não o id.** Passar a string faz `tenantId`
+  virar `undefined`, e `getBranding()` — que é um `findFirst` — roda **sem escopo** e devolve a
+  primeira linha da tabela. Na primeira execução da prova de DOCX os dois tenants "responderam" a
+  mesma cor, e a explicação não estava no produto: estava no script. O comentário no topo de
+  `src/tenantContext.ts` já avisava sobre a armadilha vizinha (a `PrismaPromise` preguiçosa).
+- **`.check()` do Playwright não serve para caixa controlada por resposta de servidor.** O estado só
+  vira quando o PUT responde; o Playwright confere logo após o clique e acusa "Clicking the checkbox
+  did not change its state" num fluxo que está correto. `click()` + `waitForFunction` no `checked`.
+- **Uma prova que muda dado precisa forçar o ponto de partida e restaurar no fim.** A primeira
+  rodada morreu no meio e deixou `#7c3aed` gravado no `tenant_default` — a rodada seguinte começou
+  de um estado que ela não escolheu e interpretou tudo errado. A versão final força o estado antes
+  de começar, grava o relatório a cada passo e restaura no fim.
+- **O seletor de cor faz pré-visualização ao vivo**, porque o estado que a interface consome é o
+  mesmo que o seletor edita. É desejável numa tela de identidade visual — e uma cor que reprova
+  contraste **nunca chega a ser pintada**, mesmo no preview. O valor não confirmado vive só naquele
+  navegador; o próximo carregamento pega a cor do servidor.
+- **O DOCX é um zip sem compressão, então dá para achar o XML nos bytes** — mas os índices são de
+  BYTES: localizar em `latin1` e decodificar a fatia em UTF-8, senão todo acento do documento vira
+  ruído (o teste "sem branding" reprovou exatamente assim).
+- **`pg_dump` não existe no host; o Postgres roda em contêiner** (`commercial-assistant-ai-postgres-1`,
+  usuário `app_user`). Backup e conferência via `docker exec`.
+- **O limitador de requisições (1.000 por IP a cada 15 min) cobra a rodada inteira**, não só logins:
+  depois de `test:visual` + `capture:ui` + `test:visual` + prova no navegador, o `globalSetup` da
+  comparação seguinte falhou. O harness já traduz o 429 numa mensagem explícita — a lição da Fase 0
+  se pagou de novo. **Zero logins gastos nas provas**, todas com `.auth/capture-state.json`.
+- **`find . -not -user sakae` vazio** antes e depois — quinta fase seguida com a varredura limpa.
+
+### Achados registrados, fora do escopo desta fase
+
+- **A cópia dos 11 valores da rampa vive em dois lugares** (`src/index.css` e `src/brandTheme.ts`).
+  É deliberado — o servidor também precisa derivar rampa, e ler CSS no backend seria pior — e está
+  travado por teste que lê o CSS real. Se algum dia o projeto ganhar um passo de build que gere um
+  do outro, esta é a duplicação a eliminar.
+- **`accent_color` não entra na interface.** A rampa inteira é derivada do primário; o acento segue
+  no gradiente de pré-visualização e no DOCX. Dar papel de interface ao acento é decisão de desenho,
+  não de implementação. **Fase 9.**
+- Os achados abertos das Fases 4 a 7 seguem como estavam: o primário `bg-slate-900` em quatro telas,
+  as 4 barras do "Pipeline de Status" abaixo de 3:1, "Precisa de Informação" e a coluna "Prioridade"
+  no `Workspace.tsx`, erro exibido como aviso em 6 lugares, o `disabled:opacity-60` do primário e a
+  Precificação não responsiva a 390px.
 
 ---
 

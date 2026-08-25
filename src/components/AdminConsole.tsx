@@ -1,5 +1,6 @@
 import { Dispatch, SetStateAction, useEffect, useState } from "react";
 import { Trash2, Star, Check, BookOpen, Pencil, X } from "lucide-react";
+import { BRAND_DEFAULT_PRIMARY, decideBrandTheme } from "../brandTheme";
 import {
   AuditLog,
   BrandingSettings,
@@ -2936,6 +2937,49 @@ export default function AdminConsole({
                         {locale === "pt" ? "Salvar Cores" : "Save Colors"}
                       </button>
 
+                      {/* Fase 8 do programa de identidade visual: até aqui esta tela prometia
+                          uma cor configurável que a interface ignorava - `primary_color` só
+                          alimentava o cabeçalho do DOCX gerado. O interruptor abaixo é a
+                          promessa cumprida, e é opt-in porque quem já tinha escolhido uma cor
+                          escolheu-a para o DOCUMENTO: ligar sozinho mudaria a aparência do
+                          sistema inteiro sem ninguém pedir. */}
+                      <div className="border-t border-slate-100 pt-4 space-y-2">
+                        <label className="flex items-start gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(brandingSettings?.apply_to_ui)}
+                            onChange={(e) => handleSaveBrandingSettings({ apply_to_ui: e.target.checked })}
+                            className="mt-0.5 h-4 w-4 accent-brand-600 cursor-pointer"
+                          />
+                          <span className="text-xs text-slate-600">
+                            <span className="block font-bold text-slate-800">
+                              {locale === "pt" ? "Aplicar a cor primária à interface" : "Apply the primary color to the interface"}
+                            </span>
+                            {locale === "pt"
+                              ? "Desligado, a cor primária vale apenas no cabeçalho das propostas geradas. Ligado, ela pinta botões, links, abas e destaques do sistema inteiro, para todos os usuários deste tenant."
+                              : "When off, the primary color only applies to the generated proposal header. When on, it paints buttons, links, tabs and highlights across the whole system, for every user in this tenant."}
+                          </span>
+                        </label>
+                        {(() => {
+                          // A MESMA função que o servidor usa para aceitar ou recusar o PUT -
+                          // a tela diz o número antes de o administrador tentar salvar, em vez
+                          // de deixá-lo descobrir pelo erro.
+                          const decision = decideBrandTheme(brandPrimaryColor);
+                          const ratio = decision.contrastOnWhite.toFixed(2).replace(".", ",");
+                          return decision.applied ? (
+                            <p className="text-[11px] text-slate-500">
+                              {locale === "pt"
+                                ? `Contraste de ${ratio}:1 sobre branco — passa no mínimo de 4,5:1 da WCAG AA. Os onze tons da interface são derivados desta cor.`
+                                : `${decision.contrastOnWhite.toFixed(2)}:1 contrast against white — meets the 4.5:1 WCAG AA minimum. The interface's eleven shades are derived from this color.`}
+                            </p>
+                          ) : (
+                            <p className="text-[11px] bg-danger-50 border border-danger-200 text-danger-700 rounded px-2 py-1.5">
+                              {locale === "pt" ? decision.rejection?.pt : decision.rejection?.en}
+                            </p>
+                          );
+                        })()}
+                      </div>
+
                       <div className="grid grid-cols-1 gap-3 text-xs">
                         <div>
                           <label className="text-[10px] uppercase font-bold text-slate-400 font-mono block mb-1">{locale === "pt" ? "Nome da Empresa" : "Company Name"}</label>
@@ -2984,7 +3028,7 @@ export default function AdminConsole({
                           {locale === "pt" ? "Estilos de Marca Reutilizáveis" : "Reusable Brand Styles"}
                         </h3>
                         <button
-                          onClick={() => setEditingBrandStyle({ name: "", primary_color: "#10b981" })}
+                          onClick={() => setEditingBrandStyle({ name: "", primary_color: BRAND_DEFAULT_PRIMARY })}
                           className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-3 py-1.5 rounded cursor-pointer"
                         >
                           + {locale === "pt" ? "Novo Estilo" : "New Style"}
@@ -3048,7 +3092,7 @@ export default function AdminConsole({
                               <label className="text-xs text-slate-500">{locale === "pt" ? "Cor primária" : "Primary color"}</label>
                               <input
                                 type="color"
-                                value={editingBrandStyle.primary_color || "#10b981"}
+                                value={editingBrandStyle.primary_color || BRAND_DEFAULT_PRIMARY}
                                 onChange={(e) => setEditingBrandStyle((prev) => (prev ? { ...prev, primary_color: e.target.value } : prev))}
                                 className="h-8 w-16"
                               />

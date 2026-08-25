@@ -1426,6 +1426,14 @@ model BrandingSettings {
   borderRadius       String   @map("border_radius")
   buttonStyle        String   @map("button_style")
   defaultTheme       Theme    @default(light) @map("default_theme")
+  // Fase 8 do programa de identidade visual (docs/roadmap/IDENTIDADE_VISUAL_2026-08.md):
+  // quando ligado, `primary_color` deixa de valer só para o cabeçalho do DOCX gerado e passa a
+  // pintar a INTERFACE, sobrescrevendo em runtime os 11 tokens `--color-brand-*` que
+  // `@theme static` publica em `:root` (a rampa é derivada da cor por src/brandTheme.ts).
+  // Nasce DESLIGADO em toda linha que já existia: elas gravaram a cor sob a semântica antiga
+  // ("essa cor sai no documento"), e ligar em massa mudaria a aparência do produto para quem
+  // nunca pediu isso - ver a migration 20260825030000_brand_color_official_palette.
+  applyToUi          Boolean  @default(false) @map("apply_to_ui")
   customCssVariables String   @map("custom_css_variables") @db.Text
   footerText         String   @map("footer_text")
   supportContact     String   @map("support_contact")

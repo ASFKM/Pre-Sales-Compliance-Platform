@@ -488,6 +488,7 @@ function mapBranding(b: any): BrandingSettings {
     footer_text: b.footerText,
     support_contact: b.supportContact,
     legal_text: b.legalText,
+    apply_to_ui: b.applyToUi,
     created_at: b.createdAt.toISOString(),
     updated_at: b.updatedAt.toISOString(),
   } as BrandingSettings;
@@ -2104,6 +2105,7 @@ class DBStore {
         footerText: updates.footer_text,
         supportContact: updates.support_contact,
         legalText: updates.legal_text,
+        applyToUi: updates.apply_to_ui,
       },
     });
     return mapBranding(b);
