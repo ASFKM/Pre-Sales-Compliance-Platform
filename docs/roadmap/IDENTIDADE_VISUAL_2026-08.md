@@ -59,7 +59,7 @@ aqui — é de lá que o dono copia para abrir a próxima conversa.
 | 5 | Módulo POC | **✓ concluída** (24/08/2026) | `27e8628` (PR #57) | 243 trocas em 4 arquivos; Gantt decidido barra a barra; animação `poc-start-glow` tokenizada; 5 sub-abas fora do baseline provadas no navegador |
 | 6 | Módulo Precificação | **✓ concluída** (24/08/2026) | `db4f031` (PR #58) | 103 trocas em 7 arquivos; primeiro gráfico recharts do programa tokenizado; duas escalas decididas inteiras; 6 superfícies para 1 imagem do baseline |
 | 7 | Admin Console e a varredura final | **✓ concluída** (25/08/2026) | `cf644b1` (PR #59) | 222 trocas em 8 arquivos; `sky` e `rose` decididos; família dos 5 badges de arquivo unificada; `waiting_internal` com uma cor; zero cor não-semântica em todo o `src/` |
-| 8 | DOCX + branding por tenant | **✓ concluída** (25/08/2026) | `COMMIT_SHA` (PR #PRNUM) | 6 hex resolvidos + migration ancorada linha a linha; rampa de 11 degraus derivada da cor do tenant, com guarda de contraste; DOCX provado nos 3 caminhos de precedência |
+| 8 | DOCX + branding por tenant | **✓ concluída** (25/08/2026) | `c41bc14` (PR #60) | 6 hex resolvidos + migration ancorada linha a linha; rampa de 11 degraus derivada da cor do tenant, com guarda de contraste; DOCX provado nos 3 caminhos de precedência |
 | 9 | Validação visual, contraste e release | não iniciada | — | **gate humano** |
 
 ### Trilha B — Enriquecimento com a biblioteca de componentes
