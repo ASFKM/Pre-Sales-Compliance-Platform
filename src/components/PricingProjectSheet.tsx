@@ -58,9 +58,9 @@ const MATCH_LABEL: Record<ProjectPricingLine["matchStatus"], string> = {
 };
 
 const MATCH_COLOR: Record<ProjectPricingLine["matchStatus"], string> = {
-  matched: "bg-emerald-50 text-emerald-700",
-  manual: "bg-blue-50 text-blue-700",
-  unmatched: "bg-amber-50 text-amber-700",
+  matched: "bg-success-50 text-success-700",
+  manual: "bg-slate-100 text-slate-700",
+  unmatched: "bg-warning-50 text-warning-700",
 };
 
 const STRATEGY_LABEL: Record<string, string> = {
@@ -374,7 +374,7 @@ export default function PricingProjectSheet() {
                 setSheet(null);
                 setImportSummary(null);
               }}
-              className="text-xs border border-slate-300 rounded-lg px-2.5 py-1.5 min-w-[280px] focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              className="text-xs border border-slate-300 rounded-lg px-2.5 py-1.5 min-w-[280px] focus:outline-none focus:ring-1 focus:ring-brand-500"
             >
               <option value="">Selecione um projeto...</option>
               {projects.map((p) => (
@@ -390,12 +390,12 @@ export default function PricingProjectSheet() {
               onChange={(e) => setDestinationUF(e.target.value.toUpperCase())}
               placeholder="UF destino (opcional)"
               title="Só é usada pelo motor fiscal, se estiver ligado nas Configurações"
-              className="text-xs border border-slate-300 rounded-lg px-2.5 py-1.5 w-36 uppercase focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              className="text-xs border border-slate-300 rounded-lg px-2.5 py-1.5 w-36 uppercase focus:outline-none focus:ring-1 focus:ring-brand-500"
             />
             <button
               onClick={importBom}
               disabled={!selectedProjectId || importing}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-white bg-emerald-600 rounded-lg px-2.5 py-1.5 hover:bg-emerald-700 disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-white bg-brand-600 rounded-lg px-2.5 py-1.5 hover:bg-brand-700 disabled:opacity-60"
             >
               {importing ? <Loader2 size={14} className="animate-spin" /> : <FileUp size={14} />}
               {importing ? "Importando..." : "Importar BOM"}
@@ -408,7 +408,7 @@ export default function PricingProjectSheet() {
               value={standaloneLabel}
               onChange={(e) => setStandaloneLabel(e.target.value)}
               placeholder="Nome desta precificação (ex: Cotação avulsa - Cliente X)"
-              className="text-xs border border-slate-300 rounded-lg px-2.5 py-1.5 min-w-[280px] focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              className="text-xs border border-slate-300 rounded-lg px-2.5 py-1.5 min-w-[280px] focus:outline-none focus:ring-1 focus:ring-brand-500"
             />
             <input
               type="text"
@@ -417,12 +417,12 @@ export default function PricingProjectSheet() {
               onChange={(e) => setDestinationUF(e.target.value.toUpperCase())}
               placeholder="UF destino (opcional)"
               title="Só é usada pelo motor fiscal, se estiver ligado nas Configurações"
-              className="text-xs border border-slate-300 rounded-lg px-2.5 py-1.5 w-36 uppercase focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              className="text-xs border border-slate-300 rounded-lg px-2.5 py-1.5 w-36 uppercase focus:outline-none focus:ring-1 focus:ring-brand-500"
             />
             <button
               onClick={createStandaloneSheet}
               disabled={!standaloneLabel.trim() || creatingStandalone}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-white bg-emerald-600 rounded-lg px-2.5 py-1.5 hover:bg-emerald-700 disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-white bg-brand-600 rounded-lg px-2.5 py-1.5 hover:bg-brand-700 disabled:opacity-60"
             >
               {creatingStandalone ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
               {creatingStandalone ? "Criando..." : "Criar precificação avulsa"}
@@ -432,14 +432,14 @@ export default function PricingProjectSheet() {
       </div>
 
       {error && (
-        <div className="mb-4 flex items-start gap-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+        <div className="mb-4 flex items-start gap-2 text-sm text-danger-700 bg-danger-50 border border-danger-200 rounded-lg px-3 py-2">
           <TriangleAlert size={15} className="mt-0.5 shrink-0" />
           {error}
         </div>
       )}
 
       {importSummary && (
-        <div className="mb-4 text-sm bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg px-3 py-2">
+        <div className="mb-4 text-sm bg-brand-50 border border-brand-200 text-brand-800 rounded-lg px-3 py-2">
           BOM importado: {importSummary.total} item(ns) — {importSummary.matched} casado(s) com o catálogo, {importSummary.unmatched} sem preço cadastrado.
         </div>
       )}
@@ -453,7 +453,7 @@ export default function PricingProjectSheet() {
       {sheet && (
         <div className="mb-6 border border-slate-200 rounded-lg p-4 bg-slate-50/50">
           <div className="flex items-center gap-2 mb-1">
-            <Target size={16} className="text-emerald-600" />
+            <Target size={16} className="text-brand-600" />
             <h3 className="text-sm font-semibold text-slate-800">Chegar no budget</h3>
           </div>
           <p className="text-xs text-slate-500 mb-3">
@@ -465,12 +465,12 @@ export default function PricingProjectSheet() {
               placeholder="Valor total alvo (R$)"
               value={targetBudget}
               onChange={(e) => setTargetBudget(e.target.value)}
-              className="text-xs border border-slate-300 rounded-lg px-2.5 py-1.5 w-48 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              className="text-xs border border-slate-300 rounded-lg px-2.5 py-1.5 w-48 focus:outline-none focus:ring-1 focus:ring-brand-500"
             />
             <button
               onClick={runOptimization}
               disabled={optimizing || !targetBudget}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-white bg-emerald-600 rounded-lg px-2.5 py-1.5 hover:bg-emerald-700 disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-white bg-brand-600 rounded-lg px-2.5 py-1.5 hover:bg-brand-700 disabled:opacity-60"
             >
               {optimizing ? <Loader2 size={14} className="animate-spin" /> : <Target size={14} />}
               {optimizing ? "Calculando..." : "Calcular"}
@@ -480,7 +480,7 @@ export default function PricingProjectSheet() {
           {suggestion && (
             <div className="mt-4 border-t border-slate-200 pt-4">
               {!suggestion.feasible && (
-                <div className="mb-3 flex items-start gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                <div className="mb-3 flex items-start gap-2 text-sm text-warning-700 bg-warning-50 border border-warning-200 rounded-lg px-3 py-2">
                   <TriangleAlert size={15} className="mt-0.5 shrink-0" />
                   Budget-alvo fora do que é possível respeitando o markup mínimo de cada item. Faixa
                   atingível: {currencyFormatter.format(suggestion.minAchievableTotal)} a {currencyFormatter.format(suggestion.maxAchievableTotal)}.
@@ -509,7 +509,7 @@ export default function PricingProjectSheet() {
                         <tr key={s.id}>
                           <td className="px-2.5 py-1 text-slate-700 whitespace-nowrap">{line?.rawDescription || s.id}</td>
                           <td className="px-2.5 py-1 text-right text-slate-500">{line?.discountPercent ?? 0}%</td>
-                          <td className="px-2.5 py-1 text-right font-medium text-emerald-700">{s.discountPercent}%</td>
+                          <td className="px-2.5 py-1 text-right font-medium text-brand-700">{s.discountPercent}%</td>
                           <td className="px-2.5 py-1 text-right text-slate-700">{currencyFormatter.format(s.finalUnitPrice)}</td>
                         </tr>
                       );
@@ -522,7 +522,7 @@ export default function PricingProjectSheet() {
                 <button
                   onClick={acceptSuggestion}
                   disabled={applying}
-                  className="inline-flex items-center gap-1.5 text-sm font-medium text-white bg-emerald-600 rounded-lg px-3 py-2 hover:bg-emerald-700 disabled:opacity-60"
+                  className="inline-flex items-center gap-1.5 text-sm font-medium text-white bg-brand-600 rounded-lg px-3 py-2 hover:bg-brand-700 disabled:opacity-60"
                 >
                   {applying ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}
                   Aceitar e aplicar
@@ -551,7 +551,7 @@ export default function PricingProjectSheet() {
                 value={addItemQuery}
                 onChange={(e) => setAddItemQuery(e.target.value)}
                 placeholder="Buscar item do catálogo pra adicionar a esta sessão..."
-                className="w-full text-xs border border-slate-300 rounded-lg pl-8 pr-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                className="w-full text-xs border border-slate-300 rounded-lg pl-8 pr-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-500"
               />
             </div>
             <input
@@ -561,7 +561,7 @@ export default function PricingProjectSheet() {
               value={addItemQty}
               onChange={(e) => setAddItemQty(e.target.value)}
               title="Quantidade"
-              className="w-16 text-xs text-right border border-slate-300 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              className="w-16 text-xs text-right border border-slate-300 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-500"
             />
           </div>
           {addItemMatches.length > 0 && (
@@ -571,7 +571,7 @@ export default function PricingProjectSheet() {
                   key={it.id}
                   onClick={() => addLine(it.id)}
                   disabled={addingLine}
-                  className="w-full text-left px-3 py-1.5 text-xs hover:bg-emerald-50 border-b border-slate-100 last:border-0 disabled:opacity-50"
+                  className="w-full text-left px-3 py-1.5 text-xs hover:bg-brand-50 border-b border-slate-100 last:border-0 disabled:opacity-50"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-mono text-slate-500">{it.pn}</span>
@@ -637,7 +637,7 @@ export default function PricingProjectSheet() {
                               const v = Number(e.target.value);
                               if (!Number.isNaN(v) && v !== line.discountPercent) updateDiscount(line, v);
                             }}
-                            className="w-14 text-right text-xs border border-slate-300 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                            className="w-14 text-right text-xs border border-slate-300 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-brand-500"
                           />
                           <span className="text-xs text-slate-400 shrink-0">%</span>
                         </div>
@@ -648,8 +648,8 @@ export default function PricingProjectSheet() {
                     </td>
                     <td className="px-2.5 py-1 text-right">
                       {line.marginPercent != null ? (
-                        <span className={`inline-flex items-center gap-1 whitespace-nowrap ${outOfRange ? "text-amber-600" : "text-slate-600"}`}>
-                          {outOfRange ? <CircleAlert size={13} /> : <CheckCircle2 size={13} className="text-emerald-500" />}
+                        <span className={`inline-flex items-center gap-1 whitespace-nowrap ${outOfRange ? "text-warning-700" : "text-slate-600"}`}>
+                          {outOfRange ? <CircleAlert size={13} /> : <CheckCircle2 size={13} className="text-success-600" />}
                           {line.marginPercent.toFixed(1)}%
                         </span>
                       ) : (
@@ -660,7 +660,7 @@ export default function PricingProjectSheet() {
                       <button
                         onClick={() => deleteLine(line.id)}
                         disabled={deletingLineId === line.id}
-                        className="text-slate-300 hover:text-red-600 disabled:opacity-50"
+                        className="text-slate-300 hover:text-danger-600 disabled:opacity-50"
                         title="Remover item desta sessão"
                       >
                         {deletingLineId === line.id ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
@@ -710,7 +710,7 @@ export default function PricingProjectSheet() {
                 <tr
                   key={s.id}
                   onClick={() => openSheet(s.id, s.projectId)}
-                  className={`cursor-pointer hover:bg-slate-50 ${sheet?.id === s.id ? "bg-emerald-50/40" : ""}`}
+                  className={`cursor-pointer hover:bg-slate-50 ${sheet?.id === s.id ? "bg-brand-50/40" : ""}`}
                 >
                   <td className="px-2.5 py-1 text-slate-700 truncate" title={s.displayName}>
                     <span className="inline-flex items-center gap-1.5">
@@ -728,7 +728,7 @@ export default function PricingProjectSheet() {
                     <button
                       onClick={(e) => deleteSheet(s, e)}
                       disabled={deletingSheetId === s.id}
-                      className="text-slate-400 hover:text-red-600 disabled:opacity-50"
+                      className="text-slate-400 hover:text-danger-600 disabled:opacity-50"
                       title="Excluir sessão de precificação"
                     >
                       {deletingSheetId === s.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}

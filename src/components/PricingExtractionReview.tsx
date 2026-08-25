@@ -76,7 +76,7 @@ function EditableCell({
         }}
         className={`w-full min-w-0 text-xs rounded px-1.5 py-1 bg-transparent focus:bg-white outline-none border ${
           align === "right" ? "text-right" : "text-left"
-        } ${required && isEmpty ? "border-red-300 bg-red-50/50" : "border-transparent hover:border-slate-300"} focus:border-emerald-500`}
+        } ${required && isEmpty ? "border-danger-300 bg-danger-50/50" : "border-transparent hover:border-slate-300"} focus:border-brand-500`}
       />
     </div>
   );
@@ -201,7 +201,7 @@ export default function PricingExtractionReview({ onCountChange }: { onCountChan
         <button
           onClick={confirmSelected}
           disabled={selected.size === 0 || confirming}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-white bg-emerald-600 rounded-lg px-3 py-2 hover:bg-emerald-700 disabled:opacity-60 shrink-0"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-white bg-brand-600 rounded-lg px-3 py-2 hover:bg-brand-700 disabled:opacity-60 shrink-0"
         >
           {confirming ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}
           Confirmar selecionados ({selected.size})
@@ -276,7 +276,7 @@ export default function PricingExtractionReview({ onCountChange }: { onCountChan
                       const ready = isDraftReadyToConfirm(d);
                       const catalogMatch = pnIndex.get(normalizePn(d.pn));
                       return (
-                        <tr key={d.id} className={selected.has(d.id) ? "bg-emerald-50/40" : !ready ? "bg-amber-50/30" : ""}>
+                        <tr key={d.id} className={selected.has(d.id) ? "bg-brand-50/40" : !ready ? "bg-warning-50/30" : ""}>
                           <td className="px-2 py-1 align-top">
                             <input
                               type="checkbox"
@@ -299,18 +299,18 @@ export default function PricingExtractionReview({ onCountChange }: { onCountChan
                               <button
                                 onClick={() => saveField(d.id, "itemCode", catalogMatch.itemCode)}
                                 title={`PN já cadastrado no catálogo como "${catalogMatch.description}"`}
-                                className="mt-0.5 block text-left text-[9px] text-blue-600 hover:underline leading-tight"
+                                className="mt-0.5 block text-left text-[9px] text-brand-600 hover:underline leading-tight"
                               >
                                 PN já existe: usar {catalogMatch.itemCode}
                               </button>
                             )}
                             {catalogMatch && d.itemCode && d.itemCode === catalogMatch.itemCode && (
-                              <span className="mt-0.5 block text-[9px] text-emerald-600 leading-tight">Atualiza item existente</span>
+                              <span className="mt-0.5 block text-[9px] text-success-700 leading-tight">Atualiza item existente</span>
                             )}
                             {catalogMatch && d.itemCode && d.itemCode !== catalogMatch.itemCode && (
                               <span
                                 title={`PN já está cadastrado sob o código "${catalogMatch.itemCode}" - confirme se este é mesmo um item diferente antes de confirmar.`}
-                                className="mt-0.5 flex items-center gap-0.5 text-[9px] text-amber-600 leading-tight"
+                                className="mt-0.5 flex items-center gap-0.5 text-[9px] text-warning-700 leading-tight"
                               >
                                 <CircleAlert size={9} className="shrink-0" />
                                 PN já existe c/ outro código
@@ -342,7 +342,7 @@ export default function PricingExtractionReview({ onCountChange }: { onCountChan
                             <EditableCell value={d.supplierName} onSave={(v) => saveField(d.id, "supplierName", v)} placeholder="—" />
                           </td>
                           <td className="px-2 py-1 align-top">
-                            <button onClick={() => reject(d.id)} title="Rejeitar" className="text-slate-400 hover:text-red-500">
+                            <button onClick={() => reject(d.id)} title="Rejeitar" className="text-slate-400 hover:text-danger-600">
                               <X size={13} />
                             </button>
                           </td>
@@ -351,11 +351,11 @@ export default function PricingExtractionReview({ onCountChange }: { onCountChan
                     })}
                     {rows.some((d) => d.confidenceNote) && (
                       <tr>
-                        <td colSpan={11} className="px-2 py-1.5 bg-amber-50/60">
+                        <td colSpan={11} className="px-2 py-1.5 bg-warning-50/60">
                           {rows
                             .filter((d) => d.confidenceNote)
                             .map((d) => (
-                              <p key={d.id} className="flex items-start gap-1.5 text-[10px] text-amber-700">
+                              <p key={d.id} className="flex items-start gap-1.5 text-[10px] text-warning-700">
                                 <CircleAlert size={11} className="mt-0.5 shrink-0" />
                                 <span className="font-mono">{d.pn}:</span> {d.confidenceNote}
                               </p>

@@ -62,7 +62,7 @@ export default function PricingPendingItems() {
         <button
           onClick={exportPending}
           disabled={pending.length === 0}
-          className="inline-flex items-center gap-1.5 shrink-0 text-sm font-medium text-white bg-emerald-600 rounded-lg px-3 py-2 hover:bg-emerald-700 disabled:opacity-60"
+          className="inline-flex items-center gap-1.5 shrink-0 text-sm font-medium text-white bg-brand-600 rounded-lg px-3 py-2 hover:bg-brand-700 disabled:opacity-60"
         >
           <Download size={15} />
           Exportar pendências
@@ -70,7 +70,7 @@ export default function PricingPendingItems() {
       </div>
 
       {error && (
-        <div className="mb-4 flex items-start gap-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+        <div className="mb-4 flex items-start gap-2 text-sm text-danger-700 bg-danger-50 border border-danger-200 rounded-lg px-3 py-2">
           <TriangleAlert size={15} className="mt-0.5 shrink-0" />
           {error}
         </div>
