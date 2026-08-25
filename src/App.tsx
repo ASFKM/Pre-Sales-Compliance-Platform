@@ -15,6 +15,7 @@ import PricingModule from "./components/PricingModule";
 import NewProjectWizard from "./components/modals/NewProjectWizard";
 import { useBackgroundTasks } from "./hooks/useBackgroundTasks";
 import { useSilentRefresh } from "./hooks/useSilentRefresh";
+import { BRAND_DEFAULT_PRIMARY, BRAND_DEFAULT_ACCENT, applyBrandThemeToRoot } from "./brandTheme";
 import { PROPOSAL_TYPES } from "../server/utils/proposalTypes";
 import ClassifyDocumentModal from "./components/modals/ClassifyDocumentModal";
 import AuditLogsModal from "./components/modals/AuditLogsModal";
@@ -349,14 +350,52 @@ export default function App() {
 
   // Branding (shared across the whole app chrome, not just the Admin Console's own settings screen)
   const [brandLogoDataUrl, setBrandLogoDataUrl] = useState<string>(() => localStorage.getItem("ca_brand_logo") || "");
-  const [brandPrimaryColor, setBrandPrimaryColor] = useState<string>(() => localStorage.getItem("ca_brand_primary_color") || "#059669");
-  const [brandAccentColor, setBrandAccentColor] = useState<string>(() => localStorage.getItem("ca_brand_accent_color") || "#10b981");
+  const [brandPrimaryColor, setBrandPrimaryColor] = useState<string>(() => localStorage.getItem("ca_brand_primary_color") || BRAND_DEFAULT_PRIMARY);
+  const [brandAccentColor, setBrandAccentColor] = useState<string>(() => localStorage.getItem("ca_brand_accent_color") || BRAND_DEFAULT_ACCENT);
 
   useEffect(() => {
     localStorage.setItem("ca_brand_logo", brandLogoDataUrl);
     localStorage.setItem("ca_brand_primary_color", brandPrimaryColor);
     localStorage.setItem("ca_brand_accent_color", brandAccentColor);
   }, [brandLogoDataUrl, brandPrimaryColor, brandAccentColor]);
+
+  // ── Cor da marca do tenant aplicada à INTERFACE (Fase 8) ──────────────────────
+  // Até aqui `primary_color` só alimentava o cabeçalho do DOCX gerado: a tela "Identidade
+  // Visual" prometia uma cor configurável que a interface ignorava. Como a Fase 0 declarou os
+  // tokens em `@theme static`, as 11 variáveis `--color-brand-*` existem em `:root` mesmo sem
+  // uso e podem ser sobrescritas em runtime — a rampa inteira é derivada da cor do tenant em
+  // src/brandTheme.ts, com guarda de contraste.
+  const [brandApplyToUi, setBrandApplyToUi] = useState<boolean>(() => localStorage.getItem("ca_brand_apply_to_ui") === "1");
+
+  useEffect(() => {
+    // `GET /api/branding` exige `branding:manage`; este endpoint devolve só a cor e o
+    // interruptor, para QUALQUER usuário autenticado - sem ele a personalização valeria apenas
+    // para administradores, e a mesma aplicação teria duas aparências conforme a permissão.
+    if (!isAuthenticated) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/branding/theme");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        if (data.primary_color) setBrandPrimaryColor(data.primary_color);
+        setBrandApplyToUi(Boolean(data.apply_to_ui));
+      } catch {
+        // Sem tema do servidor a interface segue na paleta da marca - nunca sem cor.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    localStorage.setItem("ca_brand_apply_to_ui", brandApplyToUi ? "1" : "0");
+    // Só depois da autenticação: a tela de login é a vitrine da marca do PRODUTO (fundo
+    // `brand-950`, logo oficial) e não deve herdar a cor do último tenant que usou este
+    // navegador. Deslogado, `applyBrandThemeToRoot` remove as variáveis e a paleta volta a vir
+    // inteira de `@theme static`.
+    applyBrandThemeToRoot(document.documentElement, brandPrimaryColor, isAuthenticated && brandApplyToUi);
+  }, [brandPrimaryColor, brandApplyToUi, isAuthenticated]);
 
   // Core Data State
   const [projects, setProjects] = useState<Project[]>([]);
@@ -385,6 +424,15 @@ export default function App() {
   // showing the stale/default value instead of what's actually configured via the CMSaaS.
   const [iaKbTaskConfig, setIaKbTaskConfig] = useState<Record<string, { provider: string; model: string }>>({});
   const [brandingSettings, setBrandingSettings] = useState<BrandingSettings | null>(null);
+
+  // Quando o administrador salva na tela de Identidade Visual, a resposta do PUT já traz o
+  // registro inteiro: reagir a ela é o que faz a interface mudar na hora, sem recarregar.
+  useEffect(() => {
+    if (!brandingSettings) return;
+    if (brandingSettings.primary_color) setBrandPrimaryColor(brandingSettings.primary_color);
+    setBrandApplyToUi(Boolean(brandingSettings.apply_to_ui));
+  }, [brandingSettings]);
+
   const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>([]);
   const [aiProviderConfigs, setAiProviderConfigs] = useState<any[]>([]);
   const [proposalTemplates, setProposalTemplates] = useState<any[]>([]);
@@ -461,8 +509,8 @@ export default function App() {
               if (res.ok && data) {
                 setBrandingSettings(data);
                 setBrandLogoDataUrl(data.company_logo_path || "");
-                setBrandPrimaryColor(data.primary_color || "#059669");
-                setBrandAccentColor(data.accent_color || "#10b981");
+                setBrandPrimaryColor(data.primary_color || BRAND_DEFAULT_PRIMARY);
+                setBrandAccentColor(data.accent_color || BRAND_DEFAULT_ACCENT);
               }
             })()
           ]

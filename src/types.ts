@@ -709,6 +709,9 @@ export interface BrandingSettings {
   footer_text: string;
   support_contact: string;
   legal_text: string;
+  // Fase 8: quando true, `primary_color` também pinta a interface (rampa derivada em
+  // src/brandTheme.ts), não só o cabeçalho do DOCX gerado.
+  apply_to_ui: boolean;
   created_at: string;
   updated_at: string;
 }

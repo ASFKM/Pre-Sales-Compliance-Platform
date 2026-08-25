@@ -22,8 +22,17 @@ import { LOGIC_VERSIONS } from "../../src/aiLogicVersions";
 import { logger } from "../utils/logger";
 
 const router = express.Router();
+// Exportada (Fase 8) para que a precedência de branding possa ser provada por teste e por uma
+// geração real de DOCX, em vez de reimplementada num script - reescrever a regra de fora é
+// justamente o que faz uma prova concordar com o código errado.
+//
+// A precedência: `project.brand_style_id` -> o BrandStyle vence (proposta co-marcada com a
+// identidade do próprio cliente); sem ele, cai no BrandingSettings do tenant. Nada aqui alcança
+// markup, preço de lista ou desconto: o cabeçalho leva nome, cor e logo, e o resolvedor de
+// template (server/utils/docxTemplateEngine.ts) segue recebendo apenas o `templateData` montado
+// mais abaixo, que nunca carregou esses campos.
 
-async function resolveBrandingHeader(projectId: string): Promise<{ companyName?: string; primaryColorHex?: string; logoDataUrl?: string }> {
+export async function resolveBrandingHeader(projectId: string): Promise<{ companyName?: string; primaryColorHex?: string; logoDataUrl?: string }> {
   const project = await dbStore.getProject(projectId);
   if (project?.brand_style_id) {
     const style = await dbStore.getBrandStyle(project.brand_style_id);

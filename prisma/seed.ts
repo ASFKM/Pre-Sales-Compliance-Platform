@@ -7,6 +7,7 @@
 import crypto from "crypto";
 import { prisma } from "../src/prisma";
 import { runWithTenant } from "../src/tenantContext";
+import { BRAND_DEFAULT_PRIMARY, BRAND_DEFAULT_ACCENT } from "../src/brandTheme";
 
 function hashPassword(password: string): string {
   const salt = crypto.randomBytes(16).toString("hex");
@@ -289,9 +290,13 @@ async function main() {
         sidebarLogoPath: "",
         reportLogoPath: "",
         faviconPath: "",
-        primaryColor: "#0f172a",
+        primaryColor: BRAND_DEFAULT_PRIMARY,
         secondaryColor: "#1e293b",
-        accentColor: "#06b6d4",
+        accentColor: BRAND_DEFAULT_ACCENT,
+        // Fase 8: banco novo não tem histórico a preservar, então nasce com a cor da marca
+        // JÁ valendo na interface - e como essa cor é exatamente a rampa de src/index.css, ligar
+        // não muda um pixel.
+        applyToUi: true,
         backgroundColor: "#f8fafc",
         textColor: "#0f172a",
         fontFamily: "Inter",

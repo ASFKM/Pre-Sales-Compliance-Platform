@@ -3,7 +3,7 @@ import type { Request } from "../types/express";
 import fs from "fs";
 import path from "path";
 import { dbStore } from "../../src/dbStore";
-import { requirePermission } from "./auth";
+import { requireAuth, requirePermission } from "./auth";
 import { encryptSecret, decryptSecret, maskSecret } from "../utils/security";
 import { requireUserId } from "../middleware/security";
 import { createStorageAdapter } from "../utils/storage";
@@ -12,6 +12,7 @@ import { getCurrentTenantId } from "../../src/tenantContext";
 import { FACTORY_DEFAULT_CLASSIFICATION_PROMPT, FACTORY_DEFAULT_ANALYSIS_PROMPT, FACTORY_DEFAULT_POC_TEST_GENERATION_PROMPT, FACTORY_DEFAULT_POC_SCHEDULE_GENERATION_PROMPT, FACTORY_DEFAULT_POC_FINAL_REPORT_GENERATION_PROMPT } from "../utils/promptDefaults";
 import { getCurrentMonthSpendUsd, getCurrentMonthSpendByTaskTypeAndProvider } from "../../src/aiOrchestrator";
 import { assertPublicHttpsUrl } from "../utils/ssrfGuard";
+import { decideBrandTheme } from "../../src/brandTheme";
 
 const router = express.Router();
 
@@ -239,6 +240,29 @@ router.put("/settings", requirePermission("admin:settings"), async (req: Request
   }
 });
 
+// A cor de marca do tenant para QUALQUER usuário autenticado, não só para quem administra.
+// `GET /branding` exige `branding:manage`, então um analista nunca receberia a cor e veria a
+// interface na paleta padrão enquanto o administrador ao lado a veria personalizada - a mesma
+// aplicação com duas aparências conforme a permissão. Este endpoint devolve só os dois campos
+// que a interface precisa para pintar, e nada mais: nenhum caminho de logo, nenhum texto legal.
+router.get("/branding/theme", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const branding = await dbStore.getBranding();
+    const decision = decideBrandTheme(branding.primary_color);
+    res.json({
+      primary_color: branding.primary_color,
+      apply_to_ui: Boolean(branding.apply_to_ui),
+      // A interface repete a decisão localmente (mesma função, mesmo resultado); o servidor
+      // manda o veredito junto para que uma cor rejeitada apareça no diagnóstico do produto
+      // sem exigir que alguém rode a conta de novo.
+      contrast_on_white: Number(decision.contrastOnWhite.toFixed(2)),
+      contrast_ok: decision.applied,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get("/branding", requirePermission("branding:manage"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     res.json(await dbStore.getBranding());
@@ -268,7 +292,8 @@ router.put("/branding", requirePermission("branding:manage"), async (req: Reques
       "custom_css_variables",
       "footer_text",
       "support_contact",
-      "legal_text"
+      "legal_text",
+      "apply_to_ui"
     ];
 
     const updates = Object.fromEntries(
@@ -282,6 +307,33 @@ router.put("/branding", requirePermission("branding:manage"), async (req: Reques
     const brandingValidation = validateBrandingUpdates(updates);
     if (!brandingValidation.valid) {
       return res.status(400).json({ success: false, message: brandingValidation.message });
+    }
+
+    // ── Guarda de contraste (Fase 8) ─────────────────────────────────────────────
+    // A validação acima garante que a cor é um HEX; esta garante que ela pode ser LIDA.
+    // Cor de tenant é dado arbitrário: `#facc15` dá 1,7:1 contra branco e transformaria todo
+    // botão primário do produto em texto branco ilegível. A regra só vale para a INTERFACE —
+    // no DOCX gerado a cor continua sendo respeitada como sempre foi, porque lá ela pinta uma
+    // faixa de cabeçalho, não o fundo de um rótulo branco.
+    //
+    // O estado atual precisa ser lido porque os dois campos chegam separados: dá para ligar
+    // `apply_to_ui` sem mandar cor, e para trocar a cor com o toggle já ligado. Validar só o
+    // que veio no corpo deixaria os dois caminhos passarem.
+    if (updates.apply_to_ui === true || updates.primary_color !== undefined) {
+      const current = await dbStore.getBranding();
+      const effectivePrimary = updates.primary_color ?? current.primary_color;
+      const effectiveApply = updates.apply_to_ui ?? current.apply_to_ui;
+      if (effectiveApply) {
+        const decision = decideBrandTheme(effectivePrimary);
+        if (!decision.applied) {
+          return res.status(400).json({
+            success: false,
+            message: decision.rejection!.pt,
+            message_en: decision.rejection!.en,
+            contrast_on_white: Number(decision.contrastOnWhite.toFixed(2)),
+          });
+        }
+      }
     }
 
     const branding = await dbStore.updateBranding(updates);
