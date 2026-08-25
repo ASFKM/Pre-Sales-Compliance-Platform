@@ -4,12 +4,18 @@ set -euo pipefail
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$BASE_DIR"
 
+# A instancia alvo e parametrizavel: o CI sobe o app na 3000 (default abaixo, comportamento
+# inalterado), mas o servidor de desenvolvimento roda APP_RUNTIME_MODE=production e recusa a senha
+# de seed que este script usa - la a unica forma de executar de verdade e apontar para uma
+# instancia descartavel em modo demo, noutra porta.
+REG_BASE="${REGRESSION_BASE_URL:-http://127.0.0.1:3000}"
+
 echo "=== REGRESSION: WORKSPACE DOCUMENTS / RBAC / CONTENT / CLEANUP ==="
 
 # lint/build/restart deliberately not repeated here - the CI workflow (.github/workflows/ci.yml)
 # already does all three immediately before running this script. Just confirm the already-running
 # server is actually up.
-curl -s -w "\nHTTP:%{http_code}\n" http://127.0.0.1:3000/api/health | grep -q "HTTP:200"
+curl -s -w "\nHTTP:%{http_code}\n" $REG_BASE/api/health | grep -q "HTTP:200"
 
 UPLOADED_DOC_ID=""
 UPLOADED_STORAGE_PATH=""
@@ -37,13 +43,13 @@ login_token() {
   local login_response
   local token
 
-  login_response="$(curl -s -X POST http://127.0.0.1:3000/api/auth/login \
+  login_response="$(curl -s -X POST $REG_BASE/api/auth/login \
     -H "Content-Type: application/json" \
     -d "{\"email\":\"$email\",\"password\":\"password123\"}")"
 
   token="$(echo "$login_response" | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{const j=JSON.parse(s); if(!j.token){console.error(s); process.exit(1)} console.log(j.token)})')"
 
-  curl -s -X POST http://127.0.0.1:3000/api/auth/mfa/verify \
+  curl -s -X POST $REG_BASE/api/auth/mfa/verify \
     -H "Content-Type: application/json" \
     -d "{\"token\":\"$token\",\"code\":\"123456\"}" >/dev/null
 
@@ -60,18 +66,18 @@ curl -s -w "\nHTTP:%{http_code}\n" -X PUT \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"storage_mode":"local","local_storage_path":"./uploads"}' \
-  http://127.0.0.1:3000/api/settings/storage | grep -q "HTTP:200"
+  $REG_BASE/api/settings/storage | grep -q "HTTP:200"
 
 echo
 echo "=== 1) LISTA SEM TOKEN DEVE FALHAR ==="
 curl -s -w "\nHTTP:%{http_code}\n" \
-  http://127.0.0.1:3000/api/projects/p1/documents | grep -q "HTTP:401"
+  $REG_BASE/api/projects/p1/documents | grep -q "HTTP:401"
 
 echo
 echo "=== 2) LISTA COM MANAGER DEVE FUNCIONAR ==="
 curl -s -w "\nHTTP:%{http_code}\n" \
   -H "Authorization: Bearer $MANAGER_TOKEN" \
-  http://127.0.0.1:3000/api/projects/p1/documents | tee /tmp/regression_workspace_list_response.json | grep -q "HTTP:200"
+  $REG_BASE/api/projects/p1/documents | tee /tmp/regression_workspace_list_response.json | grep -q "HTTP:200"
 rm -f /tmp/regression_workspace_list_response.json
 
 echo
@@ -81,7 +87,7 @@ printf 'invalid binary payload\n' > /tmp/regression_workspace_invalid.exe
 curl -s -w "\nHTTP:%{http_code}\n" -X POST \
   -H "Authorization: Bearer $MANAGER_TOKEN" \
   -F "file=@/tmp/regression_workspace_invalid.exe;type=application/octet-stream" \
-  http://127.0.0.1:3000/api/projects/p1/documents | grep -q "HTTP:400"
+  $REG_BASE/api/projects/p1/documents | grep -q "HTTP:400"
 
 echo
 echo "=== 4) MANAGER FAZ UPLOAD TXT VALIDO ==="
@@ -96,7 +102,7 @@ TXT
 UPLOAD_HTTP="$(curl -s -o /tmp/regression_workspace_upload_response.json -w "HTTP:%{http_code}\n" -X POST \
   -H "Authorization: Bearer $MANAGER_TOKEN" \
   -F "file=@/tmp/regression_workspace_doc.txt;type=text/plain" \
-  http://127.0.0.1:3000/api/projects/p1/documents)"
+  $REG_BASE/api/projects/p1/documents)"
 
 echo "$UPLOAD_HTTP"
 echo "$UPLOAD_HTTP" | grep -q "HTTP:201"
@@ -116,7 +122,7 @@ echo
 echo "=== 5) CONTEUDO EXTRAIDO DEVE ESTAR DISPONIVEL ==="
 curl -s -o /tmp/regression_workspace_content_response.json -w "HTTP:%{http_code}\n" \
   -H "Authorization: Bearer $MANAGER_TOKEN" \
-  "http://127.0.0.1:3000/api/documents/$UPLOADED_DOC_ID/content" | grep -q "HTTP:200"
+  "$REG_BASE/api/documents/$UPLOADED_DOC_ID/content" | grep -q "HTTP:200"
 
 node - <<'NODE'
 const fs = require("fs");
@@ -145,7 +151,7 @@ curl -s -w "\nHTTP:%{http_code}\n" -X POST \
   -H "Authorization: Bearer $MANAGER_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"manual_document_type":""}' \
-  "http://127.0.0.1:3000/api/documents/$UPLOADED_DOC_ID/reclassify" | grep -q "HTTP:400"
+  "$REG_BASE/api/documents/$UPLOADED_DOC_ID/reclassify" | grep -q "HTTP:400"
 
 echo
 echo "=== 7) MANAGER RECLASSIFICA DOCUMENTO ==="
@@ -153,7 +159,7 @@ curl -s -o /tmp/regression_workspace_reclassify_response.json -w "HTTP:%{http_co
   -H "Authorization: Bearer $MANAGER_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"manual_document_type":"Customer requirements"}' \
-  "http://127.0.0.1:3000/api/documents/$UPLOADED_DOC_ID/reclassify" | grep -q "HTTP:200"
+  "$REG_BASE/api/documents/$UPLOADED_DOC_ID/reclassify" | grep -q "HTTP:200"
 
 node - <<'NODE'
 const fs = require("fs");
@@ -173,13 +179,13 @@ echo
 echo "=== 8) MANAGER NAO PODE DELETAR ==="
 curl -s -w "\nHTTP:%{http_code}\n" -X DELETE \
   -H "Authorization: Bearer $MANAGER_TOKEN" \
-  "http://127.0.0.1:3000/api/documents/$UPLOADED_DOC_ID" | grep -q "HTTP:403"
+  "$REG_BASE/api/documents/$UPLOADED_DOC_ID" | grep -q "HTTP:403"
 
 echo
 echo "=== 9) ENGINEER DELETA DOCUMENTO ==="
 curl -s -w "\nHTTP:%{http_code}\n" -X DELETE \
   -H "Authorization: Bearer $ENGINEER_TOKEN" \
-  "http://127.0.0.1:3000/api/documents/$UPLOADED_DOC_ID" | grep -q "HTTP:200"
+  "$REG_BASE/api/documents/$UPLOADED_DOC_ID" | grep -q "HTTP:200"
 
 if [ -f "$UPLOADED_STORAGE_PATH" ]; then
   echo "ERRO: arquivo fisico ainda existe: $UPLOADED_STORAGE_PATH"
@@ -190,14 +196,14 @@ echo
 echo "=== 10) DB DEVE ESTAR SEM DOCUMENTO E SEM CONTENT INDEX ==="
 curl -s -o /tmp/regression_workspace_content_check.json -w "HTTP:%{http_code}\n" \
   -H "Authorization: Bearer $MANAGER_TOKEN" \
-  "http://127.0.0.1:3000/api/documents/$UPLOADED_DOC_ID/content" | tee /tmp/regression_workspace_content_check_status.txt | grep -q "HTTP:404"
+  "$REG_BASE/api/documents/$UPLOADED_DOC_ID/content" | tee /tmp/regression_workspace_content_check_status.txt | grep -q "HTTP:404"
 
 curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
-  "http://127.0.0.1:3000/api/audit-logs?entity_id=$UPLOADED_DOC_ID&action=Upload%20Document" > /tmp/regression_workspace_audit_upload.json
+  "$REG_BASE/api/audit-logs?entity_id=$UPLOADED_DOC_ID&action=Upload%20Document" > /tmp/regression_workspace_audit_upload.json
 curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
-  "http://127.0.0.1:3000/api/audit-logs?entity_id=$UPLOADED_DOC_ID&action=Reclassify%20Document" > /tmp/regression_workspace_audit_reclassify.json
+  "$REG_BASE/api/audit-logs?entity_id=$UPLOADED_DOC_ID&action=Reclassify%20Document" > /tmp/regression_workspace_audit_reclassify.json
 curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
-  "http://127.0.0.1:3000/api/audit-logs?entity_id=$UPLOADED_DOC_ID&action=Delete%20Document" > /tmp/regression_workspace_audit_delete.json
+  "$REG_BASE/api/audit-logs?entity_id=$UPLOADED_DOC_ID&action=Delete%20Document" > /tmp/regression_workspace_audit_delete.json
 
 node - "$UPLOADED_DOC_ID" <<'NODE'
 const fs = require("fs");

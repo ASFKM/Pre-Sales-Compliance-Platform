@@ -39,10 +39,10 @@ const STATUS_BADGE_COLOR: Record<PocStatus, string> = {
 // PocAcceptance.decision, denormalized onto Poc.acceptance_decision), just a visual border on the
 // card once it lands in "Concluída".
 const COLUMNS: { key: PocStatus; label: string; dot: string }[] = [
-  { key: "not_started", label: "Não iniciada", dot: "bg-slate-400" },
-  { key: "planned", label: "Planejada", dot: "bg-brand-500" },
+  { key: "not_started", label: "Não iniciada", dot: "bg-slate-500" },
+  { key: "planned", label: "Planejada", dot: "bg-brand-600" },
   { key: "in_progress", label: "Em andamento", dot: "bg-brand-700" },
-  { key: "blocked", label: "Bloqueada", dot: "bg-warning-500" },
+  { key: "blocked", label: "Bloqueada", dot: "bg-warning-700" },
   { key: "completed", label: "Concluída", dot: "bg-slate-600" },
 ];
 
@@ -683,7 +683,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
           >
             Equipamento
             {equipmentPendingReturn > 0 && pocIsOverdue && (
-              <span className="w-1.5 h-1.5 rounded-full bg-warning-500" />
+              <span className="w-1.5 h-1.5 rounded-full bg-warning-700" />
             )}
           </button>
           <button
@@ -968,7 +968,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                 </div>
               </div>
 
-              {saveError && <div className="p-3 rounded bg-warning-50 border border-warning-200 text-warning-900 text-xs">{saveError}</div>}
+              {saveError && <div className="p-3 rounded bg-danger-50 border border-danger-200 text-danger-900 text-xs">{saveError}</div>}
 
               <div className="flex items-center gap-2 pt-4 mt-2 border-t border-slate-200">
                 <button
@@ -1352,7 +1352,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                   remove permanentemente o equipamento, cronograma, casos de teste, relatório final e aceite associados, e
                   <span className="font-semibold"> não pode ser desfeita</span>.
                 </p>
-                {deleteError && <div className="p-3 rounded bg-warning-50 border border-warning-200 text-warning-900 text-xs">{deleteError}</div>}
+                {deleteError && <div className="p-3 rounded bg-danger-50 border border-danger-200 text-danger-900 text-xs">{deleteError}</div>}
                 <div className="flex items-center gap-2 justify-end">
                   <button
                     onClick={() => setShowDeleteConfirm(false)}
@@ -1595,7 +1595,7 @@ export default function PocManagement({ hasPermission, projects, activeTasks, wa
                 </div>
               </div>
 
-              {createError && <div className="p-3 rounded bg-warning-50 border border-warning-200 text-warning-900 text-xs">{createError}</div>}
+              {createError && <div className="p-3 rounded bg-danger-50 border border-danger-200 text-danger-900 text-xs">{createError}</div>}
 
               <div className="flex justify-end gap-2 pt-4 mt-4 border-t border-slate-200">
                 <button

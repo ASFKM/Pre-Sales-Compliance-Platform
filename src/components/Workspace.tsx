@@ -613,7 +613,8 @@ export default function Workspace({
                                     className={`text-[11px] font-bold p-1 rounded border cursor-pointer focus:outline-none focus:ring-1 focus:ring-brand-500 ${
                                       req.compliance_status === "compliant" ? "text-success-700 bg-success-50 border-success-200" :
                                       req.compliance_status === "partially_compliant" ? "text-warning-700 bg-warning-50 border-warning-200" :
-                                      "text-danger-700 bg-danger-50 border-danger-200"
+                                      req.compliance_status === "non_compliant" ? "text-danger-700 bg-danger-50 border-danger-200" :
+                                      "text-slate-700 bg-slate-100 border-slate-300"
                                     }`}
                                   >
                                     <option value="compliant">{tx("Compliant", "Conforme")}</option>
@@ -809,7 +810,11 @@ export default function Workspace({
                                   <td className="p-3 text-slate-700 font-semibold">{opp.suggested_solution}</td>
                                   <td className="p-3 text-slate-600">{opp.sales_strategy}</td>
                                   <td className="p-3 uppercase">
-                                    <span className="text-success-700 bg-success-50 px-2 py-0.5 rounded font-bold text-[9px]">
+                                    <span className={`px-2 py-0.5 rounded font-bold text-[9px] border ${
+                                      opp.priority === "high" ? "text-brand-800 bg-brand-100 border-brand-200" :
+                                      opp.priority === "medium" ? "text-brand-700 bg-brand-50 border-brand-100" :
+                                      "text-slate-700 bg-slate-100 border-slate-200"
+                                    }`}>
                                       {opp.priority}
                                     </span>
                                   </td>
@@ -1549,7 +1554,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                                             alert(locale === "pt" ? "Erro ao abrir documento." : "Error opening document.");
                                           }
                                         }}
-                                        className="text-slate-700 hover:text-white hover:bg-slate-800 border border-slate-200 px-2.5 py-1 rounded-lg font-bold font-mono transition-all cursor-pointer"
+                                        className="text-slate-700 hover:text-brand-700 hover:bg-brand-50 border border-slate-200 hover:border-brand-200 px-2.5 py-1 rounded-lg font-bold font-mono transition-all cursor-pointer"
                                       >
                                         {locale === "pt" ? "REVISAR META" : "VIEW META"}
                                       </button>
@@ -1614,7 +1619,7 @@ ${data.content_preview || "[Sem conteúdo textual extraído]"}`
                           <div className="p-4 border-t border-slate-100 flex justify-end gap-2 bg-slate-50 rounded-b-2xl">
                             <button
                               onClick={() => setActiveFileViewer(null)}
-                              className="bg-slate-900 hover:bg-slate-800 text-white font-mono text-xs font-bold py-2 px-4 rounded-lg shadow cursor-pointer"
+                              className="bg-brand-600 hover:bg-brand-700 text-white font-mono text-xs font-bold py-2 px-4 rounded-lg shadow cursor-pointer"
                             >
                               {locale === "pt" ? "FECHAR" : "CLOSE"}
                             </button>

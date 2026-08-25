@@ -232,7 +232,7 @@ export default function PocAcceptancePanel({ pocId, canManage, pocStatus, onPocU
           )}
         </div>
 
-        {reportError && <div className="p-3 rounded bg-warning-50 border border-warning-200 text-warning-900 text-xs mb-2">{reportError}</div>}
+        {reportError && <div className="p-3 rounded bg-danger-50 border border-danger-200 text-danger-900 text-xs mb-2">{reportError}</div>}
         {reportKbWarning && (
           <div className="p-3 rounded bg-warning-50 border border-warning-200 text-warning-900 text-xs mb-2">
             <span className="font-bold">Base de Conhecimento insuficiente: </span>
@@ -374,7 +374,7 @@ export default function PocAcceptancePanel({ pocId, canManage, pocStatus, onPocU
         <button
           onClick={saveDetails}
           disabled={saving}
-          className="bg-slate-800 hover:bg-slate-900 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
+          className="bg-brand-600 hover:bg-brand-700 text-white font-mono text-xs font-bold py-1.5 px-4 rounded shadow transition-all cursor-pointer disabled:opacity-60"
         >
           {saving ? "Salvando..." : "Salvar"}
         </button>

@@ -378,14 +378,14 @@ export default function PocGanttChart({ poc, canManage, activeTasks, waitForTask
           <span className="truncate">{generationTask.current_step}</span>
           <span className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
             <span
-              className="block h-full bg-brand-500 transition-all duration-500"
+              className="block h-full bg-brand-600 transition-all duration-500"
               style={{ width: `${typeof generationTask.progress_pct === "number" ? generationTask.progress_pct : 5}%` }}
             />
           </span>
         </div>
       )}
 
-      {generateError && <div className="p-3 rounded bg-warning-50 border border-warning-200 text-warning-900 text-xs">{generateError}</div>}
+      {generateError && <div className="p-3 rounded bg-danger-50 border border-danger-200 text-danger-900 text-xs">{generateError}</div>}
       {knowledgeBaseWarning && (
         <div className="p-3 rounded bg-warning-50 border border-warning-200 text-warning-900 text-xs">
           <span className="font-bold">Base de Conhecimento insuficiente: </span>
@@ -427,7 +427,7 @@ export default function PocGanttChart({ poc, canManage, activeTasks, waitForTask
               <option key={t.id} value={t.id}>Depende de: {t.name}</option>
             ))}
           </select>
-          {formError && <div className="p-3 rounded bg-warning-50 border border-warning-200 text-warning-900 text-xs">{formError}</div>}
+          {formError && <div className="p-3 rounded bg-danger-50 border border-danger-200 text-danger-900 text-xs">{formError}</div>}
           <div className="flex items-center gap-2 pt-1">
             <button onClick={() => setShowForm(false)} className="px-3 py-1.5 border border-slate-300 rounded hover:bg-slate-100 font-mono text-xs cursor-pointer text-slate-500">
               Cancelar
@@ -500,8 +500,8 @@ export default function PocGanttChart({ poc, canManage, activeTasks, waitForTask
                   ))}
 
                   {todayOffset >= 0 && todayOffset < totalDays && (
-                    <div className="absolute top-0 bottom-0 w-0.5 bg-danger-500 z-20" style={{ left: todayOffset * DAY_W + DAY_W / 2 }}>
-                      <span className="absolute -top-[18px] -translate-x-1/2 bg-danger-500 text-white text-[9px] font-bold font-mono rounded px-1.5 whitespace-nowrap">HOJE</span>
+                    <div className="absolute top-0 bottom-0 w-0.5 bg-danger-600 z-20" style={{ left: todayOffset * DAY_W + DAY_W / 2 }}>
+                      <span className="absolute -top-[18px] -translate-x-1/2 bg-danger-600 text-white text-[9px] font-bold font-mono rounded px-1.5 whitespace-nowrap">HOJE</span>
                     </div>
                   )}
 

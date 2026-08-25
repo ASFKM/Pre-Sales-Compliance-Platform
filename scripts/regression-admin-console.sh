@@ -4,6 +4,12 @@ set -euo pipefail
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$BASE_DIR"
 
+# A instancia alvo e parametrizavel: o CI sobe o app na 3000 (default abaixo, comportamento
+# inalterado), mas o servidor de desenvolvimento roda APP_RUNTIME_MODE=production e recusa a senha
+# de seed que este script usa - la a unica forma de executar de verdade e apontar para uma
+# instancia descartavel em modo demo, noutra porta.
+REG_BASE="${REGRESSION_BASE_URL:-http://127.0.0.1:3000}"
+
 echo "=== REGRESSION: ADMIN CONSOLE COMPACT ==="
 
 cleanup() {
@@ -58,7 +64,7 @@ login() {
   local out="/tmp/admin_reg_login.json"
 
   expect_save 200 "login $email" "$out" \
-    -X POST http://127.0.0.1:3000/api/auth/login \
+    -X POST $REG_BASE/api/auth/login \
     -H "Content-Type: application/json" \
     -d "{\"email\":\"$email\",\"password\":\"password123\"}" >/dev/null
 
@@ -66,14 +72,14 @@ login() {
   token="$(node -e 'const fs=require("fs"); const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if(!j.token) process.exit(1); console.log(j.token)' "$out")"
 
   expect 200 "mfa $email" \
-    -X POST http://127.0.0.1:3000/api/auth/mfa/verify \
+    -X POST $REG_BASE/api/auth/mfa/verify \
     -H "Content-Type: application/json" \
     -d "{\"token\":\"$token\",\"code\":\"123456\"}" >/dev/null
 
   echo "$token"
 }
 
-expect 200 "health" http://127.0.0.1:3000/api/health >/dev/null
+expect 200 "health" $REG_BASE/api/health >/dev/null
 
 ADMIN_TOKEN="$(login "alex.rivera@enterprise.com")"
 MANAGER_TOKEN="$(login "marcus.vance@enterprise.com")"
@@ -92,27 +98,27 @@ ok "diagnostics copy is enterprise-safe"
 echo "Users/Roles"
 expect 403 "manager cannot list users" \
   -H "Authorization: Bearer $MANAGER_TOKEN" \
-  http://127.0.0.1:3000/api/users
+  $REG_BASE/api/users
 
 expect_save 200 "admin lists users" /tmp/admin_reg_users.json \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
-  http://127.0.0.1:3000/api/users
+  $REG_BASE/api/users
 
 expect 403 "engineer cannot create role" \
-  -X POST http://127.0.0.1:3000/api/roles \
+  -X POST $REG_BASE/api/roles \
   -H "Authorization: Bearer $ENGINEER_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"name\":\"Blocked Role $SUFFIX\",\"permissions\":[\"project:read\"]}"
 
 
 expect 400 "invalid role permission is blocked" \
-  -X POST http://127.0.0.1:3000/api/roles \
+  -X POST $REG_BASE/api/roles \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"name\":\"Invalid Permission Role $SUFFIX\",\"permissions\":[\"project:read\",\"invalid:permission\"]}"
 
 expect_save 201 "admin creates role" /tmp/admin_reg_role.json \
-  -X POST http://127.0.0.1:3000/api/roles \
+  -X POST $REG_BASE/api/roles \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"name\":\"Regression Role $SUFFIX\",\"description\":\"tmp\",\"permissions\":[\"project:read\",\"document:read\"]}"
@@ -120,7 +126,7 @@ expect_save 201 "admin creates role" /tmp/admin_reg_role.json \
 ROLE_ID="$(node -e 'const fs=require("fs"); const j=JSON.parse(fs.readFileSync("/tmp/admin_reg_role.json","utf8")); console.log(j.id)')"
 
 expect_save 201 "admin creates user" /tmp/admin_reg_user.json \
-  -X POST http://127.0.0.1:3000/api/users \
+  -X POST $REG_BASE/api/users \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"name\":\"Regression User $SUFFIX\",\"email\":\"regression_$SUFFIX@example.com\",\"role_id\":\"$ROLE_ID\",\"initial_password\":\"ChangeMe123!\"}"
@@ -129,196 +135,196 @@ USER_ID="$(node -e 'const fs=require("fs"); const j=JSON.parse(fs.readFileSync("
 
 
 expect 409 "duplicate user email is blocked" \
-  -X POST http://127.0.0.1:3000/api/users \
+  -X POST $REG_BASE/api/users \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"name\":\"Duplicate User $SUFFIX\",\"email\":\"regression_$SUFFIX@example.com\",\"role_id\":\"$ROLE_ID\",\"initial_password\":\"ChangeMe123\"}"
 
 expect 400 "missing user role is blocked" \
-  -X POST http://127.0.0.1:3000/api/users \
+  -X POST $REG_BASE/api/users \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"name\":\"Missing Role User $SUFFIX\",\"email\":\"missing_role_$SUFFIX@example.com\",\"role_id\":\"role_missing\",\"initial_password\":\"ChangeMe123\"}"
 
 expect 400 "self delete is blocked" \
-  -X DELETE http://127.0.0.1:3000/api/users/u1 \
+  -X DELETE $REG_BASE/api/users/u1 \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 
 expect 200 "admin updates user" \
-  -X PUT "http://127.0.0.1:3000/api/users/$USER_ID" \
+  -X PUT "$REG_BASE/api/users/$USER_ID" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name":"Regression User Updated","mfa_enabled":true}'
 
 expect 200 "admin deletes user" \
-  -X DELETE "http://127.0.0.1:3000/api/users/$USER_ID" \
+  -X DELETE "$REG_BASE/api/users/$USER_ID" \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 
 expect 200 "admin deletes role" \
-  -X DELETE "http://127.0.0.1:3000/api/roles/$ROLE_ID" \
+  -X DELETE "$REG_BASE/api/roles/$ROLE_ID" \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 
 echo "Settings/AI/Prompts/Branding/Storage"
 expect 403 "engineer cannot update settings" \
-  -X PUT http://127.0.0.1:3000/api/settings \
+  -X PUT $REG_BASE/api/settings \
   -H "Authorization: Bearer $ENGINEER_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"default_log_level":"INFO"}'
 
 expect 200 "manager updates settings" \
-  -X PUT http://127.0.0.1:3000/api/settings \
+  -X PUT $REG_BASE/api/settings \
   -H "Authorization: Bearer $MANAGER_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"default_log_level":"DEBUG"}'
 
 expect 400 "invalid global language is blocked" \
-  -X PUT http://127.0.0.1:3000/api/settings \
+  -X PUT $REG_BASE/api/settings \
   -H "Authorization: Bearer $MANAGER_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"default_language\":\"German\"}"
 
 expect 400 "invalid global log level is blocked" \
-  -X PUT http://127.0.0.1:3000/api/settings \
+  -X PUT $REG_BASE/api/settings \
   -H "Authorization: Bearer $MANAGER_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"default_log_level\":\"TRACE\"}"
 
 expect 400 "global settings reject ai scoped field" \
-  -X PUT http://127.0.0.1:3000/api/settings \
+  -X PUT $REG_BASE/api/settings \
   -H "Authorization: Bearer $MANAGER_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"ai_provider\":\"Bypass Provider\"}"
 
 expect 400 "global settings reject storage scoped field" \
-  -X PUT http://127.0.0.1:3000/api/settings \
+  -X PUT $REG_BASE/api/settings \
   -H "Authorization: Bearer $MANAGER_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"storage_mode\":\"s3\"}"
 
 expect 403 "manager cannot update ai settings" \
-  -X PUT http://127.0.0.1:3000/api/settings/ai \
+  -X PUT $REG_BASE/api/settings/ai \
   -H "Authorization: Bearer $MANAGER_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"ai_provider":"Google Gemini"}'
 
 expect 200 "admin updates ai settings" \
-  -X PUT http://127.0.0.1:3000/api/settings/ai \
+  -X PUT $REG_BASE/api/settings/ai \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"ai_provider":"Google Gemini","document_analysis_model":"gemini-3.5-flash"}'
 
 expect 400 "empty ai model is blocked" \
-  -X PUT http://127.0.0.1:3000/api/settings/ai \
+  -X PUT $REG_BASE/api/settings/ai \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"document_analysis_model\":\"\"}"
 
 expect 400 "invalid ai language is blocked" \
-  -X PUT http://127.0.0.1:3000/api/settings/ai \
+  -X PUT $REG_BASE/api/settings/ai \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"default_language\":\"German\"}"
 
 expect 400 "invalid ai log level is blocked" \
-  -X PUT http://127.0.0.1:3000/api/settings/ai \
+  -X PUT $REG_BASE/api/settings/ai \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"default_log_level\":\"TRACE\"}"
 
 expect_save 200 "admin lists prompts" /tmp/admin_reg_prompts.json \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
-  http://127.0.0.1:3000/api/settings/prompts
+  $REG_BASE/api/settings/prompts
 
 PROMPT_ID="$(node -e 'const fs=require("fs"); const a=JSON.parse(fs.readFileSync("/tmp/admin_reg_prompts.json","utf8")); if(!a[0]?.id) process.exit(1); console.log(a[0].id)')"
 
 expect 200 "admin updates prompt" \
-  -X PUT "http://127.0.0.1:3000/api/settings/prompts/$PROMPT_ID" \
+  -X PUT "$REG_BASE/api/settings/prompts/$PROMPT_ID" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"content":"Regression prompt content."}'
 
 expect 400 "empty prompt content is blocked" \
-  -X PUT "http://127.0.0.1:3000/api/settings/prompts/$PROMPT_ID" \
+  -X PUT "$REG_BASE/api/settings/prompts/$PROMPT_ID" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"content\":\"\"}"
 
 expect 400 "invalid prompt language is blocked" \
-  -X PUT "http://127.0.0.1:3000/api/settings/prompts/$PROMPT_ID" \
+  -X PUT "$REG_BASE/api/settings/prompts/$PROMPT_ID" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"language\":\"German\"}"
 
 expect 400 "invalid prompt boolean is blocked" \
-  -X PUT "http://127.0.0.1:3000/api/settings/prompts/$PROMPT_ID" \
+  -X PUT "$REG_BASE/api/settings/prompts/$PROMPT_ID" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"is_active\":\"yes\"}"
 
 expect 403 "manager cannot update branding" \
-  -X PUT http://127.0.0.1:3000/api/branding \
+  -X PUT $REG_BASE/api/branding \
   -H "Authorization: Bearer $MANAGER_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"company_name":"Blocked"}'
 
 expect 200 "admin updates branding" \
-  -X PUT http://127.0.0.1:3000/api/branding \
+  -X PUT $REG_BASE/api/branding \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"company_name":"Assistant AI Regression"}'
 
 expect 400 "empty company name is blocked" \
-  -X PUT http://127.0.0.1:3000/api/branding \
+  -X PUT $REG_BASE/api/branding \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"company_name\":\"\"}"
 
 expect 400 "invalid branding color is blocked" \
-  -X PUT http://127.0.0.1:3000/api/branding \
+  -X PUT $REG_BASE/api/branding \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"primary_color\":\"green\"}"
 
 expect 400 "invalid branding theme is blocked" \
-  -X PUT http://127.0.0.1:3000/api/branding \
+  -X PUT $REG_BASE/api/branding \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"default_theme\":\"auto\"}"
 
 expect 400 "unsafe branding logo path is blocked" \
-  -X PUT http://127.0.0.1:3000/api/branding \
+  -X PUT $REG_BASE/api/branding \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"company_logo_path\":\"https://example.com/logo.png\"}"
 
 expect 403 "manager cannot test storage" \
   -H "Authorization: Bearer $MANAGER_TOKEN" \
-  http://127.0.0.1:3000/api/settings/storage/status
+  $REG_BASE/api/settings/storage/status
 
 expect 200 "admin tests storage" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
-  http://127.0.0.1:3000/api/settings/storage/status
+  $REG_BASE/api/settings/storage/status
 
 expect 403 "manager cannot update storage" \
-  -X PUT http://127.0.0.1:3000/api/settings/storage \
+  -X PUT $REG_BASE/api/settings/storage \
   -H "Authorization: Bearer $MANAGER_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"storage_mode\":\"local\"}"
 
 expect 400 "invalid storage mode is blocked" \
-  -X PUT http://127.0.0.1:3000/api/settings/storage \
+  -X PUT $REG_BASE/api/settings/storage \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"storage_mode\":\"ftp\"}"
 
 expect 400 "invalid local storage path is blocked" \
-  -X PUT http://127.0.0.1:3000/api/settings/storage \
+  -X PUT $REG_BASE/api/settings/storage \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"local_storage_path\":\"/\"}"
 
 expect 400 "storage bucket url is blocked" \
-  -X PUT http://127.0.0.1:3000/api/settings/storage \
+  -X PUT $REG_BASE/api/settings/storage \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"storage_mode\":\"s3\",\"s3_bucket\":\"https://example.com/bucket\"}"
@@ -333,7 +339,7 @@ echo "Templates/Workflows/Integrations"
 TEMPLATE_FIXTURE="$BASE_DIR/scripts/fixtures/regression-template.docx"
 
 expect_save 201 "admin creates template" /tmp/admin_reg_template.json \
-  -X POST http://127.0.0.1:3000/api/templates/proposals \
+  -X POST $REG_BASE/api/templates/proposals \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -F "name=Regression Template $SUFFIX" \
   -F "template_type=technical" \
@@ -344,7 +350,7 @@ expect_save 201 "admin creates template" /tmp/admin_reg_template.json \
 TPL_ID="$(node -e 'const fs=require("fs"); const j=JSON.parse(fs.readFileSync("/tmp/admin_reg_template.json","utf8")); console.log(j.id)')"
 
 expect 409 "duplicate template name is blocked" \
-  -X POST http://127.0.0.1:3000/api/templates/proposals \
+  -X POST $REG_BASE/api/templates/proposals \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -F "name=Regression Template $SUFFIX" \
   -F "template_type=technical" \
@@ -352,7 +358,7 @@ expect 409 "duplicate template name is blocked" \
   -F "file=@$TEMPLATE_FIXTURE;type=application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 expect 400 "unsupported template file type is blocked" \
-  -X POST http://127.0.0.1:3000/api/templates/proposals \
+  -X POST $REG_BASE/api/templates/proposals \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -F "name=Mismatch Template $SUFFIX" \
   -F "template_type=technical" \
@@ -360,15 +366,15 @@ expect 400 "unsupported template file type is blocked" \
   -F "file=@$TEMPLATE_FIXTURE;filename=mismatch.txt;type=text/plain"
 
 expect 200 "admin validates template" \
-  -X POST "http://127.0.0.1:3000/api/templates/proposals/$TPL_ID/validate" \
+  -X POST "$REG_BASE/api/templates/proposals/$TPL_ID/validate" \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 
 expect 200 "admin deletes template" \
-  -X DELETE "http://127.0.0.1:3000/api/templates/proposals/$TPL_ID" \
+  -X DELETE "$REG_BASE/api/templates/proposals/$TPL_ID" \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 
 expect_save 201 "admin creates workflow" /tmp/admin_reg_workflow.json \
-  -X POST http://127.0.0.1:3000/api/approval-workflows \
+  -X POST $REG_BASE/api/approval-workflows \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"name\":\"Regression Workflow $SUFFIX\",\"active\":true,\"stages\":[{\"name\":\"Review\",\"approver_type\":\"role\",\"approver_role_id\":\"r3\",\"mandatory\":true}]}"
@@ -376,23 +382,23 @@ expect_save 201 "admin creates workflow" /tmp/admin_reg_workflow.json \
 WF_ID="$(node -e 'const fs=require("fs"); const j=JSON.parse(fs.readFileSync("/tmp/admin_reg_workflow.json","utf8")); console.log(j.id)')"
 
 expect 409 "duplicate workflow name is blocked" \
-  -X POST http://127.0.0.1:3000/api/approval-workflows \
+  -X POST $REG_BASE/api/approval-workflows \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"name\":\"Regression Workflow $SUFFIX\",\"active\":true,\"stages\":[{\"name\":\"Review\",\"approver_type\":\"role\",\"approver_role_id\":\"r3\",\"mandatory\":true}]}"
 
 expect 400 "workflow invalid role approver is blocked" \
-  -X POST http://127.0.0.1:3000/api/approval-workflows \
+  -X POST $REG_BASE/api/approval-workflows \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"name\":\"Invalid Workflow $SUFFIX\",\"active\":true,\"stages\":[{\"name\":\"Review\",\"approver_type\":\"role\",\"approver_role_id\":\"role_missing\",\"mandatory\":true}]}"
 
 expect 200 "admin deletes workflow" \
-  -X DELETE "http://127.0.0.1:3000/api/approval-workflows/$WF_ID" \
+  -X DELETE "$REG_BASE/api/approval-workflows/$WF_ID" \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 
 expect_save 201 "admin creates integration" /tmp/admin_reg_integration.json \
-  -X POST http://127.0.0.1:3000/api/integrations \
+  -X POST $REG_BASE/api/integrations \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"name\":\"Regression Integration $SUFFIX\",\"type\":\"CRM\",\"url\":\"https://api.example.com/v1\",\"token\":\"regression-secret-token\"}"
@@ -402,7 +408,7 @@ node -e 'const fs=require("fs"); const j=JSON.parse(fs.readFileSync("/tmp/admin_
 INT_ID="$(node -e 'const fs=require("fs"); const j=JSON.parse(fs.readFileSync("/tmp/admin_reg_integration.json","utf8")); console.log(j.id)')"
 
 expect_save 200 "admin validates integration configuration" /tmp/admin_reg_integration_test.json \
-  -X POST "http://127.0.0.1:3000/api/integrations/$INT_ID/test" \
+  -X POST "$REG_BASE/api/integrations/$INT_ID/test" \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 
 node - <<'NODE'
@@ -414,51 +420,51 @@ if (j.latency_ms !== null) process.exit(1);
 NODE
 
 expect 200 "admin deletes integration" \
-  -X DELETE "http://127.0.0.1:3000/api/integrations/$INT_ID" \
+  -X DELETE "$REG_BASE/api/integrations/$INT_ID" \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 
 echo "Audit/Diagnostics"
 expect 403 "manager cannot audit" \
   -H "Authorization: Bearer $MANAGER_TOKEN" \
-  http://127.0.0.1:3000/api/audit-logs
+  $REG_BASE/api/audit-logs
 
 expect 200 "admin audit" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
-  "http://127.0.0.1:3000/api/audit-logs?limit=5"
+  "$REG_BASE/api/audit-logs?limit=5"
 
 expect 400 "invalid audit from date is blocked" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
-  "http://127.0.0.1:3000/api/audit-logs?from=not-a-date"
+  "$REG_BASE/api/audit-logs?from=not-a-date"
 
 expect 400 "invalid audit date range is blocked" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
-  "http://127.0.0.1:3000/api/audit-logs?from=2026-07-02T00:00:00Z&to=2026-07-01T00:00:00Z"
+  "$REG_BASE/api/audit-logs?from=2026-07-02T00:00:00Z&to=2026-07-01T00:00:00Z"
 
 LONG_AUDIT_Q="$(node -e 'console.log("x".repeat(201))')"
 expect 400 "long audit query is blocked" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
-  "http://127.0.0.1:3000/api/audit-logs?q=$LONG_AUDIT_Q"
+  "$REG_BASE/api/audit-logs?q=$LONG_AUDIT_Q"
 
 expect_save 200 "admin audit csv" /tmp/admin_reg_audit.csv \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
-  http://127.0.0.1:3000/api/audit-logs/export/csv
+  $REG_BASE/api/audit-logs/export/csv
 
 grep -q "Timestamp" /tmp/admin_reg_audit.csv || fail "audit csv invalid"
 
 expect 403 "manager cannot view system status" \
   -H "Authorization: Bearer $MANAGER_TOKEN" \
-  http://127.0.0.1:3000/api/admin/system/status
+  $REG_BASE/api/admin/system/status
 
 expect 403 "manager cannot download diagnostics" \
   -H "Authorization: Bearer $MANAGER_TOKEN" \
-  http://127.0.0.1:3000/api/admin/diagnostics/package/download
+  $REG_BASE/api/admin/diagnostics/package/download
 
 expect 200 "admin system status" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
-  http://127.0.0.1:3000/api/admin/system/status
+  $REG_BASE/api/admin/system/status
 
 expect_save 200 "admin diagnostics package json" /tmp/admin_reg_diag.json \
-  -X POST http://127.0.0.1:3000/api/admin/diagnostics/package \
+  -X POST $REG_BASE/api/admin/diagnostics/package \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "X-Correlation-Id: regression/unsafe correlation id" \
   -H "Content-Type: application/json" \
@@ -471,12 +477,12 @@ fi
 
 expect_save 200 "admin diagnostics download" /tmp/admin_reg_diag.txt \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
-  http://127.0.0.1:3000/api/admin/diagnostics/package/download
+  $REG_BASE/api/admin/diagnostics/package/download
 
 grep -q "SANITIZED DIAGNOSTIC PACKAGE" /tmp/admin_reg_diag.txt || fail "diagnostics invalid"
 
 echo "Audit actions"
-curl -s -H "Authorization: Bearer $ADMIN_TOKEN" "http://127.0.0.1:3000/api/audit-logs?limit=1000" > /tmp/admin_reg_audit.json
+curl -s -H "Authorization: Bearer $ADMIN_TOKEN" "$REG_BASE/api/audit-logs?limit=1000" > /tmp/admin_reg_audit.json
 node - <<'NODE'
 const fs = require("fs");
 const auditLogs = JSON.parse(fs.readFileSync("/tmp/admin_reg_audit.json", "utf8"));

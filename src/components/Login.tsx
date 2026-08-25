@@ -381,7 +381,7 @@ export default function Login({ locale, onLoginSuccess }: LoginProps) {
 
         {/* Discreet footer mark -- not part of the product branding above, just credits the platform provider */}
         <div className="mt-8 pt-4 border-t border-brand-800/60 flex flex-col items-center gap-1">
-          <span className="text-[9px] text-slate-600 uppercase tracking-wider font-mono">Powered by</span>
+          <span className="text-[9px] text-slate-400 uppercase tracking-wider font-mono">Powered by</span>
           <img src="/logo-cloudmountain-full.png" alt="CloudMountain" className="h-8 w-auto object-contain opacity-80" />
         </div>
       </motion.div>

@@ -343,7 +343,7 @@ export default function PricingProjectSheet() {
             setImportSummary(null);
           }}
           className={`inline-flex items-center gap-1.5 text-xs font-medium rounded-lg px-2.5 py-1.5 border ${
-            mode === "project" ? "bg-slate-800 text-white border-slate-800" : "text-slate-500 border-slate-300 hover:bg-slate-50"
+            mode === "project" ? "bg-brand-600 text-white border-brand-600" : "text-slate-500 border-slate-300 hover:bg-slate-50"
           }`}
         >
           <Link2 size={13} />
@@ -356,7 +356,7 @@ export default function PricingProjectSheet() {
             setImportSummary(null);
           }}
           className={`inline-flex items-center gap-1.5 text-xs font-medium rounded-lg px-2.5 py-1.5 border ${
-            mode === "standalone" ? "bg-slate-800 text-white border-slate-800" : "text-slate-500 border-slate-300 hover:bg-slate-50"
+            mode === "standalone" ? "bg-brand-600 text-white border-brand-600" : "text-slate-500 border-slate-300 hover:bg-slate-50"
           }`}
         >
           <Layers size={13} />

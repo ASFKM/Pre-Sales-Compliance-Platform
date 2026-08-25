@@ -377,9 +377,9 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
       </p>
 
       {error && (
-        <div className="p-3 rounded bg-warning-50 border border-warning-200 text-warning-900 text-xs flex justify-between items-start">
+        <div className="p-3 rounded bg-danger-50 border border-danger-200 text-danger-900 text-xs flex justify-between items-start">
           <span>{error}</span>
-          <button onClick={() => setError("")} className="text-warning-700 hover:text-warning-900 cursor-pointer"><X size={14} /></button>
+          <button onClick={() => setError("")} className="text-danger-700 hover:text-danger-900 cursor-pointer"><X size={14} /></button>
         </div>
       )}
 
@@ -438,7 +438,7 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
                 </span>
                 <div className="flex-1 h-1.5 bg-brand-100 rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-brand-500 transition-all duration-500"
+                    className="h-full bg-brand-600 transition-all duration-500"
                     style={{ width: `${typeof analysisTask.progress_pct === "number" ? analysisTask.progress_pct : 5}%` }}
                   />
                 </div>
@@ -503,7 +503,7 @@ export default function KnowledgeBase({ hasPermission, activeTasks, waitForTask 
                         {isBeingAnalyzedNow && typeof analysisTask?.progress_pct === "number" && (
                           <div className="mt-2 h-1 bg-brand-100 rounded-full overflow-hidden">
                             <div
-                              className="h-full bg-brand-500 transition-all duration-500"
+                              className="h-full bg-brand-600 transition-all duration-500"
                               style={{ width: `${analysisTask.progress_pct}%` }}
                             />
                           </div>
