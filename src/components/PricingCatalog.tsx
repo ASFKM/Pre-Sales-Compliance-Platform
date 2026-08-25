@@ -112,7 +112,7 @@ function ExchangeRateBadge() {
             onKeyDown={(e) => e.key === "Enter" && save()}
             className="w-16 text-right border border-slate-300 rounded px-1 py-0.5"
           />
-          <button onClick={save} disabled={saving} className="text-emerald-600 hover:text-emerald-700 disabled:opacity-50">
+          <button onClick={save} disabled={saving} className="text-brand-600 hover:text-brand-700 disabled:opacity-50">
             <Check size={14} />
           </button>
           <button onClick={() => setEditing(false)} disabled={saving} className="text-slate-400 hover:text-slate-600">
@@ -163,7 +163,7 @@ function PriceHistoryChart({ itemId }: { itemId: string }) {
   }, [itemId]);
 
   if (error) {
-    return <div className="text-sm text-red-600 px-4 py-3">{error}</div>;
+    return <div className="text-sm text-danger-700 px-4 py-3">{error}</div>;
   }
   if (!entries) {
     return <div className="text-sm text-slate-400 px-4 py-3">Carregando histórico...</div>;
@@ -178,11 +178,11 @@ function PriceHistoryChart({ itemId }: { itemId: string }) {
     <div className="px-4 py-3" style={{ height: 180 }}>
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={{ top: 5, right: 20, left: 0, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-          <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#64748b" }} />
-          <YAxis tick={{ fontSize: 11, fill: "#64748b" }} width={70} tickFormatter={(v) => currencyFormatter.format(v)} />
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--color-neutral-200)" />
+          <XAxis dataKey="date" tick={{ fontSize: 11, fill: "var(--color-neutral-500)" }} />
+          <YAxis tick={{ fontSize: 11, fill: "var(--color-neutral-500)" }} width={70} tickFormatter={(v) => currencyFormatter.format(v)} />
           <Tooltip formatter={(value) => currencyFormatter.format(Number(value))} />
-          <Line type="monotone" dataKey="price" stroke="#059669" strokeWidth={2} dot={{ r: 3 }} />
+          <Line type="monotone" dataKey="price" stroke="var(--color-brand-600)" strokeWidth={2} dot={{ r: 3 }} />
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -336,7 +336,7 @@ export default function PricingCatalog({ onFilesProcessed, waitForTask, tasksByI
           </button>
           <button
             onClick={() => setShowUploadModal(true)}
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-white bg-emerald-600 rounded-lg px-3 py-2 hover:bg-emerald-700"
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-white bg-brand-600 rounded-lg px-3 py-2 hover:bg-brand-700"
           >
             <Upload size={15} />
             Enviar Arquivos
@@ -345,7 +345,7 @@ export default function PricingCatalog({ onFilesProcessed, waitForTask, tasksByI
       </div>
 
       {error && (
-        <div className="mb-4 flex items-start gap-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+        <div className="mb-4 flex items-start gap-2 text-sm text-danger-700 bg-danger-50 border border-danger-200 rounded-lg px-3 py-2">
           <TriangleAlert size={15} className="mt-0.5 shrink-0" />
           {error}
         </div>
@@ -358,7 +358,7 @@ export default function PricingCatalog({ onFilesProcessed, waitForTask, tasksByI
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Buscar por código, PN, categoria ou descrição..."
-          className="w-full text-xs border border-slate-300 rounded-lg pl-8 pr-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+          className="w-full text-xs border border-slate-300 rounded-lg pl-8 pr-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-500"
         />
       </div>
 
@@ -401,12 +401,12 @@ export default function PricingCatalog({ onFilesProcessed, waitForTask, tasksByI
             {filteredItems.map((item) => {
               const expanded = expandedId === item.id;
               const isEditing = editingId === item.id;
-              const inputClass = "w-full text-xs border border-slate-300 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-emerald-500";
+              const inputClass = "w-full text-xs border border-slate-300 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-brand-500";
               return (
                 <Fragment key={item.id}>
                   <tr
                     onClick={() => !isEditing && setExpandedId(expanded ? null : item.id)}
-                    className={isEditing ? "bg-emerald-50/40" : "hover:bg-slate-50 cursor-pointer"}
+                    className={isEditing ? "bg-brand-50/40" : "hover:bg-slate-50 cursor-pointer"}
                   >
                     <td className="px-2.5 py-1 font-mono text-xs text-slate-700">
                       {isEditing ? (
@@ -476,7 +476,7 @@ export default function PricingCatalog({ onFilesProcessed, waitForTask, tasksByI
                     <td className="px-2.5 py-1 text-right">
                       {isEditing ? (
                         <div className="flex items-center gap-1.5 justify-end">
-                          <button onClick={(e) => saveEdit(item.id, e)} disabled={savingEdit} className="text-emerald-600 hover:text-emerald-700 disabled:opacity-50" title="Salvar">
+                          <button onClick={(e) => saveEdit(item.id, e)} disabled={savingEdit} className="text-brand-600 hover:text-brand-700 disabled:opacity-50" title="Salvar">
                             <Check size={15} />
                           </button>
                           <button onClick={cancelEdit} disabled={savingEdit} className="text-slate-400 hover:text-slate-600" title="Cancelar">
@@ -485,10 +485,10 @@ export default function PricingCatalog({ onFilesProcessed, waitForTask, tasksByI
                         </div>
                       ) : (
                         <div className="flex items-center gap-2 justify-end">
-                          <button onClick={(e) => startEdit(item, e)} className="text-slate-400 hover:text-emerald-600" title="Editar">
+                          <button onClick={(e) => startEdit(item, e)} className="text-slate-400 hover:text-brand-600" title="Editar">
                             <Pencil size={14} />
                           </button>
-                          <button onClick={(e) => deleteItem(item, e)} className="text-slate-400 hover:text-red-600" title="Excluir">
+                          <button onClick={(e) => deleteItem(item, e)} className="text-slate-400 hover:text-danger-600" title="Excluir">
                             <Trash2 size={14} />
                           </button>
                         </div>
@@ -497,7 +497,7 @@ export default function PricingCatalog({ onFilesProcessed, waitForTask, tasksByI
                   </tr>
                   {isEditing && rowError && (
                     <tr>
-                      <td colSpan={8} className="px-2.5 pb-1 text-xs text-red-600 bg-emerald-50/40">
+                      <td colSpan={8} className="px-2.5 pb-1 text-xs text-danger-700 bg-brand-50/40">
                         {rowError}
                       </td>
                     </tr>

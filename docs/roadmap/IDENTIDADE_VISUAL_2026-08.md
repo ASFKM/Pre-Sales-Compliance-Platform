@@ -57,7 +57,7 @@ aqui — é de lá que o dono copia para abrir a próxima conversa.
 | 3 | Área de Trabalho | **✓ concluída** (24/08/2026) | `4a5c4f9` (PR #55) | 106 trocas num arquivo só; matriz de conformidade preservada e medida (5,09 / 4,85 / 5,87:1); 12 imagens do baseline regravadas |
 | 4 | Propostas, Aprovação e Conhecimento | **✓ concluída** (24/08/2026) | `63157e9` (PR #56) | 195 trocas em 7 arquivos; ciclo de vida da proposta em 5 cores distintas; 4 modais fora do baseline provados por captura, medição e hover real |
 | 5 | Módulo POC | **✓ concluída** (24/08/2026) | `27e8628` (PR #57) | 243 trocas em 4 arquivos; Gantt decidido barra a barra; animação `poc-start-glow` tokenizada; 5 sub-abas fora do baseline provadas no navegador |
-| 6 | Módulo Precificação | não iniciada | — | add-on por entitlement |
+| 6 | Módulo Precificação | **✓ concluída** (24/08/2026) | `db4f031` (PR #58) | 103 trocas em 7 arquivos; primeiro gráfico recharts do programa tokenizado; duas escalas decididas inteiras; 6 superfícies para 1 imagem do baseline |
 | 7 | Admin Console e resíduos | não iniciada | — | maior arquivo (3.338 linhas) |
 | 8 | DOCX + branding por tenant | não iniciada | — | torna real a tela "Identidade Visual" |
 | 9 | Validação visual, contraste e release | não iniciada | — | **gate humano** |
@@ -1005,12 +1005,179 @@ Fases 3 e 4.
 
 ---
 
-## Fase 6 — Módulo Precificação
+## Fase 6 — Módulo Precificação — ✓ CONCLUÍDA (24/08/2026)
 
-**Arquivos:** os 7 `Pricing*.tsx` (60 emerald / 11 amber somados).
+**Arquivos:** `PricingProjectSheet.tsx` (745 linhas), `PricingCatalog.tsx` (532),
+`PricingExtractionReview.tsx` (375), `PricingFileUploadModal.tsx` (259), `PricingTaxSettings.tsx`
+(132), `PricingPendingItems.tsx` (115), `PricingModule.tsx` (86).
 
-**Atenção:** "Extrações pendentes" e "fora de faixa" (markup fora de min/max) são avisos reais —
-âmbar fica. Confiança de match e desconto usam cor como escala, não como marca.
+**103 trocas em 7 arquivos** — 99 classes Tailwind (o número que o levantamento previa, casado
+exatamente) e **4 literais hex cravados em atributo JSX do recharts**, fora do alcance de qualquer
+busca por classe. Depois da fase os sete arquivos têm **zero** ocorrência de `emerald`, `amber`,
+`red` ou `blue`, e **zero** hex ou `rgba()`. As **103 âncoras**
+`(arquivo, linha, texto exato, contagem esperada naquela linha)`, com aborto sem gravar se uma só
+não casasse, **casaram de primeira** — quinta fase seguida.
+
+### O gráfico: o primeiro recharts do programa
+
+`PricingCatalog.tsx` desenha o histórico de preço por item, e a cor estava em atributo de
+apresentação SVG:
+
+```
+        antes                          depois                       pintado no navegador
+grade   stroke="#e2e8f0"               var(--color-neutral-200)     #e2e8f0   idêntico
+eixos   fill: "#64748b"                var(--color-neutral-500)     #62748e   deslocou 3 bits
+linha   stroke="#059669"  emerald-600  var(--color-brand-600)       #236cc7   5,06:1 ✓
+pontos  (herdam do Line)               var(--color-brand-600)       #236cc7
+```
+
+**A linha do gráfico não é sucesso — é uma série de dados.** `#059669` era a cor de marca
+aposentada cravada à mão; virou `brand-600`. A paleta reserva `brand-500` para "séries de gráfico",
+mas aqui é **uma** série de 2px sobre a linha expandida da tabela (`slate-50/60`, pintada
+`#fbfcfd`): `brand-500` daria 3,2:1 e `brand-600` dá **5,06:1**. Escolhido o 600 e registrado o
+porquê.
+
+**Confirmado no navegador, não presumido** — se `var()` não resolvesse, a série ficaria preta:
+`stroke` computa `rgb(35, 108, 199)`. E vale a nota da Fase 5 ao contrário: **os tokens da marca
+voltam como `rgb()` e os semânticos como `oklch()`** (`--color-neutral-500` →
+`oklch(0.554 0.046 257.417)`).
+
+**O eixo mudou de tom de propósito, como o âmbar da animação na Fase 5.** O literal `#64748b` era o
+`slate-500` do **Tailwind v3**; o token pinta `#62748e`, o `slate-500` do v4 — o mesmo cinza que o
+resto do produto usa. A grade não mudou um pixel (`#e2e8f0` é igual nas duas versões).
+
+### As duas escalas, decididas inteiras de uma vez
+
+**1. Status do casamento da linha do BOM** (`MATCH_COLOR`) — era verde / azul / âmbar:
+
+```
+Casado com catálogo    success-50 / success-700   5,09:1   resolvido pelo catálogo, é conforme
+Mapeado manualmente    slate-100  / slate-700     9,45:1   resolvido por uma pessoa: procedência
+Sem preço cadastrado   warning-50 / warning-700   4,85:1   bloqueia a linha — é o degrau ruim
+```
+
+O azul de "Mapeado manualmente" **não virou `brand`**: um chip azul-marca numa coluna de status
+lê como clicável, e a Fase 4 já pagou esse preço nos chips de perspectiva. Foi para o neutro, como
+o chip "editado" da Fase 5. O verde **ficou** onde significa "veio do catálogo", e o âmbar ficou
+onde o prompt manda: a linha sem preço é pendência de verdade — o campo de desconto dela nem
+existe, mostra "—".
+
+**2. Confiança do casamento na revisão de extração** — três notas de 9px sob o código do item:
+
+```
+"PN já existe: usar X"          brand-600     5,20:1   é um <button>, ação de um clique
+"Atualiza item existente"       success-700   5,36:1   PN e código batem: casamento limpo
+"PN já existe c/ outro código"  warning-700   5,03:1   conflito, exige julgamento humano
+```
+
+Os três reprovavam ou raspavam AA antes (`blue-600`, `emerald-600` 3,77:1, `amber-600` 3,19:1) em
+texto de **9px**, que não é texto grande. Os três agora passam.
+
+### Seis decisões que um `sed` teria errado
+
+1. **O contador de extrações pendentes virou `brand-600`, não âmbar.** Foi o caso mais disputado da
+   fase. O precedente âmbar do produto é o dot da aba "Equipamento" (Fase 5), e ele só aparece com
+   `equipmentPendingReturn > 0 && pocIsOverdue` — é **alarme**, não contagem. Este badge aparece com
+   `extractionCount > 0`, sem prazo e sem nada quebrado: é uma **contagem numa superfície de
+   navegação**, como o badge do kanban (que é neutro). Ficou `bg-brand-600` com texto branco
+   (**5,20:1**; `warning-600` com branco daria 3,19:1 e reprovaria). O aviso de verdade continua
+   âmbar **dentro** da aba: a tarja das notas de confiança e a tarja da linha incompleta.
+2. **O resumo do BOM importado não é sucesso.** `bg-emerald-50 / emerald-200 / emerald-800` virou
+   `brand-*` (**10,51:1**). A caixa diz "72 itens — 12 casados, **60 sem preço**": pintá-la de verde
+   promete um desfecho que ela não tem. Mesma decisão do total bruto da planilha na Fase 4.
+3. **O desconto sugerido pela IA virou `brand-700`** (7,57:1). Era `emerald-700` ao lado do desconto
+   atual em `slate-500`. É uma **proposta a aceitar**, não um resultado bom — e o botão que a aplica
+   é da marca.
+4. **A margem fora da faixa de markup continua âmbar, com tom corrigido.** `amber-600` dava
+   **3,19:1** e reprovava; `warning-700` dá **5,03:1**. O check de "dentro da faixa" era
+   `emerald-500` (**2,54:1**, reprovava até o piso de 3:1 de objeto gráfico) e virou `success-600`
+   (**3,65:1**). Continua verde: ali o verde é "esta linha está conforme", e o estado alternativo é
+   um alerta âmbar.
+5. **O spinner de "enviando/processando" era âmbar e virou marca.** `text-amber-500` (2,36:1) em
+   `PricingFileUploadModal.tsx:213` não avisava nada — enviar arquivo não é uma pendência. Progresso
+   é marca, como as barras das Fases 3 e 4: `brand-600` (**5,20:1**).
+6. **"Configurações salvas." continua verde.** É o único sucesso literal do módulo
+   (`success-50/700`, 5,09:1, medido **de verdade** clicando em Salvar), e agora fica ao lado de um
+   primário azul — exatamente a separação que o programa existe para criar.
+
+Os seis pontos de erro do módulo já eram `red` e foram para `danger` sem discussão. **A Precificação
+não tem o defeito "erro exibido como aviso"** que as Fases 4 e 5 acharam em seis lugares — vale
+registrar o negativo.
+
+### Como ficou provado, já que o baseline cobre UMA das seis superfícies
+
+`npm run test:visual` deu **36/36 antes de qualquer mudança** e **36/36 de novo** com o baseline
+regravado. Isso vale pouco aqui: a tela `pricing` do baseline é só a aba **"Tabela de preços"**. As
+outras quatro abas e o modal de upload — **6 superfícies para 1 imagem**, pior proporção que a Fase
+5 — foram abertas no navegador e fotografadas em pasta separada (`--out /tmp/fase6/...`), com a cor
+**pintada num canvas 1×1**.
+
+**O dado de dev não cobre metade da matriz, e o banco disse isso em segundos:**
+
+- **As 34 extrações do banco estão TODAS em `confirmed`/`rejected`.** O endpoint filtra
+  `status in (pending, edited)` — a aba "Extrações pendentes" nasce **vazia** e o contador **nunca
+  renderiza** com dado real. Foi o mesmo buraco da Fase 5 ("só uma POC não arquivada"), mas total.
+- **`ProjectPricingLine` tem `matched=12` e `unmatched=60`, e ZERO `manual`.** Dois dos três degraus
+  da escala de status existem na tela; o terceiro, não.
+- **Só 1 dos 33 itens do catálogo tem ≥2 entradas de histórico** — e o gráfico só desenha com duas.
+  O script varre as linhas até achar a que abre o `recharts`.
+
+O que o banco não tem foi medido em **23 amostras sintéticas com as classes reais do componente**, e
+o que existe em repouso foi medido no elemento vivo. Estados que só existem em interação foram
+provados com interação de verdade: `page.hover()` no primário (`#236cc7` → `#1a539e`, 5,20 → 7,57),
+no lápis e na lixeira da tabela; `focus()` real no campo de busca (anel `rgb(40, 139, 249)` =
+`brand-500`) e no campo obrigatório (borda `danger-300` → `brand-500`); **um evento `dragover` de
+verdade** na área de arraste do modal (borda `#cad5e2` → `#288bf9`, fundo → `#ebf6ff`); e um clique
+real em "Salvar" no Motor fiscal para a tarja verde.
+
+**Comparação antes × depois de verdade, não só "renderizou".** As 13 capturas foram tiradas duas
+vezes — com `git stash` + `npm run build` no HEAD para o "antes" e de novo com a mudança — e
+comparadas pixel a pixel. Todas mudaram no lugar esperado, e a leitura das imagens ampliadas
+confirmou o que os números diziam: a escala de três degraus do status é legível a 12px, e a escala
+de confiança a 9px.
+
+**2 das 36 imagens do baseline foram regravadas** (`pricing` nas duas larguras). No desktop a
+diferença é de **5.721 px em `y=104..183`** — a barra de abas e o primário do cabeçalho; no
+telefone, **94 px em `x=24..70, y=242..243`**: a régua de 2px da aba ativa. `home.png` apareceu
+"modificada" na recaptura e a comparação deu **0 pixel** de diferença — restaurada do HEAD, como nas
+Fases 3, 4 e 5. Espere que aconteça de novo.
+
+No próprio dev: `npm run lint` limpo, `npm run build` completo, `npm run test` com **16 arquivos e
+98 testes** passando.
+
+### Cuidados que só apareceram executando
+
+- **`:has-text()` e `:text-is()` são seletores do Playwright e não existem no DOM.** Um
+  `document.querySelectorAll('button:has-text("Salvar")')` dentro de `page.evaluate()` estoura
+  `SyntaxError`. Para medir um elemento achado por eles: marcar o nó pelo lado do Playwright
+  (`locator.evaluate` com arrow anônima) e medir pelo atributo.
+- **`--tw-ring-color` é onde o anel de foco mora.** `boxShadow` truncado em 60 caracteres esconde o
+  anel: ele é a **quarta** sombra da lista. Ler a propriedade customizada é direto.
+- **Script com `import` do repo precisa rodar DENTRO do repo.** `npx tsx /tmp/x.ts` não resolve
+  `@prisma/client`; o arquivo tem que estar sob a raiz do projeto.
+- **Prisma 7: os nomes do schema não são os do cliente.** `PriceHistoryEntry.itemId` (não
+  `catalogItemId`), `PriceCatalogExtractionDraft` sem `sourceFileName` (vem de
+  `priceListUpload.fileName`), `ProjectPricingSheet` sem `standalone` (é `projectId == null`). Ler o
+  `schema.prisma` antes de escrever o `select`.
+- **`.auth/capture-state.json` expirou na primeira rodada e foi reaproveitado nas cinco seguintes.**
+  A fase gastou **4** tentativas de login (a comparação inicial, a verificação, a recaptura e a comparação final) dentro
+  do teto de 20 por 15 minutos.
+- **`.git/index` não estava root-owned** — terceira fase seguida com a varredura limpa.
+
+### Achados registrados, fora do escopo desta fase
+
+- **O par de botões de modo `bg-slate-800`** ("Vinculada a projeto" / "Avulsa") em
+  `PricingProjectSheet.tsx:346`/`:359` pesa mais que o "Importar BOM" de marca logo ao lado — é a
+  mesma família do achado do botão "Salvar" das Fases 4 e 5. **Fase 9.**
+- **A Precificação não é responsiva a 390px**: a tabela transborda na horizontal e o selo de cotação
+  se sobrepõe ao texto do cabeçalho. É estrutura, não cor, e é anterior a esta fase. **Fase 9.**
+- **Primário desabilitado usa `disabled:opacity-60`**, o que põe texto branco sobre um azul de
+  ~2,5:1. É padrão do produto inteiro e a WCAG isenta controle desabilitado — registrado só para não
+  se perder. **Fase 9.**
+- **O chip "ADD-ON" da própria aba "Precificação"** continua nos 2,46:1 medidos na Fase 5. É da Fase
+  2. **Fase 9.**
+- `waiting_internal`, "Precisa de Informação" e a coluna "Prioridade" **não aparecem neste módulo**;
+  seguem como as Fases 3 e 4 as deixaram.
 
 ---
 
@@ -1019,10 +1186,19 @@ Fases 3 e 4.
 **Arquivos:** `AdminConsole.tsx` (90/15, 3.338 linhas), `DebugConsoleModal.tsx`,
 `AuditLogsModal.tsx`.
 
-**Escopo adicional — varredura final:** eliminar literais hex remanescentes em `src/`
-(`#10b981`, `#059669` etc. aparecem cravados em configurações de gráfico) e trocá-los pelos
-tokens. Ao final desta fase, `grep -rE '#[0-9a-fA-F]{6}' src/` não deve retornar cor de marca
-hardcoded.
+**Escopo adicional — varredura final:** eliminar literais hex remanescentes em `src/` e
+trocá-los pelos tokens. Ao final desta fase, `grep -rE '#[0-9a-fA-F]{6}' src/` não deve retornar
+cor de marca hardcoded. **Medido depois da Fase 6** (que já resolveu os 4 do gráfico da
+Precificação), sobram **9 ocorrências fora de `src/index.css`**:
+
+```
+src/App.tsx:352 #059669   :353 #10b981   :464 #059669   :465 #10b981   :924 #f8fafc
+src/components/AdminConsole.tsx:2987 #10b981   :3005 #cccccc   :3051 #10b981
+src/diagnostics/BugReportModal.tsx:79 #b23b3b
+```
+
+`#059669`/`#10b981` são `emerald-600`/`emerald-500` — a marca aposentada. Os 16 hex de
+`src/index.css` são os valores literais dos tokens e **ficam**.
 
 ---
 

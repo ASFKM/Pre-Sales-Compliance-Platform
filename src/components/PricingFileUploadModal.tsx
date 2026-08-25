@@ -186,7 +186,7 @@ export default function PricingFileUploadModal({
               }}
               onClick={() => inputRef.current?.click()}
               className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
-                dragging ? "border-emerald-500 bg-emerald-50" : "border-slate-300 hover:border-slate-400"
+                dragging ? "border-brand-500 bg-brand-50" : "border-slate-300 hover:border-slate-400"
               }`}
             >
               <FileUp size={22} className="mx-auto mb-2 text-slate-400" />
@@ -210,15 +210,15 @@ export default function PricingFileUploadModal({
               {queue.map((q, idx) => (
                 <div key={idx} className="flex items-center gap-2 text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2">
                   {q.status === "queued" && <Sparkles size={13} className="text-slate-400 shrink-0" />}
-                  {(q.status === "uploading" || q.status === "processing") && <Loader2 size={13} className="animate-spin text-amber-500 shrink-0" />}
-                  {(q.status === "done" || q.status === "success") && <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />}
-                  {q.status === "error" && <CircleAlert size={13} className="text-red-500 shrink-0" />}
+                  {(q.status === "uploading" || q.status === "processing") && <Loader2 size={13} className="animate-spin text-brand-600 shrink-0" />}
+                  {(q.status === "done" || q.status === "success") && <CheckCircle2 size={13} className="text-success-600 shrink-0" />}
+                  {q.status === "error" && <CircleAlert size={13} className="text-danger-600 shrink-0" />}
                   <div className="min-w-0 flex-1">
                     <p className="font-medium text-slate-700 truncate">{q.file.name}</p>
                     {q.status !== "queued" && <p className="text-[10px] text-slate-500">{statusLabel(q)}</p>}
                   </div>
                   {q.status === "queued" && (
-                    <button onClick={() => removeFile(idx)} className="text-slate-400 hover:text-red-500 shrink-0">
+                    <button onClick={() => removeFile(idx)} className="text-slate-400 hover:text-danger-600 shrink-0">
                       <X size={13} />
                     </button>
                   )}
@@ -228,7 +228,7 @@ export default function PricingFileUploadModal({
           )}
 
           {batchError && (
-            <div className="flex items-start gap-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+            <div className="flex items-start gap-2 text-xs text-danger-700 bg-danger-50 border border-danger-200 rounded-lg px-3 py-2">
               <CircleAlert size={13} className="mt-0.5 shrink-0" />
               {batchError}
             </div>
@@ -239,7 +239,7 @@ export default function PricingFileUploadModal({
               <button
                 onClick={submit}
                 disabled={queue.length === 0 || uploading}
-                className="inline-flex items-center gap-1.5 text-sm font-medium text-white bg-emerald-600 rounded-lg px-3 py-2 hover:bg-emerald-700 disabled:opacity-60"
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-white bg-brand-600 rounded-lg px-3 py-2 hover:bg-brand-700 disabled:opacity-60"
               >
                 {uploading ? <Loader2 size={15} className="animate-spin" /> : <FileUp size={15} />}
                 {uploading ? "Enviando..." : `Enviar ${queue.length || ""} arquivo(s)`}

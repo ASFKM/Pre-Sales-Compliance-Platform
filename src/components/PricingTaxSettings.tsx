@@ -106,13 +106,13 @@ export default function PricingTaxSettings() {
       )}
 
       {error && (
-        <div className="mb-4 flex items-start gap-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+        <div className="mb-4 flex items-start gap-2 text-sm text-danger-700 bg-danger-50 border border-danger-200 rounded-lg px-3 py-2">
           <TriangleAlert size={15} className="mt-0.5 shrink-0" />
           {error}
         </div>
       )}
       {saved && (
-        <div className="mb-4 flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+        <div className="mb-4 flex items-center gap-2 text-sm text-success-700 bg-success-50 border border-success-200 rounded-lg px-3 py-2">
           <CheckCircle2 size={15} />
           Configurações salvas.
         </div>
@@ -121,7 +121,7 @@ export default function PricingTaxSettings() {
       <button
         onClick={save}
         disabled={saving}
-        className="inline-flex items-center gap-1.5 text-sm font-medium text-white bg-emerald-600 rounded-lg px-3 py-2 hover:bg-emerald-700 disabled:opacity-60"
+        className="inline-flex items-center gap-1.5 text-sm font-medium text-white bg-brand-600 rounded-lg px-3 py-2 hover:bg-brand-700 disabled:opacity-60"
       >
         {saving ? <Loader2 size={15} className="animate-spin" /> : null}
         Salvar
