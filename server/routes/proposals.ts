@@ -20,6 +20,7 @@ import { prisma } from "../../src/prisma";
 import { randomId } from "../../src/idGenerator";
 import { LOGIC_VERSIONS } from "../../src/aiLogicVersions";
 import { logger } from "../utils/logger";
+import { empurrarProposta } from "../utils/crmOutbox";
 
 const router = express.Router();
 // Exportada (Fase 8) para que a precedência de branding possa ser provada por teste e por uma
@@ -341,6 +342,19 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
       });
 
       await completeTask(task.id, { resultType: "proposal", resultId: proposal.id });
+
+      /*
+       * CDC 16 F4 (D22): a proposta viaja para o CRM assim que existe.
+       *
+       * Aqui, e não antes: o documento é parte do envelope, e o `sha256` que vai declarado no
+       * `POST` é o do arquivo já escrito. Empurrar antes da escrita declararia o hash de um
+       * arquivo que ainda não existia — e o `PUT` do binário logo depois daria 422 com toda a
+       * razão.
+       *
+       * Dentro do bloco de tenant, e sem `await` que possa derrubar a geração: um CRM fora do ar
+       * não pode fazer falhar uma proposta que já foi gerada e salva aqui.
+       */
+      void empurrarProposta(proposal.id);
     } catch (genErr: any) {
       logDebugMessage({
         operation: "Proposal Generation Failure",
@@ -851,6 +865,12 @@ router.post("/proposals/:id/release", requirePermission("proposal:approve"), asy
     }
 
     const releasedProposal = await dbStore.updateProposalStatus(req.params.id, "released");
+
+    // CDC 16 F4: liberar é o momento em que a proposta vira compromisso com o cliente — e é
+    // justamente o estado (`sent` no contrato) em que o valor dela SOBRESCREVE o da oportunidade
+    // no CRM (D21). O envelope carrega a versão nova do status; a versão do documento não muda,
+    // então o binário não sobe de novo (o hash é a chave da mensagem, e o CRM já o tem).
+    void empurrarProposta(req.params.id);
 
     logDebugMessage({
       operation: "Proposal Release",
