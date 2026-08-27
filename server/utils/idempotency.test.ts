@@ -1,7 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { prisma } from "../../src/prisma";
 import { runWithTenant } from "../../src/tenantContext";
+import crypto from "crypto";
 import { withIdempotency, IdempotencyConflict } from "./idempotency";
+import { canonicalJsonDeep } from "./fleetLicense";
+
+/** O mesmo hash que withIdempotency calcula - para montar uma reserva à mão que seja da MESMA requisição. */
+function hashDoCorpo(payload: unknown): string {
+  return crypto.createHash("sha256").update(canonicalJsonDeep(payload)).digest("hex");
+}
 
 // CDC 16 — Fase 1. A idempotência de toda escrita da porta de máquina.
 //
@@ -108,6 +115,66 @@ describe("CDC 16 F1 - withIdempotency", () => {
     );
     expect(depois.replayed).toBe(false);
     expect(depois.status).toBe(201);
+  });
+
+  it("uma reserva ABANDONADA (processo morreu no meio) não enterra a chave para sempre", async () => {
+    // O caso real: a reserva é gravada numa transação e a execução roda noutra.
+    // Um deploy, um OOM ou um restart entre as duas deixa a linha em voo, e sem
+    // isto toda retentativa receberia 409 "em execução" eternamente - o oposto
+    // do que a idempotência existe para fazer.
+    let execucoes = 0;
+    const morrerNoMeio = runWithTenant({ tenantId: TENANT }, async () =>
+      withIdempotency("teste", "chave-abandonada", { a: 1 }, async () => {
+        execucoes += 1;
+        throw new Error("processo morreu");
+      })
+    );
+    await expect(morrerNoMeio).rejects.toThrow();
+
+    // Recria a reserva à mão no estado que o processo morto deixaria, e envelhece.
+    await prisma.idempotencyRecord.create({
+      data: {
+        id: "idem_abandonada_teste",
+        tenantId: TENANT,
+        scope: "teste",
+        key: "chave-abandonada",
+        // Hash de OUTRO corpo de propósito: a reserva abandonada é assumida e o
+        // hash é reescrito com o da requisição que chegou depois.
+        requestHash: hashDoCorpo({ outro: "corpo" }),
+        responseStatus: 0,
+        responseBody: "",
+        createdAt: new Date(Date.now() - 10 * 60 * 1000),
+      },
+    });
+
+    const depois = await runWithTenant({ tenantId: TENANT }, async () =>
+      withIdempotency("teste", "chave-abandonada", { a: 1 }, async () => {
+        execucoes += 1;
+        return { status: 201, body: { ok: true } };
+      })
+    );
+    expect(depois.replayed).toBe(false);
+    expect(depois.status).toBe(201);
+    expect(execucoes).toBe(2);
+  });
+
+  it("uma reserva RECENTE em voo continua sendo recusada", async () => {
+    await prisma.idempotencyRecord.create({
+      data: {
+        id: "idem_em_voo_teste",
+        tenantId: TENANT,
+        scope: "teste",
+        key: "chave-em-voo-recente",
+        requestHash: hashDoCorpo({ a: 1 }),
+        responseStatus: 0,
+        responseBody: "",
+      },
+    });
+    await expect(
+      runWithTenant({ tenantId: TENANT }, async () =>
+        withIdempotency("teste", "chave-em-voo-recente", { a: 1 }, async () => ({ status: 201, body: { ok: true } }))
+      )
+    ).rejects.toMatchObject({ reason: "in_flight" });
   });
 
   it("a mesma chave em outro tenant é outra chave", async () => {

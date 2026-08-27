@@ -34,6 +34,15 @@ export interface IdempotentOutcome<T> {
 // Reserva feita, execução ainda em curso.
 const EM_VOO = 0;
 
+// Depois disto, uma reserva em voo é tratada como ABANDONADA e a execução é
+// refeita. Existe porque a reserva é gravada numa transação e a execução roda
+// noutra: um processo que morre entre as duas (deploy, OOM, restart) deixaria a
+// chave enterrada, e toda retentativa do CMCRM receberia 409 "em execução" para
+// sempre - o oposto do que a idempotência existe para fazer. Refazer é seguro
+// porque a própria escrita é idempotente pelo seu identificador natural (o
+// demand_ref, que tem índice único).
+const EM_VOO_ABANDONADO_APOS_MS = 90_000;
+
 function exigirTenant(): string {
   const tenantId = getCurrentTenantId();
   if (!tenantId) {
@@ -69,7 +78,17 @@ export async function withIdempotency<T>(
 
   const existente = await prisma.idempotencyRecord.findFirst({ where: { scope, key } });
   if (existente) {
-    return interpretarExistente<T>(existente, requestHash);
+    if (!emVooAbandonado(existente)) {
+      return interpretarExistente<T>(existente, requestHash);
+    }
+    // Assume a reserva abandonada em vez de criar outra: o índice único não
+    // deixaria criar, e sobrescrever o hash é o que permite a retentativa
+    // legítima seguir com o mesmo corpo.
+    await prisma.idempotencyRecord.updateMany({
+      where: { id: existente.id, responseStatus: EM_VOO },
+      data: { requestHash, createdAt: new Date() },
+    });
+    return await executarEGravar<T>(existente.id, run);
   }
 
   let reservaId: string;
@@ -98,6 +117,17 @@ export async function withIdempotency<T>(
     return interpretarExistente<T>(agora, requestHash);
   }
 
+  return executarEGravar<T>(reservaId, run);
+}
+
+function emVooAbandonado(registro: { responseStatus: number; createdAt: Date }): boolean {
+  return registro.responseStatus === EM_VOO && Date.now() - registro.createdAt.getTime() > EM_VOO_ABANDONADO_APOS_MS;
+}
+
+async function executarEGravar<T>(
+  reservaId: string,
+  run: () => Promise<{ status: number; body: T }>
+): Promise<IdempotentOutcome<T>> {
   try {
     const resultado = await run();
     await prisma.idempotencyRecord.update({
