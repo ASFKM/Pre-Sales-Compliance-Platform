@@ -304,6 +304,13 @@ async function bootstrap() {
   // periodic interval rather than a single setTimeout per schedule.
   const { startUpdateSchedulerInterval } = await import("./server/utils/updateScheduler");
   startUpdateSchedulerInterval();
+
+  // CDC 16 F3: a fila de saída para o CRM. O caminho normal é a tentativa
+  // imediata logo depois de cada marco (`tentarAgora`); este laço é a rede de
+  // segurança — é ele que entrega o que ficou parado enquanto o CRM esteve fora
+  // do ar, sem depender de alguém repetir o ato que gerou o evento.
+  const { startCrmOutboxInterval } = await import("./server/utils/crmOutbox");
+  startCrmOutboxInterval();
 }
 
 bootstrap().catch((err) => {

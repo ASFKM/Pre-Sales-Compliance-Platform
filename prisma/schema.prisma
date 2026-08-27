@@ -278,9 +278,11 @@ model Tenant {
   systemUpdateHistory     SystemUpdateHistory[]
 
   // CDC 16 (integracao CMCRM <-> PreSales), Fase 1
-  demands             Demand[]
-  demandDocuments     DemandDocument[]
-  idempotencyRecords  IdempotencyRecord[]
+  demands              Demand[]
+  crmPairKey           CrmPairKey?
+  demandOutboundEvents DemandOutboundEvent[]
+  demandDocuments      DemandDocument[]
+  idempotencyRecords   IdempotencyRecord[]
 
   // Módulo de Precificação (add-on)
   priceCatalogItems            PriceCatalogItem[]
@@ -679,8 +681,8 @@ model Document {
   uploadedBy                 String          @map("uploaded_by")
   createdAt                  DateTime        @default(now()) @map("created_at")
 
-  content       DocumentContent?
-  demandOrigin  DemandDocument?
+  content      DocumentContent?
+  demandOrigin DemandDocument?
 
   @@index([tenantId])
   @@map("documents")
@@ -889,28 +891,28 @@ model DebugLog {
 // with sentAt still null is exactly the offline-resilience guarantee (Seção 48.5 of the CDC
 // briefing): capture never depends on the CMSaaS being reachable at capture time.
 model DiagnosticsOutboxEvent {
-  id              String   @id
-  tenantId        String   @map("tenant_id")
-  tenant          Tenant   @relation(fields: [tenantId], references: [id])
-  externalEventId String   @map("external_event_id")
-  eventType       String   @map("event_type")
+  id              String    @id
+  tenantId        String    @map("tenant_id")
+  tenant          Tenant    @relation(fields: [tenantId], references: [id])
+  externalEventId String    @map("external_event_id")
+  eventType       String    @map("event_type")
   source          String
-  severity        String   @default("medium")
-  message         String   @db.Text
-  exceptionType   String?  @map("exception_type")
-  stackTrace      String?  @map("stack_trace") @db.Text
+  severity        String    @default("medium")
+  message         String    @db.Text
+  exceptionType   String?   @map("exception_type")
+  stackTrace      String?   @map("stack_trace") @db.Text
   route           String?
-  httpMethod      String?  @map("http_method")
-  httpStatus      Int?     @map("http_status")
+  httpMethod      String?   @map("http_method")
+  httpStatus      Int?      @map("http_status")
   operation       String?
-  correlationId   String?  @map("correlation_id")
-  sessionId       String?  @map("session_id")
-  metadataJson    String?  @map("metadata_json") @db.Text
-  occurredAt      DateTime @map("occurred_at")
-  createdAt       DateTime @default(now()) @map("created_at")
+  correlationId   String?   @map("correlation_id")
+  sessionId       String?   @map("session_id")
+  metadataJson    String?   @map("metadata_json") @db.Text
+  occurredAt      DateTime  @map("occurred_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
   sentAt          DateTime? @map("sent_at")
-  attempts        Int      @default(0)
-  lastError       String?  @map("last_error") @db.Text
+  attempts        Int       @default(0)
+  lastError       String?   @map("last_error") @db.Text
 
   @@index([tenantId, sentAt])
   @@map("diagnostics_outbox_events")
@@ -2061,14 +2063,14 @@ model Demand {
   objective            String?  @db.Text
 
   // ── Quem enviou, do lado do CRM. Referência, não conta local (D34) ────────
-  sentByCrmUserId String   @map("sent_by_crm_user_id")
-  sentByName      String   @map("sent_by_name")
-  sentByEmail     String?  @map("sent_by_email")
-  sentAt          DateTime @map("sent_at")
+  sentByCrmUserId    String   @map("sent_by_crm_user_id")
+  sentByName         String   @map("sent_by_name")
+  sentByEmail        String?  @map("sent_by_email")
+  sentAt             DateTime @map("sent_at")
   // Onde o PreSales devolve eventos (F3). Guardado agora porque chega no
   // envelope de criação; conferido contra o par antes de ser usado, nunca
   // aceito cegamente - ver a spec do §4.
-  crmCallbackBaseUrl String? @map("crm_callback_base_url")
+  crmCallbackBaseUrl String?  @map("crm_callback_base_url")
 
   // Instalação do CMCRM que mandou, tirada do par no ato da criação (e não do
   // corpo da requisição): é o rastro de QUAL lado escreveu, e o que marca uma
@@ -2095,7 +2097,8 @@ model Demand {
   projectId String?  @unique @map("project_id")
   project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
-  documents DemandDocument[]
+  documents      DemandDocument[]
+  outboundEvents DemandOutboundEvent[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2146,6 +2149,109 @@ model DemandDocument {
   @@unique([tenantId, demandId, documentRef])
   @@index([tenantId])
   @@map("demand_documents")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CDC 16 — Fase 3: o RETORNO. Até aqui este produto só RECEBIA chamadas; agora
+// ele também CHAMA (fleet-manager:docs/cdc/16-contratos/cmcrm-inbound.v1.yaml).
+// ─────────────────────────────────────────────────────────────────────────────
+
+// A chave do par, como o CMCRM a APRESENTOU nesta porta.
+//
+// A D39 decidiu que o CMSaaS entrega a chave só ao lado que chama, e na F1 e na
+// F2 quem chamava era o CMCRM - por isso este produto nunca guardou chave
+// nenhuma, nem o hash dela. A F3 inverte a direção, e o PreSales passa a
+// precisar de uma credencial para falar de volta.
+//
+// A saída NÃO é pedir a chave ao CMSaaS (isso mudaria a D39 e o terceiro
+// repositório): é guardar a MESMA chave que o CMCRM já apresenta em toda
+// chamada de entrada, depois de ela ter sido verificada contra o CMSaaS. A
+// consequência é boa e vale estar escrita: este lado só consegue chamar depois
+// de o outro ter chamado ao menos uma vez, isto é, depois de o par ter sido
+// exercido de verdade na direção que a D39 previu.
+//
+// Isto NÃO reintroduz o que a F1 recusou. A F1 recusou guardar uma cópia para
+// JULGAR quem chama - a autoridade sobre o par continua sendo o CMSaaS, e a
+// porta de entrada continua perguntando a ele a cada chamada. O que se guarda
+// aqui serve para FALAR, e uma chave revogada guardada aqui não abre nada: o
+// CMCRM a recusa, porque a porta DELE também pergunta ao CMSaaS.
+model CrmPairKey {
+  tenantId String @id @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  // Cifrada com a mesma chave de aplicação que já protege os segredos deste
+  // produto (server/utils/security.ts). Em claro, ela abriria a porta de
+  // escrita do outro produto para qualquer consulta a este banco.
+  keyEncrypted String @map("key_encrypted") @db.Text
+  // Últimos 4 caracteres, para a tela e o log poderem dizer QUAL chave está em
+  // uso sem exibir material de chave.
+  keyHint      String @map("key_hint")
+
+  // De qual instalação do CMCRM esta chave veio, tirado do PAR e não do corpo.
+  crmInstallationId String  @map("crm_installation_id")
+  // Onde chamar de volta, como o envelope da demanda o declarou. Guardado, e
+  // NUNCA aceito cegamente: antes de cada uso é conferido contra o par, porque
+  // quem manda o endereço é a mesma requisição que quer ser chamada de volta.
+  callbackBaseUrl   String? @map("callback_base_url")
+
+  receivedAt  DateTime  @map("received_at")
+  verifiedAt  DateTime? @map("verified_at")
+  verifyError String?   @map("verify_error") @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("crm_pair_keys")
+}
+
+// A fila de saída: o que este lado tem a contar ao CRM, e ainda não contou.
+//
+// Enfileirar, e não chamar direto de dentro da transação que muda o estado, por
+// dois motivos que já custaram caro noutras frentes: uma chamada HTTP dentro da
+// transação prende o banco pelo tempo da rede do outro lado, e um CRM fora do
+// ar faria "assumir a demanda" falhar para quem está trabalhando aqui - quando
+// o fato aconteceu de qualquer jeito. A entrega é em segundo plano, com
+// retentativa, exatamente como o CRM faz na direção oposta (D10).
+model DemandOutboundEvent {
+  id       String @id
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+  demandId String @map("demand_id")
+  demand   Demand @relation(fields: [demandId], references: [id], onDelete: Cascade)
+
+  // "event" (POST /demands/{ref}/events) ou "project_state" (PUT .../project).
+  kind  String
+  // Nome do evento do contrato quando kind = event; nulo no retrato do projeto.
+  event String?
+
+  // O instante do FATO. É ele que viaja no corpo, e não o do envio - é o que
+  // mantém a medição de tempo de resposta honesta quando a entrega atrasa.
+  occurredAt DateTime @map("occurred_at")
+
+  // O corpo EXATO que vai ser enviado, congelado no ato do enfileiramento. A
+  // retentativa reenvia estes mesmos bytes: remontar mudaria o corpo, e o CRM
+  // trata a mesma Idempotency-Key com corpo diferente como 409 - com razão. A
+  // F1 pagou esse erro no próprio script de prova dela.
+  payload Json
+
+  // Estável por linha, e nunca regerada.
+  idempotencyKey String @map("idempotency_key")
+
+  // pendente | enviado | falhou | descartado
+  status        String    @default("pendente")
+  attempts      Int       @default(0)
+  lastError     String?   @map("last_error") @db.Text
+  lastStatus    Int?      @map("last_status")
+  nextAttemptAt DateTime  @default(now()) @map("next_attempt_at")
+  sentAt        DateTime? @map("sent_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, status, nextAttemptAt])
+  @@index([tenantId, demandId])
+  @@map("demand_outbound_events")
 }
 
 // Idempotência de toda escrita da porta de máquina (regra 1 do §4 do plano).

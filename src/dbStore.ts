@@ -1,6 +1,7 @@
 import { prisma } from "./prisma";
 import { getCurrentTenantId } from "./tenantContext";
 import { randomId } from "./idGenerator";
+import { concluirDemandaDoProjeto } from "../server/utils/crmOutbox";
 import {
   User,
   UserStatus,
@@ -884,6 +885,18 @@ class DBStore {
         customModality: updates.custom_modality,
       },
     });
+
+    // CDC 16 F3: o projeto vinculado a uma Demanda chegando a `completed` é o
+    // que CONCLUI a demanda — este produto não tinha um ato de "concluir a
+    // demanda" e não deveria ganhar um botão só para isso: quem termina o
+    // trabalho termina o PROJETO, e a demanda é o pedido que o originou.
+    //
+    // A conclusão é registrada mesmo quando o CRM está fora do ar: o carimbo é
+    // local e a notícia vai pela fila de saída, que retenta.
+    if (updates.status === "completed" && exists.status !== "completed") {
+      await concluirDemandaDoProjeto(id, p.tenantId);
+    }
+
     return mapProject(p);
   }
 
