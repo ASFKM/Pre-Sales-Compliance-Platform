@@ -678,6 +678,12 @@ export async function runLicenseStatusPollForAllEnabledTenants(): Promise<void> 
 
 export interface FleetLicenseStatus {
   connected: boolean;
+  // CDC 16 F1: quem é ESTA instalação, segundo a licença assinada. Já vinha no
+  // payload desde a Fase 7 e era só descartado aqui. A porta de máquina do par
+  // (server/utils/pairKey.ts) precisa dele para conferir que o lado PreSales do
+  // par que o CMSaaS descreve é esta instalação, e não outra atendida pelo mesmo
+  // CMSaaS - sem essa conferência, a chave de um par de outro cliente entraria.
+  installation_id: string | null;
   status: "active" | "suspended" | null;
   block_mode: "full_lockout" | "read_only" | null;
   modules: string[];
@@ -698,6 +704,7 @@ export interface FleetLicenseStatus {
 export async function getFleetLicenseStatus(tenantId: string): Promise<FleetLicenseStatus> {
   const disconnected: FleetLicenseStatus = {
     connected: false,
+    installation_id: null,
     status: null,
     block_mode: null,
     modules: [],
@@ -717,6 +724,7 @@ export async function getFleetLicenseStatus(tenantId: string): Promise<FleetLice
     if (!verifyPayload(cached.payload, cached.signature)) return disconnected;
     return {
       connected: true,
+      installation_id: cached.payload.installation_id ?? null,
       status: cached.payload.status,
       block_mode: cached.payload.block_mode,
       modules: cached.payload.modules,

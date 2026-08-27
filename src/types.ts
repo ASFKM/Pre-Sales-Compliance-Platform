@@ -53,6 +53,11 @@ export interface Project {
   id: string;
   name: string;
   customer_name: string;
+  // CDC 16 (D31): quando o projeto nasceu de uma Demanda vinda do CMCRM, estes
+  // dois campos são a REFERÊNCIA do cliente e da oportunidade lá. Ausentes num
+  // projeto criado pelo intake, que continua funcionando sem CRM nenhum.
+  crm_company_id?: string;
+  crm_opportunity_id?: string;
   opportunity_name: string;
   vertical: string;
   description: string;
@@ -774,4 +779,89 @@ export interface KnowledgeBaseDocument {
   analyzed_at?: string;
   content_hash?: string;
   created_at: string;
+}
+
+// CDC 16 (integração CMCRM ↔ PreSales), Fase 1: a Demanda de pré-vendas.
+//
+// Não é um Project (D14): entra na fila SEM DONO e só vira Project quando
+// alguém assume. O cliente aqui é REFERÊNCIA do CRM (D31) e nenhum contato
+// pessoal viaja (D32) - por isso não há campo de pessoa nesta interface.
+export interface DemandDocumentSummary {
+  id: string;
+  document_ref: string;
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+  sha256: string;
+  has_content: boolean;
+  has_extracted_text: boolean;
+  content_received_at?: string | null;
+  document_id?: string | null;
+}
+
+export interface Demand {
+  id: string;
+  demand_ref: string;
+  sequence?: number | null;
+  status: "queued" | "assigned" | "in_analysis" | "returned" | "cancelled" | "completed";
+  company: {
+    crm_company_id: string;
+    name: string;
+    legal_name?: string | null;
+    tax_id?: string | null;
+    cnpj_root?: string | null;
+    sector?: string | null;
+    segment?: string | null;
+    type?: string | null;
+  };
+  opportunity: {
+    crm_opportunity_id: string;
+    name: string;
+    deal_type?: string | null;
+    stage?: string | null;
+    value?: number | null;
+    currency?: string;
+    probability?: number | null;
+    margin_percent?: number | null;
+    expected_close_date?: string | null;
+    risks?: string[];
+    origin?: string | null;
+  };
+  title: string;
+  vertical: string;
+  description: string;
+  objective?: string | null;
+  deadline: string;
+  proposal_validity_date: string;
+  output_language: string;
+  proposal_language: string;
+  ai_orientation_mode: string;
+  ai_orientation_text: string;
+  procurement_modality?: string | null;
+  procurement_subtype?: string | null;
+  sent_by: { crm_user_id: string; name: string; email?: string | null };
+  sent_at: string;
+  /** Par que cruza ambientes (D03) - marcado visivelmente na fila. */
+  cross_environment: boolean;
+  crm_installation_id: string;
+  queued_at: string;
+  assigned_at?: string | null;
+  analysis_started_at?: string | null;
+  returned_at?: string | null;
+  completed_at?: string | null;
+  assigned_user_id?: string | null;
+  assigned_to?: string | null;
+  returned_reason?: string | null;
+  project_id?: string | null;
+  documents: DemandDocumentSummary[];
+}
+
+export interface DemandQueueSummary {
+  total: number;
+  queued: number;
+  assigned: number;
+  in_analysis: number;
+  returned: number;
+  cancelled: number;
+  completed: number;
 }

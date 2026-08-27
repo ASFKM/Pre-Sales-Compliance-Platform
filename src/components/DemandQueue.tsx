@@ -1,0 +1,480 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { AlertTriangle, FileText, Inbox, RefreshCw, Undo2, UserPlus, X } from "lucide-react";
+import ApiClient from "../lib/api";
+import { Demand } from "../types";
+
+// CDC 16 — Fase 1. A fila de pré-vendas, do lado de quem trabalha nela.
+//
+// D15: fila ÚNICA, visível para toda a equipe - não há "minhas demandas" aqui,
+// e é de propósito: quem não enxerga o trabalho disponível não se oferece para
+// fazê-lo. O filtro por estado existe para separar o que espera do que já anda,
+// não para recortar por pessoa.
+
+const STATUS_LABEL: Record<string, string> = {
+  queued: "Na fila",
+  assigned: "Assumida",
+  in_analysis: "Em análise",
+  returned: "Devolvida",
+  cancelled: "Cancelada",
+  completed: "Concluída",
+};
+
+const STATUS_COLOR: Record<string, string> = {
+  queued: "bg-brand-50 text-brand-700",
+  assigned: "bg-warning-50 text-warning-700",
+  in_analysis: "bg-warning-50 text-warning-700",
+  returned: "bg-danger-50 text-danger-700",
+  cancelled: "bg-slate-100 text-slate-600",
+  completed: "bg-success-50 text-success-700",
+};
+
+const FILTROS: Array<{ chave: string; rotulo: string }> = [
+  { chave: "queued,assigned,in_analysis,returned", rotulo: "Em aberto" },
+  { chave: "queued", rotulo: "Na fila" },
+  { chave: "assigned,in_analysis", rotulo: "Em andamento" },
+  { chave: "returned", rotulo: "Devolvidas" },
+  { chave: "queued,assigned,in_analysis,returned,cancelled,completed", rotulo: "Tudo" },
+];
+
+function dataCurta(valor?: string | null): string {
+  if (!valor) return "—";
+  const d = new Date(valor);
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("pt-BR");
+}
+
+function moeda(valor?: number | null, currency?: string): string {
+  if (valor === null || valor === undefined) return "—";
+  try {
+    return valor.toLocaleString("pt-BR", { style: "currency", currency: currency || "BRL", maximumFractionDigits: 0 });
+  } catch {
+    return String(valor);
+  }
+}
+
+// Quantos dias faltam para o prazo do edital. O sinal é o que decide a cor: uma
+// fila de auto-serviço sem urgência visível vira ordem de chegada disfarçada.
+function diasAtePrazo(prazo?: string | null): number | null {
+  if (!prazo) return null;
+  const d = new Date(prazo);
+  if (Number.isNaN(d.getTime())) return null;
+  return Math.ceil((d.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+}
+
+interface DemandQueueProps {
+  hasPermission: (permission: string) => boolean;
+  currentUserId: string;
+  onDemandAssumed: (projectId: string) => void;
+  onQueueChanged?: () => void;
+}
+
+export default function DemandQueue({ hasPermission, currentUserId, onDemandAssumed, onQueueChanged }: DemandQueueProps) {
+  const [filtro, setFiltro] = useState(FILTROS[0].chave);
+  const [demandas, setDemandas] = useState<Demand[]>([]);
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState("");
+  const [aberta, setAberta] = useState<Demand | null>(null);
+  const [emAcao, setEmAcao] = useState(false);
+  const [devolvendo, setDevolvendo] = useState<Demand | null>(null);
+  const [motivo, setMotivo] = useState("");
+  const [erroAcao, setErroAcao] = useState("");
+
+  const podeAssumir = hasPermission("demand:assume");
+
+  const carregar = useCallback(async () => {
+    setCarregando(true);
+    setErro("");
+    try {
+      const lista = await ApiClient.get<Demand[]>(`/api/demands?status=${encodeURIComponent(filtro)}`);
+      setDemandas(Array.isArray(lista) ? lista : []);
+    } catch (e: any) {
+      setErro(e.message || "Não foi possível carregar a fila.");
+    } finally {
+      setCarregando(false);
+    }
+  }, [filtro]);
+
+  useEffect(() => {
+    void carregar();
+  }, [carregar]);
+
+  const assumir = async (d: Demand) => {
+    setEmAcao(true);
+    setErroAcao("");
+    try {
+      const resposta = await ApiClient.post<{ project_id: string; documents_without_content: number }>(
+        `/api/demands/${d.id}/assume`,
+        {}
+      );
+      setAberta(null);
+      await carregar();
+      onQueueChanged?.();
+      onDemandAssumed(resposta.project_id);
+    } catch (e: any) {
+      setErroAcao(e.message || "Não foi possível assumir esta demanda.");
+    } finally {
+      setEmAcao(false);
+    }
+  };
+
+  const devolver = async () => {
+    if (!devolvendo) return;
+    setEmAcao(true);
+    setErroAcao("");
+    try {
+      await ApiClient.post(`/api/demands/${devolvendo.id}/return`, { reason: motivo });
+      setDevolvendo(null);
+      setMotivo("");
+      setAberta(null);
+      await carregar();
+      onQueueChanged?.();
+    } catch (e: any) {
+      setErroAcao(e.message || "Não foi possível devolver esta demanda.");
+    } finally {
+      setEmAcao(false);
+    }
+  };
+
+  const naFila = useMemo(() => demandas.filter((d) => d.status === "queued").length, [demandas]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">
+            Fila de Pré-vendas ({demandas.length})
+          </h2>
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            Pedidos enviados pelo CRM. {naFila > 0 ? `${naFila} aguardando alguém assumir.` : "Nada aguardando na fila."}
+          </p>
+        </div>
+        <div className="flex items-center flex-wrap gap-2">
+          <div className="flex items-center flex-wrap gap-1 bg-slate-100 rounded-lg p-1">
+            {FILTROS.map((f) => (
+              <button
+                key={f.chave}
+                onClick={() => setFiltro(f.chave)}
+                className={`text-[11px] px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer ${
+                  filtro === f.chave ? "bg-white text-brand-700 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                {f.rotulo}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => void carregar()}
+            className="flex items-center gap-1.5 border border-slate-200 hover:bg-slate-50 text-slate-600 text-xs px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer"
+          >
+            <RefreshCw size={13} className={carregando ? "animate-spin" : ""} /> Atualizar
+          </button>
+        </div>
+      </div>
+
+      {erro && (
+        <div className="bg-danger-50 border border-danger-200 text-danger-700 text-xs rounded-lg p-3">{erro}</div>
+      )}
+
+      {/* overflow-x-auto, e não overflow-hidden: em 390px a tabela não cabe, e
+          "hidden" CORTA as colunas da direita - valor, prazo, situação e o botão
+          de assumir - sem deixar chegar nelas. O min-w mantém as colunas
+          legíveis e joga a diferença para a rolagem horizontal DESTA caixa, em
+          vez de a página inteira andar de lado. */}
+      <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto shadow-sm">
+        <table className="w-full min-w-[820px] text-left text-xs border-collapse">
+          <thead className="bg-slate-100 border-b border-slate-200 font-mono text-[10px] uppercase text-slate-500">
+            <tr>
+              <th className="p-3">Demanda</th>
+              <th className="p-3">Cliente</th>
+              <th className="p-3">Vertical</th>
+              <th className="p-3 text-right">Valor</th>
+              <th className="p-3">Prazo</th>
+              <th className="p-3">Situação</th>
+              <th className="p-3 text-right">Ações</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200">
+            {demandas.map((d) => {
+              const dias = diasAtePrazo(d.deadline);
+              return (
+                <tr key={d.id} className="hover:bg-slate-50/50">
+                  <td className="p-3">
+                    <button
+                      onClick={() => { setAberta(d); setErroAcao(""); }}
+                      className="font-semibold text-slate-800 hover:text-brand-700 text-left cursor-pointer"
+                    >
+                      {d.title}
+                    </button>
+                    <div className="text-[10px] text-slate-400 font-mono flex items-center gap-1.5">
+                      {d.demand_ref}
+                      {d.documents.length > 0 && (
+                        <span className="inline-flex items-center gap-0.5">
+                          <FileText size={9} /> {d.documents.length}
+                        </span>
+                      )}
+                      {d.cross_environment && (
+                        <span
+                          title="Este par cruza ambientes: dado de um ambiente entrando em outro."
+                          className="inline-flex items-center gap-0.5 text-warning-700 bg-warning-50 border border-warning-200 rounded px-1"
+                        >
+                          <AlertTriangle size={9} /> ambientes cruzados
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="p-3 text-slate-700">
+                    {d.company.name}
+                    {d.company.tax_id && <div className="text-[10px] text-slate-400 font-mono">{d.company.tax_id}</div>}
+                  </td>
+                  <td className="p-3 text-slate-600">{d.vertical}</td>
+                  <td className="p-3 text-right text-slate-700 font-mono">
+                    {moeda(d.opportunity.value, d.opportunity.currency)}
+                    {d.opportunity.margin_percent !== null && d.opportunity.margin_percent !== undefined && (
+                      <div className="text-[10px] text-slate-400">margem {d.opportunity.margin_percent}%</div>
+                    )}
+                  </td>
+                  <td className="p-3">
+                    <div className="text-slate-700">{dataCurta(d.deadline)}</div>
+                    {dias !== null && (
+                      <div
+                        className={`text-[10px] font-semibold ${
+                          dias < 0 ? "text-danger-600" : dias <= 3 ? "text-warning-700" : "text-slate-400"
+                        }`}
+                      >
+                        {dias < 0 ? `vencido há ${Math.abs(dias)}d` : `faltam ${dias}d`}
+                      </div>
+                    )}
+                  </td>
+                  <td className="p-3">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${STATUS_COLOR[d.status] || "bg-slate-100 text-slate-600"}`}>
+                      {STATUS_LABEL[d.status] || d.status}
+                    </span>
+                    {d.assigned_to && <div className="text-[10px] text-slate-400 mt-0.5">{d.assigned_to}</div>}
+                  </td>
+                  <td className="p-3 text-right whitespace-nowrap">
+                    {d.status === "queued" && podeAssumir && (
+                      <button
+                        onClick={() => void assumir(d)}
+                        disabled={emAcao}
+                        className="inline-flex items-center gap-1 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-[11px] px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer"
+                      >
+                        <UserPlus size={12} /> Assumir
+                      </button>
+                    )}
+                    {(d.status === "assigned" || d.status === "in_analysis") && podeAssumir && d.assigned_user_id === currentUserId && (
+                      <button
+                        onClick={() => { setDevolvendo(d); setMotivo(""); setErroAcao(""); }}
+                        className="inline-flex items-center gap-1 border border-slate-200 hover:bg-slate-50 text-slate-600 text-[11px] px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer"
+                      >
+                        <Undo2 size={12} /> Devolver
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+            {!carregando && demandas.length === 0 && (
+              <tr>
+                <td colSpan={7} className="p-10 text-center text-slate-400">
+                  <Inbox size={28} className="mx-auto mb-2 opacity-40" />
+                  <div className="text-xs font-semibold text-slate-500">Nenhuma demanda neste filtro</div>
+                  <div className="text-[11px] mt-1">Demandas chegam quando o vendedor envia uma oportunidade do CRM para a pré-venda.</div>
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {aberta && (
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4" onClick={() => setAberta(null)}>
+          <div
+            data-testid="demand-detail-body"
+            className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[85vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between p-5 border-b border-slate-200 sticky top-0 bg-white">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800">{aberta.title}</h3>
+                <div className="text-[11px] text-slate-400 font-mono mt-0.5">{aberta.demand_ref}</div>
+              </div>
+              <button onClick={() => setAberta(null)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-5 text-xs">
+              {aberta.cross_environment && (
+                <div className="flex items-start gap-2 bg-warning-50 border border-warning-200 text-warning-800 rounded-lg p-3">
+                  <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                  <div>
+                    <div className="font-bold">Par com ambientes cruzados</div>
+                    <div className="mt-0.5">
+                      Esta demanda veio de uma instalação do CRM em outro ambiente. Confira antes de tratar o conteúdo como dado real.
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <section>
+                <h4 className="font-mono uppercase text-[10px] text-slate-500 mb-2">Cliente (referência do CRM)</h4>
+                <dl className="grid grid-cols-2 gap-x-6 gap-y-1.5">
+                  <Campo rotulo="Nome" valor={aberta.company.name} />
+                  <Campo rotulo="Razão social" valor={aberta.company.legal_name} />
+                  <Campo rotulo="CNPJ" valor={aberta.company.tax_id} />
+                  <Campo rotulo="Raiz do CNPJ" valor={aberta.company.cnpj_root} />
+                  <Campo rotulo="Setor" valor={aberta.company.sector} />
+                  <Campo rotulo="Segmento" valor={aberta.company.segment} />
+                </dl>
+              </section>
+
+              <section>
+                <h4 className="font-mono uppercase text-[10px] text-slate-500 mb-2">Oportunidade</h4>
+                <dl className="grid grid-cols-2 gap-x-6 gap-y-1.5">
+                  <Campo rotulo="Nome" valor={aberta.opportunity.name} />
+                  <Campo rotulo="Etapa" valor={aberta.opportunity.stage} />
+                  <Campo rotulo="Valor" valor={moeda(aberta.opportunity.value, aberta.opportunity.currency)} />
+                  <Campo
+                    rotulo="Margem"
+                    valor={aberta.opportunity.margin_percent !== null && aberta.opportunity.margin_percent !== undefined ? `${aberta.opportunity.margin_percent}%` : null}
+                  />
+                  <Campo
+                    rotulo="Probabilidade"
+                    valor={aberta.opportunity.probability !== null && aberta.opportunity.probability !== undefined ? `${aberta.opportunity.probability}%` : null}
+                  />
+                  <Campo rotulo="Fechamento previsto" valor={dataCurta(aberta.opportunity.expected_close_date)} />
+                </dl>
+                {aberta.opportunity.risks && aberta.opportunity.risks.length > 0 && (
+                  <ul className="mt-2 list-disc list-inside text-slate-600 space-y-0.5">
+                    {aberta.opportunity.risks.map((r, i) => (
+                      <li key={i}>{r}</li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
+              <section>
+                <h4 className="font-mono uppercase text-[10px] text-slate-500 mb-2">Pedido</h4>
+                <dl className="grid grid-cols-2 gap-x-6 gap-y-1.5">
+                  <Campo rotulo="Vertical" valor={aberta.vertical} />
+                  <Campo rotulo="Prazo do edital" valor={dataCurta(aberta.deadline)} />
+                  <Campo rotulo="Validade da proposta" valor={dataCurta(aberta.proposal_validity_date)} />
+                  <Campo rotulo="Modalidade" valor={aberta.procurement_modality} />
+                  <Campo rotulo="Orientação de marca" valor={aberta.ai_orientation_mode} />
+                  <Campo rotulo="Enviado por" valor={`${aberta.sent_by.name} · ${dataCurta(aberta.sent_at)}`} />
+                </dl>
+                {aberta.objective && (
+                  <p className="mt-2 text-slate-600 whitespace-pre-wrap border-l-2 border-slate-200 pl-3">{aberta.objective}</p>
+                )}
+                <p className="mt-2 text-slate-600 whitespace-pre-wrap">{aberta.description}</p>
+              </section>
+
+              <section>
+                <h4 className="font-mono uppercase text-[10px] text-slate-500 mb-2">Documentos ({aberta.documents.length})</h4>
+                {aberta.documents.length === 0 && <p className="text-slate-400">Nenhum documento veio no envelope.</p>}
+                <ul className="space-y-1">
+                  {aberta.documents.map((doc) => (
+                    <li key={doc.id} className="flex items-center justify-between border border-slate-200 rounded-lg px-3 py-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <FileText size={13} className="text-slate-400 shrink-0" />
+                        <span className="truncate text-slate-700">{doc.filename}</span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0 ml-3">
+                        {doc.has_extracted_text && (
+                          <span className="text-[10px] bg-slate-100 text-slate-600 rounded px-1.5 py-0.5">texto extraído</span>
+                        )}
+                        <span
+                          className={`text-[10px] rounded px-1.5 py-0.5 font-semibold ${
+                            doc.has_content ? "bg-success-50 text-success-700" : "bg-warning-50 text-warning-700"
+                          }`}
+                        >
+                          {doc.has_content ? "arquivo recebido" : "aguardando arquivo"}
+                        </span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+
+              {aberta.returned_reason && (
+                <section>
+                  <h4 className="font-mono uppercase text-[10px] text-slate-500 mb-2">Motivo da devolução</h4>
+                  <p className="text-slate-600 whitespace-pre-wrap border-l-2 border-danger-200 pl-3">{aberta.returned_reason}</p>
+                </section>
+              )}
+
+              {erroAcao && <div className="bg-danger-50 border border-danger-200 text-danger-700 rounded-lg p-3">{erroAcao}</div>}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 p-4 border-t border-slate-200 sticky bottom-0 bg-white">
+              {aberta.status === "queued" && podeAssumir && (
+                <button
+                  onClick={() => void assumir(aberta)}
+                  disabled={emAcao}
+                  className="inline-flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-xs px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer"
+                >
+                  <UserPlus size={13} /> Assumir e abrir projeto
+                </button>
+              )}
+              {(aberta.status === "assigned" || aberta.status === "in_analysis") && podeAssumir && aberta.assigned_user_id === currentUserId && (
+                <button
+                  onClick={() => { setDevolvendo(aberta); setMotivo(""); setErroAcao(""); }}
+                  className="inline-flex items-center gap-1.5 border border-slate-200 hover:bg-slate-50 text-slate-600 text-xs px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer"
+                >
+                  <Undo2 size={13} /> Devolver ao vendedor
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {devolvendo && (
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
+            <div className="p-5 border-b border-slate-200">
+              <h3 className="text-sm font-bold text-slate-800">Devolver ao vendedor</h3>
+              <p className="text-[11px] text-slate-500 mt-1">
+                O motivo vai junto: é com ele que o vendedor sabe o que corrigir antes de reenviar.
+              </p>
+            </div>
+            <div className="p-5 space-y-3">
+              <textarea
+                value={motivo}
+                onChange={(e) => setMotivo(e.target.value)}
+                rows={4}
+                placeholder="Ex.: o edital anexado está incompleto - faltam os anexos técnicos citados no item 7."
+                className="w-full border border-slate-200 rounded-lg p-3 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+              />
+              <div className="text-[11px] text-slate-400">{motivo.trim().length} / mínimo 10 caracteres</div>
+              {erroAcao && <div className="bg-danger-50 border border-danger-200 text-danger-700 text-xs rounded-lg p-3">{erroAcao}</div>}
+            </div>
+            <div className="flex items-center justify-end gap-2 p-4 border-t border-slate-200">
+              <button
+                onClick={() => setDevolvendo(null)}
+                className="text-xs px-3 py-1.5 rounded-lg font-semibold text-slate-500 hover:text-slate-700 cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => void devolver()}
+                disabled={emAcao || motivo.trim().length < 10}
+                className="inline-flex items-center gap-1.5 bg-danger-600 hover:bg-danger-700 disabled:opacity-50 text-white text-xs px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer"
+              >
+                <Undo2 size={13} /> Devolver
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Campo({ rotulo, valor }: { rotulo: string; valor?: string | null }) {
+  return (
+    <div>
+      <dt className="text-[10px] uppercase font-mono text-slate-400">{rotulo}</dt>
+      <dd className="text-slate-700">{valor || "—"}</dd>
+    </div>
+  );
+}

@@ -61,6 +61,8 @@ import knowledgeBaseRouter from "./server/routes/knowledgeBase";
 import systemUpdatesRouter from "./server/routes/systemUpdates";
 import pocsRouter from "./server/routes/pocs";
 import pricingRouter from "./server/routes/pricing";
+import demandsRouter from "./server/routes/demands";
+import externalCrmRouter from "./server/routes/externalCrm";
 
 const app = express();
 
@@ -127,6 +129,19 @@ app.use("/api", knowledgeBaseRouter);
 app.use("/api", systemUpdatesRouter);
 app.use("/api/pocs", pocsRouter);
 app.use("/api/pricing", pricingRouter);
+
+// CDC 16 (integração CMCRM <-> PreSales), Fase 1.
+//
+// Duas superfícies com naturezas diferentes, e é por isso que são dois routers:
+// /api/demands é a FILA vista por gente, atrás de sessão e permissão como todo o
+// resto do produto; /api/external/crm/v1 é a PORTA DE MÁQUINA, sem sessão
+// nenhuma, autenticada pela chave do par emitida pelo CMSaaS. O endereço da
+// segunda é o `servers.url` da spec do contrato
+// (fleet-manager:docs/cdc/16-contratos/presales-inbound.v1.yaml), e o prefixo
+// `/external/` existe para que ninguém precise ler o middleware para saber que
+// aquela árvore inteira é falada por outro sistema.
+app.use("/api/demands", demandsRouter);
+app.use("/api/external/crm/v1", externalCrmRouter);
 
 // 5. Basic Observability / Health Endpoints
 app.get("/api/health", (req: Request, res: Response) => {

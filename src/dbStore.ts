@@ -97,6 +97,11 @@ function mapProject(p: any): Project {
     procurement_modality: p.procurementModality ?? undefined,
     procurement_subtype: p.procurementSubtype ?? undefined,
     custom_modality: p.customModality ?? undefined,
+    // CDC 16 (D31): a referência do cliente e da oportunidade no CRM. Sem estas
+    // duas linhas as colunas existiriam no banco e seriam invisíveis para quem
+    // lê o projeto pela API - foi assim que a prova da F1 as pegou faltando.
+    crm_company_id: p.crmCompanyId ?? undefined,
+    crm_opportunity_id: p.crmOpportunityId ?? undefined,
     created_at: p.createdAt.toISOString(),
     updated_at: p.updatedAt.toISOString(),
   } as Project;

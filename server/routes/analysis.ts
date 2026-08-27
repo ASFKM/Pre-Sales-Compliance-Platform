@@ -1348,6 +1348,25 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
       });
     }
 
+    // CDC 16 (D20): "toda solicitação gera medição de tempo de resposta: até
+    // assumir, até a análise, até a proposta". O segundo desses instantes é
+    // este - a análise começando no projeto que nasceu de uma Demanda. Sem o
+    // gancho aqui, `analysis_started_at` seria coluna decorativa, preenchida por
+    // ninguém, e a F5 não teria de onde tirar o tempo até a análise.
+    //
+    // updateMany, e não update: só marca se a demanda ainda estiver em
+    // `assigned`, para uma reanálise semanas depois não reescrever o instante em
+    // que a análise começou de verdade. Nenhuma demanda casando é o caso normal
+    // (projeto criado pelo intake, sem CRM nenhum) e custa uma consulta.
+    await prisma.demand.updateMany({
+      // tenantId explícito, e não só o que a extensão injeta: este handler é um
+      // dos que já mediram que o AsyncLocalStorage não chega confiável aqui (ver o
+      // comentário no topo da rota), e uma escrita que perdesse o escopo sairia
+      // sem filtro de tenant.
+      where: { tenantId, projectId, status: "assigned" },
+      data: { status: "in_analysis", analysisStartedAt: new Date() },
+    });
+
     // 1. Create Background AI Analysis Job and log it
     userId = requireUserId(req);
     const user = await dbStore.getUserById(userId);
