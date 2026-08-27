@@ -19,6 +19,10 @@ templates/
 logs/
 
 # Local backups
+# Com barra na frente: ancora na raiz do repositorio. Sem ela, o padrao casaria
+# qualquer diretorio chamado backups em qualquer profundidade - foi assim que um
+# capturas/ engoliu um scripts/capturas inteiro noutra frente.
+/backups/
 *.bak.*
 *.backup
 *.tmp
