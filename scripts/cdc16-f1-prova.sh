@@ -31,6 +31,17 @@ export NODE_ENV=development
 # do seed não serve - em runtime de produção o login recusa a senha padrão.
 export PROVA_PASSWORD="$(openssl rand -base64 24)"
 
+# A chave do par entra por arquivo, e não por argumento nem por variável escrita
+# na linha de comando: argumento aparece em `ps` para qualquer usuário do host.
+# O arquivo é o caminho de entrega combinado - o administrador pareia pela tela
+# do CMSaaS, que mostra a chave uma vez, e a grava aqui com umask 077.
+ARQUIVO_CHAVE="${ARQUIVO_CHAVE:-$HOME/cdc16-pair-key}"
+if [ -z "${PAIR_KEY:-}" ] && [ -s "$ARQUIVO_CHAVE" ]; then
+  PAIR_KEY="$(tr -d "\r\n" < "$ARQUIVO_CHAVE")"
+  export PAIR_KEY
+  echo "chave do par lida de $ARQUIVO_CHAVE (${#PAIR_KEY} caracteres)"
+fi
+
 echo "== preparando o cenário"
 npx tsx scripts/cdc16-f1-preparar-prova.ts || exit 1
 

@@ -294,15 +294,26 @@ async function secaoC() {
   conferir("GET /pair/verify com a chave do par responde 200", verify.status === 200, { status: verify.status, corpo: verify.corpo });
   conferir("...identificando ESTE lado como presales", verify.corpo?.product === "presales", verify.corpo?.product);
   conferir("...com installation_id, customer_id e environment preenchidos", Boolean(verify.corpo?.installation_id && verify.corpo?.customer_id && verify.corpo?.environment), verify.corpo);
-  conferir("...e dizendo se a fila está de pé (queue_enabled)", typeof verify.corpo?.queue_enabled === "boolean", verify.corpo?.queue_enabled);
+  // Com o par criado, o modo integrado é derivado dele pelo CMSaaS e chega nesta
+  // instalação dentro da licença assinada. `queue_enabled` verdadeiro é a ponta
+  // de chegada dessa cadeia inteira, vista pela porta: par -> licença -> fila.
+  conferir("...e a fila responde de pé (queue_enabled verdadeiro)", verify.corpo?.queue_enabled === true, verify.corpo?.queue_enabled);
 
-  const semIdem = await chamar(`${PORTA_MAQUINA}/demands`, { method: "POST", headers: auth, body: JSON.stringify(envelopeDeProva(ref, sha, conteudo.length)) });
+  // UM envelope, montado uma vez só. Remontá-lo a cada chamada mudaria `sent_at`
+  // e a repetição deixaria de ser repetição - o 409 por corpo diferente estaria
+  // certo e a prova é que estaria errada. Foi exatamente o que aconteceu na
+  // primeira execução da seção C: a retentativa de verdade, feita pelo CMCRM,
+  // reenvia o MESMO envelope, porque `sent_at` é o instante do FATO, não o do
+  // envio.
+  const envelope = envelopeDeProva(ref, sha, conteudo.length);
+
+  const semIdem = await chamar(`${PORTA_MAQUINA}/demands`, { method: "POST", headers: auth, body: JSON.stringify(envelope) });
   conferir("POST /demands sem Idempotency-Key é recusado (400)", semIdem.status === 400, semIdem.status);
 
   const criada = await chamar(`${PORTA_MAQUINA}/demands`, {
     method: "POST",
     headers: { ...auth, "Idempotency-Key": chaveIdem },
-    body: JSON.stringify(envelopeDeProva(ref, sha, conteudo.length)),
+    body: JSON.stringify(envelope),
   });
   conferir("POST /demands cria a demanda (201)", criada.status === 201, { status: criada.status, corpo: criada.corpo });
   conferir("...devolvendo o DemandState do contrato, com status queued", criada.corpo?.demand_ref === ref && criada.corpo?.status === "queued", criada.corpo);
@@ -311,7 +322,7 @@ async function secaoC() {
   const repetida = await chamar(`${PORTA_MAQUINA}/demands`, {
     method: "POST",
     headers: { ...auth, "Idempotency-Key": chaveIdem },
-    body: JSON.stringify(envelopeDeProva(ref, sha, conteudo.length)),
+    body: JSON.stringify(envelope),
   });
   conferir("repetir a MESMA chave com o MESMO corpo devolve a demanda existente", repetida.status === 200 && repetida.corpo?.demand_ref === ref, { status: repetida.status, corpo: repetida.corpo });
 

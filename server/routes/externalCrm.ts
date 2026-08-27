@@ -131,7 +131,13 @@ router.post("/demands", async (req: Request, res: Response, next: NextFunction) 
       })
     );
 
-    res.status(resultado.status).json(resultado.body);
+    // A repetição responde 200, e não o 201 que ficou guardado da primeira vez.
+    // A spec separa os dois de propósito - 201 é "criei agora", 200 é
+    // "Idempotency-Key já usada, aqui está a demanda existente" -, e é por esse
+    // status que o CMCRM distingue o envio que pegou do que já tinha pegado. Um
+    // replay devolvendo 201 faria a retentativa parecer uma segunda criação, e
+    // mentiria justamente para quem a idempotência existe para proteger.
+    res.status(resultado.replayed ? 200 : resultado.status).json(resultado.body);
   } catch (err) {
     if (err instanceof IdempotencyConflict) {
       return erro(res, 409, `idempotency_${err.reason}`, err.message);
