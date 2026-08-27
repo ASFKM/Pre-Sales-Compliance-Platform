@@ -12,6 +12,7 @@ import Proposals from "./components/Proposals";
 import Approval from "./components/Approval";
 import PocManagement from "./components/PocManagement";
 import PricingModule from "./components/PricingModule";
+import DemandQueue from "./components/DemandQueue";
 import NewProjectWizard from "./components/modals/NewProjectWizard";
 import { useBackgroundTasks } from "./hooks/useBackgroundTasks";
 import { useSilentRefresh } from "./hooks/useSilentRefresh";
@@ -42,7 +43,8 @@ import {
   PlatformSettings,
   IntegrationConnector,
   Role,
-  ApprovalWorkflow
+  ApprovalWorkflow,
+  DemandQueueSummary
 } from "./types";
 
 const PROVIDER_DISPLAY_NAME: Record<string, string> = {
@@ -331,7 +333,12 @@ export default function App() {
 
 
   // Navigation / Views
-  const [activeTab, setActiveTab] = useState<"home" | "workspace" | "projectsList" | "proposals" | "approval" | "knowledgeBase" | "admin" | "pocManagement" | "pricing">("home");
+  const [activeTab, setActiveTab] = useState<"home" | "workspace" | "projectsList" | "proposals" | "approval" | "knowledgeBase" | "admin" | "pocManagement" | "pricing" | "demandQueue">("home");
+
+  // CDC 16 F1: contadores da fila de pré-vendas. Carregados junto das demais
+  // configurações globais e usados para duas coisas: o emblema com quantas
+  // demandas esperam, e a decisão de mostrar a aba. Ver o comentário na aba.
+  const [demandSummary, setDemandSummary] = useState<DemandQueueSummary | null>(null);
   // Left sidebar (bid/project metadata) can retract to free width for the project content itself
   // on the Workspace tab - persisted so a user's preference survives reloads, same pattern as the
   // brand customization below.
@@ -520,6 +527,17 @@ export default function App() {
         const data = await res.json();
         if (res.ok) setUsers(Array.isArray(data) ? data : []);
       })(),
+      // CDC 16 F1: a fila de pré-vendas. Mesma permissão que a rota exige, pelo
+      // mesmo motivo dos blocos acima - papel sem ela não dispara um 403 à toa.
+      ...(hasPermission("demand:read")
+        ? [
+            (async () => {
+              const res = await fetch("/api/demands/summary");
+              const data = await res.json();
+              if (res.ok) setDemandSummary(data);
+            })()
+          ]
+        : []),
       (async () => {
         const res = await fetch("/api/roles");
         const data = await res.json();
@@ -1080,6 +1098,35 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
             </div>
           )}
 
+          {/* CDC 16 F1 - Fila de Pré-vendas. A regra de exibição tem uma parte que
+              as outras abas de módulo não têm: `|| (demandSummary?.total ?? 0) > 0`.
+              É a D06 - desligar a integração CONGELA, mantendo visível o que já
+              foi recebido. Sem essa segunda condição, revogar o par no CMSaaS
+              faria sumir da tela demandas que já tinham chegado e sido
+              assumidas, que é o contrário do que a decisão diz. */}
+          {hasPermission("demand:read") && (hasModule("integracao_crm_presales") || (demandSummary?.total ?? 0) > 0) && (
+            <div className="flex items-center">
+              <button
+                onClick={() => setActiveTab("demandQueue")}
+                className={`py-4 px-1 border-b-2 transition-all flex items-center gap-2 ${activeTab === "demandQueue" ? "text-white border-brand-500 font-semibold" : "border-transparent hover:text-white"}`}
+              >
+                {/* "Demandas", e não "Fila de Pré-vendas": a tira de abas do topo já
+                    estava no limite antes desta fase - medida em 1440px, ela pedia
+                    901px e tinha 898px, com sete abas e sem contar as de módulo. O
+                    rótulo curto é o que esta fase pode fazer sem mexer na barra
+                    inteira, que é decisão de layout do produto e não desta frente
+                    (registrado no §8 do plano). O nome longo continua no título da
+                    própria tela, onde não disputa espaço. */}
+                Demandas
+                {(demandSummary?.queued ?? 0) > 0 && (
+                  <span className="text-[9px] font-bold tracking-wide text-white bg-brand-600 rounded-full px-1.5 py-0.5">
+                    {demandSummary?.queued}
+                  </span>
+                )}
+              </button>
+            </div>
+          )}
+
           {hasModule("pricing") && hasAnyPermission(["pricing:read", "pricing:manage"]) && (
             <div className="flex items-center">
               <button
@@ -1142,7 +1189,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
           Not on Gestão de POC either (Fase 6 add-on) - a POC's own project (if any) is shown in
           its own detail view, and this sub-header showing an unrelated *other* project's
           status/deadline/owner while managing a POC was confusing (reported directly). */}
-      {activeTab !== "home" && activeTab !== "admin" && activeTab !== "projectsList" && activeTab !== "knowledgeBase" && activeTab !== "pocManagement" && activeTab !== "pricing" && (
+      {activeTab !== "home" && activeTab !== "admin" && activeTab !== "projectsList" && activeTab !== "knowledgeBase" && activeTab !== "pocManagement" && activeTab !== "pricing" && activeTab !== "demandQueue" && (
         <div className="h-11 bg-white border-b border-slate-200 flex items-center px-6 gap-2 text-xs font-medium shrink-0 shadow-sm">
           <span className="text-slate-400 font-mono">{locale === "pt" ? "Projetos" : "Projects"}</span>
           <span className="text-slate-400">/</span>
@@ -1466,6 +1513,29 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               activeTasks={activeTasks}
               waitForTask={waitForTask}
             />
+          )}
+
+          {/* CDC 16 F1 - a fila única de demandas de pré-vendas (D15). */}
+          {activeTab === "demandQueue" && hasPermission("demand:read") && (
+            <div className="p-6 overflow-y-auto">
+              <DemandQueue
+                hasPermission={hasPermission}
+                currentUserId={currentSessionUser.id}
+                onQueueChanged={async () => {
+                  const res = await fetch("/api/demands/summary");
+                  const data = await res.json();
+                  if (res.ok) setDemandSummary(data);
+                }}
+                onDemandAssumed={(projectId) => {
+                  // Assumir cria o projeto: levar quem assumiu direto para ele é
+                  // o passo 7 do §2.2 do plano - "a análise segue como já
+                  // funciona hoje".
+                  void fetchProjects();
+                  setSelectedProjectId(projectId);
+                  setActiveTab("workspace");
+                }}
+              />
+            </div>
           )}
 
           {/* Módulo de Precificação (add-on) - Fase 2: cadastro de tabela de preços. Precificação

@@ -46,7 +46,8 @@ async function main() {
         "admin:audit", "admin:debug", "admin:diagnostics", "admin:system_updates", "ai:settings", "branding:manage",
         "storage:manage", "integrations:manage", "knowledge_base:read", "knowledge_base:write",
         "poc:read", "poc:manage",
-        "pricing:read", "pricing:manage"
+        "pricing:read", "pricing:manage",
+        "demand:read", "demand:assume"
       ]
     },
     {
@@ -58,7 +59,8 @@ async function main() {
         "document:upload", "document:read",
         "analysis:read",
         "proposal:generate", "proposal:edit", "proposal:approve", "proposal:export",
-        "template:manage", "approval:manage", "admin:settings"
+        "template:manage", "approval:manage", "admin:settings",
+        "demand:read", "demand:assume"
       ]
     },
     {
@@ -69,7 +71,8 @@ async function main() {
         "project:create", "project:read", "project:update",
         "document:upload", "document:read", "document:delete",
         "analysis:run", "analysis:read", "analysis:edit",
-        "proposal:generate", "proposal:edit", "proposal:export"
+        "proposal:generate", "proposal:edit", "proposal:export",
+        "demand:read", "demand:assume"
       ]
     }
   ];

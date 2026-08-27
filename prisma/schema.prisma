@@ -277,6 +277,11 @@ model Tenant {
   systemUpdateState       SystemUpdateState?
   systemUpdateHistory     SystemUpdateHistory[]
 
+  // CDC 16 (integracao CMCRM <-> PreSales), Fase 1
+  demands             Demand[]
+  demandDocuments     DemandDocument[]
+  idempotencyRecords  IdempotencyRecord[]
+
   // Módulo de Precificação (add-on)
   priceCatalogItems            PriceCatalogItem[]
   priceListUploads             PriceListUpload[]
@@ -316,6 +321,7 @@ model User {
   managedEngineers TeamMembership[] @relation("TeamManager")
   teamMemberships  TeamMembership[] @relation("TeamEngineer")
   ownedPocs        Poc[]            @relation("PocOwner")
+  assignedDemands  Demand[]         @relation("DemandAssignee")
 
   // Módulo de Precificação (add-on)
   priceListUploads       PriceListUpload[]
@@ -393,6 +399,14 @@ model Project {
   conversationHistory ConversationMessage[]
   pocs                Poc[]
   pricingSheets       ProjectPricingSheet[]
+
+  // CDC 16 (D31): o cliente entra no projeto como REFERENCIA, nao como cadastro
+  // replicado - o PreSales continua sem entidade de cliente. Anulaveis porque o
+  // modo standalone (projeto criado aqui, sem CRM nenhum) continua identico: um
+  // projeto nascido do intake nao tem empresa no CRM para referenciar.
+  crmCompanyId     String? @map("crm_company_id")
+  crmOpportunityId String? @map("crm_opportunity_id")
+  demand           Demand?
 
   @@index([tenantId])
   @@map("projects")
@@ -665,7 +679,8 @@ model Document {
   uploadedBy                 String          @map("uploaded_by")
   createdAt                  DateTime        @default(now()) @map("created_at")
 
-  content DocumentContent?
+  content       DocumentContent?
+  demandOrigin  DemandDocument?
 
   @@index([tenantId])
   @@map("documents")
@@ -1966,4 +1981,196 @@ model IcmsInterstateRateTable {
 
   @@unique([originUF, destinationUF])
   @@map("icms_interstate_rate_table")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CDC 16 — Integração CMCRM ↔ PreSales, Fase 1: a Demanda de pré-vendas.
+//
+// Plano: fleet-manager:docs/cdc/16-integracao-cmcrm-presales.md (§2.5, D14).
+// ADR deste lado: docs/adr/0001-integracao-cmcrm.md (§2.2).
+//
+// A Demanda é o PEDIDO; o Project é o TRABALHO. São dois objetos porque uma
+// oportunidade pode gerar várias demandas (D26) e porque uma demanda devolvida
+// jamais teve projeto. A alternativa - tornar Project.ownerUserId anulável e
+// inventar um ProjectStatus de espera - foi descartada na ADR: encheria a lista
+// de projetos com o que ninguém triou e exigiria campos (quem enviou, motivo da
+// devolução, medições de tempo) que Project não deveria carregar.
+// ─────────────────────────────────────────────────────────────────────────────
+enum DemandStatus {
+  queued
+  assigned
+  in_analysis
+  returned
+  cancelled
+  completed
+}
+
+model Demand {
+  // Id LOCAL (dem_<hex>). Deliberadamente diferente de demandRef: o ref vem do
+  // CMCRM e é texto que este lado não controla, então nunca entra em caminho de
+  // arquivo nem em nome de diretório - é o id local que o storage adapter usa.
+  id       String @id
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  // Identificador gerado pelo CMCRM, estável nos dois lados. É por ele que a
+  // porta de máquina endereça a demanda (/demands/{demand_ref}).
+  demandRef String @map("demand_ref")
+  // Ordem desta demanda dentro da mesma oportunidade (D26).
+  sequence  Int?   @default(1)
+
+  status DemandStatus @default(queued)
+
+  // ── Empresa por REFERÊNCIA (D31), sem contato pessoal nenhum (D32) ────────
+  crmCompanyId     String  @map("crm_company_id")
+  companyName      String  @map("company_name")
+  companyLegalName String? @map("company_legal_name")
+  companyTaxId     String? @map("company_tax_id")
+  companyCnpjRoot  String? @map("company_cnpj_root")
+  companySector    String? @map("company_sector")
+  companySegment   String? @map("company_segment")
+  companyType      String? @map("company_type")
+
+  // ── Retrato comercial no momento do envio, margem inclusive (D33) ─────────
+  crmOpportunityId  String    @map("crm_opportunity_id")
+  opportunityName   String    @map("opportunity_name")
+  dealType          String?   @map("deal_type")
+  stage             String?
+  value             Float?
+  currency          String    @default("BRL")
+  probability       Int?
+  marginPercent     Float?    @map("margin_percent")
+  expectedCloseDate DateTime? @map("expected_close_date")
+  risks             String[]  @default([])
+  origin            String?
+
+  // ── A ficha que a IA do CRM extraiu e o vendedor confirmou (D09) ──────────
+  // São exatamente os campos que Project exige para nascer - é isso que permite
+  // "assumir" virar um Project completo sem pedir nada a quem assumiu.
+  title                String
+  vertical             String
+  description          String   @db.Text
+  deadline             DateTime
+  proposalValidityDate DateTime @map("proposal_validity_date")
+  outputLanguage       Language @default(Portuguese) @map("output_language")
+  proposalLanguage     Language @default(Portuguese) @map("proposal_language")
+  aiOrientationMode    String   @map("ai_orientation_mode")
+  aiOrientationText    String   @default("") @map("ai_orientation_text") @db.Text
+  procurementModality  String?  @map("procurement_modality")
+  procurementSubtype   String?  @map("procurement_subtype")
+  objective            String?  @db.Text
+
+  // ── Quem enviou, do lado do CRM. Referência, não conta local (D34) ────────
+  sentByCrmUserId String   @map("sent_by_crm_user_id")
+  sentByName      String   @map("sent_by_name")
+  sentByEmail     String?  @map("sent_by_email")
+  sentAt          DateTime @map("sent_at")
+  // Onde o PreSales devolve eventos (F3). Guardado agora porque chega no
+  // envelope de criação; conferido contra o par antes de ser usado, nunca
+  // aceito cegamente - ver a spec do §4.
+  crmCallbackBaseUrl String? @map("crm_callback_base_url")
+
+  // Instalação do CMCRM que mandou, tirada do par no ato da criação (e não do
+  // corpo da requisição): é o rastro de QUAL lado escreveu, e o que marca uma
+  // demanda que entrou por um par que cruza ambientes (D03).
+  pairCrmInstallationId String  @map("pair_crm_installation_id")
+  pairCrossEnvironment  Boolean @default(false) @map("pair_cross_environment")
+
+  // ── Medição de tempo de resposta (D20) ────────────────────────────────────
+  // Instantes do FATO, não da mensagem. Cada um é o carimbo de uma transição
+  // que aconteceu, e é deles que a F5 tira SLA e a média da equipe.
+  queuedAt          DateTime  @default(now()) @map("queued_at")
+  assignedAt        DateTime? @map("assigned_at")
+  analysisStartedAt DateTime? @map("analysis_started_at")
+  returnedAt        DateTime? @map("returned_at")
+  cancelledAt       DateTime? @map("cancelled_at")
+  completedAt       DateTime? @map("completed_at")
+
+  assignedUserId String? @map("assigned_user_id")
+  assignedUser   User?   @relation("DemandAssignee", fields: [assignedUserId], references: [id])
+  returnedReason String? @map("returned_reason") @db.Text
+
+  // Nasce nulo: a Demanda entra na fila SEM DONO e SEM PROJETO (D14). O projeto
+  // só existe a partir do momento em que alguém assume.
+  projectId String?  @unique @map("project_id")
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  documents DemandDocument[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // O par é 1:1 e a chave resolve UM tenant, então demandRef só precisa ser
+  // único dentro do tenant - e precisa ser, porque é a chave de endereçamento
+  // da porta de máquina.
+  @@unique([tenantId, demandRef])
+  @@index([tenantId, status])
+  @@map("demands")
+}
+
+// Documento declarado no envelope da demanda. O REGISTRO chega em /demands; o
+// BINÁRIO sobe depois, um a um (regra 2 do §4 do plano) - por isso storagePath
+// é anulável: uma declaração sem conteúdo é o estado normal entre as duas
+// chamadas, e uma falha de upload não derruba o envio inteiro.
+model DemandDocument {
+  id       String @id
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+  demandId String @map("demand_id")
+  demand   Demand @relation(fields: [demandId], references: [id], onDelete: Cascade)
+
+  documentRef   String  @map("document_ref")
+  // Alvo do expurgo em cascata (D35), que é F7.
+  crmDocumentId String? @map("crm_document_id")
+
+  filename  String
+  mimeType  String @map("mime_type")
+  sizeBytes Int    @map("size_bytes")
+  sha256    String
+
+  // Texto que o CRM já extraiu do PDF. Viaja pronto para a extração não se
+  // repetir: a análise técnica é refeita aqui, a leitura do arquivo não (D36).
+  extractedText String? @map("extracted_text") @db.Text
+
+  storageProvider   StorageProvider? @map("storage_provider")
+  storagePath       String?          @map("storage_path")
+  contentReceivedAt DateTime?        @map("content_received_at")
+
+  // Document materializado no ato de assumir - antes disso não existe Document,
+  // porque Document.projectId é obrigatório e ainda não há projeto.
+  documentId String?   @unique @map("document_id")
+  document   Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, demandId, documentRef])
+  @@index([tenantId])
+  @@map("demand_documents")
+}
+
+// Idempotência de toda escrita da porta de máquina (regra 1 do §4 do plano).
+// Guarda a RESPOSTA, não só a chave: reenviar precisa devolver o mesmo corpo,
+// e não um 200 vazio que o chamador teria de interpretar.
+//
+// requestHash existe para separar dois casos que parecem um só: a retentativa
+// legítima (mesma chave, mesmo corpo -> devolve o que foi respondido antes) e a
+// chave reaproveitada para outro conteúdo (mesma chave, corpo diferente -> 409).
+// Sem essa distinção, um gerador de chave defeituoso do outro lado faria o
+// segundo envio desaparecer em silêncio, devolvendo a resposta do primeiro.
+model IdempotencyRecord {
+  id       String @id
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  scope          String
+  key            String
+  requestHash    String @map("request_hash")
+  responseStatus Int    @map("response_status")
+  responseBody   String @map("response_body") @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, scope, key])
+  @@index([tenantId])
+  @@map("idempotency_records")
 }
