@@ -28,6 +28,17 @@ const TENANT = process.env.PROVA_TENANT || "tenant_default";
 const BASE = process.env.BASE_URL || "http://127.0.0.1:3000";
 const PREFIXO = "prova-cdc16-f5-";
 
+/**
+ * As horas do prazo de ASSUMIR, configuráveis para conter o alcance da varredura.
+ *
+ * 1 hora é o padrão, e serve no banco de prova. Contra a instalação PUBLICADA ela não serve: a
+ * fila de lá tem demandas paradas de outras origens, e um prazo de uma hora faria a primeira
+ * varredura alertar a fila inteira de uma vez — comportamento CERTO (o prazo passou a valer para
+ * todo mundo), mas um efeito colateral que esta prova não precisa causar em instalação viva. Lá se
+ * usa um número maior que a idade da fila, e a demanda desta prova é envelhecida além dele.
+ */
+const HORAS_PARA_ASSUMIR = Number.parseInt(process.env.SLA_ASSUME_HORAS ?? "1", 10);
+
 let passou = 0;
 let falhou = 0;
 const linhas: string[] = [];
@@ -139,7 +150,7 @@ async function main() {
     linhas.push("== 2. O administrador liga o SLA, e o prazo passa a existir ==");
     const gravar = await chamarRota(admin, "PUT", "/api/demands/sla-settings", {
       enabled: true,
-      assume_hours: 1,
+      assume_hours: HORAS_PARA_ASSUMIR,
       analysis_hours: 2,
       proposal_hours: 8,
       assignment_policy: "auto_servico",
@@ -148,7 +159,7 @@ async function main() {
 
     const semPermissao = await chamarRota(ana, "PUT", "/api/demands/sla-settings", {
       enabled: false,
-      assume_hours: 1,
+      assume_hours: HORAS_PARA_ASSUMIR,
       analysis_hours: 2,
       proposal_hours: 8,
       assignment_policy: "auto_servico",
@@ -171,7 +182,7 @@ async function main() {
       !!prazoAgora?.due_at && prazoAgora.sla_stage === "assume",
       `due_at=${prazoAgora?.due_at} stage=${prazoAgora?.sla_stage}`,
     );
-    const esperado = new Date(demandaDoPrazo.queuedAt.getTime() + 3600_000).toISOString();
+    const esperado = new Date(demandaDoPrazo.queuedAt.getTime() + HORAS_PARA_ASSUMIR * 3600_000).toISOString();
     checar(
       "e o prazo é a entrada na fila + as horas configuradas, não um palpite",
       prazoAgora?.due_at === esperado,
@@ -201,7 +212,9 @@ async function main() {
 
     // ═══════════════════════════════════════════════ 3. o prazo vence e alerta (D19)
     linhas.push("== 3. O prazo vence: a equipe é alertada e o CRM recebe `sla_breached` ==");
-    const queuedAtVelho = new Date(Date.now() - 3 * 3600_000);
+    // Envelhecida ALÉM do prazo configurado, e não um número fixo: com o prazo grande da
+    // instalação publicada, três horas não estouram nada.
+    const queuedAtVelho = new Date(Date.now() - (HORAS_PARA_ASSUMIR + 2) * 3600_000);
     await prisma.demand.update({
       where: { id: demandaDoPrazo.id },
       data: { queuedAt: queuedAtVelho, sentAt: queuedAtVelho },
@@ -249,7 +262,7 @@ async function main() {
     const corpoDoEvento = (saida?.payload ?? {}) as any;
     checar(
       "e o instante do fato é o VENCIMENTO, não o da varredura",
-      corpoDoEvento.occurred_at === new Date(queuedAtVelho.getTime() + 3600_000).toISOString(),
+      corpoDoEvento.occurred_at === new Date(queuedAtVelho.getTime() + HORAS_PARA_ASSUMIR * 3600_000).toISOString(),
       `occurred_at=${corpoDoEvento.occurred_at}`,
     );
     checar(
@@ -342,7 +355,10 @@ async function main() {
     // O alerta seguinte vai para o GERENTE, e não mais para a equipe.
     await prisma.demand.update({
       where: { id: emAnalise.id },
-      data: { queuedAt: new Date(Date.now() - 3 * 3600_000), sentAt: new Date(Date.now() - 3 * 3600_000) },
+      data: {
+        queuedAt: new Date(Date.now() - (HORAS_PARA_ASSUMIR + 2) * 3600_000),
+        sentAt: new Date(Date.now() - (HORAS_PARA_ASSUMIR + 2) * 3600_000),
+      },
     });
     await chamarRota(admin, "POST", "/api/demands/sla/scan");
     const alertasComGerente = await chamarRota(gina, "GET", "/api/demands/alerts");
@@ -357,7 +373,7 @@ async function main() {
     linhas.push("== 5. A política de direcionamento: o gerente aponta quem trabalha ==");
     await chamarRota(admin, "PUT", "/api/demands/sla-settings", {
       enabled: true,
-      assume_hours: 1,
+      assume_hours: HORAS_PARA_ASSUMIR,
       analysis_hours: 2,
       proposal_hours: 8,
       assignment_policy: "direcionamento",
@@ -431,7 +447,7 @@ async function main() {
     linhas.push("== 6. Ligada a política automática; a ETAPA 1b entrega a próxima demanda ==");
     const ligaAuto = await chamarRota(admin, "PUT", "/api/demands/sla-settings", {
       enabled: true,
-      assume_hours: 1,
+      assume_hours: HORAS_PARA_ASSUMIR,
       analysis_hours: 2,
       proposal_hours: 8,
       assignment_policy: "automatico",
