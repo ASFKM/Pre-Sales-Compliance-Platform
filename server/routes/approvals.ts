@@ -4,6 +4,7 @@ import { z } from "zod";
 import { dbStore } from "../../src/dbStore";
 import { requireAuth, requirePermission } from "./auth";
 import { requireUserId } from "../middleware/security";
+import { empurrarProposta } from "../utils/crmOutbox";
 
 const router = express.Router();
 
@@ -193,6 +194,12 @@ router.post("/proposals/:proposalId/approval/submit", requirePermission("approva
 
     const proposal = await dbStore.updateProposalStatus(req.params.proposalId, "submitted");
 
+    // CDC 16 F4: `submitted` daqui é `in_approval` no contrato. O CRM registra a versão e NÃO
+    // aplica o valor dela ao funil (D24/D21): uma proposta em aprovação ainda não é compromisso de
+    // preço, e deixá-la mexer no pipeline faria o número do vendedor dançar a cada etapa interna
+    // do nosso fluxo.
+    void empurrarProposta(req.params.proposalId);
+
     await auditApprovalChange(
       req,
       "Submit Proposal for Approval",
@@ -312,6 +319,20 @@ router.post("/proposals/:proposalId/approval/decision", requireAuth, async (req:
     }
 
     const updatedProposal = await dbStore.updateProposalStatus(req.params.proposalId, nextStatus);
+
+    /*
+     * CDC 16 F4: a decisão vai ao CRM, aprovando ou recusando.
+     *
+     * Aprovada, o envelope leva o CARIMBO de quem aprovou e quando (D24) — é ele que impede a
+     * alçada de desconto do CRM de reabrir o assunto do lado de lá. Recusada, o CRM registra a
+     * versão com `rejected`, que no vocabulário deste produto significa "a aprovação INTERNA
+     * recusou" e não "o cliente disse não"; o CRM sabe da diferença e não a mostra como negócio
+     * perdido.
+     *
+     * `submitted` (faltam etapas obrigatórias) também viaja: uma proposta que anda no fluxo é
+     * notícia, e o CRM devolve a mesma resposta na repetição em vez de duplicar.
+     */
+    void empurrarProposta(req.params.proposalId);
 
     await auditApprovalChange(
       req,

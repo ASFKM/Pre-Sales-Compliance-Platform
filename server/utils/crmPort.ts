@@ -33,6 +33,10 @@ import type { VerifiedPair } from "./pairKey";
 //    vários PEMs) - não o código abrir uma exceção que sobreviveria à produção.
 
 const TIMEOUT_MS = 10_000;
+// O documento da proposta pode ter alguns megabytes, e 10s de teto derrubaria um
+// envio que estava indo bem numa rede lenta — o custo de errar aqui é a fila
+// retentando um upload que já quase tinha terminado.
+const TIMEOUT_BINARIO_MS = 60_000;
 const CONFERENCIA_VALE_MS = 10 * 60 * 1000;
 
 export interface ChaveDoCrm {
@@ -246,6 +250,49 @@ export interface RespostaDoCrm {
  * adianta repetir) de falha de TRANSPORTE (adianta), e uma exceção apagaria a
  * diferença. É a mesma separação que a F2 fez do lado do CRM.
  */
+/**
+ * A mesma porta, com um corpo BINÁRIO (`PUT .../proposals/{version}/document`).
+ *
+ * Função separada, e não um parâmetro de `chamarPortaDoCrm`: aqui não há
+ * `Idempotency-Key`, e a ausência é do contrato, não esquecimento — a identidade
+ * da mensagem é o `sha256` do próprio conteúdo, exatamente como no upload de
+ * edital da F1. Passar uma chave de idempotência ao lado do hash daria duas
+ * verdades sobre a mesma coisa, e a primeira divergência entre elas seria
+ * invisível.
+ */
+export async function enviarBinarioAoCrm(
+  destino: { base: string; key: string },
+  caminho: string,
+  conteudo: Buffer,
+  mimeType: string
+): Promise<RespostaDoCrm | { erroDeRede: string }> {
+  try {
+    const resposta = await fetch(`${destino.base}${caminho}`, {
+      method: "PUT",
+      headers: {
+        "X-Pair-Key": destino.key,
+        // `application/octet-stream` é o que a spec declara para este caminho, e é o
+        // que o Fastify do outro lado tem parser: qualquer outro tipo volta 415 antes
+        // de o handler de lá rodar.
+        "Content-Type": "application/octet-stream",
+        "X-Document-Mime-Type": mimeType,
+      },
+      body: new Uint8Array(conteudo),
+      signal: AbortSignal.timeout(TIMEOUT_BINARIO_MS),
+    });
+    const texto = await resposta.text();
+    let json: unknown = null;
+    try {
+      json = texto ? JSON.parse(texto) : null;
+    } catch {
+      json = texto;
+    }
+    return { status: resposta.status, corpo: json };
+  } catch (err) {
+    return { erroDeRede: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export async function chamarPortaDoCrm(
   destino: { base: string; key: string },
   metodo: "POST" | "PUT",

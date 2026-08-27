@@ -1,8 +1,12 @@
 import { prisma } from "../../src/prisma";
 import { randomId } from "../../src/idGenerator";
 import { logger } from "./logger";
-import { chamarPortaDoCrm, resolverDestino } from "./crmPort";
+import * as crypto from "node:crypto";
+import { chamarPortaDoCrm, enviarBinarioAoCrm, resolverDestino, type RespostaDoCrm } from "./crmPort";
 import { montarRetratoDoProjeto } from "./crmProjectState";
+import { montarEnvelopeDaProposta } from "./crmProposal";
+import { createStorageAdapter } from "./storage";
+import { dbStore } from "../../src/dbStore";
 
 // CDC 16 — Fase 3. A FILA DE SAÍDA: o que este lado tem a contar ao CRM.
 //
@@ -23,7 +27,7 @@ const MAX_TENTATIVAS = 8;
 // Escada de espera, em segundos: 10s, 30s, 2min, 5min, 15min, 30min, 1h, 1h.
 const ESPERA_SEGUNDOS = [10, 30, 120, 300, 900, 1800, 3600, 3600];
 
-export type TipoDeSaida = "event" | "project_state";
+export type TipoDeSaida = "event" | "project_state" | "proposal" | "proposal_document";
 
 export interface AtorDoEvento {
   name: string;
@@ -228,15 +232,148 @@ export async function empurrarMarcoDaDemanda(entrada: {
   }
 }
 
-const CAMINHO: Record<TipoDeSaida, (ref: string) => string> = {
+/**
+ * A proposta inteira, e o arquivo dela logo atrás (F4, D22).
+ *
+ * Duas mensagens, e nunca uma: o contrato manda o binário subir separado do
+ * registro (regra 2 do §4 do plano), e a ordem importa - o `PUT` do documento
+ * endereça uma versão que só existe do outro lado depois do `POST`. A fila já
+ * entrega em ordem por demanda e para no primeiro item que falhar, então essa
+ * dependência é respeitada de graça.
+ *
+ * Nunca lança. Uma proposta gerada aqui é fato consumado; um CRM fora do ar não
+ * pode desfazer isso nem fazer a geração falhar para quem está trabalhando.
+ */
+export async function empurrarProposta(proposalId: string): Promise<void> {
+  try {
+    const envelope = await montarEnvelopeDaProposta(proposalId);
+    // `null` é o caso legítimo do caminho secundário: proposta de um projeto que
+    // não veio de demanda nenhuma. Não há para onde contar, e inventar destino
+    // seria pior do que silêncio.
+    if (!envelope) return;
+
+    // Estável por (proposta, versão, status): a mesma proposta enfileirada duas
+    // vezes no mesmo estado produz a MESMA chave, e o CRM devolve a resposta que
+    // já deu. O status entra porque "aprovada" e "enviada" da mesma versão são
+    // dois fatos diferentes que o outro lado precisa ver.
+    const status = String(envelope.payload.status ?? "draft");
+    await gravar(
+      envelope.tenantId,
+      envelope.demandId,
+      "proposal",
+      null,
+      new Date(),
+      `prop-${proposalId}-v${envelope.version}-${status}`,
+      envelope.payload
+    );
+
+    if (envelope.documento) {
+      await gravar(
+        envelope.tenantId,
+        envelope.demandId,
+        "proposal_document",
+        null,
+        new Date(),
+        // A chave do documento é o HASH, e não a versão: o mesmo arquivo não
+        // precisa subir duas vezes, e o outro lado responde 200 sem regravar
+        // quando já o tem. Um arquivo diferente tem hash diferente e é outra
+        // mensagem.
+        `propdoc-${proposalId}-${envelope.documento.sha256}`,
+        {
+          version: envelope.version,
+          sha256: envelope.documento.sha256,
+          filename: envelope.documento.filename,
+          mime_type: envelope.documento.mime_type,
+          size_bytes: envelope.documento.size_bytes,
+          caminho: envelope.documento.caminho,
+          storage_provider: envelope.documento.storageProvider,
+        }
+      );
+    }
+
+    tentarAgora(envelope.tenantId);
+  } catch (err) {
+    logger.error({ err, proposalId }, "cdc16 F4: falha ao empurrar a proposta para o CRM");
+  }
+}
+
+const CAMINHO: Record<TipoDeSaida, (ref: string, payload?: any) => string> = {
   event: (ref) => `/demands/${encodeURIComponent(ref)}/events`,
   project_state: (ref) => `/demands/${encodeURIComponent(ref)}/project`,
+  proposal: (ref) => `/demands/${encodeURIComponent(ref)}/proposals`,
+  // A versão no caminho é a DESTE produto (por proposta), e não a do CRM (por
+  // oportunidade). É por ela que o outro lado acha a proposta que acabou de
+  // registrar - foi essa a razão de o `POST` devolver a versão que devolve.
+  proposal_document: (ref, payload) =>
+    `/demands/${encodeURIComponent(ref)}/proposals/${Number(payload?.version ?? 0)}/document`,
 };
 
 const METODO: Record<TipoDeSaida, "POST" | "PUT"> = {
   event: "POST",
   project_state: "PUT",
+  proposal: "POST",
+  proposal_document: "PUT",
 };
+
+/**
+ * Entrega o binário da proposta.
+ *
+ * O corpo desta mensagem não cabe numa coluna `Json`, então o que a fila guarda
+ * é o CAMINHO do arquivo e o `sha256` que foi DECLARADO ao CRM no `POST`. Antes
+ * de enviar, o arquivo é lido e re-hasheado: se o conteúdo mudou desde a
+ * declaração (uma regeração do DOCX/PDF, por exemplo), enviar aqueles bytes
+ * daria 422 do outro lado, com razão - o arquivo já não é o que a proposta
+ * prometeu. Descartar com o motivo escrito é melhor do que retentar para sempre
+ * um envio que nunca vai passar; a versão nova da proposta traz um envelope novo.
+ *
+ * É a única mensagem da fila que não tem envelope congelado, e não podia ter:
+ * congelar megabytes de binário numa coluna de banco por retentativa é o
+ * contrário do que a fila existe para fazer.
+ */
+async function entregarDocumento(
+  destino: { base: string; key: string },
+  demandRef: string,
+  payload: any
+): Promise<RespostaDoCrm | { erroDeRede: string }> {
+  const caminho = String(payload?.caminho ?? "");
+  const declarado = String(payload?.sha256 ?? "");
+  if (!caminho || !declarado) {
+    return { status: 422, corpo: { error: "documento_sem_caminho", message: "A mensagem não diz qual arquivo enviar." } };
+  }
+  let conteudo: Buffer;
+  try {
+    const settings = await dbStore.getSettings();
+    const adapter = createStorageAdapter({
+      ...settings,
+      storage_mode: (payload?.storage_provider ?? settings.storage_mode) as any,
+    });
+    conteudo = await adapter.readFile(caminho);
+  } catch (err) {
+    return {
+      status: 404,
+      corpo: {
+        error: "arquivo_ausente",
+        message: `O arquivo da proposta não está mais em ${caminho}: ${err instanceof Error ? err.message : String(err)}`,
+      },
+    };
+  }
+  const agora = crypto.createHash("sha256").update(conteudo).digest("hex");
+  if (agora !== declarado) {
+    return {
+      status: 422,
+      corpo: {
+        error: "sha256_divergente",
+        message: `O arquivo mudou depois de a proposta ter sido declarada ao CRM (declarado ${declarado.slice(0, 12)}…, agora ${agora.slice(0, 12)}…). Uma versão nova da proposta declara o hash novo.`,
+      },
+    };
+  }
+  return enviarBinarioAoCrm(
+    destino,
+    CAMINHO.proposal_document(demandRef, payload),
+    conteudo,
+    String(payload?.mime_type ?? "application/octet-stream")
+  );
+}
 
 function proximaEspera(tentativas: number): Date {
   const s = ESPERA_SEGUNDOS[Math.min(tentativas, ESPERA_SEGUNDOS.length - 1)];
@@ -302,13 +439,16 @@ export async function drenarFila(tenantId: string): Promise<ResumoDaDrenagem> {
     resumo.tentados += 1;
 
     const kind = item.kind as TipoDeSaida;
-    const resposta = await chamarPortaDoCrm(
-      destino,
-      METODO[kind],
-      CAMINHO[kind](item.demand.demandRef),
-      item.idempotencyKey,
-      item.payload
-    );
+    const resposta =
+      kind === "proposal_document"
+        ? await entregarDocumento(destino, item.demand.demandRef, item.payload)
+        : await chamarPortaDoCrm(
+            destino,
+            METODO[kind],
+            CAMINHO[kind](item.demand.demandRef),
+            item.idempotencyKey,
+            item.payload
+          );
 
     if ("erroDeRede" in resposta) {
       resumo.falharam += 1;
