@@ -150,7 +150,7 @@ async function main() {
     linhas.push("== 9. Desligar o SLA devolve a instalação ao comportamento da F1 ==");
     await chamarRota(admin, "PUT", "/api/demands/sla-settings", {
       enabled: false,
-      assume_hours: 1,
+      assume_hours: Number.parseInt(process.env.SLA_ASSUME_HORAS ?? "1", 10),
       analysis_hours: 2,
       proposal_hours: 8,
       assignment_policy: "auto_servico",
@@ -171,7 +171,7 @@ async function main() {
     // Volta a ligar: a ETAPA 3 e a prova visual leem o estado configurado.
     await chamarRota(admin, "PUT", "/api/demands/sla-settings", {
       enabled: true,
-      assume_hours: 1,
+      assume_hours: Number.parseInt(process.env.SLA_ASSUME_HORAS ?? "1", 10),
       analysis_hours: 2,
       proposal_hours: 8,
       assignment_policy: "auto_servico",
