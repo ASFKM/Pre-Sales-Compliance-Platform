@@ -54,12 +54,23 @@ function respostaDoPar(installationPresales: string, extras: Record<string, unkn
   };
 }
 
+// Responde SÓ pelo CMSaaS deste teste; qualquer outro devolve 401, como um
+// CMSaaS que não conhece a chave devolveria. Sem isso o teste passa a depender
+// de quantos tenants com CMSaaS configurado existem no banco compartilhado - e
+// o banco é compartilhado: o cenário da prova de execução real cria os dele
+// nesta mesma base.
 function fetchQueResponde(status: number, corpo: unknown) {
-  return vi.fn(async () => ({
-    ok: status >= 200 && status < 300,
-    status,
-    json: async () => corpo,
-  })) as unknown as typeof fetch;
+  return vi.fn(async (url: any) => {
+    if (!String(url).startsWith(CMSAAS)) {
+      return { ok: false, status: 401, json: async () => ({ success: false, message: "Invalid or revoked pair key." }) };
+    }
+    return { ok: status >= 200 && status < 300, status, json: async () => corpo };
+  }) as unknown as typeof fetch;
+}
+
+/** Quantas vezes o CMSaaS DESTE teste foi consultado. */
+function chamadasAoCmsaasDoTeste(f: unknown): number {
+  return ((f as any).mock.calls as any[][]).filter((c) => String(c[0]).startsWith(CMSAAS)).length;
 }
 
 async function limpar() {
@@ -178,12 +189,14 @@ describe("CDC 16 F1 - verifyPairKey", () => {
     const primeira = await verifyPairKey(chave);
     expect(primeira.ok).toBe(false);
     if (!primeira.ok) expect(primeira.status).toBe(502);
+    const depoisDaPrimeira = (f as any).mock.calls.length;
+    expect(depoisDaPrimeira).toBeGreaterThan(0);
 
     // Repetir precisa tentar de novo: um 502 cacheado transformaria uma queda de
     // rede de um segundo em 30 segundos de porta fechada.
     const segunda = await verifyPairKey(chave);
     expect(segunda.ok).toBe(false);
-    expect((f as any).mock.calls.length).toBe(2);
+    expect((f as any).mock.calls.length).toBeGreaterThan(depoisDaPrimeira);
     await invalidatePairKeyCache(chave);
   });
 
@@ -195,12 +208,12 @@ describe("CDC 16 F1 - verifyPairKey", () => {
 
     await verifyPairKey(chave);
     await verifyPairKey(chave);
-    expect((f as any).mock.calls.length).toBe(1);
+    expect(chamadasAoCmsaasDoTeste(f)).toBe(1);
 
     // E some quando o cache é invalidado.
     await invalidatePairKeyCache(chave);
     await verifyPairKey(chave);
-    expect((f as any).mock.calls.length).toBe(2);
+    expect(chamadasAoCmsaasDoTeste(f)).toBe(2);
     await invalidatePairKeyCache(chave);
   });
 

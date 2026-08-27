@@ -29,6 +29,7 @@ import { assumirDemanda, devolverDemanda } from "../utils/demands";
 const router = express.Router();
 
 const ESTADOS_ABERTOS = ["queued", "assigned", "in_analysis"] as const;
+const ESTADOS_VALIDOS = new Set(["queued", "assigned", "in_analysis", "returned", "cancelled", "completed"]);
 
 function mapDemand(d: any) {
   return {
@@ -125,9 +126,11 @@ router.get("/summary", requirePermission("demand:read"), async (req: Request, re
 router.get("/", requirePermission("demand:read"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const filtro = typeof req.query.status === "string" ? req.query.status.trim() : "";
-    const status = filtro
-      ? filtro.split(",").map((s) => s.trim()).filter(Boolean)
-      : [...ESTADOS_ABERTOS, "returned"];
+    // Peneirado contra a lista real do enum: um valor inventado na query chegaria
+    // ao Prisma e sairia como 500, que é erro de servidor para o que é entrada
+    // inválida. Filtro que sobra vazio volta ao padrão em vez de devolver nada.
+    const pedidos = filtro ? filtro.split(",").map((s) => s.trim()).filter((s) => ESTADOS_VALIDOS.has(s)) : [];
+    const status = pedidos.length > 0 ? pedidos : [...ESTADOS_ABERTOS, "returned"];
 
     const demandas = await prisma.demand.findMany({
       where: { status: { in: status as any } },

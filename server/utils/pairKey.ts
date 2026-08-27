@@ -157,6 +157,12 @@ export async function verifyPairKey(rawKey: string): Promise<PairVerification> {
   const urls = Array.from(new Set(locais.map((l) => l.url)));
 
   let algumIndisponivel = false;
+  // Guardado, e não devolvido na hora: um CMSaaS pode conhecer a chave e o lado
+  // PreSales daquele par ser OUTRA instalação, enquanto um segundo CMSaaS
+  // configurado neste servidor conhece um par que é nosso. Concluir no primeiro
+  // fecharia a porta para o segundo. Na prática há um CMSaaS só por instalação,
+  // e é por isso que o caso apareceu num teste antes de aparecer em produção.
+  let recusaPorInstalacao: PairVerification | null = null;
   for (const url of urls) {
     const resposta = await perguntarAoCmsaas(url, chave);
     if (resposta.kind === "unreachable") {
@@ -208,14 +214,17 @@ export async function verifyPairKey(rawKey: string): Promise<PairVerification> {
       { pairId: par.pair_id, presalesInstallation: idDoLadoPresales },
       "cdc16: chave do par válida no CMSaaS, mas o lado PreSales do par não é esta instalação"
     );
-    const veredito: PairVerification = {
+    recusaPorInstalacao = {
       ok: false,
       status: 401,
       error: "pair_not_for_this_installation",
       message: "This pair key belongs to a pair whose PreSales side is another installation.",
     };
-    await guardar(ck, veredito, CACHE_TTL_NEGATIVE_SECONDS);
-    return veredito;
+  }
+
+  if (recusaPorInstalacao) {
+    await guardar(ck, recusaPorInstalacao, CACHE_TTL_NEGATIVE_SECONDS);
+    return recusaPorInstalacao;
   }
 
   if (algumIndisponivel) {

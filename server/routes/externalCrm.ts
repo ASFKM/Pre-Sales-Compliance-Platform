@@ -106,7 +106,23 @@ router.post("/demands", async (req: Request, res: Response, next: NextFunction) 
           return { status: 200, body: toDemandState(jaExiste) };
         }
 
-        const criada = await criarDemanda(entrada, pair);
+        let criada;
+        try {
+          criada = await criarDemanda(entrada, pair);
+        } catch (err: any) {
+          // P2002 no índice (tenant, demand_ref): duas chaves de idempotência
+          // DIFERENTES para a mesma demanda, enviadas ao mesmo tempo. A leitura
+          // acima não separa isso - o índice único separa. Quem perde a corrida
+          // recebe o mesmo 200 que receberia se tivesse chegado um instante
+          // depois, porque o que ele queria (a demanda existir) aconteceu.
+          if (err?.code !== "P2002") throw err;
+          const agora = await prisma.demand.findFirst({
+            where: { demandRef: entrada.demand_ref },
+            include: { assignedUser: { select: { name: true } } },
+          });
+          if (!agora) throw err;
+          return { status: 200, body: toDemandState(agora) };
+        }
         logger.info(
           { demandId: criada.id, demandRef: criada.demandRef, documentos: criada.documents.length, crossEnvironment: pair.crossEnvironment },
           "cdc16: demanda recebida do CMCRM e enfileirada"

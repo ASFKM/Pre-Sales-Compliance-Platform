@@ -143,6 +143,13 @@ async function secaoB() {
   conferir("GET /api/demands/summary responde 200", resumo.status === 200, resumo.status);
   conferir("...e conta as 2 demandas semeadas na fila", (resumo.corpo?.queued ?? 0) >= 2, resumo.corpo);
 
+  const filtroInventado = await chamar(`${BASE}/api/demands?status=nao-existe-esse-estado`, { headers: auth });
+  conferir(
+    "um status inventado na query não vira 500: volta ao filtro padrão",
+    filtroInventado.status === 200 && Array.isArray(filtroInventado.corpo),
+    filtroInventado.status
+  );
+
   const fila = await chamar(`${BASE}/api/demands?status=queued`, { headers: auth });
   conferir("GET /api/demands?status=queued responde 200", fila.status === 200, fila.status);
   const lista: any[] = Array.isArray(fila.corpo) ? fila.corpo : [];
