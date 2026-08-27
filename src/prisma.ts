@@ -25,7 +25,12 @@ export const TENANT_SCOPED_MODELS = new Set([
   "aIAnalysisJob", "aiProviderConfig", "aiUsageLog", "analysisResult", "approvalDecision",
   "approvalWorkflow", "approvalStage", "auditLog", "backgroundTask", "brandingSettings", "brandStyle",
   "budgetOptimizationRun",
-  "conversationMessage", "debugLog", "demand", "demandDocument", "diagnosticsOutboxEvent", "document",
+  "conversationMessage", "crmPairKey", "debugLog", "demand", "demandDocument",
+  // CDC 16 F3: a fila de saída para o CRM. Recortada por tenant como tudo o mais — o drenador
+  // varre por tenant de propósito, e uma consulta sem `where` explícito nunca deve enxergar a
+  // fila de outra instalação. O teste de cobertura de `src/prisma.test.ts` é quem pegou a
+  // ausência, antes de qualquer consulta larga existir.
+  "demandOutboundEvent", "diagnosticsOutboxEvent", "document",
   "documentContent", "iaKbBillingSnapshot", "idempotencyRecord",
   "iaKbTaskConfig", "integrationConnector", "itemAliasMapping",
   "knowledgeBaseDocument", "knowledgeBaseEntry", "platformSettings", "poc", "pocAcceptance",

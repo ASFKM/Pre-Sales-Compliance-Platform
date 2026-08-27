@@ -5,6 +5,7 @@ import type { Request } from "../types/express";
 import { prisma } from "../../src/prisma";
 import { dbStore } from "../../src/dbStore";
 import { requirePairKey, pairContext, runInPairTenant } from "../middleware/pairKeyAuth";
+import { guardarChaveApresentada } from "../utils/crmPort";
 import { getFleetLicenseStatus, checkLicenseEnforcement } from "../utils/fleetLicense";
 import { createStorageAdapter, validateUploadedFile } from "../utils/storage";
 import { withIdempotency, IdempotencyConflict } from "../utils/idempotency";
@@ -89,8 +90,15 @@ router.post("/demands", async (req: Request, res: Response, next: NextFunction) 
   }
 
   try {
-    const { pair } = pairContext(req);
+    const { pair, rawKey } = pairContext(req);
     const entrada = DemandCreateSchema.parse(req.body);
+
+    // F3: a chave que o CMCRM acabou de apresentar (e que `verifyPairKey` já
+    // aprovou contra o CMSaaS) é guardada cifrada, junto do endereço de retorno
+    // declarado no envelope. É o que dá a este lado como CHAMAR de volta - ver
+    // a decisão 1 em server/utils/crmPort.ts. Não lança: uma falha aqui não
+    // pode derrubar a criação da demanda, que é o que o CRM veio fazer.
+    await guardarChaveApresentada(pair, rawKey, entrada.crm_callback_base_url ?? null);
 
     const resultado = await runInPairTenant(req, () =>
       withIdempotency(`demand:create`, chaveIdem, req.body, async () => {

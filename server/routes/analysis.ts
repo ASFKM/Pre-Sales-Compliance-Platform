@@ -5,6 +5,7 @@ import { dbStore } from "../../src/dbStore";
 import { requirePermission } from "./auth";
 import { logDebugMessage, requireUserId } from "../middleware/security";
 import { logger } from "../utils/logger";
+import { empurrarMarcoDaDemanda } from "../utils/crmOutbox";
 import { AnalysisResult, KnowledgeBaseEntry } from "../../src/types";
 import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
 import { generateJsonWithProvider, generateTextWithProvider, searchWebWithProvider, ConnectedProvider, ProviderFileInput } from "../utils/aiProviders";
@@ -1358,7 +1359,7 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
     // `assigned`, para uma reanálise semanas depois não reescrever o instante em
     // que a análise começou de verdade. Nenhuma demanda casando é o caso normal
     // (projeto criado pelo intake, sem CRM nenhum) e custa uma consulta.
-    await prisma.demand.updateMany({
+    const marcouAnalise = await prisma.demand.updateMany({
       // tenantId explícito, e não só o que a extensão injeta: este handler é um
       // dos que já mediram que o AsyncLocalStorage não chega confiável aqui (ver o
       // comentário no topo da rota), e uma escrita que perdesse o escopo sairia
@@ -1367,10 +1368,32 @@ router.post("/projects/:projectId/analyze", requirePermission("analysis:run"), a
       data: { status: "in_analysis", analysisStartedAt: new Date() },
     });
 
+
     // 1. Create Background AI Analysis Job and log it
     userId = requireUserId(req);
     const user = await dbStore.getUserById(userId);
     const userName = user ? user.name : "System User";
+
+    // F3: e agora o CRM fica sabendo. Depois de o usuário ser resolvido, e não antes: um marco
+    // sem autor na timeline diz "a análise técnica começou" e não diz por quem — foi assim que a
+    // primeira versão saiu, e a prova pegou. `count`, e não uma consulta a mais: só empurra quem
+    // de fato mudou o estado; uma reanálise que não moveu demanda nenhuma não tem fato novo.
+    if (marcouAnalise.count > 0) {
+      const demandaEmAnalise = await prisma.demand.findFirst({
+        where: { tenantId, projectId, status: "in_analysis" },
+        select: { id: true, demandRef: true, sentAt: true, assignedAt: true, analysisStartedAt: true },
+      });
+      if (demandaEmAnalise?.analysisStartedAt) {
+        await empurrarMarcoDaDemanda({
+          tenantId,
+          demanda: demandaEmAnalise,
+          event: "in_analysis",
+          occurredAt: demandaEmAnalise.analysisStartedAt,
+          actor: { name: userName, presales_user_id: userId },
+          projectId,
+        });
+      }
+    }
 
     if (providerResolution.isFallback) {
       await recordProviderFallback({

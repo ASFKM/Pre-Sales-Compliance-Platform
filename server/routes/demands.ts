@@ -6,6 +6,7 @@ import { dbStore } from "../../src/dbStore";
 import { requirePermission } from "./auth";
 import { requireUserId } from "../middleware/security";
 import { assumirDemanda, devolverDemanda } from "../utils/demands";
+import { empurrarMarcoDaDemanda } from "../utils/crmOutbox";
 
 // CDC 16 — Fase 1. A FILA, do lado de quem trabalha nela.
 //
@@ -191,6 +192,21 @@ router.post("/:id/assume", requirePermission("demand:assume"), async (req: Reque
       }),
     });
 
+    // F3: o CRM fica sabendo que alguém assumiu. DEPOIS da transação e depois
+    // da auditoria, nunca dentro: um evento enfileirado numa transação que
+    // depois desfaz contaria ao vendedor um fato que não aconteceu.
+    const quemAssumiu = await dbStore.getUserById(userId);
+    await empurrarMarcoDaDemanda({
+      tenantId: resultado.demand.tenantId,
+      demanda: resultado.demand,
+      event: "assigned",
+      // O instante do FATO: o carimbo que a própria transação gravou, e não o
+      // `new Date()` de agora — entre um e outro cabe a latência desta rota.
+      occurredAt: resultado.demand.assignedAt ?? new Date(),
+      actor: { name: quemAssumiu?.name ?? "Pré-vendas", presales_user_id: userId },
+      projectId: resultado.projectId,
+    });
+
     res.json({
       success: true,
       demand: mapDemand(resultado.demand),
@@ -242,6 +258,22 @@ router.post("/:id/return", requirePermission("demand:assume"), async (req: Reque
       ip_address: req.ip || "127.0.0.1",
       user_agent: req.headers["user-agent"] || "unknown",
       metadata: JSON.stringify({ demand_ref: resultado.demand.demandRef, reason: reason.trim() }),
+    });
+
+    // F3: devolvida é um dos três MARCOS FORTES (D30) — o CRM manda e-mail ao
+    // vendedor, além do aviso no sino. O motivo viaja junto: sem ele, o vendedor
+    // descobre que voltou e não por quê.
+    const quemDevolveu = await dbStore.getUserById(userId);
+    await empurrarMarcoDaDemanda({
+      tenantId: resultado.demand.tenantId,
+      demanda: resultado.demand,
+      event: "returned",
+      occurredAt: resultado.demand.returnedAt ?? new Date(),
+      actor: { name: quemDevolveu?.name ?? "Pré-vendas", presales_user_id: userId },
+      reason: reason.trim(),
+      // Sem `projectId`: o projeto continua existindo (ele pode já ter trabalho
+      // em cima), mas a demanda desencostou dele. Mandar o retrato de um projeto
+      // que já não representa esta demanda seria pior que não mandar.
     });
 
     res.json({ success: true, demand: mapDemand(resultado.demand) });
