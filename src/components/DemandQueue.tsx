@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, FileText, Inbox, RefreshCw, Undo2, UserPlus, X } from "lucide-react";
+import { AlertTriangle, Check, Clock, FileText, Inbox, RefreshCw, Send, Undo2, UserPlus, X } from "lucide-react";
 import ApiClient from "../lib/api";
-import { Demand } from "../types";
+import DemandSlaPanel from "./DemandSlaPanel";
+import { Demand, DemandSlaSettings } from "../types";
 
 // CDC 16 — Fase 1. A fila de pré-vendas, do lado de quem trabalha nela.
 //
@@ -9,6 +10,11 @@ import { Demand } from "../types";
 // e é de propósito: quem não enxerga o trabalho disponível não se oferece para
 // fazê-lo. O filtro por estado existe para separar o que espera do que já anda,
 // não para recortar por pessoa.
+//
+// CDC 16 — Fase 5 acrescentou: a coluna de PRAZO do SLA ao lado da do edital
+// (são dois prazos diferentes e a tela não pode confundi-los), o
+// direcionamento pelo gerente (D16), a aprovação da devolução (D17) e a segunda
+// vista, "Prazos e desempenho", em `DemandSlaPanel`.
 
 const STATUS_LABEL: Record<string, string> = {
   queued: "Na fila",
@@ -60,6 +66,27 @@ function diasAtePrazo(prazo?: string | null): number | null {
   return Math.ceil((d.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
 }
 
+// O prazo do SLA e o prazo do edital são coisas diferentes, e a tela mostra os
+// dois lado a lado justamente por isso: um é a promessa desta equipe (D19), o
+// outro é a data em que a licitação fecha. Confundi-los faria a fila cobrar a
+// coisa errada.
+function estadoDoPrazo(dueAt?: string | null): { texto: string; classe: string; vencido: boolean } | null {
+  if (!dueAt) return null;
+  const restante = new Date(dueAt).getTime() - Date.now();
+  if (Number.isNaN(restante)) return null;
+  const vencido = restante < 0;
+  const s = Math.abs(Math.round(restante / 1000));
+  const dias = Math.floor(s / 86400);
+  const horas = Math.floor((s % 86400) / 3600);
+  const minutos = Math.floor((s % 3600) / 60);
+  const dur = dias > 0 ? `${dias}d ${horas}h` : horas > 0 ? `${horas}h ${minutos}min` : `${minutos}min`;
+  return {
+    texto: vencido ? `vencido há ${dur}` : `faltam ${dur}`,
+    classe: vencido ? "text-danger-600" : restante < 4 * 60 * 60 * 1000 ? "text-warning-700" : "text-slate-400",
+    vencido,
+  };
+}
+
 interface DemandQueueProps {
   hasPermission: (permission: string) => boolean;
   currentUserId: string;
@@ -68,6 +95,13 @@ interface DemandQueueProps {
 }
 
 export default function DemandQueue({ hasPermission, currentUserId, onDemandAssumed, onQueueChanged }: DemandQueueProps) {
+  const [vista, setVista] = useState<"fila" | "prazos">("fila");
+  const [config, setConfig] = useState<DemandSlaSettings | null>(null);
+  const [equipe, setEquipe] = useState<Array<{ id: string; name: string }>>([]);
+  const [direcionando, setDirecionando] = useState<Demand | null>(null);
+  const [destino, setDestino] = useState("");
+  const [recusando, setRecusando] = useState<Demand | null>(null);
+  const [motivoRecusa, setMotivoRecusa] = useState("");
   const [filtro, setFiltro] = useState(FILTROS[0].chave);
   const [demandas, setDemandas] = useState<Demand[]>([]);
   const [carregando, setCarregando] = useState(true);
@@ -79,13 +113,23 @@ export default function DemandQueue({ hasPermission, currentUserId, onDemandAssu
   const [erroAcao, setErroAcao] = useState("");
 
   const podeAssumir = hasPermission("demand:assume");
+  const souGerente = hasPermission("demand:manage");
+  // D16: numa fila direcionada, assumir é justamente o ato que a política
+  // existe para tirar - o botão some para quem não é gerente, e a explicação
+  // fica no cabeçalho da tela em vez de num 403 mudo.
+  const filaDirecionada = config?.assignment_policy === "direcionamento";
+  const podeAssumirAgora = podeAssumir && (!filaDirecionada || souGerente);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
     setErro("");
     try {
-      const lista = await ApiClient.get<Demand[]>(`/api/demands?status=${encodeURIComponent(filtro)}`);
+      const [lista, cfg] = await Promise.all([
+        ApiClient.get<Demand[]>(`/api/demands?status=${encodeURIComponent(filtro)}`),
+        ApiClient.get<DemandSlaSettings>("/api/demands/sla-settings"),
+      ]);
       setDemandas(Array.isArray(lista) ? lista : []);
+      setConfig(cfg);
     } catch (e: any) {
       setErro(e.message || "Não foi possível carregar a fila.");
     } finally {
@@ -134,20 +178,134 @@ export default function DemandQueue({ hasPermission, currentUserId, onDemandAssu
     }
   };
 
+  const direcionar = async () => {
+    if (!direcionando || !destino) return;
+    setEmAcao(true);
+    setErroAcao("");
+    try {
+      await ApiClient.post(`/api/demands/${direcionando.id}/direct`, { user_id: destino });
+      setDirecionando(null);
+      setDestino("");
+      setAberta(null);
+      await carregar();
+      onQueueChanged?.();
+    } catch (e: any) {
+      setErroAcao(e.message || "Não foi possível direcionar esta demanda.");
+    } finally {
+      setEmAcao(false);
+    }
+  };
+
+  const aprovarDevolucao = async (d: Demand) => {
+    setEmAcao(true);
+    setErroAcao("");
+    try {
+      await ApiClient.post(`/api/demands/${d.id}/return/approve`, {});
+      setAberta(null);
+      await carregar();
+      onQueueChanged?.();
+    } catch (e: any) {
+      setErroAcao(e.message || "Não foi possível aprovar a devolução.");
+    } finally {
+      setEmAcao(false);
+    }
+  };
+
+  const recusarDevolucao = async () => {
+    if (!recusando) return;
+    setEmAcao(true);
+    setErroAcao("");
+    try {
+      await ApiClient.post(`/api/demands/${recusando.id}/return/reject`, { reason: motivoRecusa });
+      setRecusando(null);
+      setMotivoRecusa("");
+      setAberta(null);
+      await carregar();
+      onQueueChanged?.();
+    } catch (e: any) {
+      setErroAcao(e.message || "Não foi possível recusar a devolução.");
+    } finally {
+      setEmAcao(false);
+    }
+  };
+
+  const abrirDirecionamento = async (d: Demand) => {
+    setErroAcao("");
+    setDestino("");
+    setDirecionando(d);
+    try {
+      if (equipe.length === 0) setEquipe(await ApiClient.get<Array<{ id: string; name: string }>>("/api/demands/team"));
+    } catch {
+      // A lista vazia já diz o que precisa: sem ninguém elegível, não há para
+      // quem direcionar. Um erro aqui não pode fechar o diálogo.
+    }
+  };
+
   const naFila = useMemo(() => demandas.filter((d) => d.status === "queued").length, [demandas]);
+  const aguardandoAprovacao = useMemo(
+    () => demandas.filter((d) => d.return_requested_at && !d.return_decided_at).length,
+    [demandas]
+  );
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">
-            Fila de Pré-vendas ({demandas.length})
+            {vista === "fila" ? `Fila de Pré-vendas (${demandas.length})` : "Prazos e desempenho"}
           </h2>
           <p className="text-[11px] text-slate-500 mt-0.5">
-            Pedidos enviados pelo CRM. {naFila > 0 ? `${naFila} aguardando alguém assumir.` : "Nada aguardando na fila."}
+            {vista === "fila" ? (
+              <>
+                Pedidos enviados pelo CRM. {naFila > 0 ? `${naFila} aguardando alguém assumir.` : "Nada aguardando na fila."}
+                {filaDirecionada && " As demandas desta instalação são direcionadas pelo gerente de pré-vendas."}
+                {config?.assignment_policy === "automatico" && " Novas demandas são distribuídas automaticamente por menor carga."}
+              </>
+            ) : (
+              "Prazo por etapa, alertas de prazo vencido e tempo de resposta."
+            )}
           </p>
         </div>
         <div className="flex items-center flex-wrap gap-2">
+          <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
+            {(
+              [
+                ["fila", "Fila"],
+                ["prazos", "Prazos e desempenho"],
+              ] as const
+            ).map(([chave, rotulo]) => (
+              <button
+                key={chave}
+                onClick={() => setVista(chave)}
+                data-testid={`demand-vista-${chave}`}
+                className={`text-[11px] px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer ${
+                  vista === chave ? "bg-white text-brand-700 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                {rotulo}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {vista === "prazos" ? (
+        <DemandSlaPanel hasPermission={hasPermission} onChanged={() => void carregar()} />
+      ) : (
+      <>
+      {souGerente && aguardandoAprovacao > 0 && (
+        <div className="bg-warning-50 border border-warning-200 text-warning-800 text-xs rounded-lg p-3 flex items-start gap-2">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          <div>
+            <span className="font-bold">
+              {aguardandoAprovacao} devolução(ões) aguardando sua aprovação.
+            </span>{" "}
+            Abra a demanda para ler o motivo e decidir.
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center justify-end flex-wrap gap-2">
           <div className="flex items-center flex-wrap gap-1 bg-slate-100 rounded-lg p-1">
             {FILTROS.map((f) => (
               <button
@@ -167,7 +325,6 @@ export default function DemandQueue({ hasPermission, currentUserId, onDemandAssu
           >
             <RefreshCw size={13} className={carregando ? "animate-spin" : ""} /> Atualizar
           </button>
-        </div>
       </div>
 
       {erro && (
@@ -187,7 +344,8 @@ export default function DemandQueue({ hasPermission, currentUserId, onDemandAssu
               <th className="p-3">Cliente</th>
               <th className="p-3">Vertical</th>
               <th className="p-3 text-right">Valor</th>
-              <th className="p-3">Prazo</th>
+              <th className="p-3">Prazo do edital</th>
+              <th className="p-3">Prazo do SLA</th>
               <th className="p-3">Situação</th>
               <th className="p-3 text-right">Ações</th>
             </tr>
@@ -245,13 +403,41 @@ export default function DemandQueue({ hasPermission, currentUserId, onDemandAssu
                     )}
                   </td>
                   <td className="p-3">
+                    {(() => {
+                      const p = estadoDoPrazo(d.due_at);
+                      if (!p) {
+                        // Traço, e não "vencido": sem SLA configurado ou em
+                        // estado terminal, esta demanda não deve etapa nenhuma.
+                        return <span className="text-slate-300">—</span>;
+                      }
+                      return (
+                        <div data-testid={`sla-prazo-${d.demand_ref}`}>
+                          <div className="text-slate-700">{dataCurta(d.due_at)}</div>
+                          <div className={`text-[10px] font-semibold ${p.classe}`}>{p.texto}</div>
+                          <div className="text-[10px] text-slate-400">{d.sla_stage_label}</div>
+                        </div>
+                      );
+                    })()}
+                  </td>
+                  <td className="p-3">
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${STATUS_COLOR[d.status] || "bg-slate-100 text-slate-600"}`}>
                       {STATUS_LABEL[d.status] || d.status}
                     </span>
-                    {d.assigned_to && <div className="text-[10px] text-slate-400 mt-0.5">{d.assigned_to}</div>}
+                    {d.assigned_to && (
+                      <div className="text-[10px] text-slate-400 mt-0.5">
+                        {d.assigned_to}
+                        {d.assignment_source === "auto" && " · automático"}
+                        {d.assignment_source === "manager" && " · direcionada"}
+                      </div>
+                    )}
+                    {d.return_requested_at && !d.return_decided_at && (
+                      <div className="text-[10px] text-warning-700 font-semibold mt-0.5" data-testid={`devolucao-pendente-${d.demand_ref}`}>
+                        devolução aguardando o gerente
+                      </div>
+                    )}
                   </td>
                   <td className="p-3 text-right whitespace-nowrap">
-                    {d.status === "queued" && podeAssumir && (
+                    {d.status === "queued" && podeAssumirAgora && (
                       <button
                         onClick={() => void assumir(d)}
                         disabled={emAcao}
@@ -260,12 +446,21 @@ export default function DemandQueue({ hasPermission, currentUserId, onDemandAssu
                         <UserPlus size={12} /> Assumir
                       </button>
                     )}
-                    {(d.status === "assigned" || d.status === "in_analysis") && podeAssumir && d.assigned_user_id === currentUserId && (
+                    {(d.status === "assigned" || d.status === "in_analysis") && podeAssumir && d.assigned_user_id === currentUserId && !d.return_requested_at && (
                       <button
                         onClick={() => { setDevolvendo(d); setMotivo(""); setErroAcao(""); }}
                         className="inline-flex items-center gap-1 border border-slate-200 hover:bg-slate-50 text-slate-600 text-[11px] px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer"
                       >
                         <Undo2 size={12} /> Devolver
+                      </button>
+                    )}
+                    {souGerente && (d.status === "queued" || d.status === "assigned" || d.status === "in_analysis") && (
+                      <button
+                        onClick={() => void abrirDirecionamento(d)}
+                        data-testid={`direcionar-${d.demand_ref}`}
+                        className="ml-1 inline-flex items-center gap-1 border border-slate-200 hover:bg-slate-50 text-slate-600 text-[11px] px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer"
+                      >
+                        <Send size={12} /> {d.status === "queued" ? "Direcionar" : "Reatribuir"}
                       </button>
                     )}
                   </td>
@@ -274,7 +469,7 @@ export default function DemandQueue({ hasPermission, currentUserId, onDemandAssu
             })}
             {!carregando && demandas.length === 0 && (
               <tr>
-                <td colSpan={7} className="p-10 text-center text-slate-400">
+                <td colSpan={8} className="p-10 text-center text-slate-400">
                   <Inbox size={28} className="mx-auto mb-2 opacity-40" />
                   <div className="text-xs font-semibold text-slate-500">Nenhuma demanda neste filtro</div>
                   <div className="text-[11px] mt-1">Demandas chegam quando o vendedor envia uma oportunidade do CRM para a pré-venda.</div>
@@ -395,6 +590,34 @@ export default function DemandQueue({ hasPermission, currentUserId, onDemandAssu
                 </ul>
               </section>
 
+              {aberta.return_requested_at && !aberta.return_decided_at && (
+                <section className="border border-warning-200 bg-warning-50/60 rounded-lg p-3" data-testid="modal-devolucao-pendente">
+                  <h4 className="font-mono uppercase text-[10px] text-warning-700 mb-1">Devolução aguardando o gerente</h4>
+                  <p className="text-slate-700 whitespace-pre-wrap">{aberta.return_request_reason}</p>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Pedida por {aberta.return_requested_by || "—"} em {dataCurta(aberta.return_requested_at)}. O vendedor NÃO foi avisado:
+                    nada é contado ao CRM enquanto a devolução não for aprovada.
+                  </p>
+                </section>
+              )}
+
+              {aberta.return_rejection_reason && (
+                <section className="border border-slate-200 rounded-lg p-3">
+                  <h4 className="font-mono uppercase text-[10px] text-slate-500 mb-1">Devolução recusada pelo gerente</h4>
+                  <p className="text-slate-700 whitespace-pre-wrap">{aberta.return_rejection_reason}</p>
+                </section>
+              )}
+
+              {aberta.due_at && (
+                <section>
+                  <h4 className="font-mono uppercase text-[10px] text-slate-500 mb-2">Prazo do SLA</h4>
+                  <dl className="grid grid-cols-2 gap-x-6 gap-y-1.5">
+                    <Campo rotulo="Etapa devida" valor={aberta.sla_stage_label} />
+                    <Campo rotulo="Vence em" valor={`${dataCurta(aberta.due_at)} · ${estadoDoPrazo(aberta.due_at)?.texto ?? ""}`} />
+                  </dl>
+                </section>
+              )}
+
               {aberta.returned_reason && (
                 <section>
                   <h4 className="font-mono uppercase text-[10px] text-slate-500 mb-2">Motivo da devolução</h4>
@@ -415,13 +638,40 @@ export default function DemandQueue({ hasPermission, currentUserId, onDemandAssu
                   <UserPlus size={13} /> Assumir e abrir projeto
                 </button>
               )}
-              {(aberta.status === "assigned" || aberta.status === "in_analysis") && podeAssumir && aberta.assigned_user_id === currentUserId && (
+              {(aberta.status === "assigned" || aberta.status === "in_analysis") && podeAssumir && aberta.assigned_user_id === currentUserId && !aberta.return_requested_at && (
                 <button
                   onClick={() => { setDevolvendo(aberta); setMotivo(""); setErroAcao(""); }}
                   className="inline-flex items-center gap-1.5 border border-slate-200 hover:bg-slate-50 text-slate-600 text-xs px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer"
                 >
                   <Undo2 size={13} /> Devolver ao vendedor
                 </button>
+              )}
+              {souGerente && (aberta.status === "queued" || aberta.status === "assigned" || aberta.status === "in_analysis") && (
+                <button
+                  onClick={() => void abrirDirecionamento(aberta)}
+                  className="inline-flex items-center gap-1.5 border border-slate-200 hover:bg-slate-50 text-slate-600 text-xs px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer"
+                >
+                  <Send size={13} /> {aberta.status === "queued" ? "Direcionar" : "Reatribuir"}
+                </button>
+              )}
+              {souGerente && aberta.return_requested_at && !aberta.return_decided_at && (
+                <>
+                  <button
+                    onClick={() => { setRecusando(aberta); setMotivoRecusa(""); setErroAcao(""); }}
+                    data-testid="recusar-devolucao"
+                    className="inline-flex items-center gap-1.5 border border-slate-200 hover:bg-slate-50 text-slate-600 text-xs px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer"
+                  >
+                    <X size={13} /> Recusar devolução
+                  </button>
+                  <button
+                    onClick={() => void aprovarDevolucao(aberta)}
+                    disabled={emAcao}
+                    data-testid="aprovar-devolucao"
+                    className="inline-flex items-center gap-1.5 bg-danger-600 hover:bg-danger-700 disabled:opacity-50 text-white text-xs px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer"
+                  >
+                    <Check size={13} /> Aprovar devolução
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -465,6 +715,105 @@ export default function DemandQueue({ hasPermission, currentUserId, onDemandAssu
             </div>
           </div>
         </div>
+      )}
+
+      {direcionando && (
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md" data-testid="dialogo-direcionar">
+            <div className="p-5 border-b border-slate-200">
+              <h3 className="text-sm font-bold text-slate-800">
+                {direcionando.status === "queued" ? "Direcionar demanda" : "Reatribuir demanda"}
+              </h3>
+              <p className="text-[11px] text-slate-500 mt-1">
+                {direcionando.status === "queued"
+                  ? "A demanda é assumida em nome de quem você escolher, e o projeto nasce com essa pessoa como dona."
+                  : "O projeto muda de dono junto. Um pedido de devolução pendente é encerrado por esta decisão."}
+              </p>
+            </div>
+            <div className="p-5 space-y-3">
+              <select
+                value={destino}
+                data-testid="direcionar-destino"
+                onChange={(e) => setDestino(e.target.value)}
+                className="w-full border border-slate-200 rounded-lg p-2.5 text-xs cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+              >
+                <option value="">Escolha uma pessoa…</option>
+                {equipe
+                  .filter((u) => u.id !== direcionando.assigned_user_id)
+                  .map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name}
+                    </option>
+                  ))}
+              </select>
+              {equipe.length === 0 && (
+                <p className="text-[11px] text-warning-700">
+                  Ninguém com permissão para assumir demandas está ativo nesta instalação.
+                </p>
+              )}
+              {erroAcao && <div className="bg-danger-50 border border-danger-200 text-danger-700 text-xs rounded-lg p-3">{erroAcao}</div>}
+            </div>
+            <div className="flex items-center justify-end gap-2 p-4 border-t border-slate-200">
+              <button
+                onClick={() => setDirecionando(null)}
+                className="text-xs px-3 py-1.5 rounded-lg font-semibold text-slate-500 hover:text-slate-700 cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => void direcionar()}
+                disabled={emAcao || !destino}
+                data-testid="direcionar-confirmar"
+                className="inline-flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-xs px-3 py-1.5 rounded-lg font-semibold cursor-pointer"
+              >
+                <Send size={13} /> Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {recusando && (
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg" data-testid="dialogo-recusar">
+            <div className="p-5 border-b border-slate-200">
+              <h3 className="text-sm font-bold text-slate-800">Recusar a devolução</h3>
+              <p className="text-[11px] text-slate-500 mt-1">
+                A demanda continua com quem a assumiu. O motivo volta para essa pessoa — sem ele, ela só descobre que o pedido não passou.
+              </p>
+            </div>
+            <div className="p-5 space-y-3">
+              <textarea
+                value={motivoRecusa}
+                onChange={(e) => setMotivoRecusa(e.target.value)}
+                rows={4}
+                data-testid="recusar-motivo"
+                placeholder="Ex.: os anexos estão no portal da licitação; baixe de lá antes de devolver."
+                className="w-full border border-slate-200 rounded-lg p-3 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+              />
+              <div className="text-[11px] text-slate-400">{motivoRecusa.trim().length} / mínimo 10 caracteres</div>
+              {erroAcao && <div className="bg-danger-50 border border-danger-200 text-danger-700 text-xs rounded-lg p-3">{erroAcao}</div>}
+            </div>
+            <div className="flex items-center justify-end gap-2 p-4 border-t border-slate-200">
+              <button
+                onClick={() => setRecusando(null)}
+                className="text-xs px-3 py-1.5 rounded-lg font-semibold text-slate-500 hover:text-slate-700 cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => void recusarDevolucao()}
+                disabled={emAcao || motivoRecusa.trim().length < 10}
+                data-testid="recusar-confirmar"
+                className="inline-flex items-center gap-1.5 bg-slate-700 hover:bg-slate-800 disabled:opacity-50 text-white text-xs px-3 py-1.5 rounded-lg font-semibold cursor-pointer"
+              >
+                <X size={13} /> Recusar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      </>
       )}
     </div>
   );

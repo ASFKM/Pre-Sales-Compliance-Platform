@@ -854,6 +854,70 @@ export interface Demand {
   returned_reason?: string | null;
   project_id?: string | null;
   documents: DemandDocumentSummary[];
+
+  // ── CDC 16 Fase 5 ─────────────────────────────────────────────────────────
+  /** Prazo da etapa ainda devida (D19). Nulo sem SLA, e nulo em estado terminal. */
+  due_at?: string | null;
+  sla_stage?: "assume" | "analysis" | "proposal" | null;
+  sla_stage_label?: string | null;
+  /** "manager" (direcionada), "auto" (menor carga, D40) ou nulo (auto-serviço). */
+  assignment_source?: "manager" | "auto" | null;
+  assigned_by?: string | null;
+  return_requested_at?: string | null;
+  return_requested_by?: string | null;
+  return_request_reason?: string | null;
+  return_decided_at?: string | null;
+  return_rejection_reason?: string | null;
+}
+
+/** CDC 16 F5: a configuração de prazo e de atribuição da instalação (D16, D19). */
+export interface DemandSlaSettings {
+  /** Falso enquanto ninguém configurou nada - o estado de toda instalação hoje. */
+  configured: boolean;
+  enabled: boolean;
+  assume_hours: number;
+  analysis_hours: number;
+  proposal_hours: number;
+  assignment_policy: "auto_servico" | "direcionamento" | "automatico";
+  managers: Array<{ id: string; name: string }>;
+  manager_permission: string;
+}
+
+/** CDC 16 F5: um prazo que venceu (D19). */
+export interface DemandSlaAlert {
+  id: string;
+  demand_id: string;
+  demand_ref: string;
+  title: string;
+  company_name: string;
+  demand_status: string;
+  assigned_to: string | null;
+  stage: "assume" | "analysis" | "proposal";
+  stage_label: string;
+  due_at: string;
+  detected_at: string;
+  recipient_kind: "manager" | "team";
+  recipient_user_ids: string[];
+  acknowledged_at: string | null;
+}
+
+/** CDC 16 F5: a medição de tempo de resposta (D20). Por pessoa, só aqui. */
+export interface DemandMeasurement {
+  amostraAteAssumir: number;
+  amostraAteAnalise: number;
+  amostraAteConcluir: number;
+  mediaAteAssumirSegundos: number | null;
+  mediaAteAnaliseSegundos: number | null;
+  mediaAteConcluirSegundos: number | null;
+  devolvidas: number;
+  total: number;
+}
+
+export interface DemandPerformance {
+  days: number;
+  since: string;
+  team: DemandMeasurement;
+  people: Array<{ user_id: string; name: string } & DemandMeasurement>;
 }
 
 export interface DemandQueueSummary {

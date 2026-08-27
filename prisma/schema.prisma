@@ -284,6 +284,10 @@ model Tenant {
   demandDocuments      DemandDocument[]
   idempotencyRecords   IdempotencyRecord[]
 
+  // CDC 16, Fase 5 (SLA, politicas de atribuicao e alerta de prazo)
+  demandSlaSettings DemandSlaSettings?
+  demandSlaBreaches DemandSlaBreach[]
+
   // Módulo de Precificação (add-on)
   priceCatalogItems            PriceCatalogItem[]
   priceListUploads             PriceListUpload[]
@@ -324,6 +328,9 @@ model User {
   teamMemberships  TeamMembership[] @relation("TeamEngineer")
   ownedPocs        Poc[]            @relation("PocOwner")
   assignedDemands  Demand[]         @relation("DemandAssignee")
+  directedDemands  Demand[]         @relation("DemandDirectedBy")
+  returnRequests   Demand[]         @relation("DemandReturnRequester")
+  returnDecisions  Demand[]         @relation("DemandReturnDecider")
 
   // Módulo de Precificação (add-on)
   priceListUploads       PriceListUpload[]
@@ -2092,6 +2099,33 @@ model Demand {
   assignedUser   User?   @relation("DemandAssignee", fields: [assignedUserId], references: [id])
   returnedReason String? @map("returned_reason") @db.Text
 
+  // ── F5: como esta demanda foi parar com quem esta (D16) ───────────────────
+  // Nulo = auto-servico, o padrao de toda instalacao que existe hoje: a pessoa
+  // se ofereceu. Preenchido, diz QUEM decidiu - o gerente que direcionou, ou o
+  // proprio produto quando a politica automatica escolheu por menor carga. Sem
+  // isto, "assumida por Fulano" nao distingue quem escolheu de quem foi
+  // escolhido, e a auditoria de uma fila direcionada some.
+  assignedByUserId String? @map("assigned_by_user_id")
+  assignedBy       User?   @relation("DemandDirectedBy", fields: [assignedByUserId], references: [id])
+  // "manager" (direcionamento, D16), "auto" (menor carga, D40) ou nulo (auto-servico).
+  assignmentSource String? @map("assignment_source")
+
+  // ── F5: a devolucao que espera o gerente (D17) ────────────────────────────
+  // A D17 diz "o gerente aprova a devolucao QUANDO HOUVER gerente". Sem gerente
+  // nenhum no tenant, estes campos ficam nulos para sempre e a devolucao segue
+  // direta, exatamente como a F1 a entregou.
+  returnRequestedAt       DateTime? @map("return_requested_at")
+  returnRequestedByUserId String?   @map("return_requested_by_user_id")
+  returnRequestedBy       User?     @relation("DemandReturnRequester", fields: [returnRequestedByUserId], references: [id])
+  returnRequestReason     String?   @map("return_request_reason") @db.Text
+  returnDecidedAt         DateTime? @map("return_decided_at")
+  returnDecidedByUserId   String?   @map("return_decided_by_user_id")
+  returnDecidedBy         User?     @relation("DemandReturnDecider", fields: [returnDecidedByUserId], references: [id])
+  // Preenchido so quando o gerente RECUSA a devolucao: o motivo volta para quem
+  // pediu, e a demanda continua com ela. Aprovada, a devolucao vira `returned`
+  // e quem conta a historia passa a ser `returnedReason`.
+  returnRejectionReason   String?   @map("return_rejection_reason") @db.Text
+
   // Nasce nulo: a Demanda entra na fila SEM DONO e SEM PROJETO (D14). O projeto
   // só existe a partir do momento em que alguém assume.
   projectId String?  @unique @map("project_id")
@@ -2099,6 +2133,7 @@ model Demand {
 
   documents      DemandDocument[]
   outboundEvents DemandOutboundEvent[]
+  slaBreaches    DemandSlaBreach[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2279,4 +2314,101 @@ model IdempotencyRecord {
   @@unique([tenantId, scope, key])
   @@index([tenantId])
   @@map("idempotency_records")
+}
+
+// ─── CDC 16, Fase 5: SLA por etapa e politica de atribuicao ───────────────────
+
+enum DemandAssignmentPolicy {
+  // O padrao, e o unico comportamento que existia ate a F5: qualquer pessoa da
+  // equipe assume qualquer demanda da fila (D15). TODA instalacao no ar hoje
+  // esta neste modo, e nenhuma configurou nada - por isso ele e o default da
+  // coluna, e nao um valor que a migration precise escrever.
+  auto_servico
+  // O gerente de pre-vendas aponta a demanda para alguem (D16). O botao de
+  // assumir some para quem nao e gerente: numa fila direcionada, "assumir"
+  // seria justamente o ato que a politica existe para tirar.
+  direcionamento
+  // Distribuicao automatica por menor carga, com a regua da D40. O auto-servico
+  // CONTINUA disponivel neste modo, de proposito: quando nao ha ninguem
+  // elegivel, a demanda fica na fila em vez de ficar presa esperando um
+  // distribuidor que nao tem para quem distribuir.
+  automatico
+}
+
+/// A configuracao de prazo da INSTALACAO (D19), nao da demanda.
+///
+/// Singleton por tenant, pelo mesmo motivo de `TenantPricingSettings`: e ajuste
+/// de administrador, nao dado de trabalho. A linha so nasce quando alguem
+/// configura; a AUSENCIA dela e o estado de toda instalacao que existe hoje, e
+/// significa "sem prazo, sem alerta, auto-servico" - o comportamento que a F1
+/// entregou e que esta fase nao pode quebrar.
+model DemandSlaSettings {
+  id       String @id
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  /// Desligado tem de ser possivel SEM perder os numeros ja escolhidos: um
+  /// administrador que suspeite do alerta precisa poder cala-lo por um dia sem
+  /// ter de redigitar os tres prazos depois.
+  enabled Boolean @default(false)
+
+  /// As tres etapas da D19, em HORAS corridas a partir do instante que abre
+  /// cada uma: a chegada na fila, o ato de assumir e o inicio da analise.
+  /// Horas, e nao dias, porque o prazo para assumir de uma equipe de pre-vendas
+  /// e medido em horas - e porque hora e a unidade que nao obriga a decidir o
+  /// que "um dia" quer dizer num fuso.
+  assumeHours   Int @default(8) @map("assume_hours")
+  analysisHours Int @default(24) @map("analysis_hours")
+  proposalHours Int @default(120) @map("proposal_hours")
+
+  assignmentPolicy DemandAssignmentPolicy @default(auto_servico) @map("assignment_policy")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId])
+  @@map("demand_sla_settings")
+}
+
+enum DemandSlaStage {
+  assume
+  analysis
+  proposal
+}
+
+/// Um prazo que venceu, registrado UMA VEZ.
+///
+/// Existe para que o alerta e o `sla_breached` do contrato aconteçam uma vez
+/// por (demanda, etapa) - o verificador roda a cada minuto, e sem esta linha
+/// ele contaria o mesmo atraso ao gerente sessenta vezes por hora. O indice
+/// unico e o mecanismo, e nao uma checagem em memoria: dois processos do mesmo
+/// servico verificando ao mesmo tempo e o caso normal depois de um restart.
+model DemandSlaBreach {
+  id       String @id
+  tenantId String @map("tenant_id")
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+  demandId String @map("demand_id")
+  demand   Demand @relation(fields: [demandId], references: [id], onDelete: Cascade)
+
+  stage      DemandSlaStage
+  /// O instante em que o prazo VENCEU, e nao aquele em que o verificador
+  /// percebeu. Um servico parado por duas horas nao pode fazer o atraso parecer
+  /// duas horas menor do que foi.
+  dueAt      DateTime       @map("due_at")
+  detectedAt DateTime       @default(now()) @map("detected_at")
+
+  /// "manager" quando havia gerente de pre-vendas, "team" quando nao havia
+  /// (D19). Guardado, e nao derivado na leitura, porque a resposta certa e a de
+  /// QUANDO o alerta saiu: um gerente nomeado depois nao muda quem foi avisado.
+  recipientKind    String   @map("recipient_kind")
+  recipientUserIds String[] @map("recipient_user_ids")
+
+  acknowledgedAt       DateTime? @map("acknowledged_at")
+  acknowledgedByUserId String?   @map("acknowledged_by_user_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, demandId, stage])
+  @@index([tenantId, acknowledgedAt])
+  @@map("demand_sla_breaches")
 }
