@@ -6,6 +6,8 @@ import { chamarPortaDoCrm, enviarBinarioAoCrm, resolverDestino, type RespostaDoC
 import { montarRetratoDoProjeto } from "./crmProjectState";
 import { montarEnvelopeDaProposta } from "./crmProposal";
 import { createStorageAdapter } from "./storage";
+import { calcularDueAt } from "./demandSla";
+import { lerSla } from "./demandSlaConfig";
 import { dbStore } from "../../src/dbStore";
 
 // CDC 16 — Fase 3. A FILA DE SAÍDA: o que este lado tem a contar ao CRM.
@@ -45,7 +47,10 @@ export type EventoDeSaida =
   | "poc_started"
   | "poc_accepted"
   | "pricing_ready"
-  | "proposal_ready";
+  | "proposal_ready"
+  // F5: o prazo do SLA que venceu (D19). O evento existia no contrato e na
+  // porta do CMCRM desde a F3, e nunca tinha sido emitido por ninguém.
+  | "sla_breached";
 
 function segundosEntre(fim: Date, inicio: Date | null | undefined): number | undefined {
   if (!inicio) return undefined;
@@ -76,6 +81,16 @@ export function montarPayloadDoEvento(entrada: {
   note?: string | null;
   sentAt?: Date | null;
   assignedAt?: Date | null;
+  /**
+   * F5: o prazo da etapa ainda devida (D19).
+   *
+   * Viaja no EVENTO, e não só na resposta de criação, porque o prazo muda nos
+   * mesmos instantes que os eventos descrevem: quem assume fecha o prazo de
+   * assumir e abre o da análise. Deixá-lo só na criação faria o CRM mostrar
+   * para sempre o prazo da primeira etapa — um número que continua na tela
+   * depois de deixar de ser verdade, que é pior do que nenhum número.
+   */
+  dueAt?: Date | null;
 }): Record<string, unknown> {
   const elapsed: Record<string, number> = {};
   const desdeEnvio = segundosEntre(entrada.occurredAt, entrada.sentAt ?? null);
@@ -91,6 +106,10 @@ export function montarPayloadDoEvento(entrada: {
   if (entrada.reason) payload.reason = entrada.reason;
   if (entrada.note) payload.note = entrada.note;
   if (Object.keys(elapsed).length > 0) payload.elapsed = elapsed;
+  // Ausente, e não `null`: o campo é opcional no contrato, e um `due_at: null`
+  // no corpo é um campo declarado vazio — coisa diferente de campo ausente para
+  // quem valida do outro lado.
+  if (entrada.dueAt) payload.due_at = entrada.dueAt.toISOString();
   return payload;
 }
 
@@ -121,6 +140,7 @@ export async function enfileirarEvento(entrada: {
   note?: string | null;
   sentAt?: Date | null;
   assignedAt?: Date | null;
+  dueAt?: Date | null;
 }): Promise<void> {
   // Estável por (demanda, evento, instante): a mesma transição enfileirada duas
   // vezes por um clique duplo produz a MESMA chave, e o CRM devolve a resposta
@@ -196,8 +216,11 @@ export async function empurrarMarcoDaDemanda(entrada: {
   reason?: string | null;
   note?: string | null;
   projectId?: string | null;
+  /** F5: passado pela varredura de prazos, que já o tem. Calculado aqui quando não vem. */
+  dueAt?: Date | null;
 }): Promise<void> {
   try {
+    const dueAt = entrada.dueAt ?? (await dueAtCorrente(entrada.demanda.id));
     await enfileirarEvento({
       tenantId: entrada.tenantId,
       demandId: entrada.demanda.id,
@@ -209,6 +232,7 @@ export async function empurrarMarcoDaDemanda(entrada: {
       note: entrada.note,
       sentAt: entrada.demanda.sentAt ?? null,
       assignedAt: entrada.demanda.assignedAt ?? null,
+      dueAt,
     });
 
     if (entrada.projectId) {
@@ -229,6 +253,34 @@ export async function empurrarMarcoDaDemanda(entrada: {
       { err, tenantId: entrada.tenantId, demandId: entrada.demanda.id, event: entrada.event },
       "cdc16 F3: falha ao empurrar o marco da demanda para o CRM"
     );
+  }
+}
+
+/**
+ * O prazo corrente da demanda, relido do banco (F5, D19).
+ *
+ * Relido, e não recebido de quem chama: o estado que define QUAL etapa está
+ * devida acabou de mudar na transação anterior, e quem chama tem em mãos a
+ * demanda de antes da mudança na maior parte dos casos. Ler custa uma consulta
+ * pequena e devolve o prazo certo; confiar no objeto do chamador devolveria o
+ * prazo da etapa que acabou de fechar.
+ *
+ * Nunca lança: sem SLA configurado — o estado de toda instalação que existe
+ * hoje — a resposta é `null`, e o evento simplesmente não leva `due_at`.
+ */
+async function dueAtCorrente(demandId: string): Promise<Date | null> {
+  try {
+    const sla = await lerSla();
+    if (!sla || !sla.enabled) return null;
+    const d = await prisma.demand.findUnique({
+      where: { id: demandId },
+      select: { id: true, status: true, deadline: true, queuedAt: true, assignedAt: true, analysisStartedAt: true },
+    });
+    if (!d) return null;
+    return calcularDueAt(d, sla);
+  } catch (err) {
+    logger.warn({ err, demandId }, "cdc16 F5: falha ao calcular o prazo corrente da demanda");
+    return null;
   }
 }
 
@@ -414,13 +466,13 @@ export async function drenarFila(tenantId: string): Promise<ResumoDaDrenagem> {
         // endereço que não é do par. Reagendar para sempre encheria a fila de
         // trabalho que nunca sai; `descartado` deixa o motivo escrito.
         resumo.descartados += 1;
-        await prisma.demandOutboundEvent.update({
+        await prisma.demandOutboundEvent.updateMany({
           where: { id: item.id },
           data: { status: "descartado", lastError: destino.motivo, attempts: { increment: 1 } },
         });
       } else {
         resumo.falharam += 1;
-        await prisma.demandOutboundEvent.update({
+        await prisma.demandOutboundEvent.updateMany({
           where: { id: item.id },
           data: {
             lastError: destino.motivo,
@@ -459,7 +511,7 @@ export async function drenarFila(tenantId: string): Promise<ResumoDaDrenagem> {
 
     if (resposta.status >= 200 && resposta.status < 300) {
       resumo.enviados += 1;
-      await prisma.demandOutboundEvent.update({
+      await prisma.demandOutboundEvent.updateMany({
         where: { id: item.id },
         data: { status: "enviado", sentAt: new Date(), lastStatus: resposta.status, lastError: null, attempts: { increment: 1 } },
       });
@@ -472,7 +524,7 @@ export async function drenarFila(tenantId: string): Promise<ResumoDaDrenagem> {
     if (permanente) {
       resumo.descartados += 1;
       travadas.add(item.demandId);
-      await prisma.demandOutboundEvent.update({
+      await prisma.demandOutboundEvent.updateMany({
         where: { id: item.id },
         data: { status: "descartado", lastStatus: resposta.status, lastError: mensagem, attempts: { increment: 1 } },
       });
@@ -489,9 +541,18 @@ export async function drenarFila(tenantId: string): Promise<ResumoDaDrenagem> {
   return resumo;
 }
 
+/**
+ * `updateMany`, e não `update`, aqui e nos quatro pontos de `drenarFila`.
+ *
+ * A drenagem lê uma lista e escreve linha por linha; entre as duas coisas a
+ * linha pode ter deixado de existir — o expurgo em cascata da demanda (F7) é o
+ * caso real, e a suíte da F5 tropeçou nele primeiro. `update` estoura P2025 e
+ * derruba a drenagem das demandas seguintes junto; `updateMany` de zero linhas
+ * é o que a situação merece: não há mais o que marcar.
+ */
 async function marcarFalha(id: string, tentativas: number, status: number | null, mensagem: string): Promise<void> {
   const proxima = tentativas + 1;
-  await prisma.demandOutboundEvent.update({
+  await prisma.demandOutboundEvent.updateMany({
     where: { id },
     data:
       proxima >= MAX_TENTATIVAS

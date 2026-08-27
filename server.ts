@@ -311,6 +311,14 @@ async function bootstrap() {
   // do ar, sem depender de alguém repetir o ato que gerou o evento.
   const { startCrmOutboxInterval } = await import("./server/utils/crmOutbox");
   startCrmOutboxInterval();
+
+  // CDC 16 F5 (D19): o verificador de prazos. Um SLA que aparece na tela e não
+  // dispara alerta nenhum é promessa falsa que ninguém confere - é este
+  // intervalo que faz o prazo publicado ter código que o cumpre. Ele só olha
+  // tenants que TÊM SLA ligado, então numa instalação sem configuração nenhuma
+  // (o estado de todas, hoje) ele custa uma consulta por minuto e nada mais.
+  const { startDemandSlaInterval } = await import("./server/utils/demandSlaService");
+  startDemandSlaInterval();
 }
 
 bootstrap().catch((err) => {

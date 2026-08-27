@@ -10,6 +10,9 @@ import { getFleetLicenseStatus, checkLicenseEnforcement } from "../utils/fleetLi
 import { createStorageAdapter, validateUploadedFile } from "../utils/storage";
 import { withIdempotency, IdempotencyConflict } from "../utils/idempotency";
 import { DemandCreateSchema, criarDemanda, toDemandState } from "../utils/demands";
+import { calcularDueAt } from "../utils/demandSla";
+import { lerSla } from "../utils/demandSlaConfig";
+import { distribuirDemandaNova } from "../utils/demandAssignment";
 import { logger } from "../utils/logger";
 
 // CDC 16 — Fase 1. A PORTA DE MÁQUINA do PreSales: o que o CMCRM chama.
@@ -111,7 +114,7 @@ router.post("/demands", async (req: Request, res: Response, next: NextFunction) 
           include: { assignedUser: { select: { name: true } } },
         });
         if (jaExiste) {
-          return { status: 200, body: toDemandState(jaExiste) };
+          return { status: 200, body: toDemandState(jaExiste, await prazoDaEtapa(jaExiste)) };
         }
 
         let criada;
@@ -129,13 +132,21 @@ router.post("/demands", async (req: Request, res: Response, next: NextFunction) 
             include: { assignedUser: { select: { name: true } } },
           });
           if (!agora) throw err;
-          return { status: 200, body: toDemandState(agora) };
+          return { status: 200, body: toDemandState(agora, await prazoDaEtapa(agora)) };
         }
         logger.info(
           { demandId: criada.id, demandRef: criada.demandRef, documentos: criada.documents.length, crossEnvironment: pair.crossEnvironment },
           "cdc16: demanda recebida do CMCRM e enfileirada"
         );
-        return { status: 201, body: toDemandState(criada) };
+        // F5 (D16, política `automatico`): a distribuição automática por menor
+        // carga acontece AQUI, no ato da chegada, e não num varredor à parte —
+        // uma demanda que fica minutos na fila esperando um distribuidor é uma
+        // demanda que não foi distribuída. Nunca lança: uma falha em distribuir
+        // deixa a demanda na fila, que é o comportamento de sempre, em vez de
+        // recusar uma entrega que o CRM já considerou feita.
+        const distribuida = await distribuirDemandaNova(criada.id, pair.tenantId);
+        const estadoFinal = distribuida ?? criada;
+        return { status: 201, body: toDemandState(estadoFinal, await prazoDaEtapa(estadoFinal)) };
       })
     );
 
@@ -175,7 +186,7 @@ router.get("/demands/:demandRef", async (req: Request, res: Response, next: Next
     if (!demanda) {
       return erro(res, 404, "demand_not_found", "Não existe demanda com este demand_ref para este par.");
     }
-    res.json(toDemandState(demanda));
+    res.json(toDemandState(demanda, await prazoDaEtapa(demanda)));
   } catch (err) {
     next(err);
   }
@@ -267,5 +278,23 @@ router.put(
     }
   }
 );
+
+/**
+ * O prazo da etapa devida, para a resposta do contrato (F5, D19).
+ *
+ * `undefined` quando não há SLA configurado — o estado de toda instalação que
+ * existe hoje, e o que a F1 já respondia.
+ */
+async function prazoDaEtapa(demanda: {
+  status: string;
+  deadline: Date;
+  queuedAt: Date;
+  assignedAt: Date | null;
+  analysisStartedAt: Date | null;
+}): Promise<string | undefined> {
+  const sla = await lerSla();
+  const due = calcularDueAt({ id: "", ...demanda }, sla);
+  return due ? due.toISOString() : undefined;
+}
 
 export default router;

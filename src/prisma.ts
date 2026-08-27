@@ -30,7 +30,13 @@ export const TENANT_SCOPED_MODELS = new Set([
   // varre por tenant de propósito, e uma consulta sem `where` explícito nunca deve enxergar a
   // fila de outra instalação. O teste de cobertura de `src/prisma.test.ts` é quem pegou a
   // ausência, antes de qualquer consulta larga existir.
-  "demandOutboundEvent", "diagnosticsOutboxEvent", "document",
+  "demandOutboundEvent",
+  // CDC 16 F5: a configuração de prazo da instalação e os prazos vencidos. Pelo
+  // mesmo motivo dos dois acima — e porque a varredura de prazos percorre
+  // tenant por tenant, e uma consulta sem `where` explícito ali alertaria o
+  // gerente de uma instalação sobre a fila de outra.
+  "demandSlaSettings", "demandSlaBreach",
+  "diagnosticsOutboxEvent", "document",
   "documentContent", "iaKbBillingSnapshot", "idempotencyRecord",
   "iaKbTaskConfig", "integrationConnector", "itemAliasMapping",
   "knowledgeBaseDocument", "knowledgeBaseEntry", "platformSettings", "poc", "pocAcceptance",

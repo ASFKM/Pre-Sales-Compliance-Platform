@@ -119,22 +119,35 @@ export interface DemandStatePayload {
   returned_reason?: string;
 }
 
-export function toDemandState(demanda: {
-  demandRef: string;
-  status: string;
-  assignedAt: Date | null;
-  projectId: string | null;
-  returnedReason: string | null;
-  assignedUser?: { name: string } | null;
-}): DemandStatePayload {
+export function toDemandState(
+  demanda: {
+    demandRef: string;
+    status: string;
+    assignedAt: Date | null;
+    projectId: string | null;
+    returnedReason: string | null;
+    assignedUser?: { name: string } | null;
+  },
+  /**
+   * F5: o prazo da etapa ainda devida (D19), quando a instalação tem SLA.
+   *
+   * Entra por parâmetro, e não é buscado aqui dentro, para esta função
+   * continuar SÍNCRONA e pura — ela é a tradução do estado para o contrato, e
+   * quem sabe ler configuração é a rota. `undefined` é o estado de toda
+   * instalação sem SLA, e é o que a F1 já entregava.
+   */
+  dueAt?: string
+): DemandStatePayload {
   const estado: DemandStatePayload = { demand_ref: demanda.demandRef, status: demanda.status };
   // O CRM guarda NOME e referência externa; quem assume não precisa de conta lá (D34).
   if (demanda.assignedUser?.name) estado.assigned_to = demanda.assignedUser.name;
   if (demanda.assignedAt) estado.assigned_at = demanda.assignedAt.toISOString();
   if (demanda.projectId) estado.presales_project_id = demanda.projectId;
   if (demanda.returnedReason) estado.returned_reason = demanda.returnedReason;
-  // `due_at` fica de fora enquanto não houver SLA configurado: é a F5 que o
-  // define (D19). Devolver aqui o prazo do edital seria mentir o nome do campo.
+  // `due_at` só existe quando a instalação configurou SLA (D19). Sem SLA, o
+  // campo fica FORA — devolver aqui o prazo do edital seria mentir o nome do
+  // campo, que é o que a F1 escreveu neste mesmo lugar e continua valendo.
+  if (dueAt) estado.due_at = dueAt;
   return estado;
 }
 
@@ -226,7 +239,16 @@ export async function criarDemanda(entrada: DemandCreateInput, par: VerifiedPair
     // "não encontrada" aqui seria bug de escopo, não estado possível.
     return tx.demand.findUniqueOrThrow({
       where: { id: demanda.id },
-      include: { documents: true, assignedUser: { select: { name: true } } },
+      include: {
+        documents: true,
+        assignedUser: { select: { name: true } },
+        // Sem estes dois, a resposta diz `assigned_by: null` e
+        // `return_requested_by: null` sobre colunas que ESTÃO preenchidas — a
+        // tela mostraria "direcionada" sem dizer por quem. Foi a prova da F5
+        // que pegou, e é o mesmo defeito que o `mapProject` da F1 teve.
+        assignedBy: { select: { name: true } },
+        returnRequestedBy: { select: { name: true } },
+      },
     });
   });
 }
@@ -247,7 +269,19 @@ export type ResultadoAssumir =
  * passam a pendurar nele. Um projeto sem demanda apontando para ele seria
  * trabalho órfão; uma demanda assumida sem projeto seria uma fila mentindo.
  */
-export async function assumirDemanda(demandaId: string, userId: string): Promise<ResultadoAssumir> {
+export async function assumirDemanda(
+  demandaId: string,
+  userId: string,
+  /**
+   * F5 (D16): COMO esta demanda foi parar com esta pessoa.
+   *
+   * Ausente é o auto-serviço, o padrão de toda instalação no ar: a pessoa se
+   * ofereceu, e não há quem tenha decidido por ela. Preenchido, guarda quem
+   * decidiu — o gerente que direcionou, ou o próprio produto quando a política
+   * automática escolheu por menor carga (D40).
+   */
+  atribuicao?: { byUserId: string | null; source: "manager" | "auto" }
+): Promise<ResultadoAssumir> {
   return prisma.$transaction(async (tx) => {
     const demanda = await tx.demand.findUnique({ where: { id: demandaId }, include: { documents: true } });
     if (!demanda) return { ok: false, motivo: "not_found" } as ResultadoAssumir;
@@ -265,7 +299,13 @@ export async function assumirDemanda(demandaId: string, userId: string): Promise
     const agora = new Date();
     const reivindicacao = await tx.demand.updateMany({
       where: { id: demandaId, status: "queued" },
-      data: { status: "assigned", assignedUserId: userId, assignedAt: agora },
+      data: {
+        status: "assigned",
+        assignedUserId: userId,
+        assignedAt: agora,
+        assignedByUserId: atribuicao?.byUserId ?? null,
+        assignmentSource: atribuicao?.source ?? null,
+      },
     });
     if (reivindicacao.count !== 1) {
       return { ok: false, motivo: "ja_assumida" } as ResultadoAssumir;
@@ -356,7 +396,16 @@ export async function assumirDemanda(demandaId: string, userId: string): Promise
 
     const atualizada = await tx.demand.findUnique({
       where: { id: demandaId },
-      include: { documents: true, assignedUser: { select: { name: true } } },
+      include: {
+        documents: true,
+        assignedUser: { select: { name: true } },
+        // Sem estes dois, a resposta diz `assigned_by: null` e
+        // `return_requested_by: null` sobre colunas que ESTÃO preenchidas — a
+        // tela mostraria "direcionada" sem dizer por quem. Foi a prova da F5
+        // que pegou, e é o mesmo defeito que o `mapProject` da F1 teve.
+        assignedBy: { select: { name: true } },
+        returnRequestedBy: { select: { name: true } },
+      },
     });
 
     return {
@@ -406,8 +455,207 @@ export async function devolverDemanda(demandaId: string, motivo: string): Promis
 
     const atualizada = await tx.demand.findUnique({
       where: { id: demandaId },
-      include: { documents: true, assignedUser: { select: { name: true } } },
+      include: {
+        documents: true,
+        assignedUser: { select: { name: true } },
+        // Sem estes dois, a resposta diz `assigned_by: null` e
+        // `return_requested_by: null` sobre colunas que ESTÃO preenchidas — a
+        // tela mostraria "direcionada" sem dizer por quem. Foi a prova da F5
+        // que pegou, e é o mesmo defeito que o `mapProject` da F1 teve.
+        assignedBy: { select: { name: true } },
+        returnRequestedBy: { select: { name: true } },
+      },
     });
     return { ok: true, demand: atualizada } as ResultadoDevolver;
+  });
+}
+
+// ─── F5: a devolução que passa pelo gerente (D17) ───────────────────────────
+
+export type ResultadoPedido =
+  | { ok: true; demand: any }
+  | { ok: false; motivo: "not_found" }
+  | { ok: false; motivo: "estado_invalido"; status: string }
+  | { ok: false; motivo: "ja_pedida" };
+
+/**
+ * Registra o PEDIDO de devolução, que fica esperando o gerente (D17).
+ *
+ * Só existe quando existe gerente. Sem gerente nomeado — o estado de toda
+ * instalação no ar —, quem chama vai direto a `devolverDemanda`, e o
+ * comportamento é exatamente o que a F1 entregou. A decisão sobre QUAL dos dois
+ * caminhos seguir é da rota, e não daqui: é ela que sabe quem é o usuário.
+ */
+export async function pedirDevolucao(
+  demandaId: string,
+  userId: string,
+  motivo: string
+): Promise<ResultadoPedido> {
+  return prisma.$transaction(async (tx) => {
+    const demanda = await tx.demand.findUnique({ where: { id: demandaId } });
+    if (!demanda) return { ok: false, motivo: "not_found" } as ResultadoPedido;
+    if (demanda.status !== "assigned" && demanda.status !== "in_analysis") {
+      return { ok: false, motivo: "estado_invalido", status: demanda.status } as ResultadoPedido;
+    }
+    // PENDENTE, e não "já houve um pedido": depois de uma recusa o carimbo do
+    // pedido continua na linha (é o histórico), e olhar só para ele trancaria a
+    // pessoa para sempre — ela receberia 409 num pedido novo, legítimo, sobre
+    // um motivo que o gerente ainda não viu. A prova pegou exatamente isso.
+    if (demanda.returnRequestedAt && !demanda.returnDecidedAt) {
+      return { ok: false, motivo: "ja_pedida" } as ResultadoPedido;
+    }
+
+    // Condicionado ao mesmo par: dois cliques no mesmo segundo é o caso normal,
+    // e a leitura acima não separa os dois.
+    const pediu = await tx.demand.updateMany({
+      where: {
+        id: demandaId,
+        OR: [{ returnRequestedAt: null }, { returnDecidedAt: { not: null } }],
+        status: { in: ["assigned", "in_analysis"] },
+      },
+      data: {
+        returnRequestedAt: new Date(),
+        returnRequestedByUserId: userId,
+        returnRequestReason: motivo,
+        // Uma decisão anterior recusada não pode ficar pendurada num pedido
+        // novo: o gerente veria o motivo da recusa passada ao lado do pedido de
+        // agora, e leria como se já tivesse respondido este.
+        returnDecidedAt: null,
+        returnDecidedByUserId: null,
+        returnRejectionReason: null,
+      },
+    });
+    if (pediu.count !== 1) return { ok: false, motivo: "ja_pedida" } as ResultadoPedido;
+
+    const atualizada = await tx.demand.findUnique({
+      where: { id: demandaId },
+      include: {
+        documents: true,
+        assignedUser: { select: { name: true } },
+        // Sem estes dois, a resposta diz `assigned_by: null` e
+        // `return_requested_by: null` sobre colunas que ESTÃO preenchidas — a
+        // tela mostraria "direcionada" sem dizer por quem. Foi a prova da F5
+        // que pegou, e é o mesmo defeito que o `mapProject` da F1 teve.
+        assignedBy: { select: { name: true } },
+        returnRequestedBy: { select: { name: true } },
+      },
+    });
+    return { ok: true, demand: atualizada } as ResultadoPedido;
+  });
+}
+
+export type ResultadoRecusa =
+  | { ok: true; demand: any }
+  | { ok: false; motivo: "not_found" }
+  | { ok: false; motivo: "sem_pedido" };
+
+/**
+ * O gerente RECUSA a devolução: a demanda continua com quem a assumiu.
+ *
+ * O motivo da recusa é obrigatório pela mesma razão que o motivo da devolução
+ * é: quem recebe a negativa precisa saber o que fazer em seguida. E ele fica
+ * guardado — apagar o pedido sem deixar rastro faria a pessoa achar que o
+ * clique não pegou.
+ */
+export async function recusarDevolucao(
+  demandaId: string,
+  gerenteId: string,
+  motivo: string
+): Promise<ResultadoRecusa> {
+  return prisma.$transaction(async (tx) => {
+    const demanda = await tx.demand.findUnique({ where: { id: demandaId } });
+    if (!demanda) return { ok: false, motivo: "not_found" } as ResultadoRecusa;
+    if (!demanda.returnRequestedAt || demanda.returnDecidedAt) {
+      return { ok: false, motivo: "sem_pedido" } as ResultadoRecusa;
+    }
+    const recusou = await tx.demand.updateMany({
+      where: { id: demandaId, returnDecidedAt: null, returnRequestedAt: { not: null } },
+      data: { returnDecidedAt: new Date(), returnDecidedByUserId: gerenteId, returnRejectionReason: motivo },
+    });
+    if (recusou.count !== 1) return { ok: false, motivo: "sem_pedido" } as ResultadoRecusa;
+    const atualizada = await tx.demand.findUnique({
+      where: { id: demandaId },
+      include: {
+        documents: true,
+        assignedUser: { select: { name: true } },
+        // Sem estes dois, a resposta diz `assigned_by: null` e
+        // `return_requested_by: null` sobre colunas que ESTÃO preenchidas — a
+        // tela mostraria "direcionada" sem dizer por quem. Foi a prova da F5
+        // que pegou, e é o mesmo defeito que o `mapProject` da F1 teve.
+        assignedBy: { select: { name: true } },
+        returnRequestedBy: { select: { name: true } },
+      },
+    });
+    return { ok: true, demand: atualizada } as ResultadoRecusa;
+  });
+}
+
+// ─── F5: o direcionamento e a reatribuição pelo gerente (D16) ───────────────
+
+export type ResultadoReatribuir =
+  | { ok: true; demand: any; anteriorUserId: string | null }
+  | { ok: false; motivo: "not_found" }
+  | { ok: false; motivo: "estado_invalido"; status: string }
+  | { ok: false; motivo: "mesma_pessoa" };
+
+/**
+ * O gerente passa uma demanda JÁ ASSUMIDA para outra pessoa.
+ *
+ * O dono do PROJETO muda junto. Deixar o projeto com quem saiu faria a pessoa
+ * nova receber uma demanda cujo trabalho ela não enxerga — a visibilidade de
+ * projeto deste produto é por dono, gerente do dono e aprovador
+ * (`src/prisma.ts`), e a demanda apontaria para um projeto invisível.
+ *
+ * Um pedido de devolução pendente é LIMPO: reatribuir já é a resposta ao
+ * pedido, e deixá-lo pendurado faria o gerente ser cobrado outra vez por uma
+ * decisão que ele acabou de tomar.
+ */
+export async function reatribuirDemanda(
+  demandaId: string,
+  novoUserId: string,
+  gerenteId: string
+): Promise<ResultadoReatribuir> {
+  return prisma.$transaction(async (tx) => {
+    const demanda = await tx.demand.findUnique({ where: { id: demandaId } });
+    if (!demanda) return { ok: false, motivo: "not_found" } as ResultadoReatribuir;
+    if (demanda.status !== "assigned" && demanda.status !== "in_analysis") {
+      return { ok: false, motivo: "estado_invalido", status: demanda.status } as ResultadoReatribuir;
+    }
+    if (demanda.assignedUserId === novoUserId) {
+      return { ok: false, motivo: "mesma_pessoa" } as ResultadoReatribuir;
+    }
+
+    await tx.demand.update({
+      where: { id: demandaId },
+      data: {
+        assignedUserId: novoUserId,
+        assignedByUserId: gerenteId,
+        assignmentSource: "manager",
+        returnRequestedAt: null,
+        returnRequestedByUserId: null,
+        returnRequestReason: null,
+        returnDecidedAt: null,
+        returnDecidedByUserId: null,
+        returnRejectionReason: null,
+      },
+    });
+    if (demanda.projectId) {
+      await tx.project.update({ where: { id: demanda.projectId }, data: { ownerUserId: novoUserId } });
+    }
+
+    const atualizada = await tx.demand.findUnique({
+      where: { id: demandaId },
+      include: {
+        documents: true,
+        assignedUser: { select: { name: true } },
+        // Sem estes dois, a resposta diz `assigned_by: null` e
+        // `return_requested_by: null` sobre colunas que ESTÃO preenchidas — a
+        // tela mostraria "direcionada" sem dizer por quem. Foi a prova da F5
+        // que pegou, e é o mesmo defeito que o `mapProject` da F1 teve.
+        assignedBy: { select: { name: true } },
+        returnRequestedBy: { select: { name: true } },
+      },
+    });
+    return { ok: true, demand: atualizada, anteriorUserId: demanda.assignedUserId } as ResultadoReatribuir;
   });
 }

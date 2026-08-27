@@ -47,7 +47,13 @@ async function main() {
         "storage:manage", "integrations:manage", "knowledge_base:read", "knowledge_base:write",
         "poc:read", "poc:manage",
         "pricing:read", "pricing:manage",
-        "demand:read", "demand:assume"
+        // CDC 16 F5: o gerente de pré-vendas (D16, D17, D19). Está no SEED, e a
+        // migration desta fase deliberadamente NÃO o distribuiu para os papéis
+        // que já existem: dar a permissão a quem já está no ar faria toda
+        // devolução passar a exigir aprovação da noite para o dia. Aqui ele
+        // existe porque o seed descreve uma instalação inteira e configurada, e
+        // é o que torna o caminho do gerente alcançável sem editar banco à mão.
+        "demand:read", "demand:assume", "demand:manage"
       ]
     },
     {
