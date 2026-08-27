@@ -200,6 +200,22 @@ async function secaoB() {
     );
   }
 
+  // D20 manda medir "até a análise". O carimbo é posto pela própria rota de
+  // análise do produto, e não por uma rota da fila - então provar aqui é chamar
+  // a rota real. A chamada devolve 202 e a IA roda em segundo plano: uma falha
+  // lá (esta instalação de prova não tem chave de IA configurada) não muda o que
+  // se quer provar, que é a transição de estado no ato de começar.
+  const analise = await chamar(`${BASE}/api/projects/${projectId}/analyze`, { method: "POST", headers: auth, body: "{}" });
+  conferir("a rota de análise do produto aceita o projeto que nasceu da demanda", analise.status === 202 || analise.status === 200, {
+    status: analise.status,
+    corpo: analise.corpo?.message,
+  });
+  if (analise.status === 202 || analise.status === 200) {
+    const emAnalise = await chamar(`${BASE}/api/demands/${alvo.id}`, { headers: auth });
+    conferir("...e a demanda passa a in_analysis", emAnalise.corpo?.status === "in_analysis", emAnalise.corpo?.status);
+    conferir("...com o instante em que a análise começou (D20)", Boolean(emAnalise.corpo?.analysis_started_at), emAnalise.corpo?.analysis_started_at);
+  }
+
   const denovo = await chamar(`${BASE}/api/demands/${alvo.id}/assume`, { method: "POST", headers: auth, body: "{}" });
   conferir("assumir de novo a mesma demanda devolve 409", denovo.status === 409, denovo.status);
 
