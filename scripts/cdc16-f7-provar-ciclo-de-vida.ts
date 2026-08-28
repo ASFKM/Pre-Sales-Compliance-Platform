@@ -591,6 +591,17 @@ async function main() {
     );
 
     // ═══ 7. O CONGELAMENTO (D06) ════════════════════════════════════════════
+    //
+    // Esta seção APAGA a chave do par por alguns segundos, e a devolve num `finally`. No banco de
+    // prova isso é inofensivo; contra a instalação PUBLICADA não é — enquanto a chave não está
+    // lá, a fila de saída não tem para onde entregar. É recuperável (o CRM a reapresenta na
+    // primeira chamada de entrada seguinte), mas é um efeito que uma prova não precisa causar
+    // numa instalação viva para provar uma coisa que ela já prova melhor no servidor de prova.
+    // Mesmo gênero e mesmo motivo do `PULAR_STANDALONE` que a F6 teve de parametrizar.
+    if (process.env.PULAR_CONGELAMENTO === "1") {
+      linhas.push("== 7. congelar (D06): PULADA nesta rodada (PULAR_CONGELAMENTO=1) ==");
+      return;
+    }
     linhas.push("== 7. congelar (D06): mantém o recebido, para de sincronizar ==");
 
     const chaveInventada = "pk_" + crypto.randomBytes(24).toString("hex");
