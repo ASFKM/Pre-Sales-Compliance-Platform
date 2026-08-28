@@ -377,7 +377,11 @@ export async function assumirDemanda(
           aiClassificationConfidence: 0,
           version: 1,
           language: "Portuguese",
-          uploadedBy: demanda.sentByName,
+          // F6: `sentByName` passou a ser anulável (a demanda ESPELHO não teve remetente do
+          // lado do CRM). Aqui ele nunca é nulo na prática — demanda espelho não traz documento,
+          // porque o edital já foi subido AQUI —, e o rótulo neutro é o que mantém o caminho
+          // honesto se um dia trouxer.
+          uploadedBy: demanda.sentByName ?? "Pré-vendas",
         },
       });
       if (dd.extractedText) {

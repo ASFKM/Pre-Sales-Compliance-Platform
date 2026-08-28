@@ -44,6 +44,8 @@ export interface ChaveDoCrm {
   keyHint: string;
   crmInstallationId: string;
   callbackBaseUrl: string | null;
+  /** F6: qual organização do CRM este par escreve (D12/D13). Nula até alguém escolher. */
+  crmOrganizationId: string | null;
 }
 
 function limparBarras(url: string): string {
@@ -136,6 +138,7 @@ export async function lerChaveDoCrm(tenantId: string): Promise<ChaveDoCrm | null
     keyHint: linha.keyHint,
     crmInstallationId: linha.crmInstallationId,
     callbackBaseUrl: linha.callbackBaseUrl,
+    crmOrganizationId: linha.crmOrganizationId,
   };
 }
 

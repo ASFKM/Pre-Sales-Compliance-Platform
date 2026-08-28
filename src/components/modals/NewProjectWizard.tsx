@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { X, FileSpreadsheet, Trash2, Sparkles, ArrowLeft } from "lucide-react";
 import { Project } from "../../types";
 import { BackgroundTask } from "../../hooks/useBackgroundTasks";
 import ProjectFieldsForm, { getInitialProjectFieldsValues, ProjectFieldsValues } from "./ProjectFieldsForm";
 import CreateProjectModal from "./CreateProjectModal";
+import CrmLinkStep, { type CrmStatus } from "./CrmLinkStep";
 
 interface NewProjectWizardProps {
   locale: string;
@@ -19,7 +20,12 @@ interface StagedFile {
   size: number;
 }
 
-type Step = "upload" | "validate";
+/*
+ * CDC 16 F6 (D12): uma terceira etapa, e só quando HÁ PAR. Sem par, `GET /api/crm/status`
+ * responde `ativo: false`, `crmStatus` nunca fica ativo, e o assistente termina no `confirm`
+ * exatamente como sempre terminou — o modo standalone não ganha passo nenhum.
+ */
+type Step = "upload" | "validate" | "crm";
 
 // Phase 4: "+ Nova Proposta" opens here first - upload documents, let the AI pre-fill the
 // project form, then validate/confirm. The old direct-form flow (CreateProjectModal) is kept
@@ -35,6 +41,30 @@ export default function NewProjectWizard({ locale, onClose, onCreated, waitForTa
   const [error, setError] = useState("");
   const [fields, setFields] = useState<ProjectFieldsValues>(getInitialProjectFieldsValues);
   const [isConfirming, setIsConfirming] = useState(false);
+  const [crmStatus, setCrmStatus] = useState<CrmStatus | null>(null);
+  const [projetoCriado, setProjetoCriado] = useState<Project | null>(null);
+  // O CNPJ que a extração achou NO EDITAL (F6/ADR 0001 §2.9) - é ele que faz a busca no CRM ser
+  // exata em vez de por nome, e busca por nome nunca decide sozinha.
+  const [cnpjDoEdital, setCnpjDoEdital] = useState<string>("");
+  const [avisoFinal, setAvisoFinal] = useState("");
+
+  /*
+   * Perguntado uma vez, ao abrir: a resposta decide se a terceira etapa existe. Falha de rede
+   * aqui NAO pode derrubar o assistente - ela só significa "sem passo do CRM", que é o
+   * comportamento de toda instalação sem par.
+   */
+  useEffect(() => {
+    let vivo = true;
+    fetch("/api/crm/status")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (vivo && d) setCrmStatus(d as CrmStatus);
+      })
+      .catch(() => {});
+    return () => {
+      vivo = false;
+    };
+  }, []);
 
   // Cleans up the staging session (and its uploaded files) the moment the user actually abandons
   // the flow, instead of leaving it to expire on its own via Redis TTL (2h) - not a real leak
@@ -115,6 +145,9 @@ export default function NewProjectWizard({ locale, onClose, onCreated, waitForTa
       const sessionData = await sessionRes.json();
       if (sessionData.session?.suggested_fields) {
         setFields({ ...getInitialProjectFieldsValues(), ...sessionData.session.suggested_fields });
+        if (typeof sessionData.session.suggested_fields.customer_tax_id === "string") {
+          setCnpjDoEdital(sessionData.session.suggested_fields.customer_tax_id);
+        }
       }
       setStep("validate");
     } catch (err) {
@@ -141,7 +174,18 @@ export default function NewProjectWizard({ locale, onClose, onCreated, waitForTa
         setIsConfirming(false);
         return;
       }
+      /*
+       * O projeto está criado. A partir daqui o assistente só CONTINUA se houver par: a
+       * oportunidade do caminho secundário exige `presales_project_id`, então o vínculo só pode
+       * acontecer depois do projeto — e o projeto nasce mesmo que o CRM esteja fora do ar.
+       */
       onCreated(data);
+      if (crmStatus?.ativo) {
+        setProjetoCriado(data as Project);
+        setStep("crm");
+        setIsConfirming(false);
+        return;
+      }
       onClose();
     } catch (err) {
       console.error(err);
@@ -167,7 +211,9 @@ export default function NewProjectWizard({ locale, onClose, onCreated, waitForTa
             <h3 className="text-sm font-bold uppercase font-mono tracking-wider">
               {step === "upload"
                 ? (locale === "pt" ? "Nova Proposta: Enviar Documentos" : "New Bid: Upload Documents")
-                : (locale === "pt" ? "Nova Proposta: Validar Dados" : "New Bid: Validate Details")}
+                : step === "validate"
+                  ? (locale === "pt" ? "Nova Proposta: Validar Dados" : "New Bid: Validate Details")
+                  : (locale === "pt" ? "Nova Proposta: Cliente no CRM" : "New Bid: Customer in the CRM")}
             </h3>
           </div>
           <button onClick={handleCancel} className="text-slate-400 hover:text-white cursor-pointer"><X size={16} /></button>
@@ -273,6 +319,41 @@ export default function NewProjectWizard({ locale, onClose, onCreated, waitForTa
               </button>
             </div>
           </form>
+        )}
+
+        {step === "crm" && projetoCriado && crmStatus?.ativo && (
+          <>
+            {avisoFinal && (
+              <div className="mx-6 mt-4 p-3 rounded bg-brand-50 border border-brand-200 text-brand-900 text-xs">
+                {avisoFinal}
+              </div>
+            )}
+            <CrmLinkStep
+              locale={locale}
+              projectId={projetoCriado.id}
+              taxIdSugerido={cnpjDoEdital}
+              nomeSugerido={fields.customer_name}
+              nomeDaOportunidade={fields.opportunity_name || fields.name}
+              status={crmStatus}
+              onDone={({ vinculado, semDono }) => {
+                /*
+                 * "Sem dono" NAO e erro: e o estado que a D13 escolheu, e a oportunidade esta na
+                 * fila de sem dono do CRM esperando alguem do comercial adota-la. Dizer isso aqui
+                 * e o que impede o pre-vendas de achar que faltou alguma coisa.
+                 */
+                if (vinculado && semDono) {
+                  setAvisoFinal(
+                    locale === "pt"
+                      ? "Oportunidade criada SEM DONO: a empresa ainda não tem responsável no CRM. Ela entrou na fila de oportunidades sem dono, para o comercial assumir."
+                      : "Opportunity created UNASSIGNED: the company has no owner in the CRM yet. It went to the unassigned queue."
+                  );
+                  window.setTimeout(onClose, 4000);
+                  return;
+                }
+                onClose();
+              }}
+            />
+          </>
         )}
       </div>
     </div>
