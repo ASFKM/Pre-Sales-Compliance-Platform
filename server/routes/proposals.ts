@@ -453,6 +453,7 @@ Respond with ONLY a JSON array (no markdown, no extra text), in this exact shape
     provider: providerResolution.provider,
     model: providerResolution.model,
     estimatedCostUsd: billedCostUsd ?? estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
+    userId,
   });
 
   return risks;
@@ -706,6 +707,7 @@ router.post("/proposals/:id/opinion-panel", requirePermission("proposal:edit"), 
               model: providerResolution.model,
               estimatedCostUsd: billedCostUsd ?? estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
               backgroundTaskId: task.id,
+              userId: task.user_id,
             });
             completedCount++;
           } catch (perspectiveErr: any) {

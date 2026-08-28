@@ -531,6 +531,7 @@ async function commitAiExtractionFile(
       provider,
       model,
       estimatedCostUsd: extraction.billedCostUsd ?? estimateCostUsd(model, extraction.inputTokens, extraction.outputTokens),
+      userId,
     });
 
     if (taskId) await updateTaskProgress(taskId, { currentStep: "Salvando itens para revisão", progressPct: 80 });
@@ -1482,6 +1483,7 @@ Respond with ONLY a JSON object (no markdown, no extra text), in this exact shap
         provider: providerResolution.provider,
         model: providerResolution.model,
         estimatedCostUsd: billedCostUsd ?? estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
+        userId,
       });
 
       const optimization = optimizeForBudget(optimizableLines, targetBudget, strategy);

@@ -30,7 +30,11 @@ export type ReconciliationOutcome =
 export async function reconcileIncomingKnowledgeEntry(
   incoming: IncomingGlobalKbEntry,
   platformSettings: PlatformSettings,
-  tenantId: string
+  tenantId: string,
+  // F11 (docs/cdc/16, item 31): opcional de propósito - chamado pelo heartbeat (server/utils/
+  // fleetLicense.ts) para entradas que chegam do Fleet Manager, sem usuário nenhum por trás; e
+  // pelas rotas de sugestão/análise de server/routes/knowledgeBase.ts, com um usuário real.
+  userId?: string
 ): Promise<ReconciliationOutcome> {
   try {
     const keywords = extractKnowledgeBaseKeywords(`${incoming.trigger} ${incoming.knowledge}`, 15);
@@ -85,6 +89,7 @@ Respond with ONLY a JSON object: { "classification": "duplicate"|"contradiction"
       provider: providerResolution.provider,
       model: providerResolution.model,
       estimatedCostUsd: billedCostUsd ?? estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
+      userId,
     });
 
     const fenceMatch = text.match(/```json\s*([\s\S]*?)```/);

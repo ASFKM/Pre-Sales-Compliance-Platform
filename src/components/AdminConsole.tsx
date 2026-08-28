@@ -111,127 +111,6 @@ interface SystemMessageRow {
   expires_at: string | null;
 }
 
-// AI Orchestrator UI redesign (2026-07): each task needs a different real capability from the
-// model that serves it - document analysis and the spec copilot need to read a real PDF/image
-// (vision), web-grounded research needs a live web search, document classification only ever
-// sends already-extracted text. The model combobox for each orchestrator task is filtered to
-// only the models that can actually do what that task requires, instead of a free-text field an
-// admin could set to any string regardless of whether it fits.
-type TaskCapability = "vision" | "web_search" | "text";
-
-const TASK_CAPABILITY: Record<string, TaskCapability> = {
-  document_analysis: "vision",
-  spec_copilot: "vision",
-  web_grounding: "web_search",
-  document_classification: "text",
-  poc_test_generation: "text",
-  poc_schedule_generation: "text",
-  poc_final_report_generation: "text",
-  pricing_budget_optimization: "text",
-  pricing_catalog_extraction: "vision",
-};
-
-// Curated, not exhaustive - especially for OpenAI, whose model lineup changes fast across several
-// parallel series (gpt-5.4/5.5/5.6 all shipping at once). Researched against each provider's
-// official docs (2026-07): Gemini 3.x and Anthropic's current Claude models all support both
-// PDF/vision and native web search; OpenAI gained real PDF support in the Chat Completions API in
-// ~March 2026 (same vision-capable models, gpt-4o onward - developers.openai.com/api/docs/guides/
-// file-inputs), but its web search is a *separate* dedicated model (gpt-5-search-api) rather than
-// a toggle on the normal chat models - it always searches before answering, so it's the only
-// valid choice for OpenAI + web-grounded research.
-const MODEL_OPTIONS_BY_PROVIDER: Record<string, Record<TaskCapability, string[]>> = {
-  gemini: {
-    vision: ["gemini-3.5-flash", "gemini-3.1-pro", "gemini-3.1-flash-lite"],
-    web_search: ["gemini-3.5-flash", "gemini-3.1-pro", "gemini-3.1-flash-lite"],
-    text: ["gemini-3.5-flash", "gemini-3.1-pro", "gemini-3.1-flash-lite"],
-  },
-  anthropic: {
-    vision: ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-4-8", "claude-fable-5"],
-    web_search: ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-4-8", "claude-fable-5"],
-    text: ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-4-8", "claude-fable-5"],
-  },
-  openai: {
-    vision: ["gpt-4o-mini", "gpt-4o", "gpt-4.1", "gpt-5.4-mini", "gpt-5.4", "gpt-5.5", "gpt-5.6-sol"],
-    web_search: ["gpt-5-search-api"],
-    text: ["gpt-4o-mini", "gpt-4o", "gpt-4.1", "gpt-5.4-mini", "gpt-5.4", "gpt-5.5", "gpt-5.6-sol"],
-  },
-};
-
-// Fase O: best cost-benefit pick per task, not a restriction - just a visual nudge in the UI
-// below. Reasoning (2026-07):
-// - document_analysis needs the strongest structured extraction/instruction-following for
-//   compliance-grade documents (tenders, specs) - Claude Sonnet 5 has consistently been the more
-//   reliable of the three at following a rigid extraction schema without drifting, and it's
-//   already what this tenant runs in production for this exact task.
-// - web_grounding is the one task Gemini is uniquely well-suited for: native, first-class search
-//   grounding built into the API, vs. OpenAI needing an entirely separate dedicated model
-//   (gpt-5-search-api, see MODEL_OPTIONS_BY_PROVIDER comment above) and Anthropic's grounding
-//   being comparatively less mature - Gemini 3.5 Flash is also the cheapest of the three.
-// - spec_copilot is the one place a real quality differential is worth paying for over the
-//   cheapest tier (confirmed as a product priority, 2026-07-14): it's a technical spec assistant a
-//   presales engineer leans on interactively, and GPT models have a strong track record
-//   specifically at this kind of technical/engineering back-and-forth - gpt-4.1 over the flagship
-//   5.x tier as the balance point (materially stronger than the Flash-class models on this exact
-//   use case without going all the way to the most expensive option).
-// - document_classification is a trivial single-label task with no real quality differential
-//   between providers at this capability level - cheapest capable model wins (Gemini 3.5 Flash).
-// - poc_test_generation/poc_schedule_generation/poc_final_report_generation are the tasks this
-//   session's own hallucination fix (Fase H) was built around: they need to follow a strict
-//   "ground in real data or explicitly say you can't" instruction under pressure to produce a
-//   confident-sounding answer anyway - verified live in this session that Claude Sonnet 5 held
-//   that discipline consistently (the DAI test-case/final-report generations came back correctly
-//   grounded and correctly flagged missing coverage, not invented).
-const RECOMMENDED_MODEL: Record<string, { provider: string; model: string }> = {
-  document_analysis: { provider: "anthropic", model: "claude-sonnet-5" },
-  web_grounding: { provider: "gemini", model: "gemini-3.5-flash" },
-  spec_copilot: { provider: "openai", model: "gpt-4.1" },
-  document_classification: { provider: "gemini", model: "gemini-3.5-flash" },
-  poc_test_generation: { provider: "anthropic", model: "claude-sonnet-5" },
-  poc_schedule_generation: { provider: "anthropic", model: "claude-sonnet-5" },
-  poc_final_report_generation: { provider: "anthropic", model: "claude-sonnet-5" },
-  // Módulo de Precificação, Fase 6 (add-on): escolhe a estratégia de distribuição de desconto
-  // (equal_percent/equal_amount) e explica o porquê - julgamento estruturado com racional em
-  // texto, mesma categoria dos 3 task types de POC acima, não classificação simples.
-  pricing_budget_optimization: { provider: "anthropic", model: "claude-sonnet-5" },
-  pricing_catalog_extraction: { provider: "anthropic", model: "claude-sonnet-5" },
-};
-
-type CustomProviderCapabilities = { provider_key: string; display_name: string; default_model: string; supports_vision: boolean; supports_web_search: boolean };
-
-// Custom providers don't have a curated model list of their own - the only model we know it can
-// actually serve is whatever the admin configured as its default_model, so that's the single
-// option offered once a custom provider is selected for a task it's capable of.
-function modelOptionsFor(provider: string, capability: TaskCapability, customProviders: CustomProviderCapabilities[]): string[] {
-  if (MODEL_OPTIONS_BY_PROVIDER[provider]) return MODEL_OPTIONS_BY_PROVIDER[provider][capability];
-  const custom = customProviders.find((p) => p.provider_key === provider);
-  return custom ? [custom.default_model] : [];
-}
-
-// A custom provider only shows up as a provider choice for vision/web_search tasks if the admin
-// explicitly declared that capability when adding it (see the checkboxes in "Adicionar
-// Provedor") - defaults to not showing up, rather than every custom provider being offered for a
-// task it almost certainly can't actually do.
-function customProvidersForCapability(capability: TaskCapability, customProviders: CustomProviderCapabilities[]): CustomProviderCapabilities[] {
-  if (capability === "text") return customProviders;
-  return customProviders.filter((p) => (capability === "vision" ? p.supports_vision : p.supports_web_search));
-}
-
-// Providers researched as realistically integrable today: all expose an OpenAI-compatible chat
-// completions endpoint (including JSON mode), so they work through the same generic custom-
-// provider code path with no bespoke integration - these presets just pre-fill the add-provider
-// form (including the capability checkboxes). Any other OpenAI-compatible endpoint (Groq,
-// Together AI, Fireworks, OpenRouter, etc.) can still be added manually the same way, just
-// without a one-click preset - and without the capability boxes pre-checked, since we haven't
-// verified those specifically.
-// Perplexity Sonar always grounds its answer in a real web search by product design (no opt-in
-// "tools" parameter, unlike Gemini/Anthropic/OpenAI's search model) - confirmed against
-// docs.perplexity.ai. It doesn't support PDF/vision, so supportsVision stays false.
-const KNOWN_PROVIDER_PRESETS: { key: string; name: string; baseUrl: string; defaultModel: string; supportsVision: boolean; supportsWebSearch: boolean }[] = [
-  { key: "grok", name: "Grok (xAI)", baseUrl: "https://api.x.ai/v1", defaultModel: "grok-4", supportsVision: false, supportsWebSearch: false },
-  { key: "deepseek", name: "DeepSeek", baseUrl: "https://api.deepseek.com", defaultModel: "deepseek-chat", supportsVision: false, supportsWebSearch: false },
-  { key: "mistral", name: "Mistral AI", baseUrl: "https://api.mistral.ai/v1", defaultModel: "mistral-large-latest", supportsVision: false, supportsWebSearch: false },
-  { key: "perplexity", name: "Perplexity Sonar", baseUrl: "https://api.perplexity.ai", defaultModel: "sonar-pro", supportsVision: false, supportsWebSearch: true },
-];
 
 // Every AI-spending task type recorded in AiUsageLog (see AI_SPENDING_TASK_TYPES in
 // src/aiOrchestrator.ts) - proposal generation itself is template/DOCX filling, not its own AI
@@ -252,15 +131,6 @@ const AI_TASK_TYPE_LABEL: Record<string, { pt: string; en: string }> = {
   pricing_catalog_extraction: { pt: "Extração de Catálogo (Precificação)", en: "Catalog Extraction (Pricing)" },
 };
 
-// Column order for the per-provider cost breakdown table - the 3 providers this platform has
-// today; a provider present in the data but not in this list still gets its own column (see the
-// render below), it just isn't guaranteed a fixed position.
-const COST_TABLE_PROVIDERS = ["anthropic", "openai", "gemini"] as const;
-const PROVIDER_DISPLAY_NAME: Record<string, string> = {
-  anthropic: "Anthropic",
-  openai: "OpenAI",
-  gemini: "Gemini",
-};
 
 // Single source of truth for the "Create New Role" module checkboxes and the permission set each
 // one grants - previously two separate hardcoded lists (the checkbox array and this map), which
@@ -555,23 +425,37 @@ export default function AdminConsole({
   const pocModuleEnabled = fleetLicenseStatus?.modules?.includes("poc") ?? false;
   const pricingModuleEnabled = fleetLicenseStatus?.modules?.includes("pricing") ?? false;
 
-  // ia_kb add-on: when active, this tenant's AI calls route through the Fleet Manager's own
-  // managed-key proxy (server/utils/aiProviders.ts) - the key-configuration UI below has nothing
-  // to configure anymore (the tenant's own keys were cleared on activation), and provider/model
-  // per task becomes read-only display instead of an editable combobox.
-  const iaKbModuleEnabled = fleetLicenseStatus?.modules?.includes("ia_kb") ?? false;
+  // F11 (docs/cdc/16-integracao-cmcrm-presales.md, itens 06/10): a IA gerenciada pelo Fleet
+  // Manager deixou de ser um add-on por tenant - virou base do produto, e o CMSaaS não inclui
+  // mais "ia_kb" na lista de módulos da licença para ninguém (não há mais linha de
+  // module_entitlements para checar do lado de lá). Fica como constante, e não apagada com cada
+  // uso reescrito, para que o card de cobrança abaixo continue se comportando como "sempre
+  // habilitado" sem precisar tocar em cada ponto que a lia.
+  const iaKbModuleEnabled = true;
 
   const [costUSD, setCostUSD] = useState(0);
-  const [costByTaskTypeAndProvider, setCostByTaskTypeAndProvider] = useState<Record<string, Record<string, number>>>({});
+  // F11 (docs/cdc/16, item 05): "por provedor" saiu do relatório (a IA gerenciada é sempre o
+  // mesmo caminho desde a F11); "por usuário" entra, com a cobertura real de dono.
+  const [costByTaskType, setCostByTaskType] = useState<Record<string, number>>({});
+  interface AiUsageByUserRow { user_id: string; user_name: string; call_count: number; cost_usd: number }
+  const [costByUser, setCostByUser] = useState<AiUsageByUserRow[]>([]);
+  const [usageOwnership, setUsageOwnership] = useState<{ total_calls: number; calls_with_owner: number } | null>(null);
   const exchangeRate = 5.15; // 1 USD = 5.15 BRL (approximate, not live-fetched)
 
   useEffect(() => {
-    ApiClient.get<{ spend_usd: number; spend_by_task_type_and_provider: Record<string, Record<string, number>> }>("/api/settings/ai-cost-summary")
+    ApiClient.get<{
+      spend_usd: number;
+      spend_by_task_type: Record<string, number>;
+      spend_by_user: AiUsageByUserRow[];
+      ownership_coverage: { total_calls: number; calls_with_owner: number };
+    }>("/api/settings/ai-cost-summary")
       .then((r) => {
         setCostUSD(r.spend_usd);
-        setCostByTaskTypeAndProvider(r.spend_by_task_type_and_provider || {});
+        setCostByTaskType(r.spend_by_task_type || {});
+        setCostByUser(r.spend_by_user || []);
+        setUsageOwnership(r.ownership_coverage || null);
       })
-      .catch(() => { setCostUSD(0); setCostByTaskTypeAndProvider({}); });
+      .catch(() => { setCostUSD(0); setCostByTaskType({}); setCostByUser([]); setUsageOwnership(null); });
   }, []);
 
   interface IaKbBillingSnapshot {
@@ -590,30 +474,6 @@ export default function AdminConsole({
       .catch(() => setIaKbBilling(null));
   }, [iaKbModuleEnabled]);
 
-  // ia_kb add-on: once active, provider/model per task is chosen by the CMSaaS admin (synced on
-  // every heartbeat, see server/utils/fleetLicense.ts) - platformSettings' own per-task fields
-  // stop being what's actually used, so the read-only display below must read from here instead,
-  // not from the (now potentially stale) platformSettings[field]/[modelField].
-  const [iaKbTaskConfig, setIaKbTaskConfig] = useState<Record<string, { provider: string; model: string }>>({});
-  useEffect(() => {
-    if (!iaKbModuleEnabled) return;
-    ApiClient.get<{ task_type: string; provider: string; model: string }[]>("/api/settings/iakb-task-config")
-      .then((rows) => {
-        const map: Record<string, { provider: string; model: string }> = {};
-        for (const r of rows) map[r.task_type] = { provider: r.provider, model: r.model };
-        setIaKbTaskConfig(map);
-      })
-      .catch(() => setIaKbTaskConfig({}));
-  }, [iaKbModuleEnabled]);
-  const [aiKeyDrafts, setAiKeyDrafts] = useState<Record<string, string>>({ gemini: "", openai: "", anthropic: "" });
-  const [showAddProviderForm, setShowAddProviderForm] = useState(false);
-  const [newProviderKey, setNewProviderKey] = useState("");
-  const [newProviderDisplayName, setNewProviderDisplayName] = useState("");
-  const [newProviderBaseUrl, setNewProviderBaseUrl] = useState("");
-  const [newProviderApiKey, setNewProviderApiKey] = useState("");
-  const [newProviderDefaultModel, setNewProviderDefaultModel] = useState("");
-  const [newProviderSupportsVision, setNewProviderSupportsVision] = useState(false);
-  const [newProviderSupportsWebSearch, setNewProviderSupportsWebSearch] = useState(false);
   const [editingPromptId, setEditingPromptId] = useState<string | null>(null);
   const [promptDrafts, setPromptDrafts] = useState<Record<string, string>>({});
   // Which version of each prompt type is currently displayed/selected in the combobox - defaults
@@ -774,10 +634,6 @@ export default function AdminConsole({
     handleActivatePromptVersion,
     handleValidateStorageSettings,
     handleSavePlatformSettings,
-    handleSaveAiApiKey,
-    handleClearAiApiKey,
-    handleAddAiProvider,
-    handleDeleteAiProvider,
     proposalVariableCatalog,
   } = useAdminConsole({
     locale,
@@ -869,7 +725,7 @@ export default function AdminConsole({
                   {[
                     ["overview", locale === "pt" ? "Visão Geral" : "Overview", locale === "pt" ? "Resumo e saúde do sistema" : "System summary"],
                     ["users", locale === "pt" ? "Usuários e Acessos" : "Users & Access", locale === "pt" ? "Perfis, MFA e permissões" : "Roles, MFA and permissions"],
-                    ["ai", locale === "pt" ? "IA, Prompts e Custos" : "AI, Prompts & Costs", locale === "pt" ? "Modelos, chaves e consumo" : "Models, keys and usage"],
+                    ["ai", locale === "pt" ? "IA, Prompts e Custos" : "AI, Prompts & Costs", locale === "pt" ? "Custos, relatórios e prompts" : "Costs, reports and prompts"],
                     ["templates", locale === "pt" ? "Templates de Propostas" : "Proposal Templates", locale === "pt" ? "Upload, preview e versionamento" : "Upload, preview and versioning"],
                     ["approval_flow", locale === "pt" ? "Fluxo de Aprovação" : "Approval Workflow", locale === "pt" ? "Etapas, responsáveis e regras" : "Stages, owners and rules"],
                     ["demands", "Demandas", locale === "pt" ? "Prazos, desempenho e expurgos" : "Deadlines, performance and purges"],
@@ -1515,333 +1371,11 @@ export default function AdminConsole({
                   <div className="w-full grid grid-cols-1 xl:grid-cols-2 gap-6">
                     <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
                       <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
-                        {locale === "pt" ? "Modelos e Provedores de IA" : "AI Models and Providers"}
+                        {locale === "pt" ? "Limite de Custo de IA" : "AI Cost Limit"}
                       </h3>
 
-                      {iaKbModuleEnabled && (
-                        <div className="p-3 rounded-lg border bg-brand-50 border-brand-200 text-brand-800">
-                          <p className="text-[10px] uppercase font-bold tracking-wider font-mono">
-                            {locale === "pt" ? "Add-on IA/KB ativo" : "IA/KB add-on active"}
-                          </p>
-                          <p className="text-[11px] mt-1">
-                            {locale === "pt"
-                              ? "As chaves de API são gerenciadas pela AI Pre-Sales Solutions enquanto este add-on estiver ativo - não há nada para configurar aqui. O consumo é medido e aparece na tabela de cobrança abaixo."
-                              : "API keys are managed by AI Pre-Sales Solutions while this add-on is active - there's nothing to configure here. Usage is metered and shown in the billing table below."}
-                          </p>
-                        </div>
-                      )}
-
-                      {!iaKbModuleEnabled && (<>
-                      <div className="space-y-3">
-                        {PROVIDER_STATUS.map((prov) => (
-                          <div key={prov.id} className={`p-3 rounded-lg border ${prov.configured ? "bg-success-50 border-success-200 text-success-800" : "bg-warning-50 border-warning-200 text-warning-800"}`}>
-                            <div className="flex items-center justify-between gap-3 mb-2">
-                              <div>
-                                <p className="text-[10px] uppercase font-bold tracking-wider font-mono">{prov.name}</p>
-                                <p className="text-[11px] mt-1 font-semibold">
-                                  {prov.configured
-                                    ? `${locale === "pt" ? "Configurada" : "Configured"}: ${prov.masked || "********"}`
-                                    : (locale === "pt" ? "Não configurada" : "Not configured")}
-                                </p>
-                              </div>
-                              {prov.configured && (
-                                <button
-                                  onClick={() => handleClearAiApiKey(prov.id)}
-                                  className="bg-white/70 hover:bg-white border border-current px-2 py-1 rounded text-[10px] font-bold font-mono shrink-0"
-                                >
-                                  {locale === "pt" ? "Remover" : "Remove"}
-                                </button>
-                              )}
-                            </div>
-                            <div className="flex gap-1">
-                              <input
-                                type="password"
-                                placeholder={prov.configured ? (locale === "pt" ? "deixe em branco para manter" : "leave blank to keep") : (locale === "pt" ? "Cole a API key" : "Paste the API key")}
-                                value={aiKeyDrafts[prov.id] || ""}
-                                onChange={(e) => setAiKeyDrafts((prev) => ({ ...prev, [prov.id]: e.target.value }))}
-                                className="w-full p-1.5 text-[11px] font-mono bg-white border border-current/30 rounded"
-                              />
-                              <button
-                                onClick={() => {
-                                  handleSaveAiApiKey(prov.id, aiKeyDrafts[prov.id] || "");
-                                  setAiKeyDrafts((prev) => ({ ...prev, [prov.id]: "" }));
-                                }}
-                                className="bg-brand-600 hover:bg-brand-700 text-white px-3 rounded text-[10px] font-bold font-mono shrink-0"
-                              >
-                                {locale === "pt" ? "Salvar" : "Save"}
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
 
                       <div className="pt-3 border-t border-slate-100 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <h4 className="text-xs font-bold text-slate-700">
-                            {locale === "pt" ? "Provedores Personalizados" : "Custom Providers"}
-                          </h4>
-                          <button
-                            onClick={() => setShowAddProviderForm((v) => !v)}
-                            className="bg-white border border-slate-300 text-slate-700 font-mono text-[10px] font-bold py-1 px-2 rounded cursor-pointer"
-                          >
-                            {showAddProviderForm ? (locale === "pt" ? "Cancelar" : "Cancel") : (locale === "pt" ? "+ Adicionar Provedor" : "+ Add Provider")}
-                          </button>
-                        </div>
-                        <p className="text-[10px] text-slate-400">
-                          {locale === "pt"
-                            ? "Qualquer provedor com endpoint compatível com OpenAI (Grok, DeepSeek, Mistral AI, Groq, Together AI, etc.) pode ser adicionado aqui e passa a aparecer nos seletores de tarefa abaixo."
-                            : "Any provider with an OpenAI-compatible endpoint (Grok, DeepSeek, Mistral AI, Groq, Together AI, etc.) can be added here and will show up in the task selectors below."}
-                        </p>
-
-                        {aiProviderConfigs.length > 0 && (
-                          <div className="space-y-2">
-                            {aiProviderConfigs.map((p) => (
-                              <div key={p.id} className="flex items-center justify-between gap-2 p-2 bg-slate-50 border border-slate-200 rounded-lg">
-                                <div className="min-w-0">
-                                  <p className="text-[11px] font-bold text-slate-700 truncate">{p.display_name} <span className="text-slate-400 font-normal">({p.provider_key})</span></p>
-                                  <p className="text-[10px] text-slate-400 font-mono truncate">{p.base_url} · {p.default_model} · {p.api_key_masked}</p>
-                                  {(p.supports_vision || p.supports_web_search) && (
-                                    <p className="text-[9px] text-brand-700 font-mono mt-0.5">
-                                      {[p.supports_vision && (locale === "pt" ? "PDF/visão" : "PDF/vision"), p.supports_web_search && (locale === "pt" ? "busca web" : "web search")]
-                                        .filter(Boolean)
-                                        .join(" · ")}
-                                    </p>
-                                  )}
-                                </div>
-                                <button
-                                  onClick={() => handleDeleteAiProvider(p.id)}
-                                  className="bg-white hover:bg-danger-50 border border-slate-300 hover:border-danger-300 text-slate-500 hover:text-danger-700 px-2 py-1 rounded text-[10px] font-bold font-mono shrink-0"
-                                >
-                                  {locale === "pt" ? "Remover" : "Remove"}
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        {showAddProviderForm && (
-                          <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
-                            <div className="flex flex-wrap gap-1.5">
-                              {KNOWN_PROVIDER_PRESETS.map((preset) => (
-                                <button
-                                  key={preset.key}
-                                  onClick={() => {
-                                    setNewProviderKey(preset.key);
-                                    setNewProviderDisplayName(preset.name);
-                                    setNewProviderBaseUrl(preset.baseUrl);
-                                    setNewProviderDefaultModel(preset.defaultModel);
-                                    setNewProviderSupportsVision(preset.supportsVision);
-                                    setNewProviderSupportsWebSearch(preset.supportsWebSearch);
-                                  }}
-                                  className="text-[10px] bg-white border border-slate-300 text-slate-600 px-2 py-1 rounded font-mono font-bold cursor-pointer"
-                                >
-                                  {preset.name}
-                                </button>
-                              ))}
-                            </div>
-                            <input
-                              type="text"
-                              placeholder={locale === "pt" ? "Chave (ex: grok)" : "Key (e.g. grok)"}
-                              value={newProviderKey}
-                              onChange={(e) => setNewProviderKey(e.target.value.toLowerCase())}
-                              className="w-full p-2 text-xs font-mono bg-white border border-slate-200 rounded"
-                            />
-                            <input
-                              type="text"
-                              placeholder={locale === "pt" ? "Nome de exibição (ex: Grok)" : "Display name (e.g. Grok)"}
-                              value={newProviderDisplayName}
-                              onChange={(e) => setNewProviderDisplayName(e.target.value)}
-                              className="w-full p-2 text-xs font-mono bg-white border border-slate-200 rounded"
-                            />
-                            <input
-                              type="text"
-                              placeholder="https://api.x.ai/v1"
-                              value={newProviderBaseUrl}
-                              onChange={(e) => setNewProviderBaseUrl(e.target.value)}
-                              className="w-full p-2 text-xs font-mono bg-white border border-slate-200 rounded"
-                            />
-                            <input
-                              type="text"
-                              placeholder={locale === "pt" ? "Modelo padrão (ex: grok-4)" : "Default model (e.g. grok-4)"}
-                              value={newProviderDefaultModel}
-                              onChange={(e) => setNewProviderDefaultModel(e.target.value)}
-                              className="w-full p-2 text-xs font-mono bg-white border border-slate-200 rounded"
-                            />
-                            <input
-                              type="password"
-                              placeholder={locale === "pt" ? "Chave de API" : "API key"}
-                              value={newProviderApiKey}
-                              onChange={(e) => setNewProviderApiKey(e.target.value)}
-                              className="w-full p-2 text-xs font-mono bg-white border border-slate-200 rounded"
-                            />
-                            <div className="flex flex-col gap-1 pt-1">
-                              <label className="flex items-center gap-2 text-[11px] text-slate-600 cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={newProviderSupportsVision}
-                                  onChange={(e) => setNewProviderSupportsVision(e.target.checked)}
-                                />
-                                {locale === "pt" ? "Suporta PDF/visão (análise de documentos)" : "Supports PDF/vision (document analysis)"}
-                              </label>
-                              <label className="flex items-center gap-2 text-[11px] text-slate-600 cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={newProviderSupportsWebSearch}
-                                  onChange={(e) => setNewProviderSupportsWebSearch(e.target.checked)}
-                                />
-                                {locale === "pt" ? "Suporta busca web nativa (ex: Perplexity Sonar)" : "Supports native web search (e.g. Perplexity Sonar)"}
-                              </label>
-                              <p className="text-[10px] text-slate-400">
-                                {locale === "pt"
-                                  ? "Marque só se você confirmou que o provedor realmente suporta - controla em quais tarefas do orquestrador ele aparece como opção."
-                                  : "Only check if you've confirmed the provider genuinely supports it - controls which orchestrator tasks it shows up as an option for."}
-                              </p>
-                            </div>
-                            <button
-                              onClick={async () => {
-                                const created = await handleAddAiProvider({
-                                  provider_key: newProviderKey.trim(),
-                                  display_name: newProviderDisplayName.trim(),
-                                  base_url: newProviderBaseUrl.trim(),
-                                  api_key: newProviderApiKey,
-                                  default_model: newProviderDefaultModel.trim(),
-                                  supports_vision: newProviderSupportsVision,
-                                  supports_web_search: newProviderSupportsWebSearch,
-                                });
-                                if (created) {
-                                  setShowAddProviderForm(false);
-                                  setNewProviderKey("");
-                                  setNewProviderDisplayName("");
-                                  setNewProviderBaseUrl("");
-                                  setNewProviderApiKey("");
-                                  setNewProviderDefaultModel("");
-                                  setNewProviderSupportsVision(false);
-                                  setNewProviderSupportsWebSearch(false);
-                                }
-                              }}
-                              className="w-full bg-brand-600 hover:bg-brand-700 text-white font-mono text-xs font-bold py-1.5 px-3 rounded shadow-sm transition-all cursor-pointer"
-                            >
-                              {locale === "pt" ? "Adicionar Provedor" : "Add Provider"}
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                      </>)}
-
-                      <div className="pt-3 border-t border-slate-100 space-y-3">
-                        <div>
-                          <h4 className="text-xs font-bold text-slate-700">
-                            {locale === "pt" ? "Orquestrador de IA: Mapa Tarefa → Provedor → Modelo" : "AI Orchestrator: Task → Provider → Model Map"}
-                          </h4>
-                          <p className="text-[10px] text-slate-400 mt-0.5">
-                            {locale === "pt"
-                              ? "Uma tarefa configurada para um provedor sem chave configurada usa Gemini como fallback, registrado em auditoria. O combobox de modelo só mostra opções que a tarefa realmente consegue usar (ex: análise de documentos exige um modelo com suporte a PDF/visão; provedores personalizados só aparecem nas tarefas cuja capacidade foi marcada ao adicioná-los)."
-                              : "A task configured for a provider without a configured key falls back to Gemini, logged in the audit trail. The model combobox only shows options the task can actually use (e.g. document analysis needs a model with PDF/vision support; custom providers only show up for tasks whose capability was checked when adding them)."}
-                          </p>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {[
-                            { field: "document_analysis_provider", modelField: "document_analysis_model", taskKey: "document_analysis", label: locale === "pt" ? "Análise de Documentos" : "Document Analysis" },
-                            { field: "web_grounding_provider", modelField: "web_grounding_model", taskKey: "web_grounding", label: locale === "pt" ? "Pesquisa com Grounding Web" : "Web-Grounded Research" },
-                            { field: "spec_copilot_provider", modelField: "spec_copilot_model", taskKey: "spec_copilot", label: locale === "pt" ? "Copiloto de Especificações (Chat)" : "Spec Copilot (Chat)" },
-                            { field: "document_classification_provider", modelField: "document_classification_model", taskKey: "document_classification", label: locale === "pt" ? "Classificação de Documentos" : "Document Classification" },
-                            // Add-on (Fase 6): only shown once the tenant's Fleet Manager entitlement includes "poc".
-                            ...(pocModuleEnabled ? [{ field: "poc_test_generation_provider", modelField: "poc_test_generation_model", taskKey: "poc_test_generation", label: locale === "pt" ? "Geração de Cadernos de Teste (POC)" : "Test Script Generation (POC)" }] : []),
-                            ...(pocModuleEnabled ? [{ field: "poc_schedule_generation_provider", modelField: "poc_schedule_generation_model", taskKey: "poc_schedule_generation", label: locale === "pt" ? "Sugestão de Cronograma (POC)" : "Schedule Suggestion (POC)" }] : []),
-                            ...(pocModuleEnabled ? [{ field: "poc_final_report_generation_provider", modelField: "poc_final_report_generation_model", taskKey: "poc_final_report_generation", label: locale === "pt" ? "Relatório Final (POC)" : "Final Report (POC)" }] : []),
-                            // Add-on (Módulo de Precificação): only shown once the tenant's Fleet Manager entitlement includes "pricing".
-                            ...(pricingModuleEnabled ? [{ field: "pricing_budget_optimization_provider", modelField: "pricing_budget_optimization_model", taskKey: "pricing_budget_optimization", label: locale === "pt" ? "Otimização de Budget (Precificação)" : "Budget Optimization (Pricing)" }] : []),
-                            ...(pricingModuleEnabled ? [{ field: "pricing_catalog_extraction_provider", modelField: "pricing_catalog_extraction_model", taskKey: "pricing_catalog_extraction", label: locale === "pt" ? "Extração de Catálogo (Precificação)" : "Catalog Extraction (Pricing)" }] : []),
-                          ].map(({ field, modelField, taskKey, label }) => {
-                            const capability = TASK_CAPABILITY[taskKey];
-                            const currentProvider = (platformSettings as any)?.[field] || "gemini";
-                            const validCustomProviders = customProvidersForCapability(capability, aiProviderConfigs);
-                            const modelOptions = modelOptionsFor(currentProvider, capability, aiProviderConfigs);
-                            const currentModel = (platformSettings as any)?.[modelField] || "";
-                            // Bug real encontrado durante o ensaio no Presales Demo (2026-07-17): a
-                            // checagem de "é a configuração recomendada?" comparava sempre contra
-                            // platformSettings, mesmo com o ia_kb ativo - nesse caso o texto exibido
-                            // já lia iaKbTaskConfig (a config de verdade, sincronizada do CMSaaS),
-                            // mas a comparação continuava olhando pro campo local desatualizado.
-                            const effectiveProvider = iaKbModuleEnabled ? (iaKbTaskConfig[taskKey]?.provider || currentProvider) : currentProvider;
-                            const effectiveModel = iaKbModuleEnabled ? (iaKbTaskConfig[taskKey]?.model || currentModel) : currentModel;
-                            return (
-                              <div key={field}>
-                                <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">{label}</label>
-                                {iaKbModuleEnabled ? (
-                                  // Read-only with the add-on active - reads the CMSaaS admin's
-                                  // synced choice (iaKbTaskConfig), NOT platformSettings' own
-                                  // field, which stops being what's actually used the moment this
-                                  // add-on takes over (see resolveProvider in src/aiOrchestrator.ts).
-                                  <div className="p-2 rounded bg-slate-50 border border-slate-200 text-xs">
-                                    {iaKbTaskConfig[taskKey] ? (
-                                      <>
-                                        <span className="font-semibold text-slate-700">{PROVIDER_DISPLAY_NAME[iaKbTaskConfig[taskKey].provider] || iaKbTaskConfig[taskKey].provider}</span>
-                                        <span className="text-slate-400"> · </span>
-                                        <span className="font-mono text-slate-600">{iaKbTaskConfig[taskKey].model}</span>
-                                      </>
-                                    ) : (
-                                      <span className="text-slate-400 italic">{locale === "pt" ? "Ainda não configurado pelo suporte" : "Not yet configured by support"}</span>
-                                    )}
-                                  </div>
-                                ) : (
-                                <div className="flex gap-2">
-                                  <select
-                                    value={currentProvider}
-                                    onChange={(e) => {
-                                      const newProvider = e.target.value;
-                                      handleSavePlatformSettings(field, newProvider);
-                                      // Keep the model field a valid pair for the newly selected provider -
-                                      // this is exactly what broke document analysis before: the provider
-                                      // dropdown changed but the model field kept a stale value.
-                                      const newModelOptions = modelOptionsFor(newProvider, capability, aiProviderConfigs);
-                                      if (newModelOptions.length > 0) {
-                                        handleSavePlatformSettings(modelField, newModelOptions[0]);
-                                      }
-                                    }}
-                                    className="w-1/2 p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-semibold text-slate-700"
-                                  >
-                                    <option value="gemini">Google Gemini</option>
-                                    <option value="anthropic">Anthropic Claude {!PROVIDER_STATUS.find(p => p.id === "anthropic")?.configured ? (locale === "pt" ? "(não conectado)" : "(not connected)") : ""}</option>
-                                    <option value="openai">OpenAI ChatGPT {!PROVIDER_STATUS.find(p => p.id === "openai")?.configured ? (locale === "pt" ? "(não conectado)" : "(not connected)") : ""}</option>
-                                    {validCustomProviders.map((p) => (
-                                      <option key={p.provider_key} value={p.provider_key}>{p.display_name}</option>
-                                    ))}
-                                  </select>
-                                  <select
-                                    value={modelOptions.includes(currentModel) ? currentModel : (modelOptions[0] || "")}
-                                    onChange={(e) => handleSavePlatformSettings(modelField, e.target.value)}
-                                    disabled={modelOptions.length === 0}
-                                    className="w-1/2 p-2 rounded bg-slate-50 border border-slate-200 focus:ring-1 focus:ring-brand-500 focus:outline-none text-xs font-mono text-slate-700 disabled:opacity-50"
-                                  >
-                                    {modelOptions.length === 0 && (
-                                      <option value="">{locale === "pt" ? "Sem modelo válido" : "No valid model"}</option>
-                                    )}
-                                    {modelOptions.map((m) => (
-                                      <option key={m} value={m}>{m}</option>
-                                    ))}
-                                  </select>
-                                </div>
-                                )}
-                                {RECOMMENDED_MODEL[taskKey] && (() => {
-                                  const rec = RECOMMENDED_MODEL[taskKey];
-                                  const isRecommended = effectiveProvider === rec.provider && effectiveModel === rec.model;
-                                  return isRecommended ? (
-                                    <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-success-700 bg-success-50 border border-success-200 rounded-full px-2 py-0.5">
-                                      <Check size={10} />
-                                      {locale === "pt" ? "Configuração recomendada" : "Recommended configuration"}
-                                    </div>
-                                  ) : (
-                                    <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-warning-700 bg-warning-50 border border-warning-200 rounded-full px-2 py-0.5">
-                                      <Star size={10} className="fill-warning-500 text-warning-500" />
-                                      {locale === "pt" ? "Recomendado" : "Recommended"}: {PROVIDER_DISPLAY_NAME[rec.provider]} · {rec.model}
-                                    </div>
-                                  );
-                                })()}
-                              </div>
-                            );
-                          })}
-                        </div>
 
                         <div>
                           <label className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">
@@ -1891,7 +1425,7 @@ export default function AdminConsole({
                     {iaKbModuleEnabled && (
                       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
                         <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
-                          {locale === "pt" ? "Consumo e Cobrança (Add-on IA/KB)" : "Usage and Billing (IA/KB Add-on)"}
+                          {locale === "pt" ? "Consumo e Cobrança da IA Gerenciada" : "Managed AI Usage and Billing"}
                         </h3>
                         {iaKbBilling ? (
                           <>
@@ -1948,18 +1482,9 @@ export default function AdminConsole({
                         </div>
                       </div>
                       <div className="border-t border-slate-100 pt-3">
-                        <span className="text-[9px] text-slate-400 block uppercase mb-2 font-mono">{locale === "pt" ? "Consumo por Serviço e Provedor (mês atual)" : "Cost by Service and Provider (current month)"}</span>
+                        <span className="text-[9px] text-slate-400 block uppercase mb-2 font-mono">{locale === "pt" ? "Consumo por Serviço (mês atual)" : "Cost by Service (current month)"}</span>
                         {(() => {
-                          // Any provider that actually has spend this month gets a column too,
-                          // even if it's not one of the 3 known ones - never silently drops real
-                          // cost data because a provider isn't in the fixed list.
-                          const extraProviders = Object.values(costByTaskTypeAndProvider)
-                            .flatMap((byProvider) => Object.keys(byProvider))
-                            .filter((p) => !(COST_TABLE_PROVIDERS as readonly string[]).includes(p));
-                          const providerColumns = [...COST_TABLE_PROVIDERS, ...new Set(extraProviders)];
-                          const taskTypesWithSpend = Object.keys(AI_TASK_TYPE_LABEL).filter((t) =>
-                            Object.values(costByTaskTypeAndProvider[t] || {}).some((v) => v > 0)
-                          );
+                          const taskTypesWithSpend = Object.keys(AI_TASK_TYPE_LABEL).filter((t) => (costByTaskType[t] || 0) > 0);
 
                           if (taskTypesWithSpend.length === 0) {
                             return (
@@ -1975,33 +1500,68 @@ export default function AdminConsole({
                                 <thead>
                                   <tr className="text-[9px] uppercase text-slate-400 font-mono">
                                     <th className="text-left font-bold pb-1.5 pr-2">{locale === "pt" ? "Serviço" : "Service"}</th>
-                                    {providerColumns.map((p) => (
-                                      <th key={p} className="text-right font-bold pb-1.5 px-2">{PROVIDER_DISPLAY_NAME[p] || p}</th>
-                                    ))}
                                     <th className="text-right font-bold pb-1.5 pl-2">{locale === "pt" ? "Total" : "Total"}</th>
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {taskTypesWithSpend.map((taskType) => {
-                                    const byProvider = costByTaskTypeAndProvider[taskType] || {};
-                                    const rowTotal = Object.values(byProvider).reduce((sum, v) => sum + v, 0);
-                                    return (
+                                  {taskTypesWithSpend
+                                    .sort((a, b) => (costByTaskType[b] || 0) - (costByTaskType[a] || 0))
+                                    .map((taskType) => (
                                       <tr key={taskType} className="border-t border-slate-100">
                                         <td className="py-2 pr-2 text-slate-600 font-mono">{locale === "pt" ? AI_TASK_TYPE_LABEL[taskType].pt : AI_TASK_TYPE_LABEL[taskType].en}</td>
-                                        {providerColumns.map((p) => (
-                                          <td key={p} className="py-2 px-2 text-right font-mono text-slate-500">
-                                            {byProvider[p] ? `$${byProvider[p].toFixed(2)}` : "—"}
-                                          </td>
-                                        ))}
-                                        <td className="py-2 pl-2 text-right font-mono font-bold text-slate-800">${rowTotal.toFixed(2)}</td>
+                                        <td className="py-2 pl-2 text-right font-mono font-bold text-slate-800">${(costByTaskType[taskType] || 0).toFixed(2)}</td>
                                       </tr>
-                                    );
-                                  })}
+                                    ))}
                                 </tbody>
                               </table>
                             </div>
                           );
                         })()}
+                      </div>
+
+                      {/* F11 (docs/cdc/16, item 05): relatório novo - por usuário. §8 item 31 do
+                          plano: 79% do histórico não tem dono recuperável (medido no Demo em
+                          28/08/2026); a coluna vale de frente, e esta tela é obrigada a dizer
+                          isso, não a escondê-lo atrás de um número que parece o todo. */}
+                      <div className="border-t border-slate-100 pt-3">
+                        <span className="text-[9px] text-slate-400 block uppercase mb-2 font-mono">{locale === "pt" ? "Consumo por Usuário (mês atual)" : "Cost by User (current month)"}</span>
+                        {usageOwnership && (
+                          <p className="text-[10px] text-slate-400 mb-2">
+                            {(() => {
+                              const { total_calls: totalCalls, calls_with_owner: withOwner } = usageOwnership;
+                              const pct = totalCalls > 0 ? Math.round((withOwner / totalCalls) * 100) : 100;
+                              return locale === "pt"
+                                ? `${pct}% das ${totalCalls} chamadas de IA já feitas por esta instalação têm um usuário identificado (${withOwner} de ${totalCalls}) - o restante é anterior a este relatório e não tem dono recuperável: a coluna não existia antes, e o histórico não é retroagido.`
+                                : `${pct}% of this installation's ${totalCalls} AI calls so far have an identified user (${withOwner} of ${totalCalls}) - the rest predate this report and have no recoverable owner: the column didn't exist before, and history isn't backfilled.`;
+                            })()}
+                          </p>
+                        )}
+                        {costByUser.length === 0 ? (
+                          <div className="text-xs text-slate-400 italic px-3 py-4 text-center bg-slate-50 border border-slate-100 rounded-lg">
+                            {locale === "pt" ? "Nenhuma chamada de IA com usuário identificado neste mês ainda." : "No AI call with an identified user this month yet."}
+                          </div>
+                        ) : (
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-xs border-collapse">
+                              <thead>
+                                <tr className="text-[9px] uppercase text-slate-400 font-mono">
+                                  <th className="text-left font-bold pb-1.5 pr-2">{locale === "pt" ? "Usuário" : "User"}</th>
+                                  <th className="text-right font-bold pb-1.5 px-2">{locale === "pt" ? "Chamadas" : "Calls"}</th>
+                                  <th className="text-right font-bold pb-1.5 pl-2">{locale === "pt" ? "Total" : "Total"}</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {costByUser.map((row) => (
+                                  <tr key={row.user_id} className="border-t border-slate-100">
+                                    <td className="py-2 pr-2 text-slate-600 font-mono">{row.user_name}</td>
+                                    <td className="py-2 px-2 text-right font-mono text-slate-500">{row.call_count}</td>
+                                    <td className="py-2 pl-2 text-right font-mono font-bold text-slate-800">${row.cost_usd.toFixed(2)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
                       </div>
                       <div className="space-y-4 max-h-[640px] overflow-y-auto pr-1">
                         {Object.entries(

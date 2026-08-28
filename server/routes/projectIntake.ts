@@ -253,6 +253,7 @@ Respond with ONLY a strictly parsable JSON object, no markdown, matching this sh
           model: providerResolution.model,
           estimatedCostUsd: realEstimatedCostUsd,
           backgroundTaskId: task.id,
+          userId: task.user_id,
         });
       } catch (err: any) {
         req.log?.error({ err, taskId: task.id }, "Project intake analysis failed");
@@ -304,7 +305,7 @@ router.post("/project-intake/:sessionId/confirm", requirePermission("project:cre
       if (!buffer) continue;
 
       const storagePath = await storageAdapter.uploadFile(project.id, buffer, f.filename, f.mimeType);
-      const classification = await classifyDocument(f.filename, f.extractedText, tenantId);
+      const classification = await classifyDocument(f.filename, f.extractedText, tenantId, userId);
 
       await runWithTenant(tenantContext, async () => {
         const docRecord = await dbStore.addDocument({

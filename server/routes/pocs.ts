@@ -1079,6 +1079,7 @@ não depende de nenhuma outra.`;
           model: resolution.model,
           estimatedCostUsd: realEstimatedCostUsd,
           backgroundTaskId: task.id,
+          userId: task.user_id,
         });
 
         let parsed: any[];
@@ -1358,6 +1359,7 @@ provedores exigem um objeto no nível superior), sem markdown, sem texto extra, 
           model: resolution.model,
           estimatedCostUsd: realEstimatedCostUsd,
           backgroundTaskId: task.id,
+          userId: task.user_id,
         });
 
         let parsed: any[];
@@ -1533,6 +1535,7 @@ extra, no formato:
       provider: resolution.provider,
       model: resolution.model,
       estimatedCostUsd: billedCostUsd ?? estimateCostUsd(resolution.model, inputTokens, outputTokens),
+      userId: requireUserId(req),
     });
 
     let parsed: any[];

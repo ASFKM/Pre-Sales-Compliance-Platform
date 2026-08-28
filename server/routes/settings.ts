@@ -10,7 +10,7 @@ import { createStorageAdapter } from "../utils/storage";
 import { getFleetLicenseStatus, runHeartbeatForTenant, runLicenseStatusPollForTenant } from "../utils/fleetLicense";
 import { getCurrentTenantId } from "../../src/tenantContext";
 import { FACTORY_DEFAULT_CLASSIFICATION_PROMPT, FACTORY_DEFAULT_ANALYSIS_PROMPT, FACTORY_DEFAULT_POC_TEST_GENERATION_PROMPT, FACTORY_DEFAULT_POC_SCHEDULE_GENERATION_PROMPT, FACTORY_DEFAULT_POC_FINAL_REPORT_GENERATION_PROMPT } from "../utils/promptDefaults";
-import { getCurrentMonthSpendUsd, getCurrentMonthSpendByTaskTypeAndProvider } from "../../src/aiOrchestrator";
+import { getCurrentMonthSpendUsd, getCurrentMonthSpendByTaskType, getCurrentMonthSpendByUser, getAiUsageOwnershipCoverage } from "../../src/aiOrchestrator";
 import { assertPublicHttpsUrl } from "../utils/ssrfGuard";
 import { decideBrandTheme } from "../../src/brandTheme";
 
@@ -138,9 +138,22 @@ function validateBrandingUpdates(updates: any) {
 router.get("/settings/ai-cost-summary", requirePermission("ai:settings"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const tenantId = getCurrentTenantId()!;
-    const spendUsd = await getCurrentMonthSpendUsd(tenantId);
-    const spendByTaskTypeAndProvider = await getCurrentMonthSpendByTaskTypeAndProvider(tenantId);
-    res.json({ spend_usd: spendUsd, spend_by_task_type_and_provider: spendByTaskTypeAndProvider });
+    // F11 (docs/cdc/16, item 05): "por provedor" saiu (a IA gerenciada sempre atende pelo mesmo
+    // caminho desde a F11 - não é mais uma escolha do tenant); "por usuário" entra, com a
+    // cobertura real de dono (§8 item 31 do plano: a coluna vale de frente, histórico sem dono
+    // fica sem dono para sempre - a tela precisa dizer isso, não escondê-lo).
+    const [spendUsd, spendByTaskType, spendByUser, ownership] = await Promise.all([
+      getCurrentMonthSpendUsd(tenantId),
+      getCurrentMonthSpendByTaskType(tenantId),
+      getCurrentMonthSpendByUser(tenantId),
+      getAiUsageOwnershipCoverage(tenantId),
+    ]);
+    res.json({
+      spend_usd: spendUsd,
+      spend_by_task_type: spendByTaskType,
+      spend_by_user: spendByUser.map((r) => ({ user_id: r.userId, user_name: r.userName, call_count: r.callCount, cost_usd: r.costUsd })),
+      ownership_coverage: { total_calls: ownership.totalCalls, calls_with_owner: ownership.callsWithOwner },
+    });
   } catch (err) {
     next(err);
   }

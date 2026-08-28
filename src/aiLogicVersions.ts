@@ -21,7 +21,10 @@ export const LOGIC_VERSIONS = {
   // the version, so the fixture had gone silently stale; this bump also covers the current
   // session's own minLength/limit fix to the document-wide extractKnowledgeBaseKeywords calls
   // (the item-level call inside this function keeps minLength=3, already correct, unchanged).
-  bom_enrichment: 8,
+  // v9 (F11, docs/cdc/16-integracao-cmcrm-presales.md, item 31): enrichBomWithWebSearch ganhou
+  // um parâmetro `userId`, passado a recordAiUsage para atribuir a chamada a um dono - não muda
+  // o que a função pesquisa/decide, só quem fica registrado como autor da chamada de IA.
+  bom_enrichment: 9,
   // server/routes/proposals.ts - the 4 opinion-panel perspective prompt builders (technical/
   // commercial/legal/financial) and their shared cost-cap/sequential-execution worker. Stored on
   // ProposalOpinionRun.logicVersion directly (not AnalysisResult.logicVersions), same pattern.

@@ -152,6 +152,7 @@ Respond with ONLY a JSON object: { "reusable": true, "trigger": "...", "knowledg
       provider: providerResolution.provider,
       model: providerResolution.model,
       estimatedCostUsd: billedCostUsd ?? estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
+      userId: requireUserId(req),
     });
     const jsonMatch = text.match(/```json\s*([\s\S]*?)```/) || [null, text.slice(text.indexOf("{"))];
     const parsed = JSON.parse((jsonMatch[1] || text).trim());
@@ -167,7 +168,8 @@ Respond with ONLY a JSON object: { "reusable": true, "trigger": "...", "knowledg
     const reconciliation = await reconcileIncomingKnowledgeEntry(
       { entry_id: "", category: validated.category, trigger: parsed.trigger, knowledge: parsed.knowledge },
       platformSettings,
-      tenantId
+      tenantId,
+      requireUserId(req)
     );
     if (reconciliation.action === "skip") {
       return res.json({ success: true, entry: null, skipped_reason: "duplicate" });
@@ -366,6 +368,7 @@ Respond with ONLY a JSON array (no markdown, no extra text):
             model: providerResolution.model,
             estimatedCostUsd: billedCostUsd ?? estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
             backgroundTaskId: task.id,
+            userId: task.user_id,
           });
           const fenceMatch = text.match(/```json\s*([\s\S]*?)```/);
           const rawJson = fenceMatch ? fenceMatch[1] : text.slice(text.indexOf("["));
@@ -383,7 +386,8 @@ Respond with ONLY a JSON array (no markdown, no extra text):
             const reconciliation = await reconcileIncomingKnowledgeEntry(
               { entry_id: "", category, trigger: p.trigger, knowledge: p.knowledge },
               platformSettings,
-              tenantId
+              tenantId,
+              task.user_id
             );
             if (reconciliation.action === "skip") {
               continue;
