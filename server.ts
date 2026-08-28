@@ -62,6 +62,7 @@ import systemUpdatesRouter from "./server/routes/systemUpdates";
 import pocsRouter from "./server/routes/pocs";
 import pricingRouter from "./server/routes/pricing";
 import demandsRouter from "./server/routes/demands";
+import crmDirectoryRouter from "./server/routes/crmDirectory";
 import externalCrmRouter from "./server/routes/externalCrm";
 
 const app = express();
@@ -141,6 +142,10 @@ app.use("/api/pricing", pricingRouter);
 // `/external/` existe para que ninguém precise ler o middleware para saber que
 // aquela árvore inteira é falada por outro sistema.
 app.use("/api/demands", demandsRouter);
+// CDC 16 F6 — o passo do CRM no caminho secundário (D12). Atrás de sessão humana e de
+// `project:create`, como todo o resto do produto: quem chama daqui é uma PESSOA no intake, e
+// não uma máquina. A porta de máquina continua sendo só `/api/external/crm/v1`.
+app.use("/api/crm", crmDirectoryRouter);
 app.use("/api/external/crm/v1", externalCrmRouter);
 
 // 5. Basic Observability / Health Endpoints

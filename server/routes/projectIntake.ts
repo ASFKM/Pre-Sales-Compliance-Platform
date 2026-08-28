@@ -12,6 +12,7 @@ import { resolveProvider, checkCostCap, recordProviderFallback, recordAiUsage } 
 import { generateJsonWithProvider, ConnectedProvider } from "../utils/aiProviders";
 import { estimateCostUsd } from "../utils/aiPricing";
 import { classifyDocument } from "../utils/documentClassification";
+import { acharCnpjNoTexto } from "../utils/cnpj";
 import { runWithTenant } from "../../src/tenantContext";
 import multer from "multer";
 
@@ -219,7 +220,23 @@ Respond with ONLY a strictly parsable JSON object, no markdown, matching this sh
         const validated = SuggestedFieldsSchema.parse(parsed);
 
         await updateTaskProgress(task.id, { currentStep: "Salvando sugestões", progressPct: 90 });
-        await staging.setSuggestedFields(req.params.sessionId, validated);
+
+        /*
+         * CDC 16 F6 (ADR 0001 §2.9): a extração passa a CAÇAR O CNPJ, que até aqui ela não fazia.
+         * É ele que permite procurar a empresa no CRM por casamento EXATO, em vez de por nome —
+         * e busca por nome nunca decide sozinha, por construção.
+         *
+         * Fora do prompt e depois da IA, de propósito: um CNPJ inventado tem a forma certa e casa
+         * com a empresa errada, em silêncio. Aqui ele sai do texto do documento e passa pelo
+         * dígito verificador, ou não sai — e aí a busca cai para o nome, que uma pessoa confirma.
+         */
+        const cnpjDoEdital = acharCnpjNoTexto(
+          session.files.map((f) => f.extractedText).join("\n")
+        );
+        await staging.setSuggestedFields(req.params.sessionId, {
+          ...validated,
+          ...(cnpjDoEdital ? { customer_tax_id: cnpjDoEdital } : {}),
+        });
 
         await completeTask(task.id, {
           resultType: "project_intake_session",

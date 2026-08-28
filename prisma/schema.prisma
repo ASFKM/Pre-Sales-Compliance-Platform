@@ -2014,6 +2014,12 @@ enum DemandStatus {
   completed
 }
 
+// CDC 16 F6 (D12): de que lado a demanda nasceu.
+enum DemandSource {
+  crm
+  presales
+}
+
 model Demand {
   // Id LOCAL (dem_<hex>). Deliberadamente diferente de demandRef: o ref vem do
   // CMCRM e é texto que este lado não controla, então nunca entra em caminho de
@@ -2029,6 +2035,13 @@ model Demand {
   sequence  Int?   @default(1)
 
   status DemandStatus @default(queued)
+
+  // CDC 16 F6: quem ORIGINOU esta demanda. "crm" e toda demanda que um vendedor
+  // enviou de la; "presales" e a demanda ESPELHO que o caminho secundario cria
+  // para um projeto que ja existe AQUI, e que serve so de endereco (`demandRef`)
+  // para o retorno da F3/F4/F5 ter para onde chegar. Default "crm" e nao nulo:
+  // toda demanda que ja existe veio de la, e isso e fato, nao suposicao.
+  source DemandSource @default(crm)
 
   // ── Empresa por REFERÊNCIA (D31), sem contato pessoal nenhum (D32) ────────
   crmCompanyId     String  @map("crm_company_id")
@@ -2070,8 +2083,13 @@ model Demand {
   objective            String?  @db.Text
 
   // ── Quem enviou, do lado do CRM. Referência, não conta local (D34) ────────
-  sentByCrmUserId    String   @map("sent_by_crm_user_id")
-  sentByName         String   @map("sent_by_name")
+  // CDC 16 F6: anulaveis a partir do caminho secundario. Numa demanda ESPELHO nao
+  // houve envio do lado do CRM - o projeto nasceu AQUI -, entao nao ha quem tenha
+  // enviado. Preenche-los com um marcador diria a tela do vendedor que alguem
+  // enviou o que ninguem enviou, e envenenaria a medicao de tempo de resposta
+  // (D20), que conta a partir do envio.
+  sentByCrmUserId    String?  @map("sent_by_crm_user_id")
+  sentByName         String?  @map("sent_by_name")
   sentByEmail        String?  @map("sent_by_email")
   sentAt             DateTime @map("sent_at")
   // Onde o PreSales devolve eventos (F3). Guardado agora porque chega no
@@ -2228,6 +2246,17 @@ model CrmPairKey {
   // NUNCA aceito cegamente: antes de cada uso é conferido contra o par, porque
   // quem manda o endereço é a mesma requisição que quer ser chamada de volta.
   callbackBaseUrl   String? @map("callback_base_url")
+
+  // CDC 16 F6 (D12/D13): QUAL organizacao do CRM este par escreve.
+  //
+  // A chave do par resolve o PAR, e o par diz qual INSTALACAO do CMCRM - mas uma
+  // instalacao hospeda muitas organizacoes, e os tres caminhos do caminho
+  // secundario nao tem `demand_ref` de onde derivar a certa. O CRM devolve, no
+  // /pair/verify, as organizacoes que LIGARAM a integracao; havendo uma so, ela
+  // e adotada sozinha, e havendo mais de uma quem escolhe e uma pessoa - uma vez,
+  // aqui. Nulo enquanto ninguem usou o caminho secundario, que e o estado de toda
+  // instalacao que existe hoje.
+  crmOrganizationId String? @map("crm_organization_id")
 
   receivedAt  DateTime  @map("received_at")
   verifiedAt  DateTime? @map("verified_at")
