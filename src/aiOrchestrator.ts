@@ -46,27 +46,12 @@ interface TaskProviderSettings {
   anthropic_api_key_encrypted?: string;
 }
 
-// Gemini's key is required platform-wide already (every install needs it for the Workspace
-// copilot chat, unrelated to this per-task provider selection), so it's always connected.
-// OpenAI/Anthropic are only connected once their own key has actually been configured - checked
-// against the same settings object passed in here (which env-var overrides aside, real callers
-// always get from dbStore.getSettings()), not a hardcoded list, so this reflects real state
-// instead of a fixed-at-code-time assumption.
-async function isProviderConnected(provider: string, settings: TaskProviderSettings): Promise<boolean> {
-  // ia_kb add-on: the tenant's own keys were cleared on activation (server/utils/fleetLicense.ts)
-  // and every call for the 3 built-ins now routes through the Fleet Manager's proxy instead
-  // (server/utils/aiProviders.ts) - they're "connected" via the add-on, not a locally-held key,
-  // so this must not fall through to the settings.*_api_key_encrypted checks below, which are
-  // empty on purpose and would otherwise force every task to the Gemini fallback.
-  if ((provider === "gemini" || provider === "openai" || provider === "anthropic") && (await isIaKbActive())) {
-    return true;
-  }
-  if (provider === "gemini") return true;
-  if (provider === "openai") return Boolean(process.env.OPENAI_API_KEY || settings.openai_api_key_encrypted);
-  if (provider === "anthropic") return Boolean(process.env.ANTHROPIC_API_KEY || settings.anthropic_api_key_encrypted);
-  // User-added custom provider (Grok/DeepSeek/Mistral/etc.) - connected if a config row exists
-  // for this tenant with this provider key.
-  return Boolean(await prisma.aiProviderConfig.findFirst({ where: { providerKey: provider } }));
+// F11 (docs/cdc/16-integracao-cmcrm-presales.md, itens 06/10): a IA gerenciada pelo Fleet
+// Manager virou base do produto - os 3 provedores embutidos sempre roteiam por lá agora
+// (isIaKbActive incondicional em server/utils/aiProviders.ts), então "conectado" deixou de
+// depender de chave local. Provedores personalizados morreram junto com o add-on (§8 item 34).
+async function isProviderConnected(provider: string, _settings: TaskProviderSettings): Promise<boolean> {
+  return provider === "gemini" || provider === "openai" || provider === "anthropic";
 }
 
 // Resolves the intended provider/model for a task type against tenant settings, falling back
@@ -147,6 +132,12 @@ export async function recordAiUsage(params: {
   model: string;
   estimatedCostUsd: number;
   backgroundTaskId?: string;
+  // F11 (docs/cdc/16, item 31): opcional de propósito - nem toda chamada nasce dentro de uma
+  // requisição com usuário autenticado (ex: retomada de fila, job agendado). Quando ausente e
+  // houver backgroundTaskId, o chamador deve preferir passar o userId do próprio BackgroundTask
+  // (já carrega quem disparou) em vez de deixar este campo NULL por preguiça - só fica NULL
+  // quando genuinamente não há dono a atribuir.
+  userId?: string | null;
 }): Promise<void> {
   await prisma.aiUsageLog.create({
     data: {
@@ -157,6 +148,7 @@ export async function recordAiUsage(params: {
       model: params.model,
       estimatedCostUsd: params.estimatedCostUsd,
       backgroundTaskId: params.backgroundTaskId,
+      userId: params.userId ?? undefined,
     },
   });
 }
@@ -253,6 +245,74 @@ export async function getCurrentMonthSpendByTaskTypeAndProvider(tenantId: string
     byTypeAndProvider[r.taskType][r.provider] = r._sum.estimatedCostUsd || 0;
   }
   return byTypeAndProvider;
+}
+
+// F11 (docs/cdc/16-integracao-cmcrm-presales.md, item 05): substitui o recorte por provedor no
+// relatório do tenant - a tela de IA perdeu "Modelos e Provedores" (a IA gerenciada é sempre a
+// mesma, pelo Fleet Manager, desde a F11), então "qual provedor atendeu" deixou de ser uma
+// pergunta que o tenant precisa responder. O que continua útil é por SERVIÇO (taskType).
+export async function getCurrentMonthSpendByTaskType(tenantId: string): Promise<Record<string, number>> {
+  const rows = await prisma.aiUsageLog.groupBy({
+    by: ["taskType"],
+    where: { tenantId, createdAt: { gte: startOfCurrentMonth() } },
+    _sum: { estimatedCostUsd: true },
+  });
+  const byType: Record<string, number> = {};
+  for (const r of rows) byType[r.taskType] = r._sum.estimatedCostUsd || 0;
+  return byType;
+}
+
+export interface AiUsageByUserRow {
+  userId: string;
+  userName: string;
+  callCount: number;
+  costUsd: number;
+}
+
+// F11 (item 05): "ganha relatórios" - por usuário, o que a tela nunca teve. Só existe a partir
+// da coluna nova (ver a migration desta fase e recordAiUsage em src/aiOrchestrator.ts); chamadas
+// anteriores a ela não têm dono e NUNCA vão aparecer aqui - ver getAiUsageOwnershipCoverage
+// abaixo para o texto honesto sobre isso, que a tela é obrigada a mostrar junto.
+export async function getCurrentMonthSpendByUser(tenantId: string): Promise<AiUsageByUserRow[]> {
+  const rows = await prisma.aiUsageLog.groupBy({
+    by: ["userId"],
+    where: { tenantId, createdAt: { gte: startOfCurrentMonth() }, userId: { not: null } },
+    _sum: { estimatedCostUsd: true },
+    _count: { _all: true },
+  });
+  if (rows.length === 0) return [];
+  const users = await prisma.user.findMany({
+    where: { id: { in: rows.map((r) => r.userId as string) } },
+    select: { id: true, name: true },
+  });
+  const nameById = new Map(users.map((u) => [u.id, u.name]));
+  return rows
+    .map((r) => ({
+      userId: r.userId as string,
+      userName: nameById.get(r.userId as string) || r.userId as string,
+      callCount: r._count._all,
+      costUsd: r._sum.estimatedCostUsd || 0,
+    }))
+    .sort((a, b) => b.costUsd - a.costUsd);
+}
+
+export interface AiUsageOwnershipCoverage {
+  totalCalls: number;
+  callsWithOwner: number;
+}
+
+// F11 (item 05, §8 item 31 do plano): "79% do consumo de IA do PreSales não tem dono
+// recuperável" - medido no Demo em 28/08/2026 (526 chamadas, 111 com dono via caminho indireto
+// de BackgroundTask, 415 sem dono nenhum). A coluna vale DE FRENTE; esta função conta contra o
+// histórico REAL da instalação (todo o período, não só o mês atual), pra tela nunca mostrar um
+// número congelado de um dia específico - a cobertura sobe com o tempo, à medida que chamadas
+// antigas (sem dono) saem da janela relevante e novas (com dono) se acumulam.
+export async function getAiUsageOwnershipCoverage(tenantId: string): Promise<AiUsageOwnershipCoverage> {
+  const [totalCalls, callsWithOwner] = await Promise.all([
+    prisma.aiUsageLog.count({ where: { tenantId } }),
+    prisma.aiUsageLog.count({ where: { tenantId, userId: { not: null } } }),
+  ]);
+  return { totalCalls, callsWithOwner };
 }
 
 const FALLBACK_ALERT_WINDOW_MS = 60 * 60 * 1000;

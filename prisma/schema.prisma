@@ -1565,9 +1565,17 @@ model AiUsageLog {
   model            String
   estimatedCostUsd Float    @map("estimated_cost_usd")
   backgroundTaskId String?  @map("background_task_id")
+  // F11 (docs/cdc/16-integracao-cmcrm-presales.md, item 31): "79% do consumo de IA do PreSales
+  // não tem dono recuperável" - medido no Demo em 28/08/2026 (526 chamadas, 111 com dono via
+  // caminho indireto de BackgroundTask.userId, 415 sem dono nenhum). Esta coluna vale DE FRENTE:
+  // recordAiUsage() (src/aiOrchestrator.ts) passa a gravá-la em toda chamada nova, e as 526
+  // linhas anteriores à migration ficam com user_id NULL para sempre - a tela de relatórios
+  // precisa dizer isso, não escondê-lo.
+  userId           String?  @map("user_id")
   createdAt        DateTime @default(now()) @map("created_at")
 
   @@index([tenantId, createdAt])
+  @@index([userId])
   @@map("ai_usage_logs")
 }
 

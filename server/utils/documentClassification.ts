@@ -18,7 +18,7 @@ const FALLBACK: DocumentClassification = { document_type: "Other", confidence: 0
 // confidence. Previously hardcoded to always call Gemini directly, bypassing the task->provider
 // orchestrator entirely (2026-07 AI Orchestrator redesign fixed this - now routed through
 // resolveProvider() like the other real task types, admin-configurable same as the rest).
-export async function classifyDocument(filename: string, extractedText: string, tenantId: string): Promise<DocumentClassification> {
+export async function classifyDocument(filename: string, extractedText: string, tenantId: string, userId?: string): Promise<DocumentClassification> {
   try {
     const promptRow = await prisma.promptTemplate.findFirst({ where: { type: "classification", isActive: true } });
     const instructions = promptRow?.content?.trim() || FACTORY_DEFAULT_CLASSIFICATION_PROMPT;
@@ -52,6 +52,7 @@ Respond in Brazilian Portuguese. Respond with ONLY a JSON object matching this s
       provider: resolution.provider,
       model: resolution.model,
       estimatedCostUsd: billedCostUsd ?? estimateCostUsd(resolution.model, inputTokens, outputTokens),
+      userId,
     });
 
     const parsed = JSON.parse(text.trim());

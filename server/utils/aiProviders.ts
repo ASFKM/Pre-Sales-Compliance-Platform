@@ -3,8 +3,6 @@ import Anthropic from "@anthropic-ai/sdk";
 import { Agent, fetch as undiciFetch } from "undici";
 import { dbStore } from "../../src/dbStore";
 import { prisma } from "../../src/prisma";
-import { redis } from "../../src/redis";
-import { getCurrentTenantId } from "../../src/tenantContext";
 import { decryptSecret } from "./security";
 import { getGeminiClient } from "./gemini";
 import { logger } from "./logger";
@@ -15,27 +13,13 @@ import { logger } from "./logger";
 // be added without a code change.
 export type ConnectedProvider = string;
 
-// ia_kb add-on: whether the current tenant's AI calls should route through the Fleet Manager's
-// proxy (server/routes/aiProxy.ts on that side) instead of a locally-held key. Reads the same
-// Redis cache server/utils/fleetLicense.ts populates on every heartbeat, but deliberately WITHOUT
-// verifying the Ed25519 signature that module does - importing fleetLicense.ts here would create
-// a circular import (fleetLicense.ts -> knowledgeBaseReconciliation.ts -> aiProviders.ts already
-// exists). This is safe despite skipping verification: the real enforcement boundary is the Fleet
-// Manager's own requireIaKbEntitlement middleware, which re-checks ModuleEntitlement in its own
-// database on every single proxied call regardless of what this tenant's local cache claims - a
-// tampered/stale local cache can at worst cause a proxy call to be correctly rejected by the
-// Fleet Manager, never an unauthorized one to succeed.
+// F11 (docs/cdc/16-integracao-cmcrm-presales.md, itens 06/10): a IA gerenciada pelo Fleet
+// Manager deixou de ser um add-on por tenant (module_entitlements não tem mais "ia_kb" - ver
+// server/routes/heartbeat.ts do lado do CMSaaS) e virou base do produto. A função fica (em vez
+// de apagada e cada callsite reescrito) para que os pontos abaixo continuem lendo "a IA gerenciada
+// está ativa" sem precisar saber que isso agora é incondicional.
 export async function isIaKbActive(): Promise<boolean> {
-  const tenantId = getCurrentTenantId();
-  if (!tenantId) return false;
-  try {
-    const raw = await redis.get(`fleet:license:${tenantId}`);
-    if (!raw) return false;
-    const cached = JSON.parse(raw);
-    return Array.isArray(cached?.payload?.modules) && cached.payload.modules.includes("ia_kb");
-  } catch {
-    return false;
-  }
+  return true;
 }
 
 async function getFleetManagerProxyConfig(): Promise<{ baseUrl: string; apiKey: string }> {
@@ -102,19 +86,6 @@ async function callFleetManagerAiProxy(
   };
 }
 
-async function getCustomProviderConfig(providerKey: string): Promise<{ baseUrl: string; apiKey: string; supportsVision: boolean; supportsWebSearch: boolean }> {
-  const config = await prisma.aiProviderConfig.findFirst({ where: { providerKey } });
-  if (!config) {
-    throw new Error(`AI provider "${providerKey}" is not configured. Add it in Admin > IA, Prompts e Custos > Provedores Personalizados.`);
-  }
-  return {
-    baseUrl: config.baseUrl,
-    apiKey: decryptSecret(config.apiKeyEncrypted),
-    supportsVision: config.supportsVision,
-    supportsWebSearch: config.supportsWebSearch,
-  };
-}
-
 // OpenAI's file-input content block: images still use the "image_url" shape (unchanged, vision
 // has worked for a while), but PDF needs "type": "file" with a data URI - added to the Chat
 // Completions API in ~March 2026 (see developers.openai.com/api/docs/guides/file-inputs). This was
@@ -157,22 +128,11 @@ async function getConfiguredAnthropicApiKey(): Promise<string> {
 // src/aiOrchestrator.ts to decide whether an intended provider should really be used or the
 // call should fall back to Gemini instead.
 export async function isProviderConnected(provider: string): Promise<boolean> {
-  try {
-    // With the ia_kb add-on active, the tenant's own keys were cleared on activation (see
-    // fleetLicense.ts) and every call for the 3 built-ins routes through the Fleet Manager's
-    // proxy instead - they're "connected" via the add-on, not a locally-held key, so
-    // resolveProvider()'s fallback-to-Gemini logic must not treat Anthropic/OpenAI as
-    // unconfigured just because those fields are now empty on purpose.
-    if ((provider === "gemini" || provider === "openai" || provider === "anthropic") && (await isIaKbActive())) {
-      return true;
-    }
-    if (provider === "gemini") return true; // Gemini's key is required platform-wide already.
-    if (provider === "openai") return Boolean(await getConfiguredOpenAiApiKey().catch(() => null));
-    if (provider === "anthropic") return Boolean(await getConfiguredAnthropicApiKey().catch(() => null));
-    return Boolean(await prisma.aiProviderConfig.findFirst({ where: { providerKey: provider } }));
-  } catch {
-    return false;
-  }
+  // F11 (docs/cdc/16, itens 06/10): os 3 provedores embutidos sempre roteiam pelo Fleet Manager
+  // agora (isIaKbActive incondicional) - "conectado" deixou de depender de chave local. Qualquer
+  // outro valor não é mais suportado: provedores personalizados morreram junto com o add-on
+  // (§8 item 34 do plano).
+  return provider === "gemini" || provider === "openai" || provider === "anthropic";
 }
 
 export interface ProviderJsonResult {
@@ -279,30 +239,9 @@ export async function generateJsonWithProvider(provider: ConnectedProvider, mode
     };
   }
 
-  // User-added custom provider (Grok/xAI, DeepSeek, Mistral AI, Perplexity, or any other
-  // OpenAI-compatible endpoint) - dispatched generically via the `openai` SDK pointed at the
-  // provider's own base URL, since all of them mirror OpenAI's chat completions request/response
-  // shape including JSON mode. This is what makes adding a new provider a config-only action, no
-  // code change. File input is only attempted if the admin declared supportsVision when adding
-  // this provider (most custom providers genuinely don't support it - reusing OpenAI's own
-  // "file"/"image_url" content block shape only for the ones self-declared as OpenAI-compatible
-  // enough to also handle it).
-  const { baseUrl, apiKey, supportsVision } = await getCustomProviderConfig(provider);
-  if (files?.length && !supportsVision) {
-    throw new Error("Este provedor não suporta envio de arquivo/visão. Marque \"Suporta PDF/visão\" ao configurá-lo (se for realmente compatível) ou troque este serviço para Gemini, Anthropic ou OpenAI em Admin > IA, Prompts e Custos.");
-  }
-  const client = new OpenAI({ apiKey, baseURL: baseUrl });
-  const content: any = files?.length ? [{ type: "text", text: prompt }, ...buildOpenAiCompatibleFileBlocks(files)] : prompt;
-  const response = await client.chat.completions.create({
-    model,
-    messages: [{ role: "user", content }],
-    response_format: { type: "json_object" },
-  });
-  return {
-    text: response.choices[0]?.message?.content || "{}",
-    inputTokens: response.usage?.prompt_tokens || 0,
-    outputTokens: response.usage?.completion_tokens || 0,
-  };
+  // F11 (docs/cdc/16, itens 06/10): provedores personalizados morreram junto com o add-on
+  // (§8 item 34 do plano) - a IA gerenciada atende só os 3 embutidos, sempre pelo Fleet Manager.
+  throw new Error(`Provedor de IA "${provider}" não é suportado. A IA gerenciada atende Gemini, OpenAI e Anthropic.`);
 }
 
 // Same provider dispatch as generateJsonWithProvider, but for conversational free-text
@@ -373,21 +312,9 @@ export async function generateTextWithProvider(provider: ConnectedProvider, mode
     };
   }
 
-  const { baseUrl, apiKey, supportsVision } = await getCustomProviderConfig(provider);
-  if (files?.length && !supportsVision) {
-    throw new Error("Este provedor não suporta envio de arquivo/visão. Marque \"Suporta PDF/visão\" ao configurá-lo (se for realmente compatível) ou troque este serviço para Gemini, Anthropic ou OpenAI em Admin > IA, Prompts e Custos.");
-  }
-  const client = new OpenAI({ apiKey, baseURL: baseUrl });
-  const content: any = files?.length ? [{ type: "text", text: prompt }, ...buildOpenAiCompatibleFileBlocks(files)] : prompt;
-  const response = await client.chat.completions.create({
-    model,
-    messages: [{ role: "user", content }],
-  });
-  return {
-    text: response.choices[0]?.message?.content || "",
-    inputTokens: response.usage?.prompt_tokens || 0,
-    outputTokens: response.usage?.completion_tokens || 0,
-  };
+  // F11 (docs/cdc/16, itens 06/10): provedores personalizados morreram junto com o add-on
+  // (§8 item 34 do plano) - a IA gerenciada atende só os 3 embutidos, sempre pelo Fleet Manager.
+  throw new Error(`Provedor de IA "${provider}" não é suportado. A IA gerenciada atende Gemini, OpenAI e Anthropic.`);
 }
 
 // Real web search, not the model's own training-data guess - used for the BOM's part-number
@@ -419,21 +346,10 @@ export async function searchWebWithProvider(provider: ConnectedProvider, model: 
     };
   }
 
-  if (provider !== "anthropic" && provider !== "gemini") {
-    const { baseUrl, apiKey, supportsWebSearch } = await getCustomProviderConfig(provider);
-    if (!supportsWebSearch) {
-      throw new Error("Este provedor não possui ferramenta de busca web. Marque \"Suporta busca web\" ao configurá-lo (se for realmente compatível, ex: Perplexity Sonar) ou troque o serviço 'Pesquisa com Grounding Web' para Gemini, Anthropic ou OpenAI em Admin > IA, Prompts e Custos.");
-    }
-    const client = new OpenAI({ apiKey, baseURL: baseUrl });
-    const response = await client.chat.completions.create({
-      model,
-      messages: [{ role: "user", content: prompt }],
-    });
-    return {
-      text: response.choices[0]?.message?.content || "",
-      inputTokens: response.usage?.prompt_tokens || 0,
-      outputTokens: response.usage?.completion_tokens || 0,
-    };
+  // F11 (docs/cdc/16, itens 06/10): provedores personalizados morreram junto com o add-on
+  // (§8 item 34 do plano) - a IA gerenciada atende só os 3 embutidos, sempre pelo Fleet Manager.
+  if (provider !== "anthropic" && provider !== "gemini" && provider !== "openai") {
+    throw new Error(`Provedor de IA "${provider}" não é suportado. A IA gerenciada atende Gemini, OpenAI e Anthropic.`);
   }
 
   if (provider === "anthropic") {

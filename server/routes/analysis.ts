@@ -579,7 +579,7 @@ ${sectionConfig.shapeHint}`;
 
     if (sectionConfig.needsBomEnrichment) {
       await updateTaskProgress(task.id, { currentStep: "Buscando equipamentos reais para o BOM", progressPct: 85 });
-      validatedSection = await enrichBomWithWebSearch(validatedSection, platformSettings, project.proposal_language, tenantId, project.ai_orientation_text || "");
+      validatedSection = await enrichBomWithWebSearch(validatedSection, platformSettings, project.proposal_language, tenantId, project.ai_orientation_text || "", task.user_id);
       validatedSection = computeConfidenceConsistency(validatedSection);
     }
 
@@ -643,6 +643,7 @@ ${sectionConfig.shapeHint}`;
       model: providerResolution.model,
       estimatedCostUsd: realEstimatedCostUsd,
       backgroundTaskId: task.id,
+      userId: task.user_id,
     });
   } catch (err: any) {
     logger.error({ err, projectId, section }, "Section reanalysis failed");
@@ -1019,7 +1020,7 @@ export function reconcileBomWithExisting(newItems: any[], existingItems: any[]):
   return { items: reconciled, decisions };
 }
 
-async function enrichBomWithWebSearch(bom: any[], platformSettings: any, proposalLanguage: string, tenantId: string, orientationText: string): Promise<any[]> {
+async function enrichBomWithWebSearch(bom: any[], platformSettings: any, proposalLanguage: string, tenantId: string, orientationText: string, userId?: string | null): Promise<any[]> {
   // Only a missing part_number is treated as "needs lookup" here. A part_number already present
   // (e.g. filled from an approved Knowledge Base entry) but missing manufacturer used to also
   // trigger a search - confirmed on a real run that this can find a *different*, unrelated real
@@ -1200,6 +1201,7 @@ Respond with ONLY a JSON array (no markdown, no extra text), one object per item
             provider: providerResolution.provider,
             model: providerResolution.model,
             estimatedCostUsd: billedCostUsd ?? estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
+            userId,
           });
           // The model prefaces the JSON with explanatory prose that can itself contain stray
           // "[...]" (e.g. citing "[16:9]" resolution), and a web-search-grounded model (gpt-5-search-api)
@@ -1739,7 +1741,7 @@ Write all generated content fields strictly in ${project.proposal_language}. Mai
     // specify - a real web search (see enrichBomWithWebSearch), not the model guessing. Failure
     // here never fails the analysis - see that function's own error handling.
     await updateTaskProgress(task.id, { currentStep: "Buscando equipamentos reais para o BOM", progressPct: 88 });
-    const enrichedBom = computeConfidenceConsistency(await enrichBomWithWebSearch(validatedJson.bom, platformSettings, project.proposal_language, tenantId, project.ai_orientation_text || ""));
+    const enrichedBom = computeConfidenceConsistency(await enrichBomWithWebSearch(validatedJson.bom, platformSettings, project.proposal_language, tenantId, project.ai_orientation_text || "", task.user_id));
 
     // Save final Analysis Result
     const analysisResult: AnalysisResult = {
@@ -1800,6 +1802,7 @@ Write all generated content fields strictly in ${project.proposal_language}. Mai
       model: providerResolution.model,
       estimatedCostUsd: realEstimatedCostUsd,
       backgroundTaskId: task.id,
+      userId: task.user_id,
     });
 
   } catch (err: any) {
@@ -1966,6 +1969,7 @@ instead of inventing information.`;
       provider: providerResolution.provider,
       model: providerResolution.model,
       estimatedCostUsd: billedCostUsd ?? estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
+      userId,
     });
 
     res.json({ success: true, answer: answer || "Nenhuma resposta gerada.", provider: providerResolution.provider });
