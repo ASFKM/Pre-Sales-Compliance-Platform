@@ -100,7 +100,10 @@ interface WorkspaceProps {
   fetchGlobalConfigs: () => Promise<void> | void;
   fetchProjectDetails: (projectId: string) => Promise<void> | void;
   setActiveTab: (tab: "home" | "workspace" | "projectsList" | "proposals" | "approval" | "knowledgeBase" | "admin") => void;
-  setActiveAdminSection: Dispatch<SetStateAction<"overview" | "users" | "ai" | "templates" | "approval_flow" | "subscription" | "system_updates" | "branding" | "integrations" | "storage" | "audit">>;
+  // CDC 16 F9: "demands" entrou na lista. A união é escrita à mão nos dois
+  // lados, e o compilador só reclama porque ela é repetida - lista duplicada
+  // que diverge é padrão já pago nesta casa.
+  setActiveAdminSection: Dispatch<SetStateAction<"overview" | "users" | "ai" | "templates" | "approval_flow" | "demands" | "subscription" | "system_updates" | "branding" | "integrations" | "storage" | "audit">>;
   canAccessAdminSection: (section: string) => boolean;
   handleDeleteDocument: (id: string) => void;
   getDocTag: (filename: string) => { label: string; style: string };

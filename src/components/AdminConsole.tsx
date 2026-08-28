@@ -15,6 +15,11 @@ import {
 } from "../types";
 import { useAdminConsole } from "../hooks/useAdminConsole";
 import ApiClient from "../lib/api";
+// CDC 16 F9: as duas vistas que moravam dentro da tela de Demandas. Vieram para
+// cá inteiras, sem reescrita — o dono pediu que a configuração do módulo ficasse
+// na Administração, e não que ela mudasse de forma.
+import DemandSlaPanel from "./DemandSlaPanel";
+import DemandPurgePanel from "./DemandPurgePanel";
 /**
  * A pre-visualizacao da identidade visual e o unico lugar da interface pintado pelas DUAS cores do
  * tenant ao mesmo tempo, num gradiente primary -> accent. Texto branco sobre um gradiente que
@@ -273,6 +278,9 @@ const MODULE_PERMISSION_MAP: Record<string, string[]> = {
 
 type AdminSection =
   | "overview" | "users" | "ai" | "templates" | "approval_flow"
+  // CDC 16 F9: a décima segunda seção. "Na administracao, um submenu Demandas
+  // para configurar tudo do modulo demandas" — decisão do dono na F8.
+  | "demands"
   | "subscription" | "system_updates" | "branding" | "integrations" | "storage" | "audit";
 
 interface AdminConsoleProps {
@@ -331,6 +339,12 @@ export default function AdminConsole({
   // has no way to "activate" itself, plan/status/contract term are only ever set on the Fleet
   // Manager side.
   const [fleetLicenseStatus, setFleetLicenseStatus] = useState<FleetLicenseStatus | null>(null);
+
+  // CDC 16 F9: qual das duas metades da seção Demandas está aberta. Duas vistas
+  // e não duas seções porque são a mesma pergunta administrativa sobre o mesmo
+  // módulo — e porque a barra lateral já tem onze itens, que foi justamente o
+  // problema que tirou a aba do topo.
+  const [vistaDemandas, setVistaDemandas] = useState<"prazos" | "expurgos">("prazos");
 
   // Sistema de Atualização de Produção: state/history from server/routes/systemUpdates.ts -
   // fetched once on mount like fleetLicenseStatus just above, not gated on activeAdminSection
@@ -858,6 +872,7 @@ export default function AdminConsole({
                     ["ai", locale === "pt" ? "IA, Prompts e Custos" : "AI, Prompts & Costs", locale === "pt" ? "Modelos, chaves e consumo" : "Models, keys and usage"],
                     ["templates", locale === "pt" ? "Templates de Propostas" : "Proposal Templates", locale === "pt" ? "Upload, preview e versionamento" : "Upload, preview and versioning"],
                     ["approval_flow", locale === "pt" ? "Fluxo de Aprovação" : "Approval Workflow", locale === "pt" ? "Etapas, responsáveis e regras" : "Stages, owners and rules"],
+                    ["demands", "Demandas", locale === "pt" ? "Prazos, desempenho e expurgos" : "Deadlines, performance and purges"],
                     ["subscription", locale === "pt" ? "Subscrição e Licença" : "Subscription & License", locale === "pt" ? "Plano, chave e limites" : "Plan, key and limits"],
                     ["system_updates", locale === "pt" ? "Atualizações do Sistema" : "System Updates", locale === "pt" ? "Versão, agendamento e histórico" : "Version, scheduling and history"],
                     ["branding", locale === "pt" ? "Identidade Visual" : "Branding", locale === "pt" ? "Logo, cores e aparência" : "Logo, colors and appearance"],
@@ -894,6 +909,7 @@ export default function AdminConsole({
                       {activeAdminSection === "templates" && canAccessAdminSection("templates") && (locale === "pt" ? "Templates de Propostas" : "Proposal Templates")}
 
                 {activeAdminSection === "approval_flow" && canAccessAdminSection("approval_flow") && (locale === "pt" ? "Fluxo de Aprovação de Propostas" : "Proposal Approval Workflow")}
+                      {activeAdminSection === "demands" && canAccessAdminSection("demands") && (locale === "pt" ? "Demandas: prazos, desempenho e expurgos" : "Demands: deadlines, performance and purges")}
                       {activeAdminSection === "subscription" && canAccessAdminSection("subscription") && (locale === "pt" ? "Subscrição e Licença" : "Subscription & License")}
                       {activeAdminSection === "system_updates" && canAccessAdminSection("system_updates") && (locale === "pt" ? "Atualizações do Sistema" : "System Updates")}
                       {activeAdminSection === "branding" && canAccessAdminSection("branding") && (locale === "pt" ? "Personalização e Identidade Visual" : "Branding & Visual Identity")}
@@ -3273,6 +3289,57 @@ export default function AdminConsole({
                         ))
                       )}
                     </div>
+                  </div>
+                )}
+
+                {/* CDC 16 F9 — a seção Demandas. As duas vistas que saíram da tela
+                    da fila entram aqui exatamente como eram: `DemandSlaPanel` é a
+                    configuração de prazo da instalação (D19, que já é do
+                    administrador) mais a medição ao lado dela, e
+                    `DemandPurgePanel` é o registro do que o CRM mandou apagar
+                    (D35), que é prova de conformidade e não tem rota que apague.
+
+                    O que MUDA de fato é quem alcança a MEDIÇÃO: até a F8 qualquer
+                    um com `demand:read` via o tempo de resposta de todo mundo.
+                    A régua nova vive na ROTA (`GET /api/demands/performance`), e
+                    não neste `if` — uma tela que esconde o que a API entrega não
+                    é recorte, é maquiagem. */}
+                {activeAdminSection === "demands" && canAccessAdminSection("demands") && (
+                  <div className="w-full space-y-5">
+                    <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+                      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                        <div>
+                          <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
+                            {locale === "pt" ? "Módulo de Demandas" : "Demands Module"}
+                          </h3>
+                          <p className="text-xs text-slate-500 mt-1">
+                            {locale === "pt"
+                              ? "Prazo por etapa, política de atribuição, alertas, tempo de resposta e o registro dos expurgos pedidos pelo CRM. A fila de trabalho em si continua fora daqui, com a equipe."
+                              : "Per-stage deadlines, assignment policy, alerts, response time and the log of purges requested by the CRM. The working queue itself stays outside, with the team."}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1 shrink-0">
+                          {([["prazos", locale === "pt" ? "Prazos e desempenho" : "Deadlines & performance"], ["expurgos", locale === "pt" ? "Expurgos" : "Purges"]] as const).map(([chave, rotulo]) => (
+                            <button
+                              key={chave}
+                              onClick={() => setVistaDemandas(chave)}
+                              data-testid={`admin-demandas-${chave}`}
+                              className={`text-[11px] px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer ${
+                                vistaDemandas === chave ? "bg-white text-brand-700 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                              }`}
+                            >
+                              {rotulo}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {vistaDemandas === "prazos" ? (
+                      <DemandSlaPanel hasPermission={hasPermission} />
+                    ) : (
+                      <DemandPurgePanel />
+                    )}
                   </div>
                 )}
 

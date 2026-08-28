@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowRightLeft, Ban, Check, Clock, FileText, Inbox, RefreshCw, Send, TrendingDown, Undo2, UserPlus, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowRightLeft, ArrowUp, Ban, Check, Clock, FileText, Inbox, RefreshCw, Send, TrendingDown, Undo2, UserPlus, X } from "lucide-react";
 import ApiClient from "../lib/api";
-import DemandSlaPanel from "./DemandSlaPanel";
-import DemandPurgePanel from "./DemandPurgePanel";
-import { Demand, DemandSlaSettings } from "../types";
+import { Demand, DemandPage, DemandSlaSettings } from "../types";
 
 // CDC 16 — Fase 1. A fila de pré-vendas, do lado de quem trabalha nela.
 //
@@ -14,8 +12,18 @@ import { Demand, DemandSlaSettings } from "../types";
 //
 // CDC 16 — Fase 5 acrescentou: a coluna de PRAZO do SLA ao lado da do edital
 // (são dois prazos diferentes e a tela não pode confundi-los), o
-// direcionamento pelo gerente (D16), a aprovação da devolução (D17) e a segunda
-// vista, "Prazos e desempenho", em `DemandSlaPanel`.
+// direcionamento pelo gerente (D16) e a aprovação da devolução (D17).
+//
+// CDC 16 — Fase 9 tirou daqui as duas OUTRAS vistas. "Prazos e desempenho" e
+// "Expurgos" mudaram para a seção Demandas da Administração, por decisão do
+// dono na F8 ("na administracao, um submenu Demandas para configurar tudo do
+// modulo demandas"). Esta tela voltou a ser o que o nome dela diz: a fila.
+//
+// A F9 também trocou o contrato de `GET /api/demands`, que passou a devolver
+// envelope com total, ordem e recorte. O que esta tela usa dele agora é a
+// ORDEM por coluna e o FILTRO por vertical; a paginação de cinco em cinco é a
+// F10, que constrói os dois cards da Início. Enquanto ela não chega, esta tela
+// pede a página inteira de propósito — `LIMITE_DA_TELA` abaixo explica por quê.
 
 const STATUS_LABEL: Record<string, string> = {
   queued: "Na fila",
@@ -95,8 +103,25 @@ interface DemandQueueProps {
   onQueueChanged?: () => void;
 }
 
+// A fila inteira de uma vez, e não cinco. Os avisos desta tela — devolução
+// aguardando o gerente, atualização pendente, cancelamento aprovado — são
+// contados sobre as linhas CARREGADAS: com uma página de cinco eles passariam a
+// contar cinco, e um aviso que subconta é pior do que aviso nenhum, porque
+// parece resolvido. A F10 resolve isso do jeito certo, com os contadores vindo
+// do total do recorte; até lá, esta tela carrega tudo, como sempre carregou.
+const LIMITE_DA_TELA = 200;
+
+const COLUNAS_ORDENAVEIS: Record<string, string> = {
+  title: "Demanda",
+  company: "Cliente",
+  vertical: "Vertical",
+  value: "Valor",
+  deadline: "Prazo do edital",
+  sla_due: "Prazo do SLA",
+  status: "Situação",
+};
+
 export default function DemandQueue({ hasPermission, currentUserId, onDemandAssumed, onQueueChanged }: DemandQueueProps) {
-  const [vista, setVista] = useState<"fila" | "prazos" | "expurgos">("fila");
   const [config, setConfig] = useState<DemandSlaSettings | null>(null);
   const [equipe, setEquipe] = useState<Array<{ id: string; name: string }>>([]);
   const [direcionando, setDirecionando] = useState<Demand | null>(null);
@@ -104,6 +129,12 @@ export default function DemandQueue({ hasPermission, currentUserId, onDemandAssu
   const [recusando, setRecusando] = useState<Demand | null>(null);
   const [motivoRecusa, setMotivoRecusa] = useState("");
   const [filtro, setFiltro] = useState(FILTROS[0].chave);
+  // F9: a ordem e o recorte por coluna (resposta D do dono: ordenar E filtrar).
+  const [ordem, setOrdem] = useState("deadline");
+  const [direcao, setDirecao] = useState<"asc" | "desc">("asc");
+  const [vertical, setVertical] = useState("");
+  const [verticaisDisponiveis, setVerticaisDisponiveis] = useState<Array<{ vertical: string; count: number }>>([]);
+  const [total, setTotal] = useState(0);
   const [demandas, setDemandas] = useState<Demand[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
@@ -124,23 +155,52 @@ export default function DemandQueue({ hasPermission, currentUserId, onDemandAssu
   // fica no cabeçalho da tela em vez de num 403 mudo.
   const filaDirecionada = config?.assignment_policy === "direcionamento";
   const podeAssumirAgora = podeAssumir && (!filaDirecionada || souGerente);
+  // F9: quem alcança a seção Demandas da Administração — a mesma régua que
+  // `adminSectionPermissions.demands` aplica em App.tsx. Só serve para decidir
+  // se vale a pena dizer PARA ONDE as duas vistas foram: apontar um caminho que
+  // a pessoa não pode abrir é pior do que não apontar nenhum.
+  const podeAlcancarAdministracao = hasPermission("admin:settings") || hasPermission("demand:manage");
+
+  // Clicar no título da coluna: primeira vez ordena crescente, segunda inverte.
+  // Trocar de coluna volta para crescente em vez de herdar a direção anterior —
+  // herdar faria um clique em "Valor" depois de um "Prazo ↓" abrir a fila pelo
+  // menor valor sem que ninguém tivesse pedido isso.
+  const trocarOrdem = (chave: string) => {
+    if (ordem === chave) setDirecao((d) => (d === "asc" ? "desc" : "asc"));
+    else {
+      setOrdem(chave);
+      setDirecao("asc");
+    }
+  };
 
   const carregar = useCallback(async () => {
     setCarregando(true);
     setErro("");
     try {
-      const [lista, cfg] = await Promise.all([
-        ApiClient.get<Demand[]>(`/api/demands?status=${encodeURIComponent(filtro)}`),
+      const busca = new URLSearchParams({
+        status: filtro,
+        sort: ordem,
+        dir: direcao,
+        limit: String(LIMITE_DA_TELA),
+      });
+      if (vertical) busca.set("vertical", vertical);
+      const [pagina, cfg] = await Promise.all([
+        ApiClient.get<DemandPage>(`/api/demands?${busca.toString()}`),
         ApiClient.get<DemandSlaSettings>("/api/demands/sla-settings"),
       ]);
-      setDemandas(Array.isArray(lista) ? lista : []);
+      setDemandas(Array.isArray(pagina?.items) ? pagina.items : []);
+      setTotal(pagina?.total ?? 0);
+      // As opções do filtro vêm do SERVIDOR, e não das linhas desta página: uma
+      // lista montada com o que está na tela encolheria a cada filtro aplicado,
+      // e a pessoa não teria como voltar para a vertical que acabou de sair.
+      setVerticaisDisponiveis(Array.isArray(pagina?.verticals) ? pagina.verticals : []);
       setConfig(cfg);
     } catch (e: any) {
       setErro(e.message || "Não foi possível carregar a fila.");
     } finally {
       setCarregando(false);
     }
-  }, [filtro]);
+  }, [filtro, ordem, direcao, vertical]);
 
   useEffect(() => {
     void carregar();
@@ -344,56 +404,28 @@ export default function DemandQueue({ hasPermission, currentUserId, onDemandAssu
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">
-            {vista === "fila"
-              ? `Fila de Pré-vendas (${demandas.length})`
-              : vista === "prazos"
-                ? "Prazos e desempenho"
-                : "Expurgos em cascata"}
+            Fila de Pré-vendas ({total})
           </h2>
           <p className="text-[11px] text-slate-500 mt-0.5">
-            {vista === "fila" ? (
-              <>
-                Pedidos enviados pelo CRM. {naFila > 0 ? `${naFila} aguardando alguém assumir.` : "Nada aguardando na fila."}
-                {filaDirecionada && " As demandas desta instalação são direcionadas pelo gerente de pré-vendas."}
-                {config?.assignment_policy === "automatico" && " Novas demandas são distribuídas automaticamente por menor carga."}
-              </>
-            ) : vista === "prazos" ? (
-              "Prazo por etapa, alertas de prazo vencido e tempo de resposta."
-            ) : (
-              "O que o CRM mandou apagar daqui, e o que de fato saiu."
-            )}
+            Pedidos enviados pelo CRM. {naFila > 0 ? `${naFila} aguardando alguém assumir.` : "Nada aguardando na fila."}
+            {filaDirecionada && " As demandas desta instalação são direcionadas pelo gerente de pré-vendas."}
+            {config?.assignment_policy === "automatico" && " Novas demandas são distribuídas automaticamente por menor carga."}
           </p>
-        </div>
-        <div className="flex items-center flex-wrap gap-2">
-          <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
-            {(
-              [
-                ["fila", "Fila"],
-                ["prazos", "Prazos e desempenho"],
-                ["expurgos", "Expurgos"],
-              ] as const
-            ).map(([chave, rotulo]) => (
-              <button
-                key={chave}
-                onClick={() => setVista(chave)}
-                data-testid={`demand-vista-${chave}`}
-                className={`text-[11px] px-2.5 py-1 rounded-md font-semibold transition-all cursor-pointer ${
-                  vista === chave ? "bg-white text-brand-700 shadow-sm" : "text-slate-500 hover:text-slate-700"
-                }`}
-              >
-                {rotulo}
-              </button>
-            ))}
-          </div>
+          {/* A configuração de prazo e o registro de expurgo saíram desta tela na
+              F9 e estão na Administração. Dizer para ONDE foram é o que separa
+              "mudou de lugar" de "sumiu" — sem esta linha, quem usava as duas
+              vistas todo dia abriria um chamado. */}
+          {podeAlcancarAdministracao && (
+            <p className="text-[11px] text-slate-400 mt-1">
+              {/* "Configurações", e não "Administração": é o rótulo que a aba de fato
+                  tem no topo (`adminConsole` em App.tsx). Apontar para um menu com
+                  outro nome é o mesmo que não apontar — a pessoa procura o que não
+                  existe. Encontrado pela captura, que não achou o botão. */}
+              Prazos, desempenho e expurgos agora ficam em <span className="font-semibold text-slate-500">Configurações › Demandas</span>.
+            </p>
+          )}
         </div>
       </div>
-
-      {vista === "prazos" ? (
-        <DemandSlaPanel hasPermission={hasPermission} onChanged={() => void carregar()} />
-      ) : vista === "expurgos" ? (
-        <DemandPurgePanel onChanged={() => void carregar()} />
-      ) : (
-      <>
       {(minhasComAtualizacao > 0 || minhasComCancelamento > 0) && (
         <div
           className="bg-brand-50 border border-brand-200 text-brand-800 text-xs rounded-lg p-3 flex items-start gap-2"
@@ -465,13 +497,38 @@ export default function DemandQueue({ hasPermission, currentUserId, onDemandAssu
         <table className="w-full min-w-[820px] text-left text-xs border-collapse">
           <thead className="bg-slate-100 border-b border-slate-200 font-mono text-[10px] uppercase text-slate-500">
             <tr>
-              <th className="p-3">Demanda</th>
-              <th className="p-3">Cliente</th>
-              <th className="p-3">Vertical</th>
-              <th className="p-3 text-right">Valor</th>
-              <th className="p-3">Prazo do edital</th>
-              <th className="p-3">Prazo do SLA</th>
-              <th className="p-3">Situação</th>
+              {(["title", "company", "vertical", "value", "deadline", "sla_due", "status"] as const).map((chave) => (
+                <th key={chave} className={`p-3 ${chave === "value" ? "text-right" : ""}`}>
+                  <button
+                    type="button"
+                    onClick={() => trocarOrdem(chave)}
+                    data-testid={`ordenar-${chave}`}
+                    aria-label={`Ordenar por ${COLUNAS_ORDENAVEIS[chave]}`}
+                    className={`inline-flex items-center gap-1 uppercase cursor-pointer transition-colors hover:text-slate-700 ${
+                      ordem === chave ? "text-brand-700 font-bold" : ""
+                    } ${chave === "value" ? "justify-end w-full" : ""}`}
+                  >
+                    {COLUNAS_ORDENAVEIS[chave]}
+                    {ordem === chave && (direcao === "asc" ? <ArrowUp size={10} /> : <ArrowDown size={10} />)}
+                  </button>
+                  {chave === "vertical" && verticaisDisponiveis.length > 0 && (
+                    <select
+                      value={vertical}
+                      onChange={(e) => setVertical(e.target.value)}
+                      data-testid="filtro-vertical"
+                      aria-label="Filtrar por vertical"
+                      className="mt-1 block w-full max-w-[150px] border border-slate-200 rounded px-1 py-0.5 text-[10px] font-sans normal-case text-slate-600 bg-white cursor-pointer"
+                    >
+                      <option value="">Todas</option>
+                      {verticaisDisponiveis.map((v) => (
+                        <option key={v.vertical} value={v.vertical}>
+                          {v.vertical} ({v.count})
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </th>
+              ))}
               <th className="p-3 text-right">Ações</th>
             </tr>
           </thead>
@@ -604,6 +661,16 @@ export default function DemandQueue({ hasPermission, currentUserId, onDemandAssu
           </tbody>
         </table>
       </div>
+
+      {/* O teto desta tela é 200 (`LIMITE_DA_TELA`). Passar disso não é hipótese
+          remota numa instalação antiga, e uma lista que corta em silêncio é o
+          pior dos mundos: a pessoa acha que viu tudo. O aviso existe até a F10
+          trazer a paginação de verdade. */}
+      {total > demandas.length && (
+        <div className="text-[11px] text-warning-700 bg-warning-50 border border-warning-200 rounded-lg p-2.5">
+          Mostrando {demandas.length} de {total} demandas deste recorte. Use os filtros para estreitar a busca.
+        </div>
+      )}
 
       {aberta && (
         <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4" onClick={() => setAberta(null)}>
@@ -858,7 +925,13 @@ export default function DemandQueue({ hasPermission, currentUserId, onDemandAssu
             </div>
 
             <div className="flex items-center justify-end gap-2 p-4 border-t border-slate-200 sticky bottom-0 bg-white">
-              {aberta.status === "queued" && podeAssumir && (
+              {/* F9, resposta I do dono: `podeAssumirAgora`, e não `podeAssumir`.
+                  A LINHA da tabela já escondia o botão numa fila direcionada
+                  (D16) e a GAVETA não — ela usava a permissão sem o recorte da
+                  política, então quem não é gerente via aqui um botão que a rota
+                  recusaria com 403. Os dois passam a obedecer a mesma régua, que
+                  é a que a lista já tinha. */}
+              {aberta.status === "queued" && podeAssumirAgora && (
                 <button
                   onClick={() => void assumir(aberta)}
                   disabled={emAcao}
@@ -1140,8 +1213,6 @@ export default function DemandQueue({ hasPermission, currentUserId, onDemandAssu
             </div>
           </div>
         </div>
-      )}
-      </>
       )}
     </div>
   );
