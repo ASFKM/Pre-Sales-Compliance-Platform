@@ -238,6 +238,45 @@ router.get("/", requirePermission("demand:read"), async (req: Request, res: Resp
     // uma próxima, e "5 por vez e pagina as antigas" vira botão que não desliga.
     const total = await prisma.demand.count({ where });
 
+    // F10 — OS CONTADORES DOS AVISOS, do RECORTE e não da página.
+    //
+    // Até a F9 a tela contava os avisos sobre as linhas que tinha carregado, e
+    // por isso pedia a fila inteira (`limit=200`): com uma página de cinco, um
+    // aviso que diz "3 demandas suas com atualização" passaria a dizer "1", e
+    // aviso que subconta é pior do que aviso nenhum, porque parece resolvido.
+    // A F9 registrou isso como dívida desta fase, com o conserto já nomeado:
+    // os contadores vêm do total do recorte. São três `count` sobre o MESMO
+    // `where` da listagem — mudar o filtro muda o aviso junto, que é o que
+    // torna o número dele verdadeiro.
+    //
+    // Dois são recortados por QUEM PERGUNTA, e não por engano: atualização
+    // pendente e cancelamento aberto são trabalho de quem assumiu. Um contador
+    // global faria cada pessoa ver a pendência de todo mundo, que é o oposto de
+    // um aviso acionável. O terceiro — devolução esperando decisão — é do
+    // gerente, e por isso é do recorte inteiro.
+    //
+    // `AND`, e NÃO espalhar o `where` com a condição por cima. O recorte da
+    // listagem pode já fixar `assignedUserId` — o card "Novas demandas" pede
+    // `assigned_user_id=none`, que vira `assignedUserId: null` —, e sobrescrever
+    // aquela chave por `usuarioAtual` produziria um contador que NÃO pertence ao
+    // recorte que a tela está mostrando: um aviso sobre demandas que aquela
+    // lista não tem. Com `AND`, "sem dono E minha" é zero, que é a resposta
+    // certa e a única coerente com o número ao lado.
+    const eDoRecorte = (extra: any) => ({ AND: [where, extra] });
+    const [devolucoesPendentes, minhasComAtualizacao, minhasComCancelamento] = await Promise.all([
+      prisma.demand.count({ where: eDoRecorte({ returnRequestedAt: { not: null }, returnDecidedAt: null }) }),
+      prisma.demand.count({
+        where: eDoRecorte({ assignedUserId: usuarioAtual, updates: { some: { status: "pending" } } }),
+      }),
+      prisma.demand.count({
+        where: eDoRecorte({
+          assignedUserId: usuarioAtual,
+          cancellationRequestedAt: { not: null },
+          cancellationClosedAt: null,
+        }),
+      }),
+    ]);
+
     // As verticais do recorte ATUAL (menos o próprio filtro de vertical, senão
     // o controle de coluna se estreitaria a cada clique e a pessoa não teria
     // como voltar). É o que um filtro por coluna precisa para oferecer opções
@@ -292,6 +331,11 @@ router.get("/", requirePermission("demand:read"), async (req: Request, res: Resp
       sort: ordem,
       dir,
       verticals: verticaisDoRecorte,
+      counts: {
+        return_pending: devolucoesPendentes,
+        my_pending_updates: minhasComAtualizacao,
+        my_cancellations: minhasComCancelamento,
+      },
     });
   } catch (err) {
     next(err);

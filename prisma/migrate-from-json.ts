@@ -310,28 +310,11 @@ async function main() {
     });
   }
 
-  console.log("Migrating tasks...");
-  for (const t of raw.tasks || []) {
-    await prisma.task.upsert({
-      where: { id: t.id },
-      create: {
-        id: t.id,
-        tenantId: DEFAULT_TENANT_ID,
-        projectId: t.project_id,
-        title: t.title,
-        description: t.description,
-        ownerUserId: t.owner_user_id,
-        dueDate: dReq(t.due_date),
-        status: t.status,
-        priority: t.priority,
-        relatedAnalysisItem: t.related_analysis_item || null,
-        createdBy: t.created_by,
-        createdAt: dReq(t.created_at),
-        updatedAt: dReq(t.updated_at),
-      },
-      update: {},
-    });
-  }
+  // CDC 16 F10: as tarefas pessoais da Início deixaram de existir (resposta C
+  // do dono), e com elas a tabela `tasks`. Um `raw.tasks` que ainda venha num
+  // JSON antigo é IGNORADO de propósito, sem erro: este importador existe para
+  // trazer instalações velhas, e recusar o arquivo inteiro por causa de uma
+  // seção aposentada travaria a migração de tudo o mais que ele carrega.
 
   console.log("Migrating prompt templates...");
   for (const pt of raw.promptTemplates || []) {

@@ -1,56 +1,64 @@
 import React, { useEffect, useState } from "react";
-import { Activity, CircleCheck, ChevronRight, FileText, Inbox, ListTodo, Plus, Trash2, Beaker } from "lucide-react";
-import { DemandQueueSummary, Project, Poc } from "../types";
+import { Activity, CircleCheck, FileText, Beaker } from "lucide-react";
+import { Project, Poc } from "../types";
+import HomeDemandCards from "./HomeDemandCards";
+import { DemandPerformanceChart, VerticalPieChart } from "./HomePerformanceChart";
+
+// CDC 16 — Fase 10. A Início vira painel.
+//
+// Três cortes e três chegadas, todos decididos pelo dono na F8 e medidos antes
+// de executar:
+//
+// SAIU o card "Tarefas Pendentes do Usuário" (resposta C), e saiu INTEIRO — o
+// card, a rota `/api/user-tasks` e a tabela `tasks`. O pedido original dizia
+// que ele "não estava ligado a nada", e a medição da F8 mostrou o contrário:
+// tinha rota, tabela e havia substituído um `localStorage`. O dono decidiu
+// removê-lo sabendo disso, e o que tornou a decisão barata foi o outro número,
+// medido no Demo em 28/08/2026: zero tarefas gravadas, zero donos, zero ligadas
+// a projeto. Remover pela metade — o card sem a rota — deixaria uma porta viva
+// sem tela, que é a armadilha que esta casa já pagou como "corrigir tirando,
+// sem repor" com o sinal trocado.
+//
+// SAIU a lista de "Propostas e Editais Ativos": ela REPETIA a aba Projetos,
+// linha por linha e coluna por coluna. Um painel que repete a tela seguinte não
+// informa, só ocupa a dobra.
+//
+// SAIU o gráfico de barras por setor, e no lugar dele entrou a PIZZA (item 04
+// do feedback). `recharts` já estava no produto.
+//
+// CHEGARAM os dois cards da fila de pré-vendas (resposta E), substituindo a
+// ponte provisória que a F9 deixou marcada como tal; e o gráfico de desempenho,
+// que é onde o pré-vendas vê o dele — a rota já sabia recortar desde a F9.
 
 interface HomeProps {
   locale: "en" | "pt";
-  tx: (en: string, pt: string) => string;
   projects: Project[];
-  setSelectedProjectId: (id: string) => void;
+  // `setActiveTab` sobreviveu ao corte da lista de editais porque os dois cards
+  // ainda levam à fila completa; `tx`, `setSelectedProjectId` e
+  // `setShowNewProjectModal` saíram com a lista que os usava.
   setActiveTab: (tab: "home" | "workspace" | "projectsList" | "proposals" | "approval" | "knowledgeBase" | "admin" | "demandQueue") => void;
-  setShowNewProjectModal: (show: boolean) => void;
-  // CDC 16 F9: a fila de pré-vendas perdeu a aba do topo e ainda não ganhou os
-  // dois cards da Início, que são a F10. Estas duas propriedades sustentam a
-  // PONTE entre uma coisa e outra - ver o bloco marcado como provisório no
-  // corpo do componente.
+  // CDC 16 F10: a régua de exibição dos dois cards é a MESMA que a aba tinha
+  // até a F9 e que a ponte herdou, D06 inclusive — revogar o par CONGELA o que
+  // já chegou em vez de apagá-lo da tela. Quem a monta é App.tsx.
   demandQueueVisible?: boolean;
-  demandSummary?: DemandQueueSummary | null;
+  hasPermission?: (permission: string) => boolean;
+  currentUserId?: string;
+  onDemandAssumed?: (projectId: string) => void;
+  onQueueChanged?: () => void;
   // Fase N (add-on): Home has no other reason to know about the POC module - this single flag
   // gates both the fetch below and the KPI card, mirroring how every other POC-gated UI element
   // in the app is conditioned on hasModule("poc") + the read/manage permission.
   pocModuleEnabled?: boolean;
 }
 
-interface UserTask {
-  id: string;
-  title: string;
-  status: "open" | "in_progress" | "waiting_customer" | "waiting_internal" | "completed" | "canceled";
-  due_date: string;
-}
-
 export default function Home({
-  locale, tx, projects, setSelectedProjectId, setActiveTab, setShowNewProjectModal, pocModuleEnabled,
-  demandQueueVisible, demandSummary,
+  locale, projects, setActiveTab, pocModuleEnabled,
+  demandQueueVisible, hasPermission, currentUserId, onDemandAssumed, onQueueChanged,
 }: HomeProps) {
-  const [tasks, setTasks] = useState<UserTask[]>([]);
-  const [newTaskText, setNewTaskText] = useState("");
   const [compliancePct, setCompliancePct] = useState<number | null>(null);
   const [pocs, setPocs] = useState<Poc[]>([]);
 
-  const fetchTasks = async () => {
-    try {
-      const res = await fetch("/api/user-tasks");
-      if (!res.ok) return;
-      const data = await res.json();
-      setTasks(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
   useEffect(() => {
-    fetchTasks();
-
     fetch("/api/dashboard/compliance-summary")
       .then((res) => res.json())
       .then((data) => setCompliancePct(data.has_data ? data.compliance_pct : null))
@@ -65,220 +73,21 @@ export default function Home({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pocModuleEnabled]);
 
-  const handleAddTask = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTaskText.trim()) return;
-
-    try {
-      const res = await fetch("/api/user-tasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: newTaskText.trim(),
-          due_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        alert(err.message || (locale === "pt" ? "Não foi possível adicionar a tarefa." : "Could not add the task."));
-        return;
-      }
-      setNewTaskText("");
-      await fetchTasks();
-    } catch (err) {
-      console.error(err);
-      alert(locale === "pt" ? "Erro ao adicionar tarefa." : "Error adding task.");
-    }
-  };
-
-  const handleToggleTask = async (task: UserTask) => {
-    const nextStatus = task.status === "completed" ? "open" : "completed";
-    try {
-      const res = await fetch(`/api/user-tasks/${task.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: nextStatus }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        alert(err.message || (locale === "pt" ? "Não foi possível atualizar a tarefa." : "Could not update the task."));
-        return;
-      }
-      await fetchTasks();
-    } catch (err) {
-      console.error(err);
-      alert(locale === "pt" ? "Erro ao atualizar tarefa." : "Error updating task.");
-    }
-  };
-
-  const handleDeleteTask = async (id: string) => {
-    try {
-      const res = await fetch(`/api/user-tasks/${id}`, { method: "DELETE" });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        alert(err.message || (locale === "pt" ? "Não foi possível excluir a tarefa." : "Could not delete the task."));
-        return;
-      }
-      await fetchTasks();
-    } catch (err) {
-      console.error(err);
-      alert(locale === "pt" ? "Erro ao excluir tarefa." : "Error deleting task.");
-    }
-  };
-
-  const handleViewProjectWorkspace = (projId: string) => {
-    setSelectedProjectId(projId);
-    setActiveTab("workspace");
-  };
-
   return (
             <div className="flex-1 p-6 overflow-y-auto space-y-6 bg-slate-50/50">
 
-              {/* ─── CDC 16 F9 — PONTE PROVISÓRIA para a fila de pré-vendas ──────────
-                  A F10 substitui este bloco pelos dois cards que o dono pediu:
-                  "Novas demandas" e "Minhas demandas", com quatro colunas, cinco
-                  linhas, paginação e os recortes como botões.
-
-                  Ele existe porque a F9 TIRA a aba do topo e os cards só chegam
-                  na F10, e tirar sem repor não é corrigir: é trocar um defeito
-                  por um buraco. O buraco seria real e medível - o papel
-                  "Pre-Sales Engineer" tem `demand:read` e `demand:assume` e NÃO
-                  tem `admin:settings`, então ele não alcança a Administração:
-                  sem este bloco, a pessoa que mais usa a fila ficaria sem
-                  nenhum caminho até ela. E um teste de ausência ("a aba não
-                  existe no topo") passaria igual nos dois mundos.
-
-                  A régua de exibição é a MESMA que a aba tinha, D06 inclusive:
-                  quem decide é `demandQueueVisible`, montado em App.tsx.
-                  ──────────────────────────────────────────────────────────────── */}
-              {demandQueueVisible && (
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("demandQueue")}
-                  data-testid="home-fila-de-pre-vendas"
-                  className="w-full text-left bg-white rounded-2xl border border-slate-200 p-6 shadow-sm hover:border-brand-300 hover:shadow transition-all cursor-pointer flex items-center gap-4"
-                >
-                  <div className="w-10 h-10 rounded-xl bg-brand-50 border border-brand-100 flex items-center justify-center text-brand-600 shrink-0">
-                    <Inbox size={20} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide font-mono">
-                      {locale === "pt" ? "Fila de Pré-vendas" : "Pre-Sales Queue"}
-                    </h2>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      {(demandSummary?.queued ?? 0) > 0
-                        ? locale === "pt"
-                          ? `${demandSummary?.queued} demanda(s) aguardando alguém assumir.`
-                          : `${demandSummary?.queued} demand(s) waiting to be taken.`
-                        : locale === "pt"
-                          ? "Nada aguardando na fila."
-                          : "Nothing waiting in the queue."}
-                    </p>
-                  </div>
-                  {(demandSummary?.queued ?? 0) > 0 && (
-                    <span className="text-[11px] font-bold text-white bg-brand-600 rounded-full px-2 py-0.5 shrink-0">
-                      {demandSummary?.queued}
-                    </span>
-                  )}
-                  <ChevronRight size={18} className="text-slate-400 shrink-0" />
-                </button>
+              {/* Os dois cards ficam ACIMA dos KPIs de propósito: o trabalho que
+                  espera alguém é a única coisa desta tela que tem prazo, e a
+                  fila é o motivo pelo qual o pré-vendas abre o produto. */}
+              {demandQueueVisible && hasPermission && currentUserId && (
+                <HomeDemandCards
+                  hasPermission={hasPermission}
+                  currentUserId={currentUserId}
+                  onDemandAssumed={onDemandAssumed ?? (() => {})}
+                  onQueueChanged={onQueueChanged}
+                  onAbrirFila={() => setActiveTab("demandQueue")}
+                />
               )}
-
-              {/* Operational Tasks Section */}
-              <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-brand-50 border border-brand-100 flex items-center justify-center text-brand-600 shrink-0">
-                      <ListTodo size={20} />
-                    </div>
-                    <div>
-                      <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide font-mono">
-                        {locale === "pt" ? "Tarefas Pendentes do Usuário" : "User's Pending Tasks"}
-                      </h2>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        {locale === "pt"
-                          ? `Foco operacional: ${tasks.filter(t => t.status !== "completed").length} pendências para resolução imediata`
-                          : `Operational focus: ${tasks.filter(t => t.status !== "completed").length} pending actions requiring immediate attention`}
-                      </p>
-                    </div>
-                  </div>
-                  {/* Progress Indicators */}
-                  <div className="flex items-center gap-3 self-end sm:self-auto">
-                    <span className="text-xs font-mono font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
-                      {Math.round((tasks.filter(t => t.status === "completed").length / (tasks.length || 1)) * 100)}% {locale === "pt" ? "Concluído" : "Completed"}
-                    </span>
-                    <div className="w-24 bg-slate-100 h-2 rounded-full overflow-hidden">
-                      <div
-                        className="bg-brand-600 h-full transition-all duration-300 rounded-full"
-                        style={{ width: `${(tasks.filter(t => t.status === "completed").length / (tasks.length || 1)) * 100}%` }}
-                      ></div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Add task form inline */}
-                <form onSubmit={handleAddTask} className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newTaskText}
-                    onChange={(e) => setNewTaskText(e.target.value)}
-                    placeholder={locale === "pt" ? "Nova tarefa... Ex: Revisar conformidades do Anexo B" : "New task... Ex: Review compliance on Appendix B"}
-                    className="flex-1 text-xs px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-600 bg-slate-50/50 hover:bg-slate-50 transition-colors"
-                  />
-                  <button
-                    type="submit"
-                    className="bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs px-4 py-2 rounded-lg transition-all cursor-pointer shadow-xs font-mono"
-                  >
-                    + {locale === "pt" ? "ADICIONAR" : "ADD TASK"}
-                  </button>
-                </form>
-
-                {/* Grid layout of actual tasks */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[190px] overflow-y-auto pr-1">
-                  {tasks.length === 0 ? (
-                    <div className="col-span-2 text-center py-8 text-xs text-slate-400 italic font-mono">
-                      {locale === "pt" ? "Nenhuma tarefa pendente! Excelente trabalho." : "No pending tasks found! Awesome job."}
-                    </div>
-                  ) : (
-                    tasks.map(task => (
-                      <div
-                        key={task.id}
-                        className={`p-3 rounded-xl border flex items-start justify-between gap-3 transition-all group ${
-                          task.status === "completed"
-                            ? "bg-slate-50/50 border-slate-100 opacity-60"
-                            : "bg-white border-slate-200 hover:border-slate-300 shadow-xs"
-                        }`}
-                      >
-                        <div className="flex gap-3 items-start flex-1 min-w-0">
-                          <input
-                            type="checkbox"
-                            checked={task.status === "completed"}
-                            onChange={() => handleToggleTask(task)}
-                            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-600 cursor-pointer shrink-0"
-                          />
-                          <div className="leading-tight flex-1 min-w-0">
-                            <p className={`text-xs font-semibold text-slate-700 truncate ${task.status === "completed" ? "line-through text-slate-400 font-normal" : ""}`} title={task.title}>
-                              {task.title}
-                            </p>
-                            {task.due_date && (
-                              <span className="text-[9px] font-mono text-slate-400 bg-slate-100 px-1 rounded mt-1.5 inline-block font-bold">
-                                📅 {locale === "pt" ? "PRAZO: " : "DUE: "}{task.due_date}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => handleDeleteTask(task.id)}
-                          className="text-slate-400 hover:text-danger-500 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 cursor-pointer shrink-0"
-                          title={locale === "pt" ? "Excluir tarefa" : "Delete task"}
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
 
               {/* KPI Cards Grid */}
               <div className={`grid grid-cols-1 md:grid-cols-3 ${pocModuleEnabled ? "lg:grid-cols-4" : ""} gap-4`}>
@@ -363,42 +172,8 @@ export default function Home({
               {/* Graphical Analysis Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
-                {/* Industry Verticals Breakdown */}
-                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
-                  <h3 className="text-xs font-bold uppercase tracking-wider font-mono text-slate-800 flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-brand-500"></span>
-                    {locale === "pt" ? "Licitações por Setor / Vertical" : "Bids by Industry Vertical"}
-                  </h3>
-
-                  <div className="space-y-3.5 pt-1">
-                    {projects.length === 0 ? (
-                      <p className="text-xs text-slate-400 italic text-center py-6">{locale === "pt" ? "Nenhuma licitação registrada" : "No bids registered"}</p>
-                    ) : (
-                      Object.entries(
-                        projects.reduce((acc, p) => {
-                          acc[p.vertical] = (acc[p.vertical] || 0) + 1;
-                          return acc;
-                        }, {} as Record<string, number>)
-                      ).map(([vertical, count]) => {
-                        const pct = Math.round(((count as number) / projects.length) * 100);
-                        return (
-                          <div key={vertical} className="space-y-1">
-                            <div className="flex justify-between text-xs font-semibold text-slate-700">
-                              <span>{vertical}</span>
-                              <span className="font-mono text-slate-500">{count} {count === 1 ? "bid" : "bids"} ({pct}%)</span>
-                            </div>
-                            <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                              <div
-                                className="bg-brand-600 h-full rounded-full transition-all duration-500"
-                                style={{ width: `${pct}%` }}
-                              ></div>
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
+                {/* A pizza, no lugar das barras por setor (item 04 do feedback). */}
+                <VerticalPieChart projects={projects} locale={locale} />
 
                 {/* Status and Pipeline Summary */}
                 <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
@@ -452,73 +227,10 @@ export default function Home({
 
               </div>
 
-              {/* Active Tender / Bids Datagrid List */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                  <h3 className="text-xs font-bold uppercase tracking-wider font-mono text-slate-800">
-                    {locale === "pt" ? "Lista de Propostas e Editais Ativos" : "Active Bids & Tenders Directory"}
-                  </h3>
-                  <button
-                    onClick={() => setShowNewProjectModal(true)}
-                    className="flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 text-white text-xs px-3 py-1.5 rounded-lg font-semibold transition-all shadow-sm cursor-pointer"
-                  >
-                    <Plus size={14} /> {locale === "pt" ? "Adicionar Nova" : "Add New"}
-                  </button>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse text-left text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-200 text-slate-400 font-mono uppercase bg-slate-50/50">
-                        <th className="p-3.5 font-bold">{locale === "pt" ? "Projeto / Cliente" : "Project / Client"}</th>
-                        <th className="p-3.5 font-bold">{locale === "pt" ? "Setor" : "Vertical"}</th>
-                        <th className="p-3.5 font-bold">{locale === "pt" ? "Prazo Final" : "Submission Deadline"}</th>
-                        <th className="p-3.5 font-bold">{tx("Status", "Status")}</th>
-                        <th className="p-3.5 font-bold text-right">{locale === "pt" ? "Ações" : "Actions"}</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {projects.map(proj => {
-                        return (
-                          <tr key={proj.id} className="hover:bg-slate-50/50 transition-colors">
-                            <td className="p-3.5">
-                              <p className="font-bold text-slate-800 text-sm leading-tight">{proj.name}</p>
-                              <p className="text-xs text-slate-500 leading-tight mt-0.5">{proj.customer_name} • <span className="font-mono bg-slate-100 text-slate-600 px-1 rounded text-[10px]">{proj.opportunity_name}</span></p>
-                            </td>
-                            <td className="p-3.5 font-medium text-slate-600">
-                              <span className="bg-slate-100 text-slate-800 px-2 py-0.5 rounded-full text-[10px] uppercase font-mono">{proj.vertical}</span>
-                            </td>
-                            <td className="p-3.5 text-slate-500 font-mono font-semibold">{proj.deadline}</td>
-                            <td className="p-3.5">
-                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
-                                proj.status === "completed" ? "text-success-700 bg-success-50 border-success-200" :
-                                proj.status === "analysis_in_progress" ? "text-brand-700 bg-brand-50 border-brand-200" :
-                                proj.status === "waiting_internal" ? "text-warning-700 bg-warning-50 border-warning-200" :
-                                "text-slate-700 bg-slate-100 border-slate-200"
-                              }`}>
-                                {locale === "pt" ?
-                                  (proj.status === "completed" ? "CONCLUÍDO" :
-                                   proj.status === "analysis_in_progress" ? "EM ANÁLISE" :
-                                   proj.status === "waiting_internal" ? "AGUARDANDO INTERNO" : "RASCUNHO") :
-                                  (proj.status || "draft").toUpperCase().replace("_", " ")
-                                }
-                              </span>
-                            </td>
-                            <td className="p-3.5 text-right">
-                              <button
-                                onClick={() => handleViewProjectWorkspace(proj.id)}
-                                className="bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 rounded-lg font-semibold transition-all shadow-sm cursor-pointer inline-flex items-center gap-1 text-[11px]"
-                              >
-                                {locale === "pt" ? "Ir para Área de Trabalho" : "Open Workspace"} <ChevronRight size={12} />
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+              {/* O desempenho da fila. Só para quem alcança a fila: sem
+                  `demand:read` a rota responde 403, e desenhar um bloco de erro
+                  para quem nunca vai usá-lo é ruído, não informação. */}
+              {demandQueueVisible && currentUserId && <DemandPerformanceChart currentUserId={currentUserId} />}
 
             </div>
   );
