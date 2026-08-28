@@ -9,7 +9,10 @@ import { guardarChaveApresentada } from "../utils/crmPort";
 import { getFleetLicenseStatus, checkLicenseEnforcement } from "../utils/fleetLicense";
 import { createStorageAdapter, validateUploadedFile } from "../utils/storage";
 import { withIdempotency, IdempotencyConflict } from "../utils/idempotency";
-import { DemandCreateSchema, criarDemanda, toDemandState } from "../utils/demands";
+import { DemandCreateSchema, DemandPatchSchema, criarDemanda, toDemandState } from "../utils/demands";
+import { registrarAtualizacao, aplicarCancelamento } from "../utils/demandLifecycleService";
+import { executarExpurgo } from "../utils/crmPurge";
+import { empurrarMarcoDaDemanda } from "../utils/crmOutbox";
 import { calcularDueAt } from "../utils/demandSla";
 import { lerSla } from "../utils/demandSlaConfig";
 import { distribuirDemandaNova } from "../utils/demandAssignment";
@@ -26,10 +29,13 @@ import { logger } from "../utils/logger";
 // (server/routes/*.ts) continuam exigindo sessão humana, e esta não afrouxa
 // nenhuma delas: é superfície nova e separada (ADR 0001, §5).
 //
-// O que a F1 expõe, dos 6 caminhos da spec: /pair/verify, POST /demands,
-// GET /demands/{ref} e o upload do binário. PATCH /demands/{ref}, /cancel e
-// /purge são F7 e deliberadamente NÃO existem aqui - a API 404 do servidor
-// responde por eles, que é a resposta honesta para o que ainda não nasceu.
+// A F1 abriu quatro dos 6 caminhos da spec: /pair/verify, POST /demands,
+// GET /demands/{ref} e o upload do binário. A F7 acrescenta os DOIS que
+// faltavam - PATCH /demands/{ref} (D27) e POST /demands/{ref}/cancel (D18) -,
+// mais /purge (D35), e com eles a superfície fecha em SEIS DE SEIS. O 404 que a
+// prova da F1 conferia a cada fechamento, de propósito, deixa de valer aqui e
+// vira conferência positiva: era a única forma verificável de dizer "ainda não
+// existe" em vez de "existe pela metade".
 //
 // O identificador do módulo da integração no envelope de licença, derivado do
 // par pelo CMSaaS (F0). Não é um módulo vendido: é o que o CMSaaS acrescenta
@@ -188,6 +194,197 @@ router.get("/demands/:demandRef", async (req: Request, res: Response, next: Next
     }
     res.json(toDemandState(demanda, await prazoDaEtapa(demanda)));
   } catch (err) {
+    next(err);
+  }
+});
+
+// ─── PATCH /demands/{demand_ref} ────────────────────────────────────────────
+//
+// "Prazo alterado por impugnação, escopo revisto, valor renegociado. NÃO
+// sobrescreve o que o pré-vendas já editou no projeto: chega como atualização
+// pendente, que a pessoa vê com o antes e o depois e decide incorporar" (D27).
+//
+// A OPORTUNIDADE PERDIDA (D29) entra por aqui, e não por um caminho próprio: a
+// spec não declara nenhum, e "avisa, e quem assumiu decide encerrar ou
+// concluir" é exatamente o que uma atualização visível faz. O produto a
+// reconhece pelo `opportunity.stage` e lhe dá destaque próprio na tela, sem que
+// a perda vire um estado da demanda — ver `demandLifecycle.ts`.
+router.patch("/demands/:demandRef", async (req: Request, res: Response, next: NextFunction) => {
+  const chaveIdem = (req.headers["idempotency-key"] as string | undefined)?.trim();
+  if (!chaveIdem || chaveIdem.length < 8) {
+    return erro(res, 400, "idempotency_key_required", "Idempotency-Key é obrigatório e precisa ter ao menos 8 caracteres.");
+  }
+
+  try {
+    const entrada = DemandPatchSchema.parse(req.body);
+
+    const resultado = await runInPairTenant(req, () =>
+      withIdempotency<Record<string, unknown>>(`demand:update`, chaveIdem, req.body, async () => {
+        const demanda = await prisma.demand.findFirst({ where: { demandRef: req.params.demandRef } });
+        if (!demanda) {
+          return {
+            status: 404,
+            body: { error: "demand_not_found", message: "Não existe demanda com este demand_ref para este par." },
+          };
+        }
+        const aplicada = await registrarAtualizacao(demanda.id, entrada);
+        if (!aplicada.ok) {
+          if (aplicada.motivo === "not_found") {
+            return { status: 404, body: { error: "demand_not_found", message: "Não existe demanda com este demand_ref para este par." } };
+          }
+          // O 409 que a spec declara neste caminho, com o nome do estado: sem
+          // ele, o CRM só saberia que houve conflito, e não que a demanda
+          // acabou — que é a única informação que muda o que ele faz a seguir.
+          return {
+            status: 409,
+            body: {
+              error: "demand_closed",
+              message: `Esta demanda está em '${aplicada.status}' e não aceita mais atualização.`,
+            },
+          };
+        }
+        return { status: 202, body: { pending_updates: aplicada.pendingUpdates } };
+      })
+    );
+
+    res.status(resultado.status).json(resultado.body);
+  } catch (err) {
+    if (err instanceof IdempotencyConflict) {
+      return erro(res, 409, `idempotency_${err.reason}`, err.message);
+    }
+    if (err instanceof z.ZodError) {
+      return erro(res, 422, "validation_error", "Atualização inválida.", err.issues.map((i) => `${i.path.join(".") || "(raiz)"}: ${i.message}`));
+    }
+    next(err);
+  }
+});
+
+// ─── POST /demands/{demand_ref}/cancel ──────────────────────────────────────
+//
+// "O CRM só chama depois que o líder direto aprovou (D18). Enquanto a demanda
+// está na fila sem dono, o cancelamento é efetivado na hora. Já assumida, vira
+// pedido de encerramento que quem assumiu (ou o gerente) conclui - o corpo da
+// resposta diz qual dos dois aconteceu."
+//
+// NÃO exige Idempotency-Key, e é leitura deliberada do contrato: a spec declara
+// o cabeçalho em POST /demands e em PATCH, e não aqui - a mesma leitura que a
+// F1 fez para o upload do binário. Exigir um cabeçalho que o contrato não
+// declara recusaria um cliente conforme. A idempotência vem do próprio estado:
+// cancelar o que já está cancelado devolve o mesmo 200 sem reescrever carimbo.
+const CancelamentoSchema = z.object({
+  justification: z.string().trim().min(10, "A justificativa precisa ter ao menos 10 caracteres."),
+  approved_by: z.object({
+    crm_user_id: z.string().min(1),
+    name: z.string().min(1),
+    email: z.string().optional(),
+  }),
+});
+
+router.post("/demands/:demandRef/cancel", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const entrada = CancelamentoSchema.parse(req.body);
+
+    const resultado = await runInPairTenant(req, async () => {
+      const demanda = await prisma.demand.findFirst({ where: { demandRef: req.params.demandRef } });
+      if (!demanda) {
+        return { status: 404, body: { error: "demand_not_found", message: "Não existe demanda com este demand_ref para este par." } };
+      }
+
+      const cancelamento = await aplicarCancelamento(demanda.id, {
+        justificativa: entrada.justification,
+        aprovadorCrmUserId: entrada.approved_by.crm_user_id,
+        aprovadorNome: entrada.approved_by.name,
+      });
+      if (!cancelamento.ok) {
+        if (cancelamento.motivo === "not_found") {
+          return { status: 404, body: { error: "demand_not_found", message: "Não existe demanda com este demand_ref para este par." } };
+        }
+        // A spec declara só 200 e 404 aqui, e não previu a demanda que já
+        // acabou por outro caminho. Responder 200 `cancelled` sobre uma demanda
+        // CONCLUÍDA faria o CRM marcar como cancelada uma oportunidade cuja
+        // proposta já foi entregue - mentir no corpo é pior do que devolver um
+        // status que a spec não listou, e é o mesmo 409 que ela declara no
+        // PATCH pelo mesmo motivo. Registrado no §10 e na spec, na F7.
+        return { status: 409, body: { error: "demand_closed", message: cancelamento.mensagem } };
+      }
+
+      const atual = await prisma.demand.findFirst({
+        where: { id: demanda.id },
+        include: { assignedUser: { select: { name: true } } },
+      });
+      const estado = toDemandState(atual as any, await prazoDaEtapa(atual as any));
+
+      // O `cancellation_ack` sai só quando a demanda DE FATO ficou cancelada, e
+      // não quando o pedido foi registrado. "Ack" é confirmação de que acabou;
+      // mandá-lo sobre um pedido pendente diria ao vendedor que o trabalho
+      // parou enquanto alguém ainda o está fazendo. E ele sai SEM ator, porque
+      // ninguém deste lado agiu: a fila não tinha dono, e pôr o aprovador do
+      // CRM ali faria a timeline dizer que o líder trabalhou no pré-vendas.
+      // (É a mesma decisão que a F5 tomou para o `sla_breached`, cujo ator é o
+      // relógio.)
+      if (cancelamento.desfecho === "cancelled" && !cancelamento.jaEstava) {
+        await empurrarMarcoDaDemanda({
+          tenantId: cancelamento.demanda.tenantId,
+          demanda: cancelamento.demanda,
+          event: "cancellation_ack",
+          occurredAt: cancelamento.demanda.cancelledAt ?? new Date(),
+          note: "Cancelada na fila, antes de alguém assumir.",
+          projectId: cancelamento.demanda.projectId,
+        });
+      }
+
+      return {
+        status: 200,
+        body: { outcome: cancelamento.desfecho, state: estado },
+      };
+    });
+
+    res.status(resultado.status).json(resultado.body);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return erro(res, 422, "validation_error", "Pedido de cancelamento inválido.", err.issues.map((i) => `${i.path.join(".") || "(raiz)"}: ${i.message}`));
+    }
+    next(err);
+  }
+});
+
+// ─── POST /purge ────────────────────────────────────────────────────────────
+//
+// O expurgo em cascata (D35). Não é endereçado por `demand_ref` - é caminho de
+// raiz na spec, e alcança tudo o que veio daquele documento ou daquela empresa,
+// em qualquer estado do ciclo. Conformidade não espera o trabalho terminar.
+//
+// Também não exige Idempotency-Key, e aqui a razão é mais forte do que a
+// leitura do contrato: o expurgo é idempotente por natureza. Apagar o que já
+// não existe apaga zero, e cada chamada vira um REGISTRO próprio - porque o
+// registro é de EXECUÇÃO, e não de efeito: saber que o CRM pediu duas vezes é
+// parte do que uma auditoria vai querer ler.
+const ExpurgoSchema = z.object({
+  reason: z.enum(["retention", "data_subject_request"]),
+  targets: z
+    .array(z.object({ kind: z.enum(["document", "company"]), crm_id: z.string().min(1) }))
+    .min(1, "É preciso declarar ao menos um alvo."),
+});
+
+router.post("/purge", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const entrada = ExpurgoSchema.parse(req.body);
+    const { pair } = pairContext(req);
+
+    const resultado = await runInPairTenant(req, () =>
+      executarExpurgo({
+        tenantId: pair.tenantId,
+        crmInstallationId: pair.sides.cmcrm.installation_id,
+        reason: entrada.reason,
+        targets: entrada.targets,
+      })
+    );
+
+    res.json({ purged: resultado.purged, executed_at: resultado.executed_at });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return erro(res, 422, "validation_error", "Pedido de expurgo inválido.", err.issues.map((i) => `${i.path.join(".") || "(raiz)"}: ${i.message}`));
+    }
     next(err);
   }
 });

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Check, Clock, FileText, Inbox, RefreshCw, Send, Undo2, UserPlus, X } from "lucide-react";
+import { AlertTriangle, ArrowRightLeft, Ban, Check, Clock, FileText, Inbox, RefreshCw, Send, TrendingDown, Undo2, UserPlus, X } from "lucide-react";
 import ApiClient from "../lib/api";
 import DemandSlaPanel from "./DemandSlaPanel";
+import DemandPurgePanel from "./DemandPurgePanel";
 import { Demand, DemandSlaSettings } from "../types";
 
 // CDC 16 — Fase 1. A fila de pré-vendas, do lado de quem trabalha nela.
@@ -95,7 +96,7 @@ interface DemandQueueProps {
 }
 
 export default function DemandQueue({ hasPermission, currentUserId, onDemandAssumed, onQueueChanged }: DemandQueueProps) {
-  const [vista, setVista] = useState<"fila" | "prazos">("fila");
+  const [vista, setVista] = useState<"fila" | "prazos" | "expurgos">("fila");
   const [config, setConfig] = useState<DemandSlaSettings | null>(null);
   const [equipe, setEquipe] = useState<Array<{ id: string; name: string }>>([]);
   const [direcionando, setDirecionando] = useState<Demand | null>(null);
@@ -111,6 +112,10 @@ export default function DemandQueue({ hasPermission, currentUserId, onDemandAssu
   const [devolvendo, setDevolvendo] = useState<Demand | null>(null);
   const [motivo, setMotivo] = useState("");
   const [erroAcao, setErroAcao] = useState("");
+  // F7: a atualização que a pessoa quer descartar, e o motivo (D27).
+  const [descartando, setDescartando] = useState<{ demanda: Demand; updateId: string } | null>(null);
+  const [motivoDescarte, setMotivoDescarte] = useState("");
+  const [encerrando, setEncerrando] = useState<Demand | null>(null);
 
   const podeAssumir = hasPermission("demand:assume");
   const souGerente = hasPermission("demand:manage");
@@ -196,6 +201,74 @@ export default function DemandQueue({ hasPermission, currentUserId, onDemandAssu
     }
   };
 
+  // ── F7: as decisões sobre a atualização pós-envio (D27) ──────────────────
+  //
+  // Recarregar e REABRIR a demanda depois de decidir, em vez de fechar o
+  // drawer: quem incorporou uma atualização quase sempre quer ver a próxima, e
+  // fechar a gaveta faria a pessoa reabrir a mesma demanda a cada decisão.
+  const recarregarEReabrir = async (demandaId: string) => {
+    await carregar();
+    onQueueChanged?.();
+    try {
+      const atual = await ApiClient.get<Demand>(`/api/demands/${demandaId}`);
+      setAberta(atual);
+    } catch {
+      setAberta(null);
+    }
+  };
+
+  const incorporar = async (d: Demand, updateId: string) => {
+    setEmAcao(true);
+    setErroAcao("");
+    try {
+      await ApiClient.post(`/api/demands/${d.id}/updates/${updateId}/incorporate`, {});
+      await recarregarEReabrir(d.id);
+    } catch (e: any) {
+      setErroAcao(e.message || "Não foi possível incorporar esta atualização.");
+    } finally {
+      setEmAcao(false);
+    }
+  };
+
+  const descartar = async () => {
+    if (!descartando) return;
+    setEmAcao(true);
+    setErroAcao("");
+    try {
+      await ApiClient.post(`/api/demands/${descartando.demanda.id}/updates/${descartando.updateId}/dismiss`, {
+        note: motivoDescarte,
+      });
+      const id = descartando.demanda.id;
+      setDescartando(null);
+      setMotivoDescarte("");
+      await recarregarEReabrir(id);
+    } catch (e: any) {
+      setErroAcao(e.message || "Não foi possível descartar esta atualização.");
+    } finally {
+      setEmAcao(false);
+    }
+  };
+
+  // F7 (D18): encerrar depois do pedido de cancelamento aprovado no CRM. A
+  // outra saída é CONCLUIR o projeto, pelo caminho de sempre — e é por isso que
+  // a confirmação diz as duas em voz alta.
+  const encerrar = async () => {
+    if (!encerrando) return;
+    setEmAcao(true);
+    setErroAcao("");
+    try {
+      await ApiClient.post(`/api/demands/${encerrando.id}/cancel/close`, {});
+      setEncerrando(null);
+      setAberta(null);
+      await carregar();
+      onQueueChanged?.();
+    } catch (e: any) {
+      setErroAcao(e.message || "Não foi possível encerrar esta demanda.");
+    } finally {
+      setEmAcao(false);
+    }
+  };
+
   const aprovarDevolucao = async (d: Demand) => {
     setEmAcao(true);
     setErroAcao("");
@@ -247,12 +320,35 @@ export default function DemandQueue({ hasPermission, currentUserId, onDemandAssu
     [demandas]
   );
 
+  // F7: quantas demandas ESTA pessoa tem com atualização pendente, e quantas
+  // com pedido de cancelamento aberto. Recortado por quem assumiu de propósito:
+  // um contador global faria todo mundo ver o trabalho pendente de todo mundo,
+  // que é o oposto do que um aviso acionável é.
+  const minhasComAtualizacao = useMemo(
+    () =>
+      demandas.filter(
+        (d) => d.assigned_user_id === currentUserId && (d.pending_updates?.length ?? 0) > 0
+      ).length,
+    [demandas, currentUserId]
+  );
+  const minhasComCancelamento = useMemo(
+    () =>
+      demandas.filter(
+        (d) => d.assigned_user_id === currentUserId && d.cancellation_requested_at && !d.cancellation_closed_at
+      ).length,
+    [demandas, currentUserId]
+  );
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">
-            {vista === "fila" ? `Fila de Pré-vendas (${demandas.length})` : "Prazos e desempenho"}
+            {vista === "fila"
+              ? `Fila de Pré-vendas (${demandas.length})`
+              : vista === "prazos"
+                ? "Prazos e desempenho"
+                : "Expurgos em cascata"}
           </h2>
           <p className="text-[11px] text-slate-500 mt-0.5">
             {vista === "fila" ? (
@@ -261,8 +357,10 @@ export default function DemandQueue({ hasPermission, currentUserId, onDemandAssu
                 {filaDirecionada && " As demandas desta instalação são direcionadas pelo gerente de pré-vendas."}
                 {config?.assignment_policy === "automatico" && " Novas demandas são distribuídas automaticamente por menor carga."}
               </>
-            ) : (
+            ) : vista === "prazos" ? (
               "Prazo por etapa, alertas de prazo vencido e tempo de resposta."
+            ) : (
+              "O que o CRM mandou apagar daqui, e o que de fato saiu."
             )}
           </p>
         </div>
@@ -272,6 +370,7 @@ export default function DemandQueue({ hasPermission, currentUserId, onDemandAssu
               [
                 ["fila", "Fila"],
                 ["prazos", "Prazos e desempenho"],
+                ["expurgos", "Expurgos"],
               ] as const
             ).map(([chave, rotulo]) => (
               <button
@@ -291,8 +390,34 @@ export default function DemandQueue({ hasPermission, currentUserId, onDemandAssu
 
       {vista === "prazos" ? (
         <DemandSlaPanel hasPermission={hasPermission} onChanged={() => void carregar()} />
+      ) : vista === "expurgos" ? (
+        <DemandPurgePanel onChanged={() => void carregar()} />
       ) : (
       <>
+      {(minhasComAtualizacao > 0 || minhasComCancelamento > 0) && (
+        <div
+          className="bg-brand-50 border border-brand-200 text-brand-800 text-xs rounded-lg p-3 flex items-start gap-2"
+          data-testid="aviso-ciclo-de-vida"
+        >
+          <ArrowRightLeft size={14} className="mt-0.5 shrink-0" />
+          <div>
+            {minhasComAtualizacao > 0 && (
+              <>
+                <span className="font-bold">
+                  {minhasComAtualizacao} demanda(s) sua(s) com atualização do CRM aguardando decisão.
+                </span>{" "}
+                Nada foi escrito no seu projeto: abra a demanda para ver o antes e o depois.{" "}
+              </>
+            )}
+            {minhasComCancelamento > 0 && (
+              <span className="font-bold">
+                {minhasComCancelamento} com pedido de cancelamento aprovado no CRM.
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {souGerente && aguardandoAprovacao > 0 && (
         <div className="bg-warning-50 border border-warning-200 text-warning-800 text-xs rounded-lg p-3 flex items-start gap-2">
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
@@ -590,6 +715,110 @@ export default function DemandQueue({ hasPermission, currentUserId, onDemandAssu
                 </ul>
               </section>
 
+              {aberta.cancellation_requested_at && !aberta.cancellation_closed_at && (
+                <section className="border border-danger-200 bg-danger-50/60 rounded-lg p-3" data-testid="modal-cancelamento-pendente">
+                  <h4 className="font-mono uppercase text-[10px] text-danger-700 mb-1">
+                    Cancelamento aprovado no CRM
+                  </h4>
+                  <p className="text-slate-700 whitespace-pre-wrap">{aberta.cancellation_justification}</p>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Aprovado por {aberta.cancellation_approved_by || "—"} em {dataCurta(aberta.cancellation_requested_at)}.
+                    A demanda continua com você: encerre-a, ou conclua o projeto se o trabalho ainda servir para outro
+                    edital do mesmo cliente.
+                  </p>
+                </section>
+              )}
+
+              {aberta.cancellation_closed_at && aberta.cancellation_outcome && (
+                <section className="border border-slate-200 rounded-lg p-3">
+                  <h4 className="font-mono uppercase text-[10px] text-slate-500 mb-1">Cancelamento pedido pelo CRM</h4>
+                  <p className="text-slate-700 whitespace-pre-wrap">{aberta.cancellation_justification}</p>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    {aberta.cancellation_outcome === "cancelled"
+                      ? `Encerrada${aberta.cancellation_closed_by ? ` por ${aberta.cancellation_closed_by}` : " na fila, antes de alguém assumir"}`
+                      : "Concluída mesmo assim, por decisão de quem assumiu"}{" "}
+                    em {dataCurta(aberta.cancellation_closed_at)}.
+                  </p>
+                </section>
+              )}
+
+              {(aberta.pending_updates?.length ?? 0) > 0 && (
+                <section className="space-y-2" data-testid="modal-atualizacoes-pendentes">
+                  <h4 className="font-mono uppercase text-[10px] text-slate-500">
+                    Atualizações do CRM ({aberta.pending_updates?.length})
+                  </h4>
+                  <p className="text-[11px] text-slate-500">
+                    Chegaram depois do envio e já valem na demanda. O seu <strong>projeto não foi tocado</strong> — a
+                    travessia é decisão sua.
+                  </p>
+                  {(aberta.pending_updates ?? []).map((u) => (
+                    <div
+                      key={u.id}
+                      className={`border rounded-lg p-3 ${
+                        u.kind === "oportunidade_perdida"
+                          ? "border-danger-200 bg-danger-50/60"
+                          : "border-slate-200 bg-slate-50/60"
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700">
+                        {u.kind === "oportunidade_perdida" ? (
+                          <>
+                            <TrendingDown size={12} className="text-danger-600" /> A oportunidade foi marcada como
+                            perdida no CRM
+                          </>
+                        ) : (
+                          <>
+                            <ArrowRightLeft size={12} className="text-slate-500" /> Mudança de {u.kind}
+                          </>
+                        )}
+                      </div>
+                      {u.kind === "oportunidade_perdida" && (
+                        <p className="text-[11px] text-slate-600 mt-1">
+                          Isto é um aviso, e não fecha nada: quem decide encerrar ou concluir é você.
+                        </p>
+                      )}
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        {u.changed_by ? `Por ${u.changed_by}` : "Sem autor declarado"} em {dataCurta(u.changed_at)}
+                      </p>
+                      {u.note && <p className="text-slate-600 mt-1 whitespace-pre-wrap">{u.note}</p>}
+                      <ul className="mt-2 space-y-1">
+                        {u.changes.map((c) => (
+                          <li key={c.campo} className="text-[11px] flex flex-wrap items-baseline gap-1.5">
+                            <span className="font-semibold text-slate-600">{c.rotulo}:</span>
+                            <span className="line-through text-slate-400">{c.antes ?? "—"}</span>
+                            <span className="text-slate-400">→</span>
+                            <span className="font-bold text-slate-800">{c.depois ?? "—"}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      {aberta.assigned_user_id === currentUserId || souGerente ? (
+                        <div className="flex flex-wrap gap-2 mt-3">
+                          <button
+                            onClick={() => void incorporar(aberta, u.id)}
+                            disabled={emAcao}
+                            data-testid={`incorporar-${u.id}`}
+                            className="inline-flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-[11px] px-2.5 py-1 rounded-md font-semibold cursor-pointer"
+                          >
+                            <Check size={12} /> Levar para o projeto
+                          </button>
+                          <button
+                            onClick={() => {
+                              setDescartando({ demanda: aberta, updateId: u.id });
+                              setMotivoDescarte("");
+                              setErroAcao("");
+                            }}
+                            data-testid={`descartar-${u.id}`}
+                            className="inline-flex items-center gap-1.5 border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-[11px] px-2.5 py-1 rounded-md font-semibold cursor-pointer"
+                          >
+                            <X size={12} /> Não levar
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </section>
+              )}
+
               {aberta.return_requested_at && !aberta.return_decided_at && (
                 <section className="border border-warning-200 bg-warning-50/60 rounded-lg p-3" data-testid="modal-devolucao-pendente">
                   <h4 className="font-mono uppercase text-[10px] text-warning-700 mb-1">Devolução aguardando o gerente</h4>
@@ -646,6 +875,22 @@ export default function DemandQueue({ hasPermission, currentUserId, onDemandAssu
                   <Undo2 size={13} /> Devolver ao vendedor
                 </button>
               )}
+              {(aberta.status === "assigned" || aberta.status === "in_analysis") &&
+                aberta.cancellation_requested_at &&
+                !aberta.cancellation_closed_at &&
+                podeAssumir &&
+                (aberta.assigned_user_id === currentUserId || souGerente) && (
+                  <button
+                    onClick={() => {
+                      setEncerrando(aberta);
+                      setErroAcao("");
+                    }}
+                    data-testid="encerrar-demanda"
+                    className="inline-flex items-center gap-1.5 bg-danger-600 hover:bg-danger-700 text-white text-xs px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer"
+                  >
+                    <Ban size={13} /> Encerrar demanda
+                  </button>
+                )}
               {souGerente && (aberta.status === "queued" || aberta.status === "assigned" || aberta.status === "in_analysis") && (
                 <button
                   onClick={() => void abrirDirecionamento(aberta)}
@@ -767,6 +1012,89 @@ export default function DemandQueue({ hasPermission, currentUserId, onDemandAssu
                 className="inline-flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-xs px-3 py-1.5 rounded-lg font-semibold cursor-pointer"
               >
                 <Send size={13} /> Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {descartando && (
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg" data-testid="dialogo-descartar-atualizacao">
+            <div className="p-5 border-b border-slate-200">
+              <h3 className="text-sm font-bold text-slate-800">Não levar esta atualização para o projeto</h3>
+              <p className="text-[11px] text-slate-500 mt-1">
+                A demanda continua mostrando o que o CRM diz; o seu projeto fica como está. Diga por quê — meses depois,
+                sem o motivo, ninguém sabe se a atualização foi recusada ou se alguém clicou sem ler.
+              </p>
+            </div>
+            <div className="p-5 space-y-3">
+              <textarea
+                value={motivoDescarte}
+                onChange={(e) => setMotivoDescarte(e.target.value)}
+                rows={4}
+                data-testid="descarte-motivo"
+                placeholder="Ex.: o prazo novo já estava considerado na análise; o escopo revisto não muda a solução."
+                className="w-full border border-slate-200 rounded-lg p-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+              />
+              <p className="text-[11px] text-slate-400">mínimo 10 caracteres</p>
+              {erroAcao && <div className="bg-danger-50 border border-danger-200 text-danger-700 text-xs rounded-lg p-3">{erroAcao}</div>}
+            </div>
+            <div className="flex items-center justify-end gap-2 p-4 border-t border-slate-200">
+              <button
+                onClick={() => setDescartando(null)}
+                className="text-xs px-3 py-1.5 rounded-lg font-semibold text-slate-500 hover:text-slate-700 cursor-pointer"
+              >
+                Voltar
+              </button>
+              <button
+                onClick={() => void descartar()}
+                disabled={emAcao || motivoDescarte.trim().length < 10}
+                data-testid="descarte-confirmar"
+                className="inline-flex items-center gap-1.5 bg-slate-700 hover:bg-slate-800 disabled:opacity-50 text-white text-xs px-3 py-1.5 rounded-lg font-semibold cursor-pointer"
+              >
+                <X size={13} /> Não levar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {encerrando && (
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg" data-testid="dialogo-encerrar">
+            <div className="p-5 border-b border-slate-200">
+              <h3 className="text-sm font-bold text-slate-800">Encerrar a demanda cancelada</h3>
+              <p className="text-[11px] text-slate-500 mt-1">
+                O vendedor pediu o cancelamento e o líder dele aprovou. Encerrar avisa o CRM de que o trabalho parou
+                aqui — e manda e-mail a quem enviou.
+              </p>
+            </div>
+            <div className="p-5 space-y-3 text-xs">
+              <p className="text-slate-700 whitespace-pre-wrap border-l-2 border-danger-200 pl-3">
+                {encerrando.cancellation_justification}
+              </p>
+              <p className="text-[11px] text-slate-500">
+                <strong>O projeto não é apagado.</strong> A análise, a precificação e a proposta continuam onde estão:
+                se o trabalho ainda servir para outro edital do mesmo cliente, feche o projeto por “concluir” em vez de
+                encerrar aqui.
+              </p>
+              {erroAcao && <div className="bg-danger-50 border border-danger-200 text-danger-700 text-xs rounded-lg p-3">{erroAcao}</div>}
+            </div>
+            <div className="flex items-center justify-end gap-2 p-4 border-t border-slate-200">
+              <button
+                onClick={() => setEncerrando(null)}
+                className="text-xs px-3 py-1.5 rounded-lg font-semibold text-slate-500 hover:text-slate-700 cursor-pointer"
+              >
+                Voltar
+              </button>
+              <button
+                onClick={() => void encerrar()}
+                disabled={emAcao}
+                data-testid="encerrar-confirmar"
+                className="inline-flex items-center gap-1.5 bg-danger-600 hover:bg-danger-700 disabled:opacity-50 text-white text-xs px-3 py-1.5 rounded-lg font-semibold cursor-pointer"
+              >
+                <Ban size={13} /> Encerrar
               </button>
             </div>
           </div>
