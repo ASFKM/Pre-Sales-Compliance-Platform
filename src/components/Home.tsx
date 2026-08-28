@@ -1,14 +1,20 @@
 import React, { useEffect, useState } from "react";
-import { Activity, CircleCheck, ChevronRight, FileText, ListTodo, Plus, Trash2, Beaker } from "lucide-react";
-import { Project, Poc } from "../types";
+import { Activity, CircleCheck, ChevronRight, FileText, Inbox, ListTodo, Plus, Trash2, Beaker } from "lucide-react";
+import { DemandQueueSummary, Project, Poc } from "../types";
 
 interface HomeProps {
   locale: "en" | "pt";
   tx: (en: string, pt: string) => string;
   projects: Project[];
   setSelectedProjectId: (id: string) => void;
-  setActiveTab: (tab: "home" | "workspace" | "projectsList" | "proposals" | "approval" | "knowledgeBase" | "admin") => void;
+  setActiveTab: (tab: "home" | "workspace" | "projectsList" | "proposals" | "approval" | "knowledgeBase" | "admin" | "demandQueue") => void;
   setShowNewProjectModal: (show: boolean) => void;
+  // CDC 16 F9: a fila de pré-vendas perdeu a aba do topo e ainda não ganhou os
+  // dois cards da Início, que são a F10. Estas duas propriedades sustentam a
+  // PONTE entre uma coisa e outra - ver o bloco marcado como provisório no
+  // corpo do componente.
+  demandQueueVisible?: boolean;
+  demandSummary?: DemandQueueSummary | null;
   // Fase N (add-on): Home has no other reason to know about the POC module - this single flag
   // gates both the fetch below and the KPI card, mirroring how every other POC-gated UI element
   // in the app is conditioned on hasModule("poc") + the read/manage permission.
@@ -24,6 +30,7 @@ interface UserTask {
 
 export default function Home({
   locale, tx, projects, setSelectedProjectId, setActiveTab, setShowNewProjectModal, pocModuleEnabled,
+  demandQueueVisible, demandSummary,
 }: HomeProps) {
   const [tasks, setTasks] = useState<UserTask[]>([]);
   const [newTaskText, setNewTaskText] = useState("");
@@ -126,6 +133,56 @@ export default function Home({
 
   return (
             <div className="flex-1 p-6 overflow-y-auto space-y-6 bg-slate-50/50">
+
+              {/* ─── CDC 16 F9 — PONTE PROVISÓRIA para a fila de pré-vendas ──────────
+                  A F10 substitui este bloco pelos dois cards que o dono pediu:
+                  "Novas demandas" e "Minhas demandas", com quatro colunas, cinco
+                  linhas, paginação e os recortes como botões.
+
+                  Ele existe porque a F9 TIRA a aba do topo e os cards só chegam
+                  na F10, e tirar sem repor não é corrigir: é trocar um defeito
+                  por um buraco. O buraco seria real e medível - o papel
+                  "Pre-Sales Engineer" tem `demand:read` e `demand:assume` e NÃO
+                  tem `admin:settings`, então ele não alcança a Administração:
+                  sem este bloco, a pessoa que mais usa a fila ficaria sem
+                  nenhum caminho até ela. E um teste de ausência ("a aba não
+                  existe no topo") passaria igual nos dois mundos.
+
+                  A régua de exibição é a MESMA que a aba tinha, D06 inclusive:
+                  quem decide é `demandQueueVisible`, montado em App.tsx.
+                  ──────────────────────────────────────────────────────────────── */}
+              {demandQueueVisible && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("demandQueue")}
+                  data-testid="home-fila-de-pre-vendas"
+                  className="w-full text-left bg-white rounded-2xl border border-slate-200 p-6 shadow-sm hover:border-brand-300 hover:shadow transition-all cursor-pointer flex items-center gap-4"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-brand-50 border border-brand-100 flex items-center justify-center text-brand-600 shrink-0">
+                    <Inbox size={20} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide font-mono">
+                      {locale === "pt" ? "Fila de Pré-vendas" : "Pre-Sales Queue"}
+                    </h2>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {(demandSummary?.queued ?? 0) > 0
+                        ? locale === "pt"
+                          ? `${demandSummary?.queued} demanda(s) aguardando alguém assumir.`
+                          : `${demandSummary?.queued} demand(s) waiting to be taken.`
+                        : locale === "pt"
+                          ? "Nada aguardando na fila."
+                          : "Nothing waiting in the queue."}
+                    </p>
+                  </div>
+                  {(demandSummary?.queued ?? 0) > 0 && (
+                    <span className="text-[11px] font-bold text-white bg-brand-600 rounded-full px-2 py-0.5 shrink-0">
+                      {demandSummary?.queued}
+                    </span>
+                  )}
+                  <ChevronRight size={18} className="text-slate-400 shrink-0" />
+                </button>
+              )}
 
               {/* Operational Tasks Section */}
               <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">

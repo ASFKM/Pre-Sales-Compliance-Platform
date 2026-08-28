@@ -962,8 +962,33 @@ export interface DemandMeasurement {
 export interface DemandPerformance {
   days: number;
   since: string;
+  // F9: qual das duas leituras a rota devolveu (resposta F do dono na F8).
+  // "team" = o gerente, e `people` traz o time inteiro; "self" = qualquer outra
+  // pessoa com `demand:read`, e `people` traz só a linha dela. A tela precisa
+  // do campo para rotular: sem ele, "uma pessoa em people" seria
+  // indistinguível de "o time tem uma pessoa só".
+  scope?: "team" | "self";
   team: DemandMeasurement;
   people: Array<{ user_id: string; name: string } & DemandMeasurement>;
+}
+
+/**
+ * F9: a resposta paginada de `GET /api/demands`.
+ *
+ * A rota devolvia um array puro até a F8. Passou a devolver envelope porque
+ * "5 por vez e pagina as antigas" precisa do TOTAL do recorte — sem ele a tela
+ * não sabe se há próxima página —, e porque a ordem e o recorte escolhidos
+ * voltam ecoados: a tela desenha o cabeçalho a partir do que o servidor de fato
+ * aplicou, e não a partir do que ela pediu.
+ */
+export interface DemandPage {
+  items: Demand[];
+  total: number;
+  limit: number;
+  offset: number;
+  sort: string;
+  dir: "asc" | "desc";
+  verticals: Array<{ vertical: string; count: number }>;
 }
 
 export interface DemandQueueSummary {

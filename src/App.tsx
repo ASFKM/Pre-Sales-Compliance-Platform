@@ -237,6 +237,13 @@ export default function App() {
     ai: ["ai:settings"],
     templates: ["template:manage"],
     approval_flow: ["approval:manage"],
+    // CDC 16 F9 — a seção Demandas. Duas permissões, e a segunda não é enfeite:
+    // `admin:settings` é quem CONFIGURA o prazo (D19, o administrador da
+    // instalação), e `demand:manage` é o gerente de pré-vendas da F5, que é
+    // quem a resposta F do dono manda ler o desempenho do time. Sem ele, um
+    // gerente que não seja administrador perderia a medição que tinha até a F8 —
+    // seria corrigir tirando, sem repor.
+    demands: ["admin:settings", "demand:manage"],
     subscription: ["admin:settings"],
     system_updates: ["admin:system_updates"],
     branding: ["branding:manage"],
@@ -346,7 +353,7 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("ca_left_panel_collapsed", leftPanelCollapsed ? "1" : "0");
   }, [leftPanelCollapsed]);
-  const [activeAdminSection, setActiveAdminSection] = useState<"overview" | "users" | "ai" | "templates" | "approval_flow" | "subscription" | "system_updates" | "branding" | "integrations" | "storage" | "audit">("overview");
+  const [activeAdminSection, setActiveAdminSection] = useState<"overview" | "users" | "ai" | "templates" | "approval_flow" | "demands" | "subscription" | "system_updates" | "branding" | "integrations" | "storage" | "audit">("overview");
 
   // Shared with fetchGlobalConfigs (auto-selects defaults) and Workspace's proposal builder -
   // one entry per proposal type (see server/utils/proposalTypes.ts) rather than a separate
@@ -1098,34 +1105,21 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
             </div>
           )}
 
-          {/* CDC 16 F1 - Fila de Pré-vendas. A regra de exibição tem uma parte que
-              as outras abas de módulo não têm: `|| (demandSummary?.total ?? 0) > 0`.
-              É a D06 - desligar a integração CONGELA, mantendo visível o que já
-              foi recebido. Sem essa segunda condição, revogar o par no CMSaaS
-              faria sumir da tela demandas que já tinham chegado e sido
-              assumidas, que é o contrário do que a decisão diz. */}
-          {hasPermission("demand:read") && (hasModule("integracao_crm_presales") || (demandSummary?.total ?? 0) > 0) && (
-            <div className="flex items-center">
-              <button
-                onClick={() => setActiveTab("demandQueue")}
-                className={`py-4 px-1 border-b-2 transition-all flex items-center gap-2 ${activeTab === "demandQueue" ? "text-white border-brand-500 font-semibold" : "border-transparent hover:text-white"}`}
-              >
-                {/* "Demandas", e não "Fila de Pré-vendas": a tira de abas do topo já
-                    estava no limite antes desta fase - medida em 1440px, ela pedia
-                    901px e tinha 898px, com sete abas e sem contar as de módulo. O
-                    rótulo curto é o que esta fase pode fazer sem mexer na barra
-                    inteira, que é decisão de layout do produto e não desta frente
-                    (registrado no §8 do plano). O nome longo continua no título da
-                    própria tela, onde não disputa espaço. */}
-                Demandas
-                {(demandSummary?.queued ?? 0) > 0 && (
-                  <span className="text-[9px] font-bold tracking-wide text-white bg-brand-600 rounded-full px-1.5 py-0.5">
-                    {demandSummary?.queued}
-                  </span>
-                )}
-              </button>
-            </div>
-          )}
+          {/* CDC 16 F9 - a aba "Demandas" SAIU daqui, por decisão do dono na F8
+              ("some por completo"). A F1 tinha usado o rótulo curto para não
+              piorar uma tira que, medida em 1440px, já pedia 901px e tinha 898 -
+              com sete abas e antes das de módulo. Vale dizer o que a medição da
+              F8 acrescentou, para ninguém ler isto como problema resolvido: a
+              tira JÁ estourava antes de Demandas existir e, com nove caminhos
+              possíveis, continua estourando depois. Tirar ALIVIA; não fecha. O
+              §8 item 5 do plano segue aberto, e decidir se a barra ganha
+              agrupamento ou menu "mais" continua sendo decisão de layout do
+              produto, não desta frente.
+
+              A regra de descoberta que morava aqui não se perdeu: ela mudou para
+              o bloco da fila na Início (`Home.tsx`), com a segunda condição
+              intacta - `|| (demandSummary?.total ?? 0) > 0` é a D06, desligar a
+              integração CONGELA em vez de apagar da tela o que já chegou. */}
 
           {hasModule("pricing") && hasAnyPermission(["pricing:read", "pricing:manage"]) && (
             <div className="flex items-center">
@@ -1403,6 +1397,10 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               setActiveTab={setActiveTab}
               setShowNewProjectModal={setShowNewProjectModal}
               pocModuleEnabled={hasModule("poc") && hasAnyPermission(["poc:read", "poc:manage"])}
+              // CDC 16 F9 - o caminho para a fila, agora que a aba saiu do topo.
+              // A regra é a MESMA que governava a aba, D06 inclusive.
+              demandQueueVisible={hasPermission("demand:read") && (hasModule("integracao_crm_presales") || (demandSummary?.total ?? 0) > 0)}
+              demandSummary={demandSummary}
             />
           )}
 

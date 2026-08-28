@@ -14,6 +14,18 @@ import { DemandPerformance, DemandSlaAlert, DemandSlaSettings } from "../types";
 // 3. **o desempenho por pessoa** (D20), que existe SÓ deste lado. O CRM vê o
 //    tempo da demanda dele e a média da equipe, e nunca este recorte — a
 //    fronteira é decisão do dono, e violá-la é pior do que não medir.
+//
+// CDC 16 — Fase 9 mudou duas coisas aqui, e nenhuma delas mexe na frase acima.
+//
+// A tela MUDOU DE LUGAR: ela era a segunda vista da tela de Demandas e passou a
+// ser a seção Demandas da Administração ("na administracao, um submenu Demandas
+// para configurar tudo do modulo demandas" — decisão do dono na F8).
+//
+// E a lista de pessoas passou a depender de QUEM LÊ, régua que a D20 nunca
+// disse e que a resposta F do dono acrescentou: o gerente vê o time, e quem não
+// é gerente vê só a própria linha. Quem aplica a régua é a ROTA; o que esta
+// tela faz é ROTULAR corretamente o que recebeu — sem `scope`, uma linha só
+// seria indistinguível de um time de uma pessoa.
 
 const POLITICAS: Array<{ chave: DemandSlaSettings["assignment_policy"]; rotulo: string; explica: string }> = [
   {
@@ -72,6 +84,12 @@ export default function DemandSlaPanel({ hasPermission, onChanged }: Props) {
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
   const [aviso, setAviso] = useState("");
+
+  // O escopo vem da RESPOSTA, não da permissão local: quem decide é a rota, e
+  // uma tela que adivinhasse pela permissão poderia rotular "o time" um corpo
+  // que traz uma linha só. `scope` ausente (instalação ainda não atualizada) é
+  // lido como o comportamento antigo, que mostrava o time.
+  const soMeuDesempenho = desempenho?.scope === "self";
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -343,11 +361,19 @@ export default function DemandSlaPanel({ hasPermission, onChanged }: Props) {
       {/* 3. O desempenho por pessoa (D20) — só aqui, nunca no CRM. */}
       <section className="bg-white border border-slate-200 rounded-lg shadow-sm" data-testid="sla-desempenho">
         <header className="p-4 border-b border-slate-200">
-          <h3 className="text-sm font-bold text-slate-800">Tempo de resposta</h3>
+          <h3 className="text-sm font-bold text-slate-800">
+            {soMeuDesempenho ? "Tempo de resposta — o seu" : "Tempo de resposta"}
+          </h3>
           <p className="text-[11px] text-slate-500 mt-0.5">
             Últimos {desempenho?.days ?? 180} dias. O recorte por pessoa existe só aqui: o CRM vê o tempo da demanda dele e a média da
             equipe, e nunca o desempenho de quem trabalha nesta fila.
           </p>
+          {soMeuDesempenho && (
+            <p className="text-[11px] text-slate-500 mt-1" data-testid="desempenho-escopo">
+              A tabela abaixo traz <span className="font-semibold">o seu</span> desempenho. O do time, pessoa por pessoa, é do gerente
+              de pré-vendas. Os quatro números acima são a média da equipe, que não é recorte de ninguém.
+            </p>
+          )}
         </header>
         <div className="p-4 space-y-4">
           {desempenho && (
@@ -380,7 +406,7 @@ export default function DemandSlaPanel({ hasPermission, onChanged }: Props) {
             <table className="w-full min-w-[560px] text-left text-xs border-collapse">
               <thead className="bg-slate-100 border-b border-slate-200 font-mono text-[10px] uppercase text-slate-500">
                 <tr>
-                  <th className="p-2.5">Pessoa</th>
+                  <th className="p-2.5">{soMeuDesempenho ? "Você" : "Pessoa"}</th>
                   <th className="p-2.5 text-right">Demandas</th>
                   <th className="p-2.5 text-right">Até assumir</th>
                   <th className="p-2.5 text-right">Até a análise</th>
@@ -402,7 +428,9 @@ export default function DemandSlaPanel({ hasPermission, onChanged }: Props) {
                 {!carregando && (desempenho?.people.length ?? 0) === 0 && (
                   <tr>
                     <td colSpan={6} className="p-8 text-center text-slate-400 text-[11px]">
-                      Nenhuma demanda assumida na janela. A medição aparece quando alguém assume.
+                      {soMeuDesempenho
+                        ? "Você ainda não assumiu nenhuma demanda nesta janela. A sua medição aparece quando assumir a primeira."
+                        : "Nenhuma demanda assumida na janela. A medição aparece quando alguém assume."}
                     </td>
                   </tr>
                 )}

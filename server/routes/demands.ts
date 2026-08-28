@@ -19,6 +19,9 @@ import {
   encerrarCancelamento,
 } from "../utils/demandLifecycleService";
 import { calcularDueAt, etapaPendente, medir, medirPorPessoa, type ConfiguracaoDeSla } from "../utils/demandSla";
+// F9: a leitura da query da fila — ordem, recorte por coluna e paginação. Vive
+// fora da rota para poder ser exercitada sem banco; ver o cabeçalho de lá.
+import { lerConsultaDaFila, ordenarPorPrazoDoSla, ORDENS, ORDEM_SLA } from "../utils/demandQuery";
 import { lerSla, gravarSla } from "../utils/demandSlaConfig";
 import {
   PERMISSAO_DE_GERENTE,
@@ -214,6 +217,7 @@ router.get("/summary", requirePermission("demand:read"), async (req: Request, re
 
 router.get("/", requirePermission("demand:read"), async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const usuarioAtual = requireUserId(req);
     const filtro = typeof req.query.status === "string" ? req.query.status.trim() : "";
     // Peneirado contra a lista real do enum: um valor inventado na query chegaria
     // ao Prisma e sairia como 500, que é erro de servidor para o que é entrada
@@ -221,15 +225,74 @@ router.get("/", requirePermission("demand:read"), async (req: Request, res: Resp
     const pedidos = filtro ? filtro.split(",").map((s) => s.trim()).filter((s) => ESTADOS_VALIDOS.has(s)) : [];
     const status = pedidos.length > 0 ? pedidos : [...ESTADOS_ABERTOS, "returned"];
 
-    const demandas = await prisma.demand.findMany({
-      where: { status: { in: status as any } },
-      include: { documents: true, ...RELACOES_DE_PESSOA, ...ATUALIZACOES_PENDENTES },
-      // Prazo primeiro: numa fila de auto-serviço, a ordem em que as coisas
-      // aparecem é a política de atribuição de fato enquanto a F5 não chega.
-      orderBy: [{ deadline: "asc" }, { queuedAt: "asc" }],
-    });
+    // Mesma régua do filtro de estado, e pelo mesmo motivo: ordem inventada não
+    // vira 500 nem devolve lista vazia — cai no padrão. Uma tela que peça
+    // `sort=preco` deve mostrar a fila, não um erro.
+    const { sort: ordem, dir, limit: limite, offset: deslocamento, filtros } = lerConsultaDaFila(req.query, usuarioAtual);
+
+    const where = { status: { in: status as any }, ...filtros };
+
     const sla = await lerSla();
-    res.json(demandas.map((d) => mapDemand(d, sla)));
+
+    // `total` é do recorte inteiro, não da página: sem ele a tela não sabe se há
+    // uma próxima, e "5 por vez e pagina as antigas" vira botão que não desliga.
+    const total = await prisma.demand.count({ where });
+
+    // As verticais do recorte ATUAL (menos o próprio filtro de vertical, senão
+    // o controle de coluna se estreitaria a cada clique e a pessoa não teria
+    // como voltar). É o que um filtro por coluna precisa para oferecer opções
+    // sem carregar a fila inteira na tela.
+    const semVertical = { ...where };
+    delete (semVertical as any).vertical;
+    const verticaisDoRecorte = (
+      await prisma.demand.groupBy({ by: ["vertical"], where: semVertical, _count: { _all: true } })
+    )
+      .map((linha) => ({ vertical: linha.vertical, count: linha._count._all }))
+      .sort((a, b) => a.vertical.localeCompare(b.vertical, "pt-BR"));
+
+    let pagina: any[];
+    if (ordem === ORDEM_SLA) {
+      // Duas passadas, pelo motivo comentado em `ORDEM_SLA`. A primeira é magra
+      // de propósito: só o que `calcularDueAt` lê.
+      const leves = await prisma.demand.findMany({
+        where,
+        select: {
+          id: true,
+          status: true,
+          queuedAt: true,
+          assignedAt: true,
+          analysisStartedAt: true,
+          deadline: true,
+        },
+      });
+      const idsDaPagina = ordenarPorPrazoDoSla(leves as any, sla, dir).slice(deslocamento, deslocamento + limite);
+      const linhas = await prisma.demand.findMany({
+        where: { id: { in: idsDaPagina } },
+        include: { documents: true, ...RELACOES_DE_PESSOA, ...ATUALIZACOES_PENDENTES },
+      });
+      // O `in` do Prisma não preserva a ordem pedida; reordenar aqui é o que
+      // impede a página de sair embaralhada dentro de si mesma.
+      const porId = new Map(linhas.map((l) => [l.id, l]));
+      pagina = idsDaPagina.map((id) => porId.get(id)).filter(Boolean) as any[];
+    } else {
+      pagina = await prisma.demand.findMany({
+        where,
+        include: { documents: true, ...RELACOES_DE_PESSOA, ...ATUALIZACOES_PENDENTES },
+        orderBy: ORDENS[ordem](dir),
+        take: limite,
+        skip: deslocamento,
+      });
+    }
+
+    res.json({
+      items: pagina.map((d) => mapDemand(d, sla)),
+      total,
+      limit: limite,
+      offset: deslocamento,
+      sort: ordem,
+      dir,
+      verticals: verticaisDoRecorte,
+    });
   } catch (err) {
     next(err);
   }
@@ -432,7 +495,30 @@ router.get("/performance", requirePermission("demand:read"), async (req: Request
       },
     });
 
-    const pessoas = medirPorPessoa(demandas);
+    // F9 — a RÉGUA DE QUEM LÊ, decidida pelo dono na F8 (resposta F): "o
+    // prevendas ve o desempenho dele, das demanda que ele esta trabalhando. o
+    // gerente ve o do time."
+    //
+    // Até aqui a rota devolvia a lista de TODAS as pessoas para qualquer um com
+    // `demand:read` — ou seja, quem trabalha na fila via o número individual de
+    // todo mundo. Passa a valer:
+    //
+    //  - GERENTE (`demand:manage`, a mesma permissão que aprova devolução e
+    //    direciona a fila desde a F5): vê o time, pessoa por pessoa;
+    //  - QUALQUER OUTRA PESSOA com `demand:read`: vê só a linha dela.
+    //
+    // A média da EQUIPE (`team`) continua indo para os dois, e isso é
+    // deliberado: é agregado, não é recorte por gente, e a própria D20 já
+    // manda essa média até para o CRM. O que a D20 proíbe — o desempenho por
+    // PESSOA sair deste produto — segue proibido, palavra por palavra.
+    //
+    // `scope` viaja no corpo porque a tela precisa saber qual das duas coisas
+    // está desenhando: sem ele, "uma linha só" seria indistinguível de "o time
+    // tem uma pessoa só", e o rótulo mentiria.
+    const souGerente = await eGerente(req.headers["x-role-id"] as string);
+    const usuarioAtual = requireUserId(req);
+    const todas = medirPorPessoa(demandas);
+    const pessoas = souGerente ? todas : todas.filter((p) => p.userId === usuarioAtual);
     const nomes = new Map(
       (await prisma.user.findMany({ where: { id: { in: pessoas.map((p) => p.userId) } }, select: { id: true, name: true } })).map(
         (u) => [u.id, u.name]
@@ -442,6 +528,7 @@ router.get("/performance", requirePermission("demand:read"), async (req: Request
     res.json({
       days: janela,
       since: desde.toISOString(),
+      scope: souGerente ? "team" : "self",
       team: medir(demandas),
       people: pessoas.map((p) => ({ user_id: p.userId, name: nomes.get(p.userId) ?? p.userId, ...p.medicao })),
     });
