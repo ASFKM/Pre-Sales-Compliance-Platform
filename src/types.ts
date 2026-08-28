@@ -868,6 +868,52 @@ export interface Demand {
   return_request_reason?: string | null;
   return_decided_at?: string | null;
   return_rejection_reason?: string | null;
+
+  // ── CDC 16 Fase 7 ─────────────────────────────────────────────────────────
+  /** Pedido de cancelamento vindo do CRM, já aprovado pelo líder direto (D18). */
+  cancellation_requested_at?: string | null;
+  cancellation_justification?: string | null;
+  cancellation_approved_by?: string | null;
+  cancellation_closed_at?: string | null;
+  cancellation_closed_by?: string | null;
+  /** Como o pedido terminou: `cancelled` (encerrada) ou `completed` (concluída mesmo assim). */
+  cancellation_outcome?: "cancelled" | "completed" | null;
+  /** Atualizações pós-envio aguardando decisão (D27). No detalhe vêm todas. */
+  pending_updates?: DemandUpdateSummary[];
+}
+
+/** Uma atualização pós-envio, com o antes e o depois campo a campo (D27). */
+export interface DemandUpdateSummary {
+  id: string;
+  /** `oportunidade_perdida` (D29), `prazo`, `escopo`, `comercial` ou `documentos`. */
+  kind: string;
+  note?: string | null;
+  changed_at: string;
+  received_at: string;
+  changed_by?: string | null;
+  changes: Array<{ campo: string; rotulo: string; antes: string | null; depois: string | null }>;
+}
+
+/** Uma execução do expurgo em cascata (D35), como a tela a lê. */
+export interface CrmPurgeExecutionSummary {
+  id: string;
+  reason: "retention" | "data_subject_request";
+  crm_installation_id: string;
+  targets: Array<{ kind: string; crm_id: string }>;
+  results: Array<{
+    kind: string;
+    crm_id: string;
+    deleted: number;
+    documents: Array<{ document_ref: string; sha256: string; file_deleted: boolean; materialized: boolean }>;
+    demands: string[];
+    projects_unlinked: number;
+    error?: string;
+  }>;
+  documents_deleted: number;
+  demands_deleted: number;
+  files_deleted: number;
+  projects_unlinked: number;
+  executed_at: string;
 }
 
 /** CDC 16 F5: a configuração de prazo e de atribuição da instalação (D16, D19). */

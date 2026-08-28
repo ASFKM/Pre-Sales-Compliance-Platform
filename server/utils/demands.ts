@@ -3,15 +3,32 @@ import { prisma } from "../../src/prisma";
 import { randomId } from "../../src/idGenerator";
 import type { VerifiedPair } from "./pairKey";
 
+/**
+ * O cliente de dentro de um `$transaction`.
+ *
+ * `Prisma.TransactionClient` não serve: o `prisma` deste produto é ESTENDIDO
+ * (o recorte por tenant de `src/prisma.ts`), e o tipo do cliente estendido
+ * dentro da transação é outro. Derivá-lo do próprio `prisma` mantém os dois em
+ * sincronia sem repetir a lista de métodos que a transação não expõe.
+ */
+export type ClienteDeTransacao = Omit<
+  typeof prisma,
+  "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends"
+>;
+
 // CDC 16 — Fase 1. A Demanda: validação do envelope, estado e o ato de assumir.
 //
 // Contrato: fleet-manager:docs/cdc/16-contratos/presales-inbound.v1.yaml.
 // O que este arquivo NÃO faz, de propósito: SLA e política de atribuição (F5),
-// atualização pós-envio, cancelamento e expurgo (F7).
+// e o ciclo de vida da F7 — cancelamento, atualização pós-envio e expurgo —,
+// que vive em `demandLifecycle.ts` (a regra pura), `demandLifecycleService.ts`
+// (o que escreve) e `crmPurge.ts` (o que apaga). Daqui a F7 leva só duas
+// coisas: os schemas do envelope, que são os mesmos, e `materializarDocumentos`,
+// que a incorporação de um adendo reusa inteira.
 
 // ─── O envelope, exatamente como a spec o descreve ──────────────────────────
 
-const AtorRef = z.object({
+export const AtorRef = z.object({
   crm_user_id: z.string().min(1),
   name: z.string().min(1),
   // "usado só para notificação, nunca para criar conta" (D34).
@@ -29,7 +46,7 @@ const EmpresaRef = z.object({
   type: z.string().optional(),
 });
 
-const RetratoDaOportunidade = z.object({
+export const RetratoDaOportunidade = z.object({
   crm_opportunity_id: z.string().min(1),
   name: z.string().min(1),
   deal_type: z.string().optional(),
@@ -46,7 +63,7 @@ const RetratoDaOportunidade = z.object({
 // A ficha (D09). Os campos obrigatórios aqui são EXATAMENTE os que Project exige
 // para nascer - é por isso que "ficha incompleta não envia" é regra do CRM: sem
 // eles, assumir não teria como criar o projeto sem perguntar algo a quem assumiu.
-const Ficha = z.object({
+export const Ficha = z.object({
   title: z.string().min(3),
   vertical: z.string().min(2),
   description: z.string().min(1),
@@ -66,7 +83,7 @@ const Ficha = z.object({
   procurement_subtype: z.string().optional(),
 });
 
-const DeclaracaoDeDocumento = z.object({
+export const DeclaracaoDeDocumento = z.object({
   document_ref: z.string().min(1),
   filename: z.string().min(1),
   mime_type: z.string().min(1),
@@ -90,6 +107,33 @@ export const DemandCreateSchema = z.object({
 });
 
 export type DemandCreateInput = z.infer<typeof DemandCreateSchema>;
+
+/**
+ * F7 (D27): o que mudou na oportunidade DEPOIS do envio.
+ *
+ * "Só o que mudou; ausência de campo significa 'não mudou', nunca 'apagar'" —
+ * a spec, literalmente, e é por isso que todo campo é opcional aqui. O que NÃO
+ * é opcional é a forma de cada um: quando `opportunity` ou `sheet` vem, vem
+ * INTEIRO, porque é o que a spec declara (ela referencia os mesmos schemas
+ * `OpportunitySnapshot` e `ProjectSheet` da criação). Aceitar meia ficha seria
+ * inventar um schema que o contrato não tem.
+ *
+ * `company` não está aqui, e também não está na spec: a empresa é referência
+ * (D31), e trocá-la seria repontar a demanda para outro cliente — o que não é
+ * uma atualização, é outra demanda. Pelo mesmo motivo, `crm_opportunity_id`
+ * viaja dentro de `opportunity` e é IGNORADO na aplicação.
+ */
+export const DemandPatchSchema = z.object({
+  opportunity: RetratoDaOportunidade.optional(),
+  sheet: Ficha.optional(),
+  documents: z.array(DeclaracaoDeDocumento).optional(),
+  objective: z.string().optional(),
+  changed_by: AtorRef.optional(),
+  changed_at: z.string().min(4).optional(),
+  note: z.string().optional(),
+});
+
+export type DemandPatchInput = z.infer<typeof DemandPatchSchema>;
 
 // Datas chegam como texto (date ou date-time). Uma data inválida vira erro de
 // validação com nome de campo, e não um `Invalid Date` que só apareceria muito
@@ -344,57 +388,16 @@ export async function assumirDemanda(
       },
     });
 
-    let materializados = 0;
-    let semConteudo = 0;
-    for (const dd of demanda.documents) {
-      if (!dd.storagePath || !dd.storageProvider) {
-        // Declarado e sem binário: o upload não chegou (ou falhou). Não vira
-        // Document, porque um Document sem arquivo é uma promessa quebrada para
-        // toda tela que oferece "baixar". Continua registrado na demanda.
-        semConteudo += 1;
-        continue;
-      }
-      const documentId = randomId("d");
-      await tx.document.create({
-        data: {
-          id: documentId,
-          tenantId: demanda.tenantId,
-          projectId,
-          filename: dd.filename,
-          originalFilename: dd.filename,
-          mimeType: dd.mimeType,
-          fileSize: dd.sizeBytes,
-          storageProvider: dd.storageProvider,
-          storagePath: dd.storagePath,
-          // Mesmo par que classifyDocument devolve quando não conseguiu
-          // classificar: rótulo neutro e confiança ZERO, visivelmente não um
-          // palpite. A reclassificação sob demanda já existe
-          // (POST /documents/:id/reclassify) e é o caminho de quem quiser o
-          // rótulo real - gastar uma chamada de IA por documento no ato de
-          // assumir não está no escopo desta fase, e D36 fala de duas leituras
-          // com propósito, não de três.
-          detectedDocumentType: "Other",
-          aiClassificationConfidence: 0,
-          version: 1,
-          language: "Portuguese",
-          // F6: `sentByName` passou a ser anulável (a demanda ESPELHO não teve remetente do
-          // lado do CRM). Aqui ele nunca é nulo na prática — demanda espelho não traz documento,
-          // porque o edital já foi subido AQUI —, e o rótulo neutro é o que mantém o caminho
-          // honesto se um dia trouxer.
-          uploadedBy: demanda.sentByName ?? "Pré-vendas",
-        },
-      });
-      if (dd.extractedText) {
-        // O texto que o CRM já extraiu entra como conteúdo do documento: é o que
-        // a análise técnica lê, e é por isso que a extração do PDF não se repete
-        // deste lado (D36).
-        await tx.documentContent.create({
-          data: { documentId, tenantId: demanda.tenantId, content: dd.extractedText },
-        });
-      }
-      await tx.demandDocument.update({ where: { id: dd.id }, data: { documentId } });
-      materializados += 1;
-    }
+    const materializacao = await materializarDocumentos(tx, {
+      tenantId: demanda.tenantId,
+      projectId,
+      // F6: `sentByName` passou a ser anulável (a demanda ESPELHO não teve remetente do lado do
+      // CRM). O rótulo neutro é o que mantém o caminho honesto se um dia trouxer documento.
+      uploadedBy: demanda.sentByName ?? "Pré-vendas",
+      documentos: demanda.documents,
+    });
+    const materializados = materializacao.materializados;
+    const semConteudo = materializacao.semConteudo;
 
     await tx.demand.update({ where: { id: demandaId }, data: { projectId } });
 
@@ -420,6 +423,88 @@ export async function assumirDemanda(
       documentosSemConteudo: semConteudo,
     } as ResultadoAssumir;
   });
+}
+
+/**
+ * Os documentos da demanda passam a pendurar num Projeto.
+ *
+ * Extraída de `assumirDemanda` na F7, sem mudar uma linha do que ela fazia: a
+ * incorporação de uma atualização que traz ADENDO (D27) precisa exatamente
+ * disto, sobre um projeto que já existe, e duplicar o laço deixaria duas cópias
+ * de uma regra que decide o que a tela oferece para baixar.
+ *
+ * Documento declarado e sem binário NÃO vira `Document`: um `Document` sem
+ * arquivo é uma promessa quebrada para toda tela que oferece "baixar". Continua
+ * registrado na demanda, e vira `Document` no dia em que o upload chegar e
+ * alguém incorporar.
+ */
+export async function materializarDocumentos(
+  tx: ClienteDeTransacao,
+  entrada: {
+    tenantId: string;
+    projectId: string;
+    uploadedBy: string;
+    documentos: readonly {
+      id: string;
+      documentId: string | null;
+      filename: string;
+      mimeType: string;
+      sizeBytes: number;
+      storageProvider: any;
+      storagePath: string | null;
+      extractedText: string | null;
+    }[];
+  }
+): Promise<{ materializados: number; semConteudo: number }> {
+  let materializados = 0;
+  let semConteudo = 0;
+  for (const dd of entrada.documentos) {
+    // Já materializado: nada a fazer. Só acontece na incorporação, onde a lista
+    // tem os documentos antigos junto dos novos — e regravá-los criaria um
+    // segundo `Document` para o mesmo arquivo, dois "baixar" para o mesmo hash.
+    if (dd.documentId) continue;
+    if (!dd.storagePath || !dd.storageProvider) {
+      semConteudo += 1;
+      continue;
+    }
+    const documentId = randomId("d");
+    await tx.document.create({
+      data: {
+        id: documentId,
+        tenantId: entrada.tenantId,
+        projectId: entrada.projectId,
+        filename: dd.filename,
+        originalFilename: dd.filename,
+        mimeType: dd.mimeType,
+        fileSize: dd.sizeBytes,
+        storageProvider: dd.storageProvider,
+        storagePath: dd.storagePath,
+        // Mesmo par que `classifyDocument` devolve quando não conseguiu
+        // classificar: rótulo neutro e confiança ZERO, visivelmente não um
+        // palpite. A reclassificação sob demanda já existe
+        // (POST /documents/:id/reclassify) e é o caminho de quem quiser o
+        // rótulo real — gastar uma chamada de IA por documento no ato de
+        // assumir não está no escopo desta frente, e a D36 fala de duas
+        // leituras com propósito, não de três.
+        detectedDocumentType: "Other",
+        aiClassificationConfidence: 0,
+        version: 1,
+        language: "Portuguese",
+        uploadedBy: entrada.uploadedBy,
+      },
+    });
+    if (dd.extractedText) {
+      // O texto que o CRM já extraiu entra como conteúdo do documento: é o que
+      // a análise técnica lê, e é por isso que a extração do PDF não se repete
+      // deste lado (D36).
+      await tx.documentContent.create({
+        data: { documentId, tenantId: entrada.tenantId, content: dd.extractedText },
+      });
+    }
+    await tx.demandDocument.update({ where: { id: dd.id }, data: { documentId } });
+    materializados += 1;
+  }
+  return { materializados, semConteudo };
 }
 
 // ─── A devolução ────────────────────────────────────────────────────────────

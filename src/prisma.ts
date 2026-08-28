@@ -36,6 +36,11 @@ export const TENANT_SCOPED_MODELS = new Set([
   // tenant por tenant, e uma consulta sem `where` explícito ali alertaria o
   // gerente de uma instalação sobre a fila de outra.
   "demandSlaSettings", "demandSlaBreach",
+  // F7: a atualização pós-envio e o registro do expurgo em cascata. A
+  // primeira é dado de UMA demanda; o segundo é prova de conformidade, e um
+  // registro de expurgo visível de outro tenant contaria o que foi apagado na
+  // instalação vizinha.
+  "demandUpdate", "crmPurgeExecution",
   "diagnosticsOutboxEvent", "document",
   "documentContent", "iaKbBillingSnapshot", "idempotencyRecord",
   "iaKbTaskConfig", "integrationConnector", "itemAliasMapping",

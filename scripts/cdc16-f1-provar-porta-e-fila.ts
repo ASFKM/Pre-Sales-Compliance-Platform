@@ -367,13 +367,46 @@ async function secaoC() {
   });
   conferir("reenviar o MESMO conteúdo devolve 200 e não regrava (D11)", denovo.status === 200 && denovo.corpo?.stored === false, { status: denovo.status, corpo: denovo.corpo });
 
-  // Com chave válida a rota é resolvida de verdade, então é aqui - e só aqui -
-  // que dá para provar que os caminhos da F7 ainda NÃO existem, em vez de
-  // existirem pela metade.
-  for (const [metodo, caminho] of [["PATCH", `/demands/${ref}`], ["POST", `/demands/${ref}/cancel`], ["POST", "/purge"]] as const) {
-    const r = await chamar(`${PORTA_MAQUINA}${caminho}`, { method: metodo, headers: auth, body: "{}" });
-    conferir(`${metodo} ${caminho} (F7) ainda não existe: 404`, r.status === 404, r.status);
-  }
+  // Os três caminhos da F7 EXISTEM desde 28/08/2026, e a superfície da spec
+  // fechou em seis de seis. Até então esta conferência exigia 404 aqui — era a
+  // única forma verificável de dizer "ainda não existe" em vez de "existe pela
+  // metade". Agora ela prova o contrário, e continua sendo a mesma pergunta:
+  // que a rota é RESOLVIDA, e não engolida pelo 404 genérico da API.
+  //
+  // O que se confere é o erro NOMEADO de cada uma sobre uma demanda que não
+  // existe — 404 `demand_not_found` do PATCH e do /cancel, 422 do /purge sem
+  // alvo. Um 404 do roteador não traz `error` nenhum, e é o que separa os dois.
+  const refInexistenteF7 = "nao-existe-mesmo-cdc16";
+  const patchF7 = await chamar(`${PORTA_MAQUINA}/demands/${refInexistenteF7}`, {
+    method: "PATCH",
+    headers: { ...auth, "Idempotency-Key": "f1-confere-patch-f7" },
+    body: "{}",
+  });
+  conferir(
+    "PATCH /demands/{ref} (F7) existe: 404 demand_not_found, e não o 404 do roteador",
+    patchF7.status === 404 && patchF7.corpo?.error === "demand_not_found",
+    `${patchF7.status} ${patchF7.corpo?.error}`
+  );
+  const cancelF7 = await chamar(`${PORTA_MAQUINA}/demands/${refInexistenteF7}/cancel`, {
+    method: "POST",
+    headers: auth,
+    body: JSON.stringify({ justification: "conferencia da porta, dez ou mais", approved_by: { crm_user_id: "x", name: "y" } }),
+  });
+  conferir(
+    "POST /demands/{ref}/cancel (F7) existe: 404 demand_not_found",
+    cancelF7.status === 404 && cancelF7.corpo?.error === "demand_not_found",
+    `${cancelF7.status} ${cancelF7.corpo?.error}`
+  );
+  const purgeF7 = await chamar(`${PORTA_MAQUINA}/purge`, {
+    method: "POST",
+    headers: auth,
+    body: JSON.stringify({ reason: "retention", targets: [] }),
+  });
+  conferir(
+    "POST /purge (F7) existe: 422 validation_error com alvo vazio",
+    purgeF7.status === 422 && purgeF7.corpo?.error === "validation_error",
+    `${purgeF7.status} ${purgeF7.corpo?.error}`
+  );
 
   const naoDeclarado = await chamar(`${PORTA_MAQUINA}/demands/${ref}/documents/doc_que_nao_foi_declarado/content`, {
     method: "PUT",

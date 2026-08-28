@@ -50,7 +50,13 @@ export type EventoDeSaida =
   | "proposal_ready"
   // F5: o prazo do SLA que venceu (D19). O evento existia no contrato e na
   // porta do CMCRM desde a F3, e nunca tinha sido emitido por ninguém.
-  | "sla_breached";
+  | "sla_breached"
+  // F7: o cancelamento aprovado pelo líder direto, confirmado deste lado (D18).
+  // Mesma história do `sla_breached`: estava no enum do contrato, no mapa de
+  // marcos e na lista de MARCOS FORTES do CMCRM desde a F3, e nunca tinha sido
+  // emitido por ninguém. É o TERCEIRO marco forte — o único desta frente que
+  // manda e-mail e que ninguém tinha visto sair.
+  | "cancellation_ack";
 
 function segundosEntre(fim: Date, inicio: Date | null | undefined): number | undefined {
   if (!inicio) return undefined;
@@ -604,6 +610,17 @@ export async function concluirDemandaDoProjeto(projectId: string, tenantId: stri
       data: { status: "completed", completedAt: agora },
     });
     if (fechou.count === 0) return;
+
+    // F7 (D29): "quem assumiu decide encerrar ou concluir". Concluir é a outra
+    // saída, e ela também RESOLVE um pedido de cancelamento pendente — deixá-lo
+    // aberto sobre uma demanda concluída faria a tela pedir para sempre uma
+    // decisão que já foi tomada, pelo caminho de sempre. `cancellation_ack` NÃO
+    // sai daqui: nada foi cancelado, e o `completed` logo abaixo é o que conta
+    // ao CRM o que de fato aconteceu.
+    await prisma.demand.updateMany({
+      where: { tenantId, projectId, cancellationRequestedAt: { not: null }, cancellationClosedAt: null },
+      data: { cancellationClosedAt: agora, cancellationOutcome: "completed" },
+    });
 
     const demanda = await prisma.demand.findFirst({
       where: { tenantId, projectId, status: "completed" },

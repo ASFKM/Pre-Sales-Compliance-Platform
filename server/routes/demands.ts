@@ -13,6 +13,11 @@ import {
   reatribuirDemanda,
 } from "../utils/demands";
 import { empurrarMarcoDaDemanda } from "../utils/crmOutbox";
+import {
+  incorporarAtualizacao,
+  descartarAtualizacao,
+  encerrarCancelamento,
+} from "../utils/demandLifecycleService";
 import { calcularDueAt, etapaPendente, medir, medirPorPessoa, type ConfiguracaoDeSla } from "../utils/demandSla";
 import { lerSla, gravarSla } from "../utils/demandSlaConfig";
 import {
@@ -43,7 +48,12 @@ import {
 // atribuição (D16), o papel de gerente de pré-vendas e a aprovação da devolução
 // por ele (D17), os alertas de prazo vencido e a medição por pessoa (D20).
 //
-// Fora do escopo, por decisão do plano: cancelamento vindo do CRM (F7).
+// F7: o cancelamento que vem do CRM (D18) e a atualização pós-envio (D27)
+// entram pela PORTA DE MÁQUINA, não por aqui. O que estas rotas ganharam são as
+// DECISÕES que a D27 e a D29 reservam para gente deste lado: incorporar ou
+// descartar uma atualização, e encerrar a demanda depois de um pedido de
+// cancelamento. Mais a leitura do registro de expurgo (D35), que é prova de
+// conformidade e por isso não é apagável por rota nenhuma.
 //
 // UMA regra atravessa tudo o que a F5 acrescentou: o auto-serviço é o padrão e
 // não pode quebrar. Toda instalação que existe hoje está nele e nenhuma
@@ -61,6 +71,17 @@ const RELACOES_DE_PESSOA = {
   assignedUser: { select: { name: true } },
   assignedBy: { select: { name: true } },
   returnRequestedBy: { select: { name: true } },
+} as const;
+
+/**
+ * F7: as atualizações que AGUARDAM decisão (D27).
+ *
+ * Só as pendentes entram na listagem. As já decididas são histórico e vivem no
+ * detalhe — trazer todas faria a fila carregar, a cada abertura, o diff inteiro
+ * de toda atualização que já aconteceu na vida de cada demanda.
+ */
+const ATUALIZACOES_PENDENTES = {
+  updates: { where: { status: "pending" as const }, orderBy: { changedAt: "asc" as const } },
 } as const;
 
 function mapDemand(d: any, sla: (ConfiguracaoDeSla & { assignmentPolicy: string }) | null = null) {
@@ -133,6 +154,25 @@ function mapDemand(d: any, sla: (ConfiguracaoDeSla & { assignmentPolicy: string 
     return_request_reason: d.returnRequestReason ?? null,
     return_decided_at: d.returnDecidedAt ?? null,
     return_rejection_reason: d.returnRejectionReason ?? null,
+    // ── F7 ──────────────────────────────────────────────────────────────────
+    // O pedido de cancelamento que veio do CRM (D18) e ainda não foi encerrado.
+    // `cancellation_outcome` preenchido significa que já acabou, e diz COMO:
+    // `cancelled` se quem assumiu encerrou, `completed` se preferiu concluir.
+    cancellation_requested_at: d.cancellationRequestedAt ?? null,
+    cancellation_justification: d.cancellationJustification ?? null,
+    cancellation_approved_by: d.cancellationApprovedByName ?? null,
+    cancellation_closed_at: d.cancellationClosedAt ?? null,
+    cancellation_closed_by: d.cancellationClosedBy?.name ?? null,
+    cancellation_outcome: d.cancellationOutcome ?? null,
+    pending_updates: (d.updates || []).map((u: any) => ({
+      id: u.id,
+      kind: u.kind,
+      note: u.note,
+      changed_at: u.changedAt,
+      received_at: u.receivedAt,
+      changed_by: u.changedByName,
+      changes: u.changes,
+    })),
     project_id: d.projectId,
     documents: (d.documents || []).map((doc: any) => ({
       id: doc.id,
@@ -183,7 +223,7 @@ router.get("/", requirePermission("demand:read"), async (req: Request, res: Resp
 
     const demandas = await prisma.demand.findMany({
       where: { status: { in: status as any } },
-      include: { documents: true, ...RELACOES_DE_PESSOA },
+      include: { documents: true, ...RELACOES_DE_PESSOA, ...ATUALIZACOES_PENDENTES },
       // Prazo primeiro: numa fila de auto-serviço, a ordem em que as coisas
       // aparecem é a política de atribuição de fato enquanto a F5 não chega.
       orderBy: [{ deadline: "asc" }, { queuedAt: "asc" }],
@@ -410,11 +450,55 @@ router.get("/performance", requirePermission("demand:read"), async (req: Request
   }
 });
 
+// ─── F7: o registro do expurgo em cascata (D35) ─────────────────────────────
+//
+// Leitura, e só leitura. Não há rota que apague uma linha desta tabela, e a
+// ausência é a decisão: "sem o registro, apagar de um lado só é conformidade de
+// mentira" — e um registro que o próprio produto sabe apagar é a mesma mentira
+// com mais passos. `demand:read` porque quem trabalha na fila é quem vai
+// procurar o documento que sumiu.
+//
+// Declarada ANTES de `GET /:id`: o Express casa por ordem, e `/purges` cairia
+// no parâmetro `:id` se viesse depois — devolvendo "demanda não encontrada"
+// sobre uma rota que existe.
+router.get("/purges", requirePermission("demand:read"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const execucoes = await prisma.crmPurgeExecution.findMany({
+      orderBy: { executedAt: "desc" },
+      take: 100,
+    });
+    res.json(
+      execucoes.map((e) => ({
+        id: e.id,
+        reason: e.reason,
+        crm_installation_id: e.crmInstallationId,
+        targets: e.targets,
+        results: e.results,
+        documents_deleted: e.documentsDeleted,
+        demands_deleted: e.demandsDeleted,
+        files_deleted: e.filesDeleted,
+        projects_unlinked: e.projectsUnlinked,
+        executed_at: e.executedAt,
+      }))
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get("/:id", requirePermission("demand:read"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const demanda = await prisma.demand.findUnique({
       where: { id: req.params.id },
-      include: { documents: true, ...RELACOES_DE_PESSOA },
+      include: {
+        documents: true,
+        ...RELACOES_DE_PESSOA,
+        cancellationClosedBy: { select: { name: true } },
+        // No detalhe vêm TODAS, e não só as pendentes: a decisão já tomada é
+        // parte do histórico da demanda, e é ela que responde "por que o prazo
+        // do projeto é outro" meses depois.
+        updates: { orderBy: { changedAt: "desc" } },
+      },
     });
     if (!demanda) return res.status(404).json({ success: false, message: "Demanda não encontrada." });
     res.json(mapDemand(demanda, await lerSla()));
@@ -787,6 +871,175 @@ router.post("/:id/return/reject", requirePermission(PERMISSAO_DE_GERENTE), async
     if (err instanceof z.ZodError) {
       return res.status(400).json({ success: false, message: err.issues[0].message });
     }
+    next(err);
+  }
+});
+
+// ─── F7: as decisões que a D27 e a D29 reservam para gente daqui ────────────
+
+/**
+ * Quem pode decidir sobre uma demanda que tem dono.
+ *
+ * Mesma régua da devolução, e pela mesma razão: quem assumiu decide sobre o
+ * próprio trabalho, e quem enxerga todos os projetos (o administrador, por
+ * `project:read_all`) ou é gerente de pré-vendas (`demand:manage`, F5) pode
+ * destravar o de alguém que saiu da equipe.
+ */
+async function podeDecidirSobre(req: Request, demanda: { assignedUserId: string | null }, userId: string) {
+  if (demanda.assignedUserId === userId) return true;
+  const role = await dbStore.getRoleById(req.headers["x-role-id"] as string);
+  return Boolean(
+    role?.permissions.includes("project:read_all") || role?.permissions.includes(PERMISSAO_DE_GERENTE)
+  );
+}
+
+// Incorporar: levar a atualização para o PROJETO (D27). Até aqui ela só existia
+// na demanda, que é o que o CRM diz; o projeto é o que o pré-vendas faz, e a
+// travessia entre os dois é uma decisão, não um efeito.
+router.post("/:id/updates/:updateId/incorporate", requirePermission("demand:assume"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = requireUserId(req);
+    const demanda = await prisma.demand.findUnique({ where: { id: req.params.id } });
+    if (!demanda) return res.status(404).json({ success: false, message: "Demanda não encontrada." });
+    if (!(await podeDecidirSobre(req, demanda, userId))) {
+      return res.status(403).json({ success: false, message: "Só quem assumiu a demanda pode decidir sobre as atualizações dela." });
+    }
+
+    const resultado = await incorporarAtualizacao(req.params.updateId, userId);
+    if (!resultado.ok) {
+      if (resultado.motivo === "not_found") return res.status(404).json({ success: false, message: "Atualização não encontrada." });
+      if (resultado.motivo === "sem_projeto") {
+        return res.status(409).json({ success: false, message: "Esta demanda ainda não tem projeto; a atualização já está na demanda e o projeto nascerá dela." });
+      }
+      return res.status(409).json({ success: false, message: `Esta atualização já foi ${resultado.status === "incorporated" ? "incorporada" : "descartada"}.` });
+    }
+
+    await dbStore.addAuditLog({
+      user_id: userId,
+      action: "Incorporate Demand Update",
+      entity_type: "Demand",
+      entity_id: req.params.id,
+      project_id: demanda.projectId ?? undefined,
+      ip_address: req.ip || "127.0.0.1",
+      user_agent: req.headers["user-agent"] || "unknown",
+      metadata: JSON.stringify({
+        demand_ref: demanda.demandRef,
+        update_id: req.params.updateId,
+        campos_aplicados: resultado.aplicadasAoProjeto,
+        documentos_materializados: resultado.documentosMaterializados,
+        atualizacoes_cobertas: resultado.cobertas,
+      }),
+    });
+
+    const atual = await prisma.demand.findUnique({
+      where: { id: req.params.id },
+      include: { documents: true, ...RELACOES_DE_PESSOA, ...ATUALIZACOES_PENDENTES },
+    });
+    res.json({
+      success: true,
+      documents_materialized: resultado.documentosMaterializados,
+      covered_updates: resultado.cobertas,
+      demand: mapDemand(atual, await lerSla()),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const DescarteSchema = z.object({
+  note: z.string().trim().min(10, "Diga em uma frase por que a atualização não vai para o projeto (mínimo 10 caracteres)."),
+});
+
+// Descartar: a pessoa VIU o que mudou e decidiu não levar para o projeto. Exige
+// motivo pelo mesmo motivo que a devolução exige (D17): sem ele, meses depois,
+// ninguém sabe se a atualização foi recusada ou se alguém clicou sem ler.
+router.post("/:id/updates/:updateId/dismiss", requirePermission("demand:assume"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = requireUserId(req);
+    const { note } = DescarteSchema.parse(req.body);
+    const demanda = await prisma.demand.findUnique({ where: { id: req.params.id } });
+    if (!demanda) return res.status(404).json({ success: false, message: "Demanda não encontrada." });
+    if (!(await podeDecidirSobre(req, demanda, userId))) {
+      return res.status(403).json({ success: false, message: "Só quem assumiu a demanda pode decidir sobre as atualizações dela." });
+    }
+
+    const resultado = await descartarAtualizacao(req.params.updateId, userId, note.trim());
+    if (!resultado.ok) {
+      if (resultado.motivo === "not_found") return res.status(404).json({ success: false, message: "Atualização não encontrada." });
+      return res.status(409).json({ success: false, message: "Esta atualização já foi decidida." });
+    }
+
+    await dbStore.addAuditLog({
+      user_id: userId,
+      action: "Dismiss Demand Update",
+      entity_type: "Demand",
+      entity_id: req.params.id,
+      ip_address: req.ip || "127.0.0.1",
+      user_agent: req.headers["user-agent"] || "unknown",
+      metadata: JSON.stringify({ demand_ref: demanda.demandRef, update_id: req.params.updateId, note: note.trim() }),
+    });
+
+    const atual = await prisma.demand.findUnique({
+      where: { id: req.params.id },
+      include: { documents: true, ...RELACOES_DE_PESSOA, ...ATUALIZACOES_PENDENTES },
+    });
+    res.json({ success: true, demand: mapDemand(atual, await lerSla()) });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ success: false, message: err.issues[0].message });
+    }
+    next(err);
+  }
+});
+
+// Encerrar depois do pedido de cancelamento (D18). A outra saída é CONCLUIR o
+// projeto pelo caminho de sempre — a D29 nomeia as duas, e é `crmOutbox` quem
+// fecha o pedido naquele caso.
+router.post("/:id/cancel/close", requirePermission("demand:assume"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = requireUserId(req);
+    const demanda = await prisma.demand.findUnique({ where: { id: req.params.id } });
+    if (!demanda) return res.status(404).json({ success: false, message: "Demanda não encontrada." });
+    if (!(await podeDecidirSobre(req, demanda, userId))) {
+      return res.status(403).json({ success: false, message: "Só quem assumiu a demanda pode encerrá-la." });
+    }
+
+    const resultado = await encerrarCancelamento(req.params.id, userId);
+    if (!resultado.ok) {
+      if (resultado.motivo === "not_found") return res.status(404).json({ success: false, message: "Demanda não encontrada." });
+      if (resultado.motivo === "sem_pedido") {
+        return res.status(409).json({ success: false, message: "Não há pedido de cancelamento aberto nesta demanda." });
+      }
+      return res.status(409).json({ success: false, message: `Uma demanda com status "${resultado.status}" não pode ser encerrada.` });
+    }
+
+    await dbStore.addAuditLog({
+      user_id: userId,
+      action: "Close Demand Cancellation",
+      entity_type: "Demand",
+      entity_id: req.params.id,
+      project_id: demanda.projectId ?? undefined,
+      ip_address: req.ip || "127.0.0.1",
+      user_agent: req.headers["user-agent"] || "unknown",
+      metadata: JSON.stringify({ demand_ref: demanda.demandRef, justification: demanda.cancellationJustification }),
+    });
+
+    // Agora sim o `cancellation_ack`, com ATOR: alguém deste lado encerrou, e a
+    // timeline do vendedor precisa dizer quem — ao contrário do cancelamento na
+    // fila, onde ninguém daqui agiu.
+    const quem = await dbStore.getUserById(userId);
+    await empurrarMarcoDaDemanda({
+      tenantId: resultado.demanda.tenantId,
+      demanda: resultado.demanda,
+      event: "cancellation_ack",
+      occurredAt: resultado.demanda.cancelledAt ?? new Date(),
+      actor: { name: quem?.name ?? "Pré-vendas", presales_user_id: userId },
+      note: "Encerrada pelo pré-vendas depois do pedido de cancelamento aprovado no CRM.",
+      projectId: resultado.demanda.projectId,
+    });
+
+    res.json({ success: true, demand: mapDemand(resultado.demanda, await lerSla()) });
+  } catch (err) {
     next(err);
   }
 });
