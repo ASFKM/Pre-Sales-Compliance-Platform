@@ -83,6 +83,7 @@ async function main() {
     await prisma.demand.deleteMany({ where: { source: "presales" } });
     await prisma.project.deleteMany({ where: { name: { startsWith: PREFIXO } } });
     await prisma.crmPairKey.updateMany({ where: { tenantId: TENANT }, data: { crmOrganizationId: null } });
+    linhas.push("(cenário anterior limpo por prefixo antes de montar o novo)");
 
     const chaveDoPar = await lerChaveDoCrm(TENANT);
     checar("a chave do par está guardada deste lado (F3)", !!chaveDoPar, `hint=${chaveDoPar?.keyHint ?? "-"}`);
@@ -322,6 +323,19 @@ async function main() {
     );
 
     // ═══════════════════════════ 7. o modo standalone não muda
+    //
+    // Esta seção APAGA a chave do par por alguns segundos para provar que, sem par, o intake é o
+    // que sempre foi. No banco de prova isso é inofensivo. Contra a instalação PUBLICADA não é:
+    // enquanto a chave não está lá, a fila de saída não tem para onde entregar — recuperável (o
+    // CRM a reapresenta na chamada de entrada seguinte), mas é um efeito que uma prova não precisa
+    // causar numa instalação viva. `PULAR_STANDALONE=1` é para a rodada contra a publicada; a
+    // seção roda inteira no servidor de prova, que é onde ela vale. Mesmo raciocínio do prazo de
+    // assumir que a F5 teve de parametrizar.
+    if (process.env.PULAR_STANDALONE === "1") {
+      linhas.push("== 7. Sem par: PULADA nesta rodada (instalação publicada) ==");
+      linhas.push("  --    provada no servidor de prova, onde apagar a chave do par não afeta ninguém");
+      return;
+    }
     linhas.push("== 7. Sem par, o intake é exatamente o que era (D12) ==");
     const guardada = await prisma.crmPairKey.findUnique({ where: { tenantId: TENANT } });
     await prisma.crmPairKey.delete({ where: { tenantId: TENANT } });
