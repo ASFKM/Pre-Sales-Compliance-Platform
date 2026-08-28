@@ -28,7 +28,6 @@ import {
   Proposal,
   ApprovalWorkflow,
   ApprovalDecision,
-  Task,
   BrandingSettings,
   IntegrationConnector,
   TeamMembership,
@@ -601,23 +600,6 @@ function mapDecision(d: any): ApprovalDecision {
     comments: d.comments,
     created_at: d.createdAt.toISOString(),
   } as ApprovalDecision;
-}
-
-function mapTask(t: any): Task {
-  return {
-    id: t.id,
-    project_id: t.projectId ?? undefined,
-    title: t.title,
-    description: t.description,
-    owner_user_id: t.ownerUserId,
-    due_date: t.dueDate.toISOString().substring(0, 10),
-    status: t.status,
-    priority: t.priority,
-    related_analysis_item: t.relatedAnalysisItem ?? undefined,
-    created_by: t.createdBy,
-    created_at: t.createdAt.toISOString(),
-    updated_at: t.updatedAt.toISOString(),
-  } as Task;
 }
 
 function mapIntegration(i: any): IntegrationConnector {
@@ -2481,60 +2463,6 @@ class DBStore {
 
   public async getApprovalDecisionsForProposal(proposalId: string): Promise<ApprovalDecision[]> {
     return (await prisma.approvalDecision.findMany({ where: { proposalId } })).map(mapDecision);
-  }
-
-  // Tasks
-  public async getTasks(projectId?: string): Promise<Task[]> {
-    return (
-      await prisma.task.findMany({ where: projectId ? { projectId } : undefined, orderBy: { createdAt: "desc" } })
-    ).map(mapTask);
-  }
-
-  public async createTask(task: Omit<Task, "id" | "created_at" | "updated_at">): Promise<Task> {
-    const t = await prisma.task.create({
-      data: {
-        id: randomId("task"),
-        tenantId: requireTenantId(),
-        projectId: task.project_id || undefined,
-        title: task.title,
-        description: task.description,
-        ownerUserId: task.owner_user_id,
-        dueDate: new Date(task.due_date),
-        status: task.status,
-        priority: task.priority,
-        relatedAnalysisItem: task.related_analysis_item,
-        createdBy: task.created_by,
-      },
-    });
-    return mapTask(t);
-  }
-
-  public async updateTask(id: string, updates: Partial<Task>): Promise<Task | undefined> {
-    const exists = await prisma.task.findUnique({ where: { id } });
-    if (!exists) return undefined;
-    const t = await prisma.task.update({
-      where: { id },
-      data: {
-        projectId: updates.project_id,
-        title: updates.title,
-        description: updates.description,
-        ownerUserId: updates.owner_user_id,
-        dueDate: updates.due_date ? new Date(updates.due_date) : undefined,
-        status: updates.status,
-        priority: updates.priority,
-        relatedAnalysisItem: updates.related_analysis_item,
-      },
-    });
-    return mapTask(t);
-  }
-
-  public async deleteTask(id: string): Promise<boolean> {
-    try {
-      await prisma.task.delete({ where: { id } });
-      return true;
-    } catch {
-      return false;
-    }
   }
 
   // Conversation history

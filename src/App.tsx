@@ -1391,16 +1391,28 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
           {activeTab === "home" && (
             <Home
               locale={locale}
-              tx={tx}
               projects={projects}
-              setSelectedProjectId={setSelectedProjectId}
               setActiveTab={setActiveTab}
-              setShowNewProjectModal={setShowNewProjectModal}
               pocModuleEnabled={hasModule("poc") && hasAnyPermission(["poc:read", "poc:manage"])}
-              // CDC 16 F9 - o caminho para a fila, agora que a aba saiu do topo.
-              // A regra é a MESMA que governava a aba, D06 inclusive.
+              // CDC 16 F10 - os dois cards da fila na Inicio, no lugar da ponte
+              // que a F9 deixou marcada como provisoria. A regra de exibicao e a
+              // MESMA que governava a aba ate a F9, D06 inclusive: revogar o par
+              // CONGELA o que ja chegou em vez de apagar da tela.
               demandQueueVisible={hasPermission("demand:read") && (hasModule("integracao_crm_presales") || (demandSummary?.total ?? 0) > 0)}
-              demandSummary={demandSummary}
+              hasPermission={hasPermission}
+              currentUserId={currentSessionUser.id}
+              onQueueChanged={async () => {
+                const res = await fetch("/api/demands/summary");
+                const data = await res.json();
+                if (res.ok) setDemandSummary(data);
+              }}
+              onDemandAssumed={(projectId) => {
+                // Assumir cria o projeto: levar quem assumiu direto para ele e
+                // o passo 7 do §2.2 do plano.
+                void fetchProjects();
+                setSelectedProjectId(projectId);
+                setActiveTab("workspace");
+              }}
             />
           )}
 

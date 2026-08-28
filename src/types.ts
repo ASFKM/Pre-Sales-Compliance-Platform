@@ -678,21 +678,6 @@ export interface ApprovalDecision {
   created_at: string;
 }
 
-export interface Task {
-  id: string;
-  project_id?: string;
-  title: string;
-  description: string;
-  owner_user_id: string;
-  due_date: string;
-  status: "open" | "in_progress" | "waiting_customer" | "waiting_internal" | "completed" | "canceled";
-  priority: "high" | "medium" | "low";
-  related_analysis_item?: string;
-  created_by: string;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface BrandingSettings {
   id: string;
   company_name: string;
@@ -989,6 +974,22 @@ export interface DemandPage {
   sort: string;
   dir: "asc" | "desc";
   verticals: Array<{ vertical: string; count: number }>;
+  /**
+   * F10: os contadores dos avisos, calculados sobre o RECORTE INTEIRO e nunca
+   * sobre a página. É o que destrava a página de cinco linhas: até a F9 a tela
+   * contava os avisos sobre as linhas carregadas e por isso pedia a fila toda
+   * (`limit=200`), porque com uma página curta eles passariam a subcontar — e
+   * aviso que subconta é pior do que aviso nenhum, porque parece resolvido.
+   *
+   * Dois deles são recortados por QUEM PERGUNTA (atualização pendente e
+   * cancelamento aberto são trabalho de quem assumiu); o terceiro, a devolução
+   * esperando decisão, é do gerente e vale para o recorte inteiro.
+   */
+  counts?: {
+    return_pending: number;
+    my_pending_updates: number;
+    my_cancellations: number;
+  };
 }
 
 export interface DemandQueueSummary {
