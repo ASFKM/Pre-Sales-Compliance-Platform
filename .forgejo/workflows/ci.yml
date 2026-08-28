@@ -1,0 +1,65 @@
+# CI completo do Pre-Sales (so tinha os scans antes). Postgres+Redis
+# simples (sem TLS, sem Keycloak/Temporal - o CI do GitHub ja usa esse
+# padrao). "Start app + regression" fica de fora de proposito - e
+# e2e-like, mesma classe do que ja adiamos pro aegis-v3/CMCRM.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: pilot-node22
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint
+
+  test:
+    runs-on: pilot-node22
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: commercial_assistant
+          POSTGRES_USER: app_user
+          POSTGRES_PASSWORD: ci_test_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U app_user -d commercial_assistant"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://app_user:ci_test_only@127.0.0.1:5432/commercial_assistant
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm ci --no-audit --no-fund
+      - run: npx prisma migrate deploy
+      - run: npm run prisma:seed
+      - run: npm test
+
+  build:
+    runs-on: pilot-node22
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
