@@ -22,6 +22,7 @@ import { randomId } from "../../src/idGenerator";
 import { LOGIC_VERSIONS } from "../../src/aiLogicVersions";
 import { logger } from "../utils/logger";
 import { empurrarProposta } from "../utils/crmOutbox";
+import { canReopenProposal, buildReopenedProposalFields } from "../utils/proposalVersioning";
 
 const router = express.Router();
 // Exportada (Fase 8) para que a precedência de branding possa ser provada por teste e por uma
@@ -955,6 +956,169 @@ router.put("/proposals/:id", requirePermission("proposal:edit"), async (req: Req
     if (err instanceof z.ZodError) {
       return res.status(400).json({ success: false, message: err.issues[0].message });
     }
+    next(err);
+  }
+});
+
+/*
+ * PreSales F8 (PARTE B) - REABRIR uma proposta REJEITADA como uma versão nova.
+ *
+ * Decisão de arquitetura: cada reabertura cria uma LINHA NOVA de Proposal (id novo, v2), e a v1
+ * NUNCA é mutada. A v1 fica `rejected` para sempre, congelada, com os arquivos DOCX/PDF e os
+ * pareceres de IA que ela tinha - é o registro auditável do que foi recusado e por quê (o motivo
+ * agora é obrigatório, ver server/utils/approvalDecision.ts). Reabrir mudando o status da v1 de
+ * volta para `draft` apagaria justamente esse registro, e o `PUT` logo em seguida ainda apagaria
+ * os arquivos dela (ver o `deleteFile` incondicional no PUT acima).
+ *
+ * O que amarra as versões: `proposalGroupId` (estável na cadeia inteira) e `previousVersionId`
+ * (elo para trás, `@unique` no banco). O `version`, que era campo morto desde sempre (toda proposta
+ * nascia 1 e nada incrementava), passa a ser o número real: v2 = v1.version + 1.
+ *
+ * Permissão: `proposal:generate`, a MESMA que já protege POST /projects/:projectId/proposals/:type -
+ * nenhuma permissão nova foi inventada. Reabrir literalmente CRIA uma linha de proposta e GERA os
+ * documentos dela, então é a permissão de criar que se aplica; `proposal:edit` (a do PUT) deixaria
+ * qualquer papel futuro que só edite criar propostas por uma porta lateral. Nos três papéis do seed
+ * as duas andam juntas, então na prática nenhum usuário existente perde nem ganha acesso.
+ *
+ * Pareceres de IA: a v2 nasce SEM parecer (`latestOpinionRunId` nulo), exatamente como qualquer
+ * proposta recém-gerada. O gatilho de parecer neste produto não é automático - é o próprio usuário
+ * que dispara `POST /proposals/:id/opinion-panel` pela tela (Proposals.tsx, botão "Gerar Pareceres
+ * de IA", visível só em `draft`), então a v2 segue exatamente o mesmo caminho de uma proposta nova.
+ * Os pareceres antigos continuam ligados à v1 e visíveis nela.
+ *
+ * Geração dos documentos: pelo MESMO par compartilhado da geração inicial
+ * (buildProposalTemplateData + renderAndWriteProposalDocuments). A v2 nasce com os caminhos de
+ * arquivo já apontando para arquivos NOVOS, e nada é apagado - o caminho de deleção incondicional
+ * do PUT não é reaproveitado aqui de propósito: ele existe para trocar o arquivo de uma MESMA
+ * proposta, e reutilizá-lo aqui destruiria o documento da v1.
+ */
+router.post("/proposals/:id/reopen", requirePermission("proposal:generate"), async (req: Request, res: Response, next: NextFunction) => {
+  const correlationId = (req.headers["x-correlation-id"] as string) || "corr-proposal-reopen";
+  const startTime = Date.now();
+
+  try {
+    const rejected = await dbStore.getProposal(req.params.id);
+
+    if (!rejected) {
+      return res.status(404).json({ success: false, message: "Proposal not found." });
+    }
+
+    const guard = canReopenProposal(rejected.status);
+    if (!guard.allowed) {
+      return res.status(400).json({ success: false, message: guard.message });
+    }
+
+    // `previousVersionId` é `@unique` no banco: uma v1 só pode ter UMA sucessora. Conferir antes
+    // transforma o que seria um 500 de violação de constraint (numa reabertura repetida, um duplo
+    // clique, uma repetição de requisição) numa resposta honesta que devolve a v2 que já existe.
+    const existingSuccessor = await prisma.proposal.findUnique({ where: { previousVersionId: rejected.id } });
+    if (existingSuccessor) {
+      return res.status(409).json({
+        success: false,
+        message: `This proposal has already been reopened as version ${existingSuccessor.version}.`,
+        proposal_id: existingSuccessor.id,
+        version: existingSuccessor.version
+      });
+    }
+
+    const project = await dbStore.getProject(rejected.project_id);
+    if (!project) {
+      return res.status(404).json({ success: false, message: "Project not found." });
+    }
+
+    const analysis = await dbStore.getAnalysisResult(rejected.project_id);
+    const platformSettings = await dbStore.getSettings();
+    const templates = await dbStore.getProposalTemplates();
+    const template = templates.find(t => t.id === rejected.template_id);
+    const physicalFileFound = template ? await checkTemplatePhysicalFile(template, platformSettings) : false;
+    const owner = await dbStore.getUserById(project.owner_user_id);
+    const tenantId = req.headers["x-tenant-id"] as string;
+    const { pricingLines } = await resolvePricingLines(tenantId, rejected.project_id);
+
+    const templateData = buildProposalTemplateData(
+      template ?? { id: rejected.template_id, name: "N/D", version: rejected.template_version, template_type: rejected.proposal_type, file_path: "" },
+      physicalFileFound,
+      project,
+      owner ? owner.name : undefined,
+      analysis,
+      {
+        manual_pricing_table: rejected.manual_pricing_table,
+        payment_terms: rejected.payment_terms,
+        delivery_terms: rejected.delivery_terms,
+        proposal_validity: rejected.proposal_validity,
+        commercial_assumptions: rejected.commercial_assumptions,
+        exclusions: rejected.exclusions,
+      },
+      pricingLines
+    );
+
+    const brandingHeader = await resolveBrandingHeader(rejected.project_id);
+    const { docx_file_path, pdf_file_path, proposalContent } = await renderAndWriteProposalDocuments(
+      templateData,
+      template ?? { file_type: "docx" as const, storage_provider: rejected.storage_provider },
+      physicalFileFound,
+      platformSettings,
+      rejected.project_id,
+      rejected.proposal_type,
+      brandingHeader
+    );
+
+    const userId = requireUserId(req);
+    const user = await dbStore.getUserById(userId);
+
+    const reopened = await dbStore.createProposal(
+      buildReopenedProposalFields(
+        rejected,
+        {
+          docx_file_path,
+          pdf_file_path,
+          storage_provider: platformSettings.storage_mode,
+          editable_content: proposalContent,
+        },
+        user ? user.name : "System User"
+      )
+    );
+
+    logDebugMessage({
+      operation: "Proposal Reopen",
+      message: `Reopened rejected proposal ${rejected.id} (v${rejected.version}) as ${reopened.id} (v${reopened.version})`,
+      status: "SUCCESS",
+      durationMs: Date.now() - startTime,
+      correlationId,
+      projectId: rejected.project_id
+    });
+
+    await dbStore.addAuditLog({
+      user_id: userId,
+      action: "Reopen Rejected Proposal",
+      entity_type: "Proposal",
+      entity_id: reopened.id,
+      project_id: rejected.project_id,
+      ip_address: req.ip || "127.0.0.1",
+      user_agent: req.headers["user-agent"] || "unknown",
+      metadata: JSON.stringify({
+        previous_proposal_id: rejected.id,
+        previous_version: rejected.version,
+        new_version: reopened.version,
+        proposal_group_id: reopened.proposal_group_id
+      })
+    });
+
+    // CDC 16 F4 (D22): uma proposta viaja para o CRM assim que EXISTE, e a v2 é uma proposta nova
+    // (id próprio, chave de idempotência própria `prop-{id}-v{version}-{status}`). Sem `await` e
+    // nunca lança, mesmo padrão do POST de geração: um CRM fora do ar não pode fazer falhar uma
+    // reabertura que já foi gravada aqui.
+    void empurrarProposta(reopened.id);
+
+    res.status(201).json({
+      success: true,
+      proposal: reopened,
+      proposal_id: reopened.id,
+      version: reopened.version,
+      previous_version_id: rejected.id,
+      proposal_group_id: reopened.proposal_group_id
+    });
+  } catch (err) {
     next(err);
   }
 });

@@ -1239,7 +1239,25 @@ model Proposal {
   storageProvider       StorageProvider  @default(local) @map("storage_provider")
   generatedBy           String           @map("generated_by")
   generatedAt           DateTime         @default(now()) @map("generated_at")
+  // PreSales F8 (versionamento por reabertura pós-rejeição): `version` existia desde o início e
+  // era campo MORTO - toda proposta nascia com 1 e nada nunca o incrementava. Agora ele é o número
+  // real da versão dentro de uma cadeia: a v2 criada por POST /proposals/:id/reopen grava
+  // `version = v1.version + 1`.
   version               Int
+  // Identificador estável compartilhado por TODAS as versões da mesma cadeia (v1, v2, v3...). Uma
+  // proposta que nunca foi reaberta tem `proposalGroupId = id` (é a regra do backfill da migration
+  // desta fase, já que toda proposta que existia antes é uma v1 isolada). É por ele que se lista
+  // "todas as versões desta proposta" sem caminhar a corrente elo a elo.
+  proposalGroupId       String           @map("proposal_group_id")
+  // Elo para trás na cadeia de versões: a v2 aponta para a v1 que foi REJEITADA e lhe deu origem.
+  // `@unique` de propósito - uma versão rejeitada pode gerar no máximo UMA sucessora, e é o banco
+  // que garante isso (duas reaberturas concorrentes da mesma v1 não podem virar duas v2 paralelas;
+  // a rota trata a violação como 409 com a sucessora que já existe, ver server/routes/proposals.ts).
+  // A v1 NUNCA é mutada pela reabertura: fica `rejected` para sempre, com os arquivos e os
+  // pareceres de IA dela intactos.
+  previousVersionId     String?          @unique @map("previous_version_id")
+  previousVersion       Proposal?        @relation("ProposalVersionChain", fields: [previousVersionId], references: [id])
+  nextVersion           Proposal?        @relation("ProposalVersionChain")
   approvalWorkflowId    String           @map("approval_workflow_id")
   approvalWorkflow      ApprovalWorkflow @relation(fields: [approvalWorkflowId], references: [id])
   manualPricingTable    Json?            @map("manual_pricing_table")
@@ -1260,6 +1278,7 @@ model Proposal {
   opinionRuns ProposalOpinionRun[]
 
   @@index([tenantId])
+  @@index([proposalGroupId])
   @@map("proposals")
 }
 

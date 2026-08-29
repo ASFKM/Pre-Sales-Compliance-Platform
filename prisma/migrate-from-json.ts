@@ -280,6 +280,12 @@ async function main() {
         generatedBy: p.generated_by,
         generatedAt: dReq(p.generated_at),
         version: p.version,
+        // PreSales F8: mesma regra do backfill da migration
+        // 20260829190000_presales_f8_proposal_version_chain - o dump JSON legado é anterior ao
+        // versionamento por reabertura, então toda proposta que vem dele é uma v1 isolada, cabeça
+        // da própria cadeia. Sem elo para trás.
+        proposalGroupId: p.proposal_group_id || p.id,
+        previousVersionId: p.previous_version_id || null,
         approvalWorkflowId: p.approval_workflow_id,
         manualPricingTable: p.manual_pricing_table ?? undefined,
         paymentTerms: p.payment_terms || null,

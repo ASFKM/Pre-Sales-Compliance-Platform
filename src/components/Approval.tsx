@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { TriangleAlert } from "lucide-react";
 import { ApprovalWorkflow, Proposal } from "../types";
 import { useApprovalCenter } from "../hooks/useApprovalCenter";
@@ -48,6 +49,39 @@ export default function Approval({
     locale, selectedProjectId, fetchGlobalConfigs, fetchProjectDetails, canReviewApprovalStage,
   });
 
+  /*
+   * PreSales F8 (PARTE A): o parecer do aprovador é DIGITADO, não mais uma constante.
+   *
+   * Antes desta fase, os dois botões mandavam uma frase fixa escrita no código ("Pre-Sales specs
+   * verified and margins approved." / "Requires compliance revision."), idêntica em toda decisão de
+   * toda proposta - o que fazia o campo `comments` da decisão parecer preenchido e não dizer
+   * absolutamente nada sobre aquela proposta. Pior no caso da recusa: o vendedor recebia a proposta
+   * de volta sem nenhuma informação real do que corrigir na versão seguinte.
+   *
+   * Uma caixa por ETAPA por PROPOSTA (a chave é o par), porque o mesmo aprovador pode ter mais de
+   * uma etapa aberta na mesma tela e um rascunho não pode vazar de uma para a outra.
+   */
+  const [decisionComments, setDecisionComments] = useState<Record<string, string>>({});
+  const [submittingDecisionKey, setSubmittingDecisionKey] = useState<string | null>(null);
+  const decisionKey = (propId: string, stageId: string) => `${propId}::${stageId}`;
+
+  const submitDecision = async (propId: string, stage: any, decision: "approved" | "rejected") => {
+    const key = decisionKey(propId, stage.id);
+    // O servidor recusa uma rejeição sem motivo com 400 (server/utils/approvalDecision.ts) - esta
+    // guarda é só para não deixar o usuário chegar até lá; a validação REAL é a de lá.
+    const comments = (decisionComments[key] || "").trim();
+    if (decision === "rejected" && comments.length === 0) return;
+    setSubmittingDecisionKey(key);
+    try {
+      const ok = await handleApprovalDecision(propId, stage, decision, comments);
+      // Só limpa se o servidor ACEITOU - numa recusa (400 por motivo vazio, 403 por aprovador
+      // errado, 409 por decisão duplicada) o texto que o aprovador escreveu fica onde estava.
+      if (ok) setDecisionComments((prev) => { const next = { ...prev }; delete next[key]; return next; });
+    } finally {
+      setSubmittingDecisionKey(null);
+    }
+  };
+
   return (
             <div className="flex-1 p-6 overflow-y-auto space-y-6">
               <div className="flex justify-between items-center">
@@ -70,7 +104,17 @@ export default function Approval({
                         <div className="flex justify-between items-center border-b border-slate-100 pb-3">
                           <div>
                             <span className="text-xs font-bold font-mono text-slate-400">{locale === "pt" ? "ID DE REFERÊNCIA DA PROPOSTA:" : "PROPOSAL REFERENCE ID:"} {prop.id}</span>
-                            <h3 className="text-sm font-bold text-slate-800 uppercase font-mono mt-0.5">{prop.proposal_type === "technical" ? (locale === "pt" ? "TÉCNICA" : "TECHNICAL") : (locale === "pt" ? "COMERCIAL" : "COMMERCIAL")} PROPOSAL BID v1.0</h3>
+                            {/* PreSales F8: a versão era o literal "v1.0" no código - toda proposta
+                                aparecia como v1 mesmo depois de reaberta. Agora sai o `version` real
+                                da linha, e a v2+ ainda diz de qual versão rejeitada ela nasceu. */}
+                            <h3 className="text-sm font-bold text-slate-800 uppercase font-mono mt-0.5">
+                              {prop.proposal_type === "technical" ? (locale === "pt" ? "TÉCNICA" : "TECHNICAL") : (locale === "pt" ? "COMERCIAL" : "COMMERCIAL")} PROPOSAL BID v{prop.version}
+                            </h3>
+                            {prop.previous_version_id && (
+                              <p className="text-[10px] font-mono text-slate-400 mt-0.5">
+                                {locale === "pt" ? "Versão anterior (rejeitada):" : "Previous version (rejected):"} {prop.previous_version_id}
+                              </p>
+                            )}
                           </div>
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${
                             prop.status === "released" ? "text-brand-700 bg-brand-50 border-brand-200" :
@@ -125,22 +169,60 @@ export default function Approval({
                                     <p className="text-[11px] text-slate-500 leading-snug">{tx("Approver Target", "Aprovador Alvo")}: <span className="font-semibold">{getApprovalStageTargetLabel(stage)}</span></p>
 
                                     {/* Action inside timeline stage */}
-                                    {!matchedDecision && prop.status === "submitted" && canReviewApprovalStage(stage) && (
-                                      <div className="mt-3 pt-3 border-t border-slate-200 flex gap-1">
-                                        <button
-                                          onClick={() => handleApprovalDecision(prop.id, stage, "approved", "Pre-Sales specs verified and margins approved.")}
-                                          className="bg-success-700 hover:bg-success-800 text-white font-mono text-[9px] font-bold py-1 px-2 rounded cursor-pointer"
-                                        >
-                                          Approve
-                                        </button>
-                                        <button
-                                          onClick={() => handleApprovalDecision(prop.id, stage, "rejected", "Requires compliance revision.")}
-                                          className="bg-danger-700 hover:bg-danger-800 text-white font-mono text-[9px] font-bold py-1 px-2 rounded cursor-pointer"
-                                        >
-                                          Reject
-                                        </button>
-                                      </div>
-                                    )}
+                                    {!matchedDecision && prop.status === "submitted" && canReviewApprovalStage(stage) && (() => {
+                                      const key = decisionKey(prop.id, stage.id);
+                                      const draft = decisionComments[key] || "";
+                                      const hasReason = draft.trim().length > 0;
+                                      const busy = submittingDecisionKey === key;
+                                      const textareaId = `approval-comment-${key.replace("::", "-")}`;
+                                      return (
+                                        <div className="mt-3 pt-3 border-t border-slate-200 space-y-2">
+                                          <label htmlFor={textareaId} className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-500 block">
+                                            {locale === "pt" ? "Parecer do aprovador" : "Approver comments"}
+                                            <span className="text-danger-700 ml-1">
+                                              {locale === "pt" ? "(obrigatório para rejeitar)" : "(required to reject)"}
+                                            </span>
+                                          </label>
+                                          <textarea
+                                            id={textareaId}
+                                            value={draft}
+                                            onChange={(e) => setDecisionComments((prev) => ({ ...prev, [key]: e.target.value }))}
+                                            rows={3}
+                                            disabled={busy}
+                                            placeholder={locale === "pt"
+                                              ? "Descreva o que foi verificado, ou o que precisa ser corrigido nesta proposta."
+                                              : "Describe what was verified, or what has to be fixed in this proposal."}
+                                            className="w-full text-[11px] leading-snug p-2 rounded border border-slate-200 bg-white text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 disabled:bg-slate-100 disabled:text-slate-400"
+                                          />
+                                          <div className="flex gap-1">
+                                            <button
+                                              onClick={() => submitDecision(prop.id, stage, "approved")}
+                                              disabled={busy}
+                                              className="bg-success-700 hover:bg-success-800 text-white font-mono text-[9px] font-bold py-1 px-2 rounded cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                              {locale === "pt" ? "Aprovar" : "Approve"}
+                                            </button>
+                                            <button
+                                              onClick={() => submitDecision(prop.id, stage, "rejected")}
+                                              disabled={busy || !hasReason}
+                                              title={!hasReason
+                                                ? (locale === "pt" ? "Escreva o motivo da rejeição para habilitar" : "Write the rejection reason to enable")
+                                                : undefined}
+                                              className="bg-danger-700 hover:bg-danger-800 text-white font-mono text-[9px] font-bold py-1 px-2 rounded cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                              {locale === "pt" ? "Rejeitar" : "Reject"}
+                                            </button>
+                                          </div>
+                                          {!hasReason && (
+                                            <p className="text-[10px] text-slate-500 leading-snug">
+                                              {locale === "pt"
+                                                ? "Sem motivo escrito, a rejeição não é aceita: é ele que o vendedor vai ler para corrigir a próxima versão."
+                                                : "Without a written reason a rejection is not accepted: it is what the seller reads to fix the next version."}
+                                            </p>
+                                          )}
+                                        </div>
+                                      );
+                                    })()}
 
                                     {matchedDecision && (
                                       <p className="text-[11px] text-slate-600 italic mt-2 border-t border-slate-100 pt-1.5">
