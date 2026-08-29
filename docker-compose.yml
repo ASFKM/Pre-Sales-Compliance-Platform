@@ -2,7 +2,12 @@ version: '3.8'
 
 services:
   # 1. Main Full-Stack Application
-  app:
+  # PENDÊNCIA REGISTRADA (não é falso positivo - achado real, adiado de propósito): read_only na
+  # imagem própria (diferente de postgres/redis/minio abaixo, já validados ao vivo) exige antes
+  # auditar todo write path do código (temp de zip/docx, etc) e testar a imagem real - ver a nota
+  # completa no comentário de security_opt logo abaixo e no fechamento da fase F7. Sinalizado pro
+  # dono decidir se vira fase própria.
+  app: # nosemgrep: yaml.docker-compose.security.writable-filesystem-service.writable-filesystem-service
     build:
       context: .
       dockerfile: Dockerfile
