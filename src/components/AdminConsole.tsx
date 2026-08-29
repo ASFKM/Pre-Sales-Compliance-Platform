@@ -18,6 +18,7 @@ import ApiClient from "../lib/api";
 // CDC 16 F9: as duas vistas que moravam dentro da tela de Demandas. Vieram para
 // cá inteiras, sem reescrita — o dono pediu que a configuração do módulo ficasse
 // na Administração, e não que ela mudasse de forma.
+import AiCostDashboard from "./AiCostDashboard";
 import DemandSlaPanel from "./DemandSlaPanel";
 import DemandPurgePanel from "./DemandPurgePanel";
 /**
@@ -110,26 +111,6 @@ interface SystemMessageRow {
   created_at: string;
   expires_at: string | null;
 }
-
-
-// Every AI-spending task type recorded in AiUsageLog (see AI_SPENDING_TASK_TYPES in
-// src/aiOrchestrator.ts) - proposal generation itself is template/DOCX filling, not its own AI
-// call, so it's correctly absent rather than showing a misleading "$0.00" for it.
-const AI_TASK_TYPE_LABEL: Record<string, { pt: string; en: string }> = {
-  document_analysis: { pt: "Análise de Documentos", en: "Document Analysis" },
-  project_intake_analysis: { pt: "Extração de Metadados (Cadastro de Projeto)", en: "Metadata Extraction (Project Intake)" },
-  knowledge_base_analysis: { pt: "Análise de Documentos (Base de Conhecimento)", en: "Document Analysis (Knowledge Base)" },
-  spec_copilot_chat: { pt: "Copiloto de Especificações (Chat)", en: "Specification Copilot (Chat)" },
-  bom_web_search: { pt: "Busca Web de Equipamentos (BOM)", en: "Equipment Web Search (BOM)" },
-  kb_suggest: { pt: "Sugestão da Base de Conhecimento", en: "Knowledge Base Suggestion" },
-  document_classification: { pt: "Classificação de Documentos", en: "Document Classification" },
-  poc_test_generation: { pt: "Geração de Cadernos de Teste (POC)", en: "Test Script Generation (POC)" },
-  poc_schedule_generation: { pt: "Sugestão de Cronograma (POC)", en: "Schedule Suggestion (POC)" },
-  poc_final_report_generation: { pt: "Relatório Final (POC)", en: "Final Report (POC)" },
-  proposal_opinion_panel: { pt: "Pareceres de IA Multi-Perspectiva (Propostas)", en: "Multi-Perspective AI Opinions (Proposals)" },
-  pricing_budget_optimization: { pt: "Otimização de Budget (Precificação)", en: "Budget Optimization (Pricing)" },
-  pricing_catalog_extraction: { pt: "Extração de Catálogo (Precificação)", en: "Catalog Extraction (Pricing)" },
-};
 
 
 // Single source of truth for the "Create New Role" module checkboxes and the permission set each
@@ -432,6 +413,11 @@ export default function AdminConsole({
   // uso reescrito, para que o card de cobrança abaixo continue se comportando como "sempre
   // habilitado" sem precisar tocar em cada ponto que a lia.
   const iaKbModuleEnabled = true;
+
+  // F10 (PreSales): a tela virou duas abas. "Prompts" é a CONFIGURAÇÃO (teto de custo, cobrança
+  // da IA gerenciada, edição dos templates de prompt); "Custos" é o relatório, que antes era um
+  // card espremido entre os campos de configuração e agora tem a tela inteira.
+  const [aiTab, setAiTab] = useState<"prompts" | "costs">("prompts");
 
   const [costUSD, setCostUSD] = useState(0);
   // F11 (docs/cdc/16, item 05): "por provedor" saiu do relatório (a IA gerenciada é sempre o
@@ -1368,7 +1354,29 @@ export default function AdminConsole({
                 )}
 
                 {activeAdminSection === "ai" && canAccessAdminSection("ai") && (
-                  <div className="w-full grid grid-cols-1 xl:grid-cols-2 gap-6">
+                  <div className="w-full space-y-6">
+                    <div className="flex items-center gap-1 border-b border-slate-200" role="tablist" aria-label={locale === "pt" ? "Seções de IA" : "AI sections"}>
+                      {([["prompts", "Prompts", "Prompts"], ["costs", "Custos", "Costs"]] as const).map(([id, rotuloPt, rotuloEn]) => (
+                        <button
+                          key={id}
+                          role="tab"
+                          id={`aba-ia-${id}`}
+                          aria-selected={aiTab === id}
+                          aria-controls={`painel-ia-${id}`}
+                          onClick={() => setAiTab(id)}
+                          className={
+                            aiTab === id
+                              ? "font-mono text-xs font-bold uppercase tracking-wider px-4 py-2 -mb-px border-b-2 border-brand-600 text-brand-700 cursor-pointer"
+                              : "font-mono text-xs font-bold uppercase tracking-wider px-4 py-2 -mb-px border-b-2 border-transparent text-slate-400 hover:text-slate-600 cursor-pointer"
+                          }
+                        >
+                          {locale === "pt" ? rotuloPt : rotuloEn}
+                        </button>
+                      ))}
+                    </div>
+
+                    {aiTab === "prompts" && (
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-6" role="tabpanel" id="painel-ia-prompts" aria-labelledby="aba-ia-prompts">
                     <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
                       <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
                         {locale === "pt" ? "Limite de Custo de IA" : "AI Cost Limit"}
@@ -1467,102 +1475,10 @@ export default function AdminConsole({
                       </div>
                     )}
 
-                    <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
+                    <div className="xl:col-span-2 bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
                       <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
-                        {locale === "pt" ? "Custos de IA e Prompts" : "AI Costs and Prompts"}
+                        {locale === "pt" ? "Prompts do Produto" : "Product Prompts"}
                       </h3>
-                      <div className="grid grid-cols-2 gap-4 font-mono text-xs">
-                        <div className="p-3 bg-slate-50 border border-slate-100 rounded-lg">
-                          <span className="text-[9px] text-slate-400 block uppercase">{locale === "pt" ? "Consumo Estimado (USD)" : "Estimated Cost (USD)"}</span>
-                          <span className="text-lg font-bold text-slate-800 mt-1 block">${costUSD.toFixed(2)} USD</span>
-                        </div>
-                        <div className="p-3 bg-slate-50 border border-slate-100 rounded-lg">
-                          <span className="text-[9px] text-slate-400 block uppercase">{locale === "pt" ? "Consumo Convertido (BRL)" : "Converted Cost (BRL)"}</span>
-                          <span className="text-lg font-bold text-slate-800 mt-1 block">R$ {(costUSD * exchangeRate).toFixed(2)} BRL</span>
-                        </div>
-                      </div>
-                      <div className="border-t border-slate-100 pt-3">
-                        <span className="text-[9px] text-slate-400 block uppercase mb-2 font-mono">{locale === "pt" ? "Consumo por Serviço (mês atual)" : "Cost by Service (current month)"}</span>
-                        {(() => {
-                          const taskTypesWithSpend = Object.keys(AI_TASK_TYPE_LABEL).filter((t) => (costByTaskType[t] || 0) > 0);
-
-                          if (taskTypesWithSpend.length === 0) {
-                            return (
-                              <div className="text-xs text-slate-400 italic px-3 py-4 text-center bg-slate-50 border border-slate-100 rounded-lg">
-                                {locale === "pt" ? "Nenhum consumo de IA registrado neste mês ainda." : "No AI usage recorded this month yet."}
-                              </div>
-                            );
-                          }
-
-                          return (
-                            <div className="overflow-x-auto">
-                              <table className="w-full text-xs border-collapse">
-                                <thead>
-                                  <tr className="text-[9px] uppercase text-slate-400 font-mono">
-                                    <th className="text-left font-bold pb-1.5 pr-2">{locale === "pt" ? "Serviço" : "Service"}</th>
-                                    <th className="text-right font-bold pb-1.5 pl-2">{locale === "pt" ? "Total" : "Total"}</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {taskTypesWithSpend
-                                    .sort((a, b) => (costByTaskType[b] || 0) - (costByTaskType[a] || 0))
-                                    .map((taskType) => (
-                                      <tr key={taskType} className="border-t border-slate-100">
-                                        <td className="py-2 pr-2 text-slate-600 font-mono">{locale === "pt" ? AI_TASK_TYPE_LABEL[taskType].pt : AI_TASK_TYPE_LABEL[taskType].en}</td>
-                                        <td className="py-2 pl-2 text-right font-mono font-bold text-slate-800">${(costByTaskType[taskType] || 0).toFixed(2)}</td>
-                                      </tr>
-                                    ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          );
-                        })()}
-                      </div>
-
-                      {/* F11 (docs/cdc/16, item 05): relatório novo - por usuário. §8 item 31 do
-                          plano: 79% do histórico não tem dono recuperável (medido no Demo em
-                          28/08/2026); a coluna vale de frente, e esta tela é obrigada a dizer
-                          isso, não a escondê-lo atrás de um número que parece o todo. */}
-                      <div className="border-t border-slate-100 pt-3">
-                        <span className="text-[9px] text-slate-400 block uppercase mb-2 font-mono">{locale === "pt" ? "Consumo por Usuário (mês atual)" : "Cost by User (current month)"}</span>
-                        {usageOwnership && (
-                          <p className="text-[10px] text-slate-400 mb-2">
-                            {(() => {
-                              const { total_calls: totalCalls, calls_with_owner: withOwner } = usageOwnership;
-                              const pct = totalCalls > 0 ? Math.round((withOwner / totalCalls) * 100) : 100;
-                              return locale === "pt"
-                                ? `${pct}% das ${totalCalls} chamadas de IA já feitas por esta instalação têm um usuário identificado (${withOwner} de ${totalCalls}) - o restante é anterior a este relatório e não tem dono recuperável: a coluna não existia antes, e o histórico não é retroagido.`
-                                : `${pct}% of this installation's ${totalCalls} AI calls so far have an identified user (${withOwner} of ${totalCalls}) - the rest predate this report and have no recoverable owner: the column didn't exist before, and history isn't backfilled.`;
-                            })()}
-                          </p>
-                        )}
-                        {costByUser.length === 0 ? (
-                          <div className="text-xs text-slate-400 italic px-3 py-4 text-center bg-slate-50 border border-slate-100 rounded-lg">
-                            {locale === "pt" ? "Nenhuma chamada de IA com usuário identificado neste mês ainda." : "No AI call with an identified user this month yet."}
-                          </div>
-                        ) : (
-                          <div className="overflow-x-auto">
-                            <table className="w-full text-xs border-collapse">
-                              <thead>
-                                <tr className="text-[9px] uppercase text-slate-400 font-mono">
-                                  <th className="text-left font-bold pb-1.5 pr-2">{locale === "pt" ? "Usuário" : "User"}</th>
-                                  <th className="text-right font-bold pb-1.5 px-2">{locale === "pt" ? "Chamadas" : "Calls"}</th>
-                                  <th className="text-right font-bold pb-1.5 pl-2">{locale === "pt" ? "Total" : "Total"}</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {costByUser.map((row) => (
-                                  <tr key={row.user_id} className="border-t border-slate-100">
-                                    <td className="py-2 pr-2 text-slate-600 font-mono">{row.user_name}</td>
-                                    <td className="py-2 px-2 text-right font-mono text-slate-500">{row.call_count}</td>
-                                    <td className="py-2 pl-2 text-right font-mono font-bold text-slate-800">${row.cost_usd.toFixed(2)}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
-                      </div>
                       <div className="space-y-4 max-h-[640px] overflow-y-auto pr-1">
                         {Object.entries(
                           promptTemplates.reduce((acc, p) => {
@@ -1726,6 +1642,21 @@ export default function AdminConsole({
                         })}
                       </div>
                     </div>
+                    </div>
+                    )}
+
+                    {aiTab === "costs" && (
+                      <div role="tabpanel" id="painel-ia-costs" aria-labelledby="aba-ia-costs">
+                        <AiCostDashboard
+                          locale={locale}
+                          costUSD={costUSD}
+                          exchangeRate={exchangeRate}
+                          costByTaskType={costByTaskType}
+                          costByUser={costByUser}
+                          usageOwnership={usageOwnership}
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
 
