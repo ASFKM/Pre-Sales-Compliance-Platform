@@ -23,6 +23,9 @@ import { LOGIC_VERSIONS } from "../../src/aiLogicVersions";
 import { logger } from "../utils/logger";
 import { empurrarProposta, empurrarEventoDaProposta } from "../utils/crmOutbox";
 import { canReopenProposal, buildReopenedProposalFields } from "../utils/proposalVersioning";
+import { buildTemplateVariables, extractTemplatePlaceholders } from "../utils/docxTemplateEngine";
+import { consolidarSugestoes, identificarVariaveisParaSugerir, montarPromptDeSugestao, podeSerSugeridaPelaIa } from "../utils/proposalAiAssist";
+import { revisarDocumentoGerado, AchadoDeRevisao } from "../utils/proposalQa";
 
 const router = express.Router();
 // Exportada (Fase 8) para que a precedência de branding possa ser provada por teste e por uma
@@ -136,9 +139,12 @@ function buildProposalTemplateData(
     commercial_assumptions?: string;
     exclusions?: string;
   },
-  pricingLines: NonNullable<DocxTemplateData["pricing"]>["lines"]
+  pricingLines: NonNullable<DocxTemplateData["pricing"]>["lines"],
+  // F6: opcional para nao quebrar nenhuma das chamadas que nao tem campo customizado nenhum.
+  templateFieldValues?: Record<string, string> | null
 ): DocxTemplateData {
   return {
+    templateFieldValues: templateFieldValues ?? null,
     template: {
       id: template.id,
       name: template.name,
@@ -175,6 +181,16 @@ function buildProposalTemplateData(
   };
 }
 
+// Template registrado num formato que o motor de merge não abre (legado .doc/.pdf, anterior à F6).
+// Erro próprio para as três rotas que geram documento (POST, PUT e reabertura) poderem devolver 400
+// com o motivo real, em vez de deixar virar 500 genérico ou, pior, uma proposta gerada errada.
+export class TemplateNaoMesclavelError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TemplateNaoMesclavelError";
+  }
+}
+
 // Renderiza (merge no template real quando existe, senão o gerador genérico) e grava DOCX/PDF -
 // compartilhado entre POST (geração inicial) e PUT (regeneração ao editar campos estruturados).
 async function renderAndWriteProposalDocuments(
@@ -188,6 +204,28 @@ async function renderAndWriteProposalDocuments(
 ): Promise<{ docx_file_path: string; pdf_file_path: string; proposalContent: string }> {
   const proposalContent = buildProposalText(templateData);
 
+  /*
+   * F6: um template registrado cujo arquivo existe mas NÃO é .docx não pode ser mesclado por este
+   * motor, e isso passa a ser um erro explícito em vez de um fallback mudo.
+   *
+   * Era aqui que o bug relatado se manifestava: a condição abaixo simplesmente não era satisfeita
+   * para um template .doc/.pdf, o merge não acontecia, e a proposta saía pelo gerador genérico com
+   * a formatação padrão - o admin via "um arquivo de texto em vez da proposta" e nada no sistema
+   * dizia que o template escolhido tinha sido ignorado. O cadastro já não aceita mais esses
+   * formatos (o .doc é convertido no upload, o .pdf é recusado - ver server/routes/templates.ts),
+   * então isto só alcança template legado, registrado antes desta fase, e o caminho certo para ele
+   * é reenviar o arquivo - não gerar uma proposta errada em silêncio.
+   *
+   * A ausência do arquivo físico (physicalFileFound === false) continua caindo no gerador genérico
+   * como antes: isso já é sinalizado ao usuário por outro caminho (template.physical_file_found
+   * viaja no DocxTemplateData e a UI avisa), e não é o defeito desta fase.
+   */
+  if (physicalFileFound && template.file_type !== "docx") {
+    throw new TemplateNaoMesclavelError(
+      `O template desta proposta está registrado como .${template.file_type}, formato que não pode ter as variáveis {{...}} mescladas. Reenvie o modelo em .docx (ou .doc, que é convertido automaticamente) no cadastro de templates e gere a proposta novamente.`
+    );
+  }
+
   let docxBufferOverride: Buffer | undefined;
   if (physicalFileFound && template.file_type === "docx") {
     const templateAdapter = createStorageAdapter({ ...platformSettings, storage_mode: template.storage_provider });
@@ -200,6 +238,30 @@ async function renderAndWriteProposalDocuments(
   return { docx_file_path, pdf_file_path, proposalContent };
 }
 
+
+/*
+ * F6: placeholders REAIS do template desta proposta, lidos do arquivo.
+ *
+ * Tanto o QA (frente c) quanto o apoio de IA (frentes a/b) precisam saber o que o template pede -
+ * nao o que alguem cadastrou a mao no variables_schema, que pode estar desatualizado em relacao ao
+ * arquivo. Devolve lista vazia quando a proposta nao tem template com arquivo real (o caso do
+ * gerador generico), e nesse caso as duas funcionalidades simplesmente nao tem o que oferecer.
+ */
+async function lerPlaceholdersDoTemplateDaProposta(
+  template: ProposalTemplate | undefined,
+  platformSettings: PlatformSettings
+): Promise<string[]> {
+  if (!template || template.file_type !== "docx") return [];
+  try {
+    const adapter = createStorageAdapter({ ...platformSettings, storage_mode: template.storage_provider });
+    const buffer = await adapter.readFile(template.file_path);
+    return extractTemplatePlaceholders(buffer);
+  } catch {
+    // Arquivo ausente/ilegivel ja e sinalizado por outro caminho (physical_file_found); aqui isso
+    // so significa "nao ha o que conferir/sugerir", nunca um erro que derrube a requisicao.
+    return [];
+  }
+}
 
 // Proposal validation schema
 const CreateProposalSchema = z.object({
@@ -422,6 +484,11 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
   } catch (err) {
     if (err instanceof z.ZodError) {
       return res.status(400).json({ success: false, message: err.issues[0].message });
+    }
+    // F6: template legado em formato que o motor nao mescla - o motivo real precisa chegar ao
+    // admin (o errorHandler global, corretamente, so devolve mensagem generica).
+    if (err instanceof TemplateNaoMesclavelError) {
+      return res.status(400).json({ success: false, message: err.message });
     }
     next(err);
   }
@@ -913,7 +980,9 @@ router.put("/proposals/:id", requirePermission("proposal:edit"), async (req: Req
           commercial_assumptions: proposal.commercial_assumptions,
           exclusions: proposal.exclusions,
         },
-        pricingLines
+        pricingLines,
+        // F6: os campos livres aprovados por uma pessoa entram no merge deste documento.
+        existingProposal.template_field_values
       );
 
       const brandingHeader = await resolveBrandingHeader(existingProposal.project_id);
@@ -955,6 +1024,11 @@ router.put("/proposals/:id", requirePermission("proposal:edit"), async (req: Req
   } catch (err) {
     if (err instanceof z.ZodError) {
       return res.status(400).json({ success: false, message: err.issues[0].message });
+    }
+    // F6: template legado em formato que o motor nao mescla - o motivo real precisa chegar ao
+    // admin (o errorHandler global, corretamente, so devolve mensagem generica).
+    if (err instanceof TemplateNaoMesclavelError) {
+      return res.status(400).json({ success: false, message: err.message });
     }
     next(err);
   }
@@ -1143,7 +1217,9 @@ router.post("/proposals/:id/reopen", requirePermission("proposal:generate"), asy
         commercial_assumptions: rejected.commercial_assumptions,
         exclusions: rejected.exclusions,
       },
-      pricingLines
+      pricingLines,
+      // F6: os campos livres aprovados por uma pessoa entram no merge deste documento.
+      rejected.template_field_values
     );
 
     const brandingHeader = await resolveBrandingHeader(rejected.project_id);
@@ -1217,6 +1293,309 @@ router.post("/proposals/:id/reopen", requirePermission("proposal:generate"), asy
       regenerated_analysis: regeneration
     });
   } catch (err) {
+    // F6: mesma razao do catch das rotas de geracao/edicao - a reabertura tambem regenera
+    // documento e precisa dizer ao admin que o template registrado nao pode ser mesclado.
+    if (err instanceof TemplateNaoMesclavelError) {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+    next(err);
+  }
+});
+
+/*
+ * F6, frente (c): revisao/QA do documento final gerado.
+ *
+ * Sem IA e sem custo - ver o cabecalho de server/utils/proposalQa.ts para o porque. Rota propria
+ * (em vez de embutida na geracao) porque a revisao vale para qualquer proposta ja existente,
+ * inclusive as geradas antes desta fase, e porque quem revisa quer poder repetir a conferencia
+ * depois de editar campos.
+ */
+router.get("/proposals/:id/revisao", requirePermission("proposal:edit"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const proposal = await dbStore.getProposal(req.params.id);
+    if (!proposal) {
+      return res.status(404).json({ success: false, message: "Proposal not found." });
+    }
+    const project = await dbStore.getProject(proposal.project_id);
+    if (!project) {
+      return res.status(404).json({ success: false, message: "Project not found." });
+    }
+
+    const platformSettings = await dbStore.getSettings();
+    const templates = await dbStore.getProposalTemplates();
+    const template = templates.find((t) => t.id === proposal.template_id);
+
+    if (!proposal.docx_file_path) {
+      return res.status(409).json({
+        success: false,
+        message: "Esta proposta ainda não tem documento gerado para revisar.",
+      });
+    }
+
+    const adapter = createStorageAdapter({ ...platformSettings, storage_mode: proposal.storage_provider });
+    const docxBuffer = await adapter.readFile(proposal.docx_file_path);
+
+    const analysis = await dbStore.getAnalysisResult(proposal.project_id);
+    const { pricingLines } = await resolvePricingLines(req.headers["x-tenant-id"] as string, proposal.project_id);
+    const owner = await dbStore.getUserById(project.owner_user_id);
+    const templateData = buildProposalTemplateData(
+      template ?? { id: "", name: "", version: "", template_type: proposal.proposal_type, file_path: "" },
+      false,
+      project,
+      owner ? owner.name : undefined,
+      analysis,
+      {
+        manual_pricing_table: proposal.manual_pricing_table as any,
+        payment_terms: proposal.payment_terms ?? undefined,
+        delivery_terms: proposal.delivery_terms ?? undefined,
+        proposal_validity: proposal.proposal_validity ?? undefined,
+        commercial_assumptions: proposal.commercial_assumptions ?? undefined,
+        exclusions: proposal.exclusions ?? undefined,
+      },
+      pricingLines
+    );
+
+    const placeholdersDoTemplate = await lerPlaceholdersDoTemplateDaProposta(template, platformSettings);
+    const achados: AchadoDeRevisao[] = revisarDocumentoGerado({
+      docxBuffer,
+      placeholdersDoTemplate,
+      variaveisResolvidas: buildTemplateVariables(templateData) as Record<string, unknown>,
+    });
+
+    res.json({
+      success: true,
+      // Lista vazia aqui significa "conferido e limpo", nao "nao checado" - a diferenca importa
+      // para quem le a tela antes de mandar a proposta ao cliente.
+      achados,
+      total: achados.length,
+      bloqueantes: achados.filter((a) => a.severidade === "alta").length,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/*
+ * F6, frentes (a) e (b): sugestoes de IA para os campos de texto que sairiam em branco.
+ *
+ * Devolve SUGESTAO, nunca grava - aplicar e um clique humano no client, pelo PUT /proposals/:id
+ * que ja existe (mesmo contrato do parecer acionavel da F7). Usa o task type proposal_generation,
+ * cuja configuracao de provedor/modelo ja existia no Admin sem nunca ter sido usada.
+ */
+router.post("/proposals/:id/sugerir-conteudo", requirePermission("proposal:edit"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const proposal = await dbStore.getProposal(req.params.id);
+    if (!proposal) {
+      return res.status(404).json({ success: false, message: "Proposal not found." });
+    }
+    const project = await dbStore.getProject(proposal.project_id);
+    if (!project) {
+      return res.status(404).json({ success: false, message: "Project not found." });
+    }
+
+    const tenantId = req.headers["x-tenant-id"] as string;
+    const platformSettings = await dbStore.getSettings();
+
+    const costCap = await checkCostCap(tenantId, platformSettings.monthly_cost_cap_usd ?? null);
+    if (costCap.blocked) {
+      return res.status(402).json({
+        success: false,
+        message: `Monthly AI cost cap reached ($${costCap.currentSpendUsd.toFixed(2)} of $${costCap.capUsd?.toFixed(2)}). Sugestão de conteúdo bloqueada até o próximo mês ou até o teto ser elevado em Admin > IA, Prompts e Custos.`,
+      });
+    }
+
+    const templates = await dbStore.getProposalTemplates();
+    const template = templates.find((t) => t.id === proposal.template_id);
+    const placeholdersDoTemplate = await lerPlaceholdersDoTemplateDaProposta(template, platformSettings);
+    if (placeholdersDoTemplate.length === 0) {
+      return res.status(409).json({
+        success: false,
+        message: "Esta proposta não usa um template .docx com variáveis, então não há campos para sugerir.",
+      });
+    }
+
+    const analysis = await dbStore.getAnalysisResult(proposal.project_id);
+    if (!analysis) {
+      return res.status(409).json({
+        success: false,
+        message: "Este projeto ainda não tem análise técnica — ela é a fonte de fatos das sugestões.",
+      });
+    }
+
+    const { pricingLines } = await resolvePricingLines(tenantId, proposal.project_id);
+    const owner = await dbStore.getUserById(project.owner_user_id);
+    const templateData = buildProposalTemplateData(
+      template ?? { id: "", name: "", version: "", template_type: proposal.proposal_type, file_path: "" },
+      false,
+      project,
+      owner ? owner.name : undefined,
+      analysis,
+      {
+        manual_pricing_table: proposal.manual_pricing_table as any,
+        payment_terms: proposal.payment_terms ?? undefined,
+        delivery_terms: proposal.delivery_terms ?? undefined,
+        proposal_validity: proposal.proposal_validity ?? undefined,
+        commercial_assumptions: proposal.commercial_assumptions ?? undefined,
+        exclusions: proposal.exclusions ?? undefined,
+      },
+      pricingLines
+    );
+
+    const variaveis = identificarVariaveisParaSugerir(
+      placeholdersDoTemplate,
+      buildTemplateVariables(templateData) as Record<string, unknown>
+    );
+
+    if (variaveis.length === 0) {
+      return res.json({
+        success: true,
+        sugestoes: [],
+        message: "Nenhum campo de texto do template ficou em branco — não há o que sugerir.",
+      });
+    }
+
+    const userId = requireUserId(req);
+    const providerResolution = await resolveProvider("proposal_generation", platformSettings);
+    if (providerResolution.isFallback) {
+      await recordProviderFallback({ tenantId, taskType: "proposal_generation", intendedProvider: providerResolution.intendedProvider, userId });
+    }
+
+    const prompt = montarPromptDeSugestao({
+      variaveis,
+      idioma: proposal.language,
+      projeto: {
+        nome: project.name,
+        cliente: project.customer_name,
+        vertical: project.vertical,
+        escopo: project.description,
+      },
+      analise: {
+        resumo_executivo: analysis.executive_summary,
+        requisitos_criticos: analysis.critical_requirements,
+        riscos: analysis.risks,
+      },
+    });
+
+    const { text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(
+      providerResolution.provider as ConnectedProvider,
+      providerResolution.model,
+      prompt
+    );
+
+    const parsed = parseAiJson(text);
+    const respostaDoModelo = z.array(z.object({
+      variavel: z.string(),
+      valor_sugerido: z.string(),
+      justificativa: z.string().optional(),
+    })).parse(parsed);
+
+    await recordAiUsage({
+      tenantId,
+      taskType: "proposal_generation",
+      provider: providerResolution.provider,
+      model: providerResolution.model,
+      estimatedCostUsd: billedCostUsd ?? estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
+      userId,
+    });
+
+    const sugestoes = consolidarSugestoes(variaveis, respostaDoModelo);
+
+    await dbStore.addAuditLog({
+      user_id: userId,
+      action: "Suggest Proposal Content",
+      entity_type: "Proposal",
+      entity_id: proposal.id,
+      ip_address: req.ip || "127.0.0.1",
+      user_agent: req.headers["user-agent"] || "unknown",
+      metadata: JSON.stringify({ campos_pedidos: variaveis.map((v) => v.nome), campos_sugeridos: sugestoes.map((s) => s.variavel) }),
+    });
+
+    res.json({
+      success: true,
+      sugestoes,
+      // A IA nunca escreve na proposta: o client aplica campo a campo, com confirmacao, pelo
+      // PUT /proposals/:id que ja valida o allowlist por tipo de proposta (F7).
+      aplicar_exige_confirmacao: true,
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(502).json({ success: false, message: "A resposta do provedor de IA não veio no formato esperado." });
+    }
+    next(err);
+  }
+});
+
+/*
+ * F6: grava os valores das variaveis livres do template APROVADOS por uma pessoa.
+ *
+ * Este e o unico caminho de escrita das sugestoes das frentes (a)/(b) - a rota que fala com a IA
+ * (/sugerir-conteudo) devolve texto e nada mais. Aqui e onde o clique humano vira dado, e por isso
+ * a allowlist e reaplicada: mesmo que alguem chame esta rota direto, sem passar pela sugestao,
+ * nao consegue gravar preco, quantidade ou item de BOM sob o nome de uma variavel de template.
+ *
+ * Regenerar o documento e responsabilidade do PUT /proposals/:id que ja existe - manter isso
+ * separado evita duplicar o caminho de regeneracao (e a delecao de arquivo antigo que ele faz).
+ */
+router.put("/proposals/:id/campos-do-template", requirePermission("proposal:edit"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const proposal = await dbStore.getProposal(req.params.id);
+    if (!proposal) {
+      return res.status(404).json({ success: false, message: "Proposal not found." });
+    }
+    if (proposal.status !== "draft") {
+      return res.status(409).json({
+        success: false,
+        message: "Só uma proposta em rascunho pode ter os campos do template alterados.",
+      });
+    }
+
+    const corpo = z.object({
+      campos: z.record(z.string(), z.string()),
+    }).parse(req.body);
+
+    const recusados = Object.keys(corpo.campos).filter((nome) => !podeSerSugeridaPelaIa(nome));
+    if (recusados.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Estes campos têm fonte de dado própria no sistema e não podem ser preenchidos à mão: ${recusados.join(", ")}.`,
+      });
+    }
+
+    // Merge sobre o que ja existe: a tela pode aplicar uma sugestao de cada vez, e cada chamada
+    // nao pode apagar o que a anterior aprovou.
+    const atuais = proposal.template_field_values ?? {};
+    const combinados: Record<string, string> = { ...atuais };
+    for (const [nome, valor] of Object.entries(corpo.campos)) {
+      // String vazia e como o client REMOVE um campo aprovado.
+      if (valor.trim().length === 0) delete combinados[nome];
+      else combinados[nome] = valor;
+    }
+
+    const atualizada = await dbStore.updateProposal(proposal.id, {
+      template_field_values: Object.keys(combinados).length > 0 ? combinados : null,
+    });
+
+    const userId = requireUserId(req);
+    await dbStore.addAuditLog({
+      user_id: userId,
+      action: "Update Proposal Template Fields",
+      entity_type: "Proposal",
+      entity_id: proposal.id,
+      ip_address: req.ip || "127.0.0.1",
+      user_agent: req.headers["user-agent"] || "unknown",
+      metadata: JSON.stringify({ campos: Object.keys(corpo.campos) }),
+    });
+
+    res.json({
+      success: true,
+      template_field_values: atualizada?.template_field_values ?? null,
+      // O documento so muda quando a proposta for regerada pelo PUT /proposals/:id.
+      documento_regenerado: false,
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ success: false, message: err.issues[0].message });
+    }
     next(err);
   }
 });

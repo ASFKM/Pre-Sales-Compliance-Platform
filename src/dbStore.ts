@@ -549,6 +549,7 @@ function mapProposal(p: any): Proposal {
     generated_by: p.generatedBy,
     generated_at: p.generatedAt.toISOString(),
     version: p.version,
+    template_field_values: (p.templateFieldValues as Record<string, string> | null) ?? null,
     proposal_group_id: p.proposalGroupId,
     previous_version_id: p.previousVersionId ?? null,
     approval_workflow_id: p.approvalWorkflowId,
@@ -1785,6 +1786,9 @@ class DBStore {
         pdfFilePath: updates.pdf_file_path,
         storageProvider: updates.storage_provider,
         editableContent: updates.editable_content,
+        // F6: `undefined` deixa o Prisma nao tocar a coluna (update parcial), enquanto `null`
+        // limpa de verdade - a rota so envia o campo quando ele mudou.
+        templateFieldValues: updates.template_field_values as any,
       },
     });
     return mapProposal(p);

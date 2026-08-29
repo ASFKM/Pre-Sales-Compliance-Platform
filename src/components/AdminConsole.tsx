@@ -1750,7 +1750,7 @@ export default function AdminConsole({
                       >
                         <input
                           type="file"
-                          accept=".doc,.docx,.pdf"
+                          accept=".docx,.doc"
                           onChange={(e) => {
                             const file = e.target.files?.[0] || null;
                             setTemplateUploadFile(file);
@@ -1760,8 +1760,8 @@ export default function AdminConsole({
                         />
                         <p className="text-[11px] text-slate-500">
                           {locale === "pt"
-                            ? "Formatos: DOCX, DOC ou PDF. Arraste e solte o arquivo aqui, ou selecione acima. Veja o glossário de variáveis ao lado para saber quais {{...}} o template pode usar."
-                            : "Formats: DOCX, DOC or PDF. Drag and drop the file here, or select above. See the variable glossary alongside for which {{...}} placeholders the template can use."}
+                            ? "Formatos: DOCX ou DOC (o DOC é convertido automaticamente ao enviar). PDF não serve como modelo de entrada — as variáveis não podem ser mescladas nele; a proposta gerada continua saindo em PDF. Arraste e solte o arquivo aqui, ou selecione acima. Veja o glossário de variáveis ao lado para saber quais {{...}} o template pode usar."
+                            : "Formats: DOCX or DOC (DOC is converted automatically on upload). PDF can't be used as an input template — placeholders can't be merged into it; the generated proposal is still available as PDF. Drag and drop the file here, or select above. See the variable glossary alongside for which {{...}} placeholders the template can use."}
                         </p>
                       </div>
                       <div className="grid grid-cols-2 gap-3 text-xs">

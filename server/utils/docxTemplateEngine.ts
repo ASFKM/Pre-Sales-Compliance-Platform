@@ -27,7 +27,10 @@ function renderMatrixAsText(matrix: { columns?: Array<{ key: string; label: stri
     .join("\n");
 }
 
-function buildTemplateVariables(data: DocxTemplateData) {
+// Exportada desde a F6: o QA do documento gerado (proposalQa.ts) e o apoio de IA
+// (proposalAiAssist.ts) precisam enxergar EXATAMENTE os valores que o merge usou. Reimplementar
+// essa resolucao em outro lugar deixaria as duas copias divergirem sem ninguem perceber.
+export function buildTemplateVariables(data: DocxTemplateData) {
   const bom = (data.analysis?.bom || []).map((item: any) => ({
     equipamento: item.equipment_name,
     fabricante: item.manufacturer || "N/D",
@@ -123,7 +126,7 @@ function buildTemplateVariables(data: DocxTemplateData) {
 
   const executiveSummary = data.analysis?.executive_summary || {};
 
-  return {
+  const resolvidas: Record<string, unknown> = {
     cliente: data.project.customer_name,
     projeto: data.project.name,
     codigo_oportunidade: data.project.opportunity_name || "",
@@ -157,6 +160,26 @@ function buildTemplateVariables(data: DocxTemplateData) {
     premissas_comerciais: data.proposal?.commercial_assumptions || "N/D",
     exclusoes: data.proposal?.exclusions || "Impostos e desembaraço aduaneiro",
   };
+
+  /*
+   * F6: valores aprovados para variaveis livres/secoes vazias entram por ULTIMO, e so onde nao ha
+   * dado do sistema.
+   *
+   * A regra e "preencher o vazio", nunca "substituir o conhecido": se `cliente` ja veio do
+   * cadastro do projeto, nenhum texto aprovado pode troca-lo; se `resumo_executivo` saiu vazio
+   * porque a analise nao produziu a secao, o texto aprovado ocupa o lugar. Um laco (bom,
+   * precificacao) nunca e alcancado aqui - o filtro exige que o valor atual seja string, e laco e
+   * array. Isso e a ultima barreira: a rota que grava ja aplica a mesma allowlist, e este ponto
+   * garante que nem um valor gravado por outro caminho conseguiria sobrescrever fato do sistema.
+   */
+  for (const [nome, valor] of Object.entries(data.templateFieldValues || {})) {
+    if (typeof valor !== "string" || valor.trim().length === 0) continue;
+    const atual = resolvidas[nome];
+    const estaVazia = atual === undefined || (typeof atual === "string" && atual.trim().length === 0);
+    if (estaVazia) resolvidas[nome] = valor;
+  }
+
+  return resolvidas;
 }
 
 function openTemplateZip(templateBuffer: Buffer): PizZip {

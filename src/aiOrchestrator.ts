@@ -11,7 +11,7 @@ import { redis } from "./redis";
 // document_analysis call, not separate steps. document_classification was hardcoded to Gemini in
 // server/utils/documentClassification.ts before this - now routed through here like the other
 // real task types.
-export type AiTaskType = "document_analysis" | "web_grounding" | "spec_copilot" | "document_classification" | "poc_test_generation" | "poc_schedule_generation" | "poc_final_report_generation" | "proposal_opinion_panel" | "pricing_budget_optimization" | "pricing_catalog_extraction";
+export type AiTaskType = "document_analysis" | "web_grounding" | "spec_copilot" | "document_classification" | "poc_test_generation" | "poc_schedule_generation" | "poc_final_report_generation" | "proposal_opinion_panel" | "pricing_budget_optimization" | "pricing_catalog_extraction" | "proposal_generation";
 
 export interface ProviderResolution {
   provider: string;
@@ -117,6 +117,10 @@ export const AI_SPENDING_TASK_TYPES = [
   "proposal_opinion_panel",
   "pricing_budget_optimization",
   "pricing_catalog_extraction",
+  // F6: apoio de IA na geracao da proposta (preenchimento de variaveis livres e redacao de secoes
+  // de texto corrido). platform_settings ja tinha proposal_generation_provider/_model, e a tela de
+  // Admin ja mostrava "LLM Propostas" - so nao havia chamada de IA nenhuma nesse fluxo para usar.
+  "proposal_generation",
 ] as const;
 export type AiSpendingTaskType = (typeof AI_SPENDING_TASK_TYPES)[number];
 

@@ -1,6 +1,15 @@
 import { StorageAdapter } from "./storage";
 
 export interface DocxTemplateData {
+  /*
+   * F6: valores aprovados por uma pessoa para as variaveis que o sistema nao sabe preencher - as
+   * "livres" que o autor do template criou e as secoes de texto que a analise nao produziu.
+   *
+   * Precedencia deliberada (ver buildTemplateVariables em docxTemplateEngine.ts): estes valores
+   * NUNCA sobrescrevem dado que o sistema conhece. Eles so preenchem o que sairia em branco. Uma
+   * sugestao aprovada jamais pode trocar o nome do cliente, o BOM ou um preco por texto redigido.
+   */
+  templateFieldValues?: Record<string, string> | null;
   template?: {
     id: string;
     name: string;
