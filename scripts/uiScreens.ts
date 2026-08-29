@@ -218,13 +218,13 @@ async function openTab(page: Page, name: string | RegExp): Promise<void> {
 
 /** Clica numa sub-aba da Área de Trabalho. Os rótulos carregam contadores, daí o casamento por prefixo. */
 async function openWorkspaceSubTab(page: Page, prefix: string): Promise<void> {
-  await page.getByRole("button", { name: new RegExp("^" + prefix) }).first().click();
+  await page.getByRole("button", { name: new RegExp("^" + prefix) }).first().click(); // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- dev-only capture script; `prefix` is always a hardcoded literal at the call site, never external input
   await settle(page);
 }
 
 /** Clica numa seção da barra lateral do Console de Administração. */
 async function openAdminSection(page: Page, label: string): Promise<void> {
-  await page.getByRole("button", { name: new RegExp("^" + label) }).first().click();
+  await page.getByRole("button", { name: new RegExp("^" + label) }).first().click(); // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- same as openWorkspaceSubTab above
   await settle(page);
 }
 

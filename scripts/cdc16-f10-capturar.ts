@@ -433,7 +433,7 @@ async function main() {
   // pelo motivo errado.
   const arquivos = fs.readdirSync(SAIDA).filter((f) => f.endsWith(".png")).sort();
   medidas["tamanho-dos-png"] = arquivos.map((f) => {
-    const b = fs.readFileSync(path.join(SAIDA, f));
+    const b = fs.readFileSync(path.join(SAIDA, f)); // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal -- dev-only script; f comes from fs.readdirSync on the local capture output dir, never external input
     return { arquivo: f, largura: b.readUInt32BE(16), altura: b.readUInt32BE(20) };
   });
 

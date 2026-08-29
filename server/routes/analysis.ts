@@ -1703,8 +1703,8 @@ You MUST respond with a strictly parsable JSON object. No markdown, no formattin
       "target_audience": "Customer Tech Board"
     }
   ],
-  "technical_proposal_draft": "<h1>TECHNICAL PROPOSAL</h1><p>Draft detailed technical solution alignment text in ${project.proposal_language} following orientation.</p>",
-  "commercial_proposal_draft": "<h1>COMMERCIAL FRAMEWORK</h1><p>Draft commercial proposal framework with payment stages in ${project.proposal_language}.</p>"
+  "technical_proposal_draft": "<h1>TECHNICAL PROPOSAL</h1><p>Draft detailed technical solution alignment text in ${project.proposal_language} following orientation.</p>", // nosemgrep: javascript.express.security.injection.raw-html-format.raw-html-format -- example JSON shown to the AI as the expected output SHAPE inside a prompt string, never rendered as HTML to a browser; project.proposal_language is also a closed enum ("Portuguese"|"English"|"Spanish"), not free user input
+  "commercial_proposal_draft": "<h1>COMMERCIAL FRAMEWORK</h1><p>Draft commercial proposal framework with payment stages in ${project.proposal_language}.</p>" // nosemgrep: javascript.express.security.injection.raw-html-format.raw-html-format -- same as above
 }
 
 Write all generated content fields strictly in ${project.proposal_language}. Maintain an expert, formal pre-sales engineering tone.

@@ -23,6 +23,14 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    # read_only: true (added to postgres/redis/minio below, validated live) is deliberately NOT
+    # set here yet - this is the custom-built app image, and confirming every write path it needs
+    # (uploads is already the bind mount above, but temp files from zip/docx generation, npm/
+    # esbuild output, etc. aren't audited yet) needs its own validation pass building and smoke-
+    # testing the real image, not a blind flag flip on a customer-facing deployment file. Tracked
+    # as a follow-up, not silently dropped - see the F7 phase closing notes.
     volumes:
       - ./uploads:/app/uploads
 
@@ -37,6 +45,12 @@ services:
     command: ["postgres", "-c", "ssl=on", "-c", "ssl_cert_file=/certs/server.crt", "-c", "ssl_key_file=/certs/server.key"]
     ports:
       - "127.0.0.1:5432:5432"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
     volumes:
       - pgdata:/var/lib/postgresql/data
       - /etc/postgresql-certs:/certs:ro
@@ -65,6 +79,11 @@ services:
     ports:
       - "127.0.0.1:6379:6379"
       - "127.0.0.1:6380:6380"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
     volumes:
       - redisdata:/data
       - /etc/redis-certs:/certs:ro
@@ -84,6 +103,11 @@ services:
     environment:
       - MINIO_ROOT_USER=minio_admin
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set}
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
     volumes:
       - miniodata:/data
     healthcheck:

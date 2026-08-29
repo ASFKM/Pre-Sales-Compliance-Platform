@@ -171,7 +171,7 @@ describe("o molde e o CSS não podem divergir", () => {
   it("REFERENCE_BRAND_RAMP é igual ao bloco @theme static de src/index.css", () => {
     const css = fs.readFileSync(path.join(__dirname, "index.css"), "utf8");
     BRAND_RAMP_STEPS.forEach((step, index) => {
-      const match = new RegExp(`--color-brand-${step}:\\s*(#[0-9a-fA-F]{6})`).exec(css);
+      const match = new RegExp(`--color-brand-${step}:\\s*(#[0-9a-fA-F]{6})`).exec(css); // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- `step` is BRAND_RAMP_STEPS, a hardcoded literal array in this same test file, never external input
       expect(match, `--color-brand-${step} não encontrado em src/index.css`).not.toBeNull();
       expect(match![1].toLowerCase()).toBe(REFERENCE_BRAND_RAMP[index]);
     });

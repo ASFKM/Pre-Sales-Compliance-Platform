@@ -26,7 +26,7 @@ export class LocalStorageAdapter implements StorageAdapter {
     const configuredDir = baseUploadDir && baseUploadDir.trim() ? baseUploadDir.trim() : "uploads";
     this.baseUploadDir = path.isAbsolute(configuredDir)
       ? configuredDir
-      : path.resolve(process.cwd(), configuredDir);
+      : path.resolve(process.cwd(), configuredDir); // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal -- configuredDir is the admin-configured upload dir (platform settings), not per-request/attacker input
     // Directory creation deferred to uploadFile (the only method that actually needs it to
     // exist) - a constructor can't be async, and createStorageAdapter() is called fresh on every
     // request, so a sync existsSync/mkdirSync here used to block the event loop on every single
@@ -41,6 +41,7 @@ export class LocalStorageAdapter implements StorageAdapter {
   // (path.resolve + checagem de prefixo) é a defesa que deveria existir independente disso.
   private resolveStoragePath(storagePath: string): string {
     const raw = storagePath.startsWith("local://") ? storagePath.replace("local://", "") : storagePath;
+    // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal -- this IS the containment check (AUD-009 above): the resolved path is validated against `base` right below before ever being used, exactly the sanitization this rule asks for.
     const resolved = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(this.baseUploadDir, raw);
     const base = path.resolve(this.baseUploadDir);
     if (resolved !== base && !resolved.startsWith(base + path.sep)) {
@@ -61,7 +62,7 @@ export class LocalStorageAdapter implements StorageAdapter {
       throw new Error(`Invalid projectId for storage: ${JSON.stringify(projectId)}`);
     }
 
-    const projectDir = path.join(this.baseUploadDir, projectId);
+    const projectDir = path.join(this.baseUploadDir, projectId); // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal -- projectId is regex-validated (^[A-Za-z0-9_-]+$) right above, can't contain path separators
     // recursive: true is idempotent (no error if the path already exists), so this doesn't need
     // an existsSync check first - one non-blocking call covers both "first upload ever" and
     // "directory already there".
@@ -69,7 +70,7 @@ export class LocalStorageAdapter implements StorageAdapter {
 
     const extension = path.extname(originalFilename).toLowerCase();
     const uniqueName = `${crypto.randomBytes(16).toString("hex")}${extension}`;
-    const fullPath = path.join(projectDir, uniqueName);
+    const fullPath = path.join(projectDir, uniqueName); // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal -- uniqueName is server-generated (crypto.randomBytes), never derived from user input
 
     await fs.promises.writeFile(fullPath, fileBuffer);
 

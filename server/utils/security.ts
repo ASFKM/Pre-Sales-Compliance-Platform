@@ -334,10 +334,17 @@ function getSecretEncryptionKey(): Buffer {
   return crypto.createHash("sha256").update(raw).digest();
 }
 
+// 16 bytes (128 bits) is Node's own default when authTagLength is omitted - making it explicit
+// (semgrep javascript.node-crypto.security.gcm-no-tag-length) closes the theoretical risk of a
+// future Node/OpenSSL default change silently accepting a shorter, weaker tag. No format change:
+// getAuthTag() with the default already returns 16 bytes, so this doesn't affect the "v2:"
+// encrypted secrets already stored.
+const GCM_AUTH_TAG_LENGTH = 16;
+
 export function encryptSecret(plainText: string): string {
   const iv = crypto.randomBytes(12);
   const key = getSecretEncryptionKey();
-  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv, { authTagLength: GCM_AUTH_TAG_LENGTH });
 
   let encrypted = cipher.update(plainText, "utf8", "hex");
   encrypted += cipher.final("hex");
@@ -357,7 +364,7 @@ export function decryptSecret(encryptedText: string): string {
     }
 
     const key = getSecretEncryptionKey();
-    const decipher = crypto.createDecipheriv("aes-256-gcm", key, Buffer.from(ivHex, "hex"));
+    const decipher = crypto.createDecipheriv("aes-256-gcm", key, Buffer.from(ivHex, "hex"), { authTagLength: GCM_AUTH_TAG_LENGTH });
     decipher.setAuthTag(Buffer.from(authTagHex, "hex"));
 
     let decrypted = decipher.update(encryptedHex, "hex", "utf8");

@@ -28,4 +28,4 @@ const fixture = {
 
 const fixturePath = path.join(__dirname, "..", "src", "aiLogicVersions.fixture.json");
 fs.writeFileSync(fixturePath, JSON.stringify(fixture, null, 2) + "\n");
-console.log(`Wrote ${fixturePath}:`, fixture);
+console.log(`Wrote ${fixturePath}:`, fixture); // nosemgrep: javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring -- dev-only script; fixturePath is a local path this same script computed, never external input
