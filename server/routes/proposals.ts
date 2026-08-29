@@ -21,7 +21,7 @@ import { prisma } from "../../src/prisma";
 import { randomId } from "../../src/idGenerator";
 import { LOGIC_VERSIONS } from "../../src/aiLogicVersions";
 import { logger } from "../utils/logger";
-import { empurrarProposta } from "../utils/crmOutbox";
+import { empurrarProposta, empurrarEventoDaProposta } from "../utils/crmOutbox";
 import { canReopenProposal, buildReopenedProposalFields } from "../utils/proposalVersioning";
 
 const router = express.Router();
@@ -1259,6 +1259,10 @@ router.post("/proposals/:id/release", requirePermission("proposal:approve"), asy
     // no CRM (D21). O envelope carrega a versão nova do status; a versão do documento não muda,
     // então o binário não sobe de novo (o hash é a chave da mensagem, e o CRM já o tem).
     void empurrarProposta(req.params.id);
+
+    // F9: o EVENTO de timeline (D30) — sem ele o envelope acima atualiza o valor da oportunidade,
+    // mas a timeline só mostraria a liberação quando alguém abrisse a aba de propostas.
+    void empurrarEventoDaProposta(req.params.id, "proposal_sent");
 
     logDebugMessage({
       operation: "Proposal Release",
