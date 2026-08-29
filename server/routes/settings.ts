@@ -10,7 +10,7 @@ import { createStorageAdapter } from "../utils/storage";
 import { getFleetLicenseStatus, runHeartbeatForTenant, runLicenseStatusPollForTenant } from "../utils/fleetLicense";
 import { getCurrentTenantId } from "../../src/tenantContext";
 import { FACTORY_DEFAULT_CLASSIFICATION_PROMPT, FACTORY_DEFAULT_ANALYSIS_PROMPT, FACTORY_DEFAULT_POC_TEST_GENERATION_PROMPT, FACTORY_DEFAULT_POC_SCHEDULE_GENERATION_PROMPT, FACTORY_DEFAULT_POC_FINAL_REPORT_GENERATION_PROMPT } from "../utils/promptDefaults";
-import { getCurrentMonthSpendUsd, getCurrentMonthSpendByTaskType, getCurrentMonthSpendByUser, getAiUsageOwnershipCoverage } from "../../src/aiOrchestrator";
+import { getCurrentMonthSpendUsd, getCurrentMonthSpendByTaskType, getCurrentMonthSpendByUser, getAiUsageOwnershipCoverage, getSpendTimeSeries, InvalidTimeSeriesRangeError, REPORTING_TIME_ZONE } from "../../src/aiOrchestrator";
 import { assertPublicHttpsUrl } from "../utils/ssrfGuard";
 import { decideBrandTheme } from "../../src/brandTheme";
 
@@ -135,6 +135,24 @@ function validateBrandingUpdates(updates: any) {
   return { valid: true, message: "" };
 }
 
+// Data civil de hoje no fuso de relatório, como texto 'AAAA-MM-DD'. `en-CA` é o locale que o
+// Intl formata exatamente nesse formato - é o caminho sem dependência para converter um instante
+// em data CIVIL de outro fuso sem passar por getFullYear()/getMonth(), que respondem no fuso do
+// processo (aqui igual, em produção não necessariamente).
+function civilTodayInReportingZone(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: REPORTING_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
+
+// Aritmética sobre a data CIVIL, não sobre instantes: somar dias a um Date atravessa mudança de
+// fuso e pode devolver o mesmo dia duas vezes. `Date.UTC` aqui não representa um instante real,
+// é só um calendário gregoriano de conveniência.
+function civilDaysBefore(civil: string, days: number): string {
+  const [y, m, d] = civil.split("-").map(Number);
+  const base = new Date(Date.UTC(y, m - 1, d));
+  base.setUTCDate(base.getUTCDate() - days);
+  return base.toISOString().slice(0, 10);
+}
+
 router.get("/settings/ai-cost-summary", requirePermission("ai:settings"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const tenantId = getCurrentTenantId()!;
@@ -155,6 +173,40 @@ router.get("/settings/ai-cost-summary", requirePermission("ai:settings"), async 
       ownership_coverage: { total_calls: ownership.totalCalls, calls_with_owner: ownership.callsWithOwner },
     });
   } catch (err) {
+    next(err);
+  }
+});
+
+// F10 (PreSales): histórico de gasto ao longo do tempo, com período e granularidade escolhidos
+// pelo administrador — o que a tela nunca teve (o relatório de custo era sempre "mês atual",
+// fechado). O recorte por tenant é do SERVIDOR: `getCurrentTenantId()` alimenta o WHERE da
+// agregação, e a resposta já vem somada. Filtrar no cliente deixaria o dado de outros tenants
+// trafegar e faria o total do topo falar de uma população diferente das listas de baixo.
+router.get("/settings/ai-cost-timeseries", requirePermission("ai:settings"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = getCurrentTenantId()!;
+    const hoje = civilTodayInReportingZone();
+    const from = typeof req.query.from === "string" && req.query.from ? req.query.from : civilDaysBefore(hoje, 29);
+    const to = typeof req.query.to === "string" && req.query.to ? req.query.to : hoje;
+    const granularity = typeof req.query.granularity === "string" && req.query.granularity ? req.query.granularity : "day";
+
+    const series = await getSpendTimeSeries({ tenantId, from, to, granularity });
+    res.json({
+      granularity: series.granularity,
+      from: series.from,
+      to: series.to,
+      time_zone: series.timeZone,
+      total_cost_usd: series.totalCostUsd,
+      total_call_count: series.totalCallCount,
+      points: series.points.map((p) => ({ bucket: p.bucket, cost_usd: p.costUsd, call_count: p.callCount })),
+    });
+  } catch (err) {
+    if (err instanceof InvalidTimeSeriesRangeError) {
+      // 400 com a razão legível: o cliente precisa saber QUE a série foi recusada e por quê -
+      // devolver uma série truncada faria o fim do período parecer sem gasto.
+      res.status(400).json({ message: err.message, code: err.code, suggested_granularity: err.suggestedGranularity ?? null });
+      return;
+    }
     next(err);
   }
 });

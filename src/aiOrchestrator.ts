@@ -319,6 +319,187 @@ export async function getAiUsageOwnershipCoverage(tenantId: string): Promise<AiU
   return { totalCalls, callsWithOwner };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// F10 (PreSales): histórico de gasto ao longo do tempo, com período e
+// granularidade escolhidos pelo administrador.
+//
+// Por que SQL cru e não `groupBy` do Prisma: o agrupamento é por BALDE CIVIL
+// (dia/semana/mês no fuso de quem lê), e o Prisma só sabe agrupar por valor de
+// coluna. Três armadilhas mediram custo real aqui e estão codificadas abaixo.
+//
+// 1) `DateTime` do Prisma vira `timestamp WITHOUT time zone` no Postgres
+//    (conferido em 29/08/2026: `information_schema.columns` devolve
+//    `timestamp without time zone` para `ai_usage_logs.created_at`), e o valor
+//    gravado está em UTC. Sobre uma coluna SEM fuso, `created_at AT TIME ZONE
+//    'America/Sao_Paulo'` faz o OPOSTO do que parece: INTERPRETA o valor como
+//    se já fosse hora de São Paulo, em vez de convertê-lo. O certo é o par
+//    `AT TIME ZONE 'UTC'` (naive→instante) seguido de `AT TIME ZONE <fuso>`
+//    (instante→civil local). O defeito é silencioso: o total do período
+//    continua certo, porque o recorte usa instantes; só as barras mentem — um
+//    gasto das 23h59 cai no balde do dia seguinte.
+//
+// 2) Período sem gasto tem de sair como ZERO, não como linha ausente:
+//    `generate_series` + LEFT JOIN. Uma série com buracos desenha 20/07 colado
+//    em 26/07 e faz cinco dias parados parecerem um dia. Este banco tem os
+//    buracos de verdade (19/07, 23-25/07 sem uma única chamada), então não é
+//    hipótese.
+//
+// 3) Os limites do `generate_series` saem das datas civis em TEXTO
+//    ('YYYY-MM-DD'), nunca de um `Date` do JS. Um `Date` chega ao driver como
+//    instante e passa a depender do `TimeZone` da SESSÃO do Postgres (que aqui
+//    é UTC, mas é configuração de servidor, não contrato do código).
+//
+// Nada aqui é concatenado em SQL: `date_trunc(text, timestamp)` e
+// `generate_series(..., interval)` aceitam o passo como PARÂMETRO, então
+// granularidade e intervalo viajam como valor. A whitelist abaixo existe
+// mesmo assim, para o erro aparecer na borda e não como SQL inválido.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type SpendGranularity = "day" | "week" | "month";
+
+/**
+ * Fuso civil dos relatórios. O produto é operado no Brasil e já formata datas
+ * em pt-BR na tela; o balde do gráfico usa o mesmo calendário que o leitor.
+ * Constante nomeada — e não literal espalhado — para que o dia em que isto
+ * virar configuração por tenant tenha um único ponto de troca.
+ */
+export const REPORTING_TIME_ZONE = "America/Sao_Paulo";
+
+/**
+ * Teto de pontos da série. Acima disso a resposta é um erro pedindo
+ * granularidade maior, NUNCA uma série truncada: série cortada no fim parece
+ * período sem gasto, que é exatamente a mentira que este relatório existe para
+ * não contar.
+ */
+export const MAX_TIME_SERIES_POINTS = 400;
+
+const GRANULARITY_STEP: Record<SpendGranularity, string> = {
+  day: "1 day",
+  week: "1 week",
+  month: "1 month",
+};
+
+const CIVIL_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+export class InvalidTimeSeriesRangeError extends Error {
+  constructor(
+    message: string,
+    readonly code: "invalid_date" | "inverted_range" | "invalid_granularity" | "too_many_points",
+    readonly suggestedGranularity?: SpendGranularity,
+  ) {
+    super(message);
+    this.name = "InvalidTimeSeriesRangeError";
+  }
+}
+
+export interface SpendTimeSeriesPoint {
+  /** Início civil do balde, 'YYYY-MM-DD' — já no fuso de leitura. */
+  bucket: string;
+  costUsd: number;
+  callCount: number;
+}
+
+export interface SpendTimeSeries {
+  granularity: SpendGranularity;
+  from: string;
+  to: string;
+  timeZone: string;
+  points: SpendTimeSeriesPoint[];
+  totalCostUsd: number;
+  totalCallCount: number;
+}
+
+function assertRange(from: string, to: string, granularity: string): asserts granularity is SpendGranularity {
+  if (!CIVIL_DATE.test(from) || !CIVIL_DATE.test(to)) {
+    throw new InvalidTimeSeriesRangeError("Datas devem estar no formato AAAA-MM-DD.", "invalid_date");
+  }
+  if (!Object.prototype.hasOwnProperty.call(GRANULARITY_STEP, granularity)) {
+    throw new InvalidTimeSeriesRangeError("Granularidade deve ser day, week ou month.", "invalid_granularity");
+  }
+  if (from > to) {
+    throw new InvalidTimeSeriesRangeError("A data inicial não pode ser posterior à final.", "inverted_range");
+  }
+}
+
+/**
+ * Histórico de gasto de IA do tenant, em baldes civis contíguos.
+ *
+ * O recorte por tenant é aplicado NO SQL, antes de responder — o payload nunca
+ * carrega linha de outro tenant para a tela filtrar depois. `from` e `to` são
+ * datas civis inclusivas; os baldes das bordas são recortados pelo período
+ * pedido (um balde mensal iniciado antes de `from` soma só do `from` em
+ * diante), porque o número que o administrador escolheu é o período, não o mês.
+ */
+export async function getSpendTimeSeries(params: {
+  tenantId: string;
+  from: string;
+  to: string;
+  granularity: string;
+}): Promise<SpendTimeSeries> {
+  const { tenantId, from, to } = params;
+  assertRange(from, to, params.granularity);
+  const granularity = params.granularity as SpendGranularity;
+  const step = GRANULARITY_STEP[granularity];
+
+  // Conta os baldes antes de materializar o join: `generate_series` sozinho não
+  // toca a tabela de log, então recusar um pedido grande custa quase nada.
+  const [{ n: bucketCount }] = await prisma.$queryRaw<{ n: number }[]>`
+    SELECT count(*)::int AS n
+    FROM generate_series(
+      date_trunc(${granularity}, ${from}::date::timestamp),
+      date_trunc(${granularity}, ${to}::date::timestamp),
+      ${step}::interval
+    )
+  `;
+
+  if (bucketCount > MAX_TIME_SERIES_POINTS) {
+    const suggested: SpendGranularity = granularity === "day" ? "week" : "month";
+    throw new InvalidTimeSeriesRangeError(
+      `O período pedido gera ${bucketCount} pontos, acima do limite de ${MAX_TIME_SERIES_POINTS}. Use uma granularidade maior ou um período menor.`,
+      "too_many_points",
+      granularity === "month" ? undefined : suggested,
+    );
+  }
+
+  const rows = await prisma.$queryRaw<{ bucket: string; cost_usd: number; call_count: number }[]>`
+    WITH buckets AS (
+      SELECT generate_series(
+        date_trunc(${granularity}, ${from}::date::timestamp),
+        date_trunc(${granularity}, ${to}::date::timestamp),
+        ${step}::interval
+      ) AS bucket_start
+    )
+    SELECT
+      to_char(b.bucket_start, 'YYYY-MM-DD') AS bucket,
+      COALESCE(SUM(l.estimated_cost_usd), 0)::double precision AS cost_usd,
+      COUNT(l.id)::int AS call_count
+    FROM buckets b
+    LEFT JOIN ai_usage_logs l
+      ON l.tenant_id = ${tenantId}
+     AND l.created_at >= ((${from}::date::timestamp AT TIME ZONE ${REPORTING_TIME_ZONE}) AT TIME ZONE 'UTC')
+     AND l.created_at <  (((${to}::date + 1)::timestamp AT TIME ZONE ${REPORTING_TIME_ZONE}) AT TIME ZONE 'UTC')
+     AND date_trunc(${granularity}, (l.created_at AT TIME ZONE 'UTC') AT TIME ZONE ${REPORTING_TIME_ZONE}) = b.bucket_start
+    GROUP BY b.bucket_start
+    ORDER BY b.bucket_start
+  `;
+
+  const points: SpendTimeSeriesPoint[] = rows.map((r) => ({
+    bucket: r.bucket,
+    costUsd: Number(r.cost_usd) || 0,
+    callCount: Number(r.call_count) || 0,
+  }));
+
+  return {
+    granularity,
+    from,
+    to,
+    timeZone: REPORTING_TIME_ZONE,
+    points,
+    totalCostUsd: points.reduce((acc, p) => acc + p.costUsd, 0),
+    totalCallCount: points.reduce((acc, p) => acc + p.callCount, 0),
+  };
+}
+
 const FALLBACK_ALERT_WINDOW_MS = 60 * 60 * 1000;
 const FALLBACK_ALERT_THRESHOLD = 3;
 
