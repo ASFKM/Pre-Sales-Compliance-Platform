@@ -4,7 +4,7 @@ import { z } from "zod";
 import { dbStore } from "../../src/dbStore";
 import { requireAuth, requirePermission } from "./auth";
 import { requireUserId } from "../middleware/security";
-import { empurrarProposta } from "../utils/crmOutbox";
+import { empurrarProposta, empurrarEventoDaProposta } from "../utils/crmOutbox";
 import { validateApprovalDecisionComments } from "../utils/approvalDecision";
 
 const router = express.Router();
@@ -350,6 +350,17 @@ router.post("/proposals/:proposalId/approval/decision", requireAuth, async (req:
      * notícia, e o CRM devolve a mesma resposta na repetição em vez de duplicar.
      */
     void empurrarProposta(req.params.proposalId);
+
+    /*
+     * F9: o EVENTO de timeline (D30) que acompanha o envelope acima, para a oportunidade animar
+     * na hora (SSE) e não só quando alguém abrir a aba de propostas. `submitted` (falta etapa)
+     * não tem marco correspondente no vocabulário do CMCRM e não dispara nada aqui.
+     */
+    if (nextStatus === "approved") {
+      void empurrarEventoDaProposta(req.params.proposalId, "proposal_ready");
+    } else if (nextStatus === "rejected") {
+      void empurrarEventoDaProposta(req.params.proposalId, "proposal_rejected");
+    }
 
     await auditApprovalChange(
       req,

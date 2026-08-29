@@ -48,6 +48,13 @@ export type EventoDeSaida =
   | "poc_accepted"
   | "pricing_ready"
   | "proposal_ready"
+  // F9: o desfecho da LIBERAÇÃO — enviada ao cliente ou recusada na aprovação
+  // interna. Estavam no contrato e no vocabulário do CMCRM (ROTULO_DO_EVENTO)
+  // desde a F3, e nunca tinham sido emitidos por ninguém: `empurrarProposta`
+  // só mandava o ENVELOPE da proposta (o registro), nunca o EVENTO de
+  // timeline que o vendedor vê animar na oportunidade.
+  | "proposal_sent"
+  | "proposal_rejected"
   // F5: o prazo do SLA que venceu (D19). O evento existia no contrato e na
   // porta do CMCRM desde a F3, e nunca tinha sido emitido por ninguém.
   | "sla_breached"
@@ -352,6 +359,48 @@ export async function empurrarProposta(proposalId: string): Promise<void> {
     tentarAgora(envelope.tenantId);
   } catch (err) {
     logger.error({ err, proposalId }, "cdc16 F4: falha ao empurrar a proposta para o CRM");
+  }
+}
+
+/** Os únicos marcos de LIBERAÇÃO que este produto sabe produzir hoje (F9). */
+export type EventoDeLiberacao = Extract<
+  EventoDeSaida,
+  "proposal_ready" | "proposal_sent" | "proposal_rejected"
+>;
+
+/**
+ * Empurra o EVENTO de timeline (D30) que acompanha uma mudança de status de proposta — pronta
+ * (aprovação interna completa), enviada (liberação) ou recusada (aprovação interna recusou).
+ *
+ * Reusa `montarEnvelopeDaProposta` só pela resolução de demanda/tenant, que já é a certa mesmo
+ * para uma versão reaberta pela F8: a demanda é achada pelo `projectId` da proposta, e o
+ * `projectId` é o MESMO em toda a cadeia de versões — reabrir cria uma linha de `Proposal` nova,
+ * nunca um projeto novo. `occurredAt` é sempre "agora": ao contrário dos marcos do ciclo de vida
+ * da demanda (F3), aqui não existe um FATO anterior à chamada para redescobrir.
+ *
+ * Nunca lança, pela mesma razão de `empurrarProposta`: a decisão de aprovar/liberar/recusar já
+ * está gravada quando isto é chamado, e um CRM fora do ar não pode desfazê-la.
+ */
+export async function empurrarEventoDaProposta(
+  proposalId: string,
+  event: EventoDeLiberacao
+): Promise<void> {
+  try {
+    const envelope = await montarEnvelopeDaProposta(proposalId);
+    // `null` é o mesmo caso legítimo de `empurrarProposta`: proposta sem demanda do outro lado.
+    if (!envelope) return;
+
+    await enfileirarEvento({
+      tenantId: envelope.tenantId,
+      demandId: envelope.demandId,
+      demandRef: envelope.demandRef,
+      event,
+      occurredAt: new Date(),
+    });
+
+    tentarAgora(envelope.tenantId);
+  } catch (err) {
+    logger.error({ err, proposalId, event }, "cdc16 F9: falha ao empurrar o evento de liberação da proposta para o CRM");
   }
 }
 
