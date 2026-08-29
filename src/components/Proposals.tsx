@@ -1,8 +1,17 @@
 import { useEffect, useState } from "react";
-import { TriangleAlert, Download, PenLine, ShieldAlert, Sparkles, X, Wrench, Handshake, CircleDollarSign, type LucideIcon } from "lucide-react";
+import { TriangleAlert, Download, PenLine, ShieldAlert, Sparkles, X, Wrench, Handshake, CircleDollarSign, Eye, CheckCircle2, type LucideIcon } from "lucide-react";
+import * as mammoth from "mammoth";
+import DOMPurify from "dompurify";
 import { Proposal, SlaRiskFlag } from "../types";
 import { useProposals } from "../hooks/useProposals";
 import { BackgroundTask } from "../hooks/useBackgroundTasks";
+import {
+  ProposalEditableField,
+  PROPOSAL_TYPE_EDITABLE_FIELDS,
+  PROPOSAL_TYPE_LABEL,
+  PROPOSAL_TYPE_BADGE,
+  PROPOSAL_FIELD_LABEL,
+} from "../lib/proposalEditableFields";
 
 const OPINION_PERSPECTIVES = ["technical", "commercial", "legal", "financial"] as const;
 type OpinionPerspective = (typeof OPINION_PERSPECTIVES)[number];
@@ -36,6 +45,11 @@ interface OpinionItem {
   severity?: "info" | "warning" | "critical" | null;
   summary: string;
   content: string;
+  // PARTE B (parecer acionável): presente só quando a IA tinha UMA mudança concreta a sugerir a um
+  // campo que este tipo de proposta realmente possui (ver server/routes/proposals.ts's
+  // TEXT_SUGGESTIBLE_FIELDS) - nunca aplicado sozinho, só via o botão "Aplicar" abaixo.
+  suggested_field?: Exclude<ProposalEditableField, "manual_pricing_table"> | null;
+  suggested_value?: string | null;
 }
 interface OpinionRun {
   id: string;
@@ -59,7 +73,7 @@ export default function Proposals({
   locale, hasPermission, proposals, selectedProjectId, activeTasks, waitForTask,
   fetchGlobalConfigs, fetchProjectDetails, handleReleaseProposal,
 }: ProposalsProps) {
-  const { handleUpdateProposalCommercial, handleSubmitProposalApproval } = useProposals({
+  const { handleUpdateProposalCommercial, handleUpdateProposalFields, handleSubmitProposalApproval } = useProposals({
     locale, hasPermission, proposals, selectedProjectId, fetchGlobalConfigs, fetchProjectDetails,
   });
   const [exportingId, setExportingId] = useState<string | null>(null);
@@ -106,39 +120,98 @@ export default function Proposals({
       alert(err instanceof Error ? err.message : String(err));
     }
   };
+  // PARTE A (editor estruturado): substitui o antigo blob único `editable_content` por um formulário
+  // com só os campos que o TIPO desta proposta realmente possui (PROPOSAL_TYPE_EDITABLE_FIELDS) -
+  // salvar regenera o DOCX/PDF através do mesmo caminho de merge de template da geração inicial
+  // (server/routes/proposals.ts), então o letterhead de um template real nunca é mais perdido.
   const [editingProposal, setEditingProposal] = useState<Proposal | null>(null);
-  const [editedContent, setEditedContent] = useState("");
+  const [editedFields, setEditedFields] = useState<Partial<Record<Exclude<ProposalEditableField, "manual_pricing_table">, string>>>({});
   const [savingEdit, setSavingEdit] = useState(false);
 
   const openEditor = (prop: Proposal) => {
+    const allowed = PROPOSAL_TYPE_EDITABLE_FIELDS[prop.proposal_type];
+    const initial: typeof editedFields = {};
+    for (const field of allowed) {
+      if (field === "manual_pricing_table") continue;
+      initial[field] = (prop[field] as string | undefined) || "";
+    }
     setEditingProposal(prop);
-    setEditedContent(prop.editable_content || "");
+    setEditedFields(initial);
   };
 
-  // Saving regenerates the DOCX/PDF from this text server-side (server/routes/proposals.ts) - the
-  // exported files always match what the user reviewed/edited here, not the original AI draft.
-  const saveEditedContent = async () => {
+  const saveEditedFields = async () => {
     if (!editingProposal) return;
     setSavingEdit(true);
     try {
-      const res = await fetch(`/api/proposals/${editingProposal.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ editable_content: editedContent }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        alert(data.message || (locale === "pt" ? "Não foi possível salvar as alterações." : "Could not save changes."));
-        return;
-      }
-      setEditingProposal(null);
-      await fetchProjectDetails(selectedProjectId);
-    } catch (err) {
-      console.error(err);
-      alert(locale === "pt" ? "Erro ao salvar as alterações." : "Error saving changes.");
+      const ok = await handleUpdateProposalFields(editingProposal.id, editedFields);
+      if (ok) setEditingProposal(null);
     } finally {
       setSavingEdit(false);
     }
+  };
+
+  // PARTE B (parecer acionável): aplica UMA sugestão estruturada de um parecer de IA - o usuário
+  // sempre confirma clicando aqui, a IA nunca grava na proposta sozinha (o parecer só devolve
+  // suggested_field/suggested_value; ver server/routes/proposals.ts).
+  const [applyingSuggestionKey, setApplyingSuggestionKey] = useState<string | null>(null);
+  const applyOpinionSuggestion = async (propId: string, field: Exclude<ProposalEditableField, "manual_pricing_table">, value: string) => {
+    const key = `${propId}-${field}`;
+    setApplyingSuggestionKey(key);
+    try {
+      await handleUpdateProposalFields(propId, { [field]: value });
+    } finally {
+      setApplyingSuggestionKey(null);
+    }
+  };
+
+  // PARTE A (preview do documento real): busca o DOCX/PDF já exportado (as mesmas rotas de
+  // download, /export/docx e /export/pdf) e renderiza inline - DOCX via mammoth (já é dependência
+  // do produto, usada no server para extração de upload; o mesmo pacote roda no browser),
+  // PDF nativamente pelo próprio navegador via <iframe> numa blob URL. Nada de reimplementar
+  // renderização de documento no client - é sempre o binário real, não uma reconstrução do texto.
+  const [previewingProposalId, setPreviewingProposalId] = useState<string | null>(null);
+  const [previewFormat, setPreviewFormat] = useState<"docx" | "pdf">("docx");
+  const [previewDocxHtml, setPreviewDocxHtml] = useState<string | null>(null);
+  const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  const openPreview = async (proposalId: string, format: "docx" | "pdf") => {
+    setPreviewingProposalId(proposalId);
+    setPreviewFormat(format);
+    setPreviewError(null);
+    setPreviewLoading(true);
+    try {
+      const res = await fetch(`/api/proposals/${proposalId}/export/${format}`);
+      if (!res.ok) {
+        throw new Error(locale === "pt" ? "Não foi possível carregar o documento." : "Could not load the document.");
+      }
+      if (format === "docx") {
+        const arrayBuffer = await res.arrayBuffer();
+        const result = await mammoth.convertToHtml({ arrayBuffer });
+        // mammoth passes through whatever href/src the source .docx's XML declares (e.g. a
+        // hyperlink relationship) - sanitize before ever injecting into the DOM, same as any other
+        // HTML string built from data that isn't 100% attacker-proof (an uploaded proposal
+        // template is admin-controlled, not attacker-controlled, but this is the actual document
+        // that gets shown, so it gets the same treatment as untrusted HTML would).
+        setPreviewDocxHtml(DOMPurify.sanitize(result.value));
+      } else {
+        const blob = await res.blob();
+        setPreviewPdfUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(blob); });
+      }
+    } catch (err) {
+      console.error(err);
+      setPreviewError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const closePreview = () => {
+    setPreviewingProposalId(null);
+    setPreviewDocxHtml(null);
+    setPreviewPdfUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
+    setPreviewError(null);
   };
 
   // Roadmap item (customer_request): "Alerta de Risco de SLA via Base de Conhecimento" - flags
@@ -220,14 +293,12 @@ export default function Proposals({
                       {/* Header block of proposal */}
                       <div className="flex justify-between items-start border-b border-slate-100 pb-3">
                         <div className="flex gap-3 items-center">
-                          <div className={`w-10 h-10 rounded-lg flex items-center justify-center font-bold text-sm ${
-                            prop.proposal_type === "technical" ? "bg-brand-50 text-brand-700" : "bg-brand-50 text-brand-700"
-                          }`}>
-                            {prop.proposal_type === "technical" ? "TECH" : "COMM"}
+                          <div className="w-10 h-10 rounded-lg flex items-center justify-center font-bold text-[10px] bg-brand-50 text-brand-700">
+                            {PROPOSAL_TYPE_BADGE[prop.proposal_type]}
                           </div>
                           <div>
                             <div className="flex items-center gap-2">
-                              <h3 className="text-sm font-bold text-slate-800 uppercase font-mono">{prop.proposal_type === "technical" ? (locale === "pt" ? "Técnica" : "Technical") : (locale === "pt" ? "Comercial" : "Commercial")} - Draft v{prop.version}.0</h3>
+                              <h3 className="text-sm font-bold text-slate-800 uppercase font-mono">{PROPOSAL_TYPE_LABEL[prop.proposal_type][locale]} - Draft v{prop.version}.0</h3>
                               <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${
                                 prop.status === "released" ? "text-brand-700 bg-brand-50 border-brand-200" :
                                 prop.status === "approved" ? "text-success-700 bg-success-50 border-success-200" :
@@ -287,6 +358,13 @@ export default function Proposals({
                           {hasPermission("proposal:export") && (
                             <>
                               <button
+                                onClick={() => openPreview(prop.id, "docx")}
+                                className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-mono text-[11px] font-bold px-3 py-1.5 rounded border border-slate-200 transition-all shadow-sm cursor-pointer"
+                                title={locale === "pt" ? "Visualiza o documento real (o mesmo que seria exportado)" : "Previews the actual document (the same one that would be exported)"}
+                              >
+                                <Eye size={12} /> {locale === "pt" ? "Pré-visualizar" : "Preview"}
+                              </button>
+                              <button
                                 onClick={() => handleExportProposal(prop.id, "docx")}
                                 disabled={exportingId === `${prop.id}-docx`}
                                 className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-mono text-[11px] font-bold px-3 py-1.5 rounded border border-slate-200 transition-all shadow-sm disabled:opacity-50 cursor-pointer"
@@ -326,8 +404,8 @@ export default function Proposals({
                         </div>
                       </div>
 
-                      {/* Pricing table block - ONLY FOR COMMERCIAL */}
-                      {prop.proposal_type === "commercial" && prop.manual_pricing_table && (
+                      {/* Pricing table block - only for types whose template actually uses pricing */}
+                      {PROPOSAL_TYPE_EDITABLE_FIELDS[prop.proposal_type].includes("manual_pricing_table") && prop.manual_pricing_table && (
                         <div className="space-y-2">
                           <h4 className="text-xs uppercase font-bold text-slate-500 tracking-wider font-mono">{locale === "pt" ? "Grade de Planilha de Preço de Licitação" : "Commercial Bid Pricing Sheet Grid"}</h4>
                           <div className="border border-slate-200 rounded-lg overflow-hidden bg-slate-50/50">
@@ -398,29 +476,23 @@ export default function Proposals({
                         </div>
                       )}
 
-                      {/* Text details for exclusions, validity etc */}
-                      <div className="grid grid-cols-2 gap-6 text-xs text-slate-600 bg-slate-50/50 p-4 rounded-lg border border-slate-200">
-                        <div className="space-y-3">
-                          <div>
-                            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block">{locale === "pt" ? "Exclusões Comerciais" : "Commercial Exclusions"}</span>
-                            <p className="text-xs text-slate-700 italic mt-0.5">"{prop.exclusions || "N/A"}"</p>
+                      {/* Text details for exclusions, validity etc - only the fields this type actually owns */}
+                      {(() => {
+                        const allowedTextFields = PROPOSAL_TYPE_EDITABLE_FIELDS[prop.proposal_type].filter(
+                          (f): f is Exclude<ProposalEditableField, "manual_pricing_table"> => f !== "manual_pricing_table"
+                        );
+                        if (allowedTextFields.length === 0) return null;
+                        return (
+                          <div className="grid grid-cols-2 gap-6 text-xs text-slate-600 bg-slate-50/50 p-4 rounded-lg border border-slate-200">
+                            {allowedTextFields.map((field) => (
+                              <div key={field}>
+                                <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block">{PROPOSAL_FIELD_LABEL[field][locale]}</span>
+                                <p className="text-xs text-slate-700 italic mt-0.5">"{prop[field] || "N/A"}"</p>
+                              </div>
+                            ))}
                           </div>
-                          <div>
-                            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block">{locale === "pt" ? "Data de Validade da Proposta" : "Proposal Validity Date"}</span>
-                            <p className="text-xs text-slate-700 font-semibold mt-0.5">{prop.proposal_validity || "N/A"}</p>
-                          </div>
-                        </div>
-                        <div className="space-y-3">
-                          <div>
-                            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block">{locale === "pt" ? "Termos de Pagamento e Crédito" : "Payment & Credit Terms"}</span>
-                            <p className="text-xs text-slate-700 italic mt-0.5">"{prop.payment_terms || "N/A"}"</p>
-                          </div>
-                          <div>
-                            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block">{locale === "pt" ? "Condições de Entrega Incoterms" : "Incoterms Delivery Conditions"}</span>
-                            <p className="text-xs text-slate-700 font-semibold mt-0.5">{prop.delivery_terms || "N/A"}</p>
-                          </div>
-                        </div>
-                      </div>
+                        );
+                      })()}
 
                       {slaCheckResults[prop.id] !== undefined && (
                         slaCheckResults[prop.id].length === 0 ? (
@@ -503,6 +575,24 @@ export default function Proposals({
                                     </span>
                                   </summary>
                                   <p className="mt-2 whitespace-pre-wrap pl-8">{item.content}</p>
+                                  {item.suggested_field && item.suggested_value && prop.status === "draft" && hasPermission("proposal:edit") && (
+                                    <div className="mt-2 ml-8 p-2 rounded border border-brand-200 bg-brand-50/50">
+                                      <p className="text-[10px] uppercase font-bold text-brand-700 tracking-wider font-mono mb-1">
+                                        {locale === "pt" ? "Sugestão de alteração:" : "Suggested change:"} {PROPOSAL_FIELD_LABEL[item.suggested_field][locale]}
+                                      </p>
+                                      <p className="italic text-slate-600 mb-2">"{item.suggested_value}"</p>
+                                      <button
+                                        onClick={(e) => { e.preventDefault(); applyOpinionSuggestion(prop.id, item.suggested_field!, item.suggested_value!); }}
+                                        disabled={applyingSuggestionKey === `${prop.id}-${item.suggested_field}`}
+                                        className="flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 text-white font-mono text-[10px] font-bold px-2.5 py-1 rounded transition-all disabled:opacity-50 cursor-pointer"
+                                      >
+                                        <CheckCircle2 size={11} />
+                                        {applyingSuggestionKey === `${prop.id}-${item.suggested_field}`
+                                          ? (locale === "pt" ? "Aplicando..." : "Applying...")
+                                          : (locale === "pt" ? "Aplicar" : "Apply")}
+                                      </button>
+                                    </div>
+                                  )}
                                 </details>
                               );
                             })}
@@ -515,44 +605,124 @@ export default function Proposals({
                 </div>
               )}
 
-              {editingProposal && (
+              {editingProposal && (() => {
+                const allowed = PROPOSAL_TYPE_EDITABLE_FIELDS[editingProposal.proposal_type].filter(
+                  (f): f is Exclude<ProposalEditableField, "manual_pricing_table"> => f !== "manual_pricing_table"
+                );
+                return (
+                  <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+                      <div className="flex items-center justify-between p-4 border-b border-slate-100">
+                        <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">
+                          {locale === "pt" ? "Revisar e Editar Proposta" : "Review & Edit Proposal"}
+                        </h3>
+                        <button onClick={() => setEditingProposal(null)} className="text-slate-400 hover:text-slate-700 cursor-pointer">
+                          <X size={18} />
+                        </button>
+                      </div>
+                      {allowed.length === 0 ? (
+                        <p className="p-4 text-xs text-slate-500">
+                          {locale === "pt"
+                            ? `Documentos do tipo "${PROPOSAL_TYPE_LABEL[editingProposal.proposal_type].pt}" não têm campos comerciais editáveis - todo o conteúdo vem da análise de IA do projeto. Use "Pré-visualizar" para conferir o documento gerado.`
+                            : `"${PROPOSAL_TYPE_LABEL[editingProposal.proposal_type].en}" documents have no editable commercial fields - all their content comes from the project's AI analysis. Use "Preview" to check the generated document.`}
+                        </p>
+                      ) : (
+                        <>
+                          <p className="text-xs text-slate-500 px-4 pt-3">
+                            {locale === "pt"
+                              ? "Edite os campos abaixo. Ao salvar, o DOCX e o PDF exportados são regenerados a partir do template real desta proposta."
+                              : "Edit the fields below. Saving regenerates the exported DOCX and PDF from this proposal's real template."}
+                          </p>
+                          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                            {allowed.map((field) => (
+                              <div key={field}>
+                                <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider font-mono block mb-1">
+                                  {PROPOSAL_FIELD_LABEL[field][locale]}
+                                </label>
+                                {field === "proposal_validity" ? (
+                                  <input
+                                    type="text"
+                                    value={editedFields[field] || ""}
+                                    onChange={(e) => setEditedFields((prev) => ({ ...prev, [field]: e.target.value }))}
+                                    className="w-full p-2 rounded border border-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                  />
+                                ) : (
+                                  <textarea
+                                    value={editedFields[field] || ""}
+                                    onChange={(e) => setEditedFields((prev) => ({ ...prev, [field]: e.target.value }))}
+                                    rows={3}
+                                    className="w-full p-2 rounded border border-slate-200 text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none"
+                                  />
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                      <div className="flex justify-end gap-2 p-4 border-t border-slate-100">
+                        <button
+                          onClick={() => setEditingProposal(null)}
+                          className="px-4 py-2 text-xs font-bold uppercase text-slate-500 hover:bg-slate-100 rounded transition-colors cursor-pointer"
+                        >
+                          {locale === "pt" ? "Cancelar" : "Cancel"}
+                        </button>
+                        {allowed.length > 0 && (
+                          <button
+                            onClick={saveEditedFields}
+                            disabled={savingEdit}
+                            className="px-4 py-2 text-xs font-bold uppercase bg-brand-600 hover:bg-brand-700 text-white rounded transition-colors cursor-pointer disabled:opacity-50"
+                          >
+                            {savingEdit ? (locale === "pt" ? "Salvando..." : "Saving...") : (locale === "pt" ? "Salvar e Regenerar Documento" : "Save & Regenerate Document")}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {previewingProposalId && (
                 <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
-                  <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col">
+                  <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
                     <div className="flex items-center justify-between p-4 border-b border-slate-100">
-                      <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">
-                        {locale === "pt" ? "Revisar e Editar Proposta" : "Review & Edit Proposal"}
-                      </h3>
-                      <button onClick={() => setEditingProposal(null)} className="text-slate-400 hover:text-slate-700 cursor-pointer">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">
+                          {locale === "pt" ? "Pré-visualização do Documento" : "Document Preview"}
+                        </h3>
+                        <div className="flex rounded border border-slate-200 overflow-hidden ml-2">
+                          {(["docx", "pdf"] as const).map((fmt) => (
+                            <button
+                              key={fmt}
+                              onClick={() => openPreview(previewingProposalId, fmt)}
+                              className={`px-2.5 py-1 text-[10px] font-bold uppercase font-mono cursor-pointer ${previewFormat === fmt ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}
+                            >
+                              {fmt}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <button onClick={closePreview} className="text-slate-400 hover:text-slate-700 cursor-pointer">
                         <X size={18} />
                       </button>
                     </div>
-                    <p className="text-xs text-slate-500 px-4 pt-3">
-                      {locale === "pt"
-                        ? "Edite qualquer trecho abaixo. Ao salvar, o DOCX e o PDF exportados são regenerados a partir deste texto."
-                        : "Edit any part below. Saving regenerates the exported DOCX and PDF from this text."}
-                    </p>
-                    <div className="flex-1 p-4 min-h-0">
-                      <textarea
-                        value={editedContent}
-                        onChange={(e) => setEditedContent(e.target.value)}
-                        className="w-full h-full min-h-[400px] p-3 rounded border border-slate-200 font-mono text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none"
-                        spellCheck={false}
-                      />
-                    </div>
-                    <div className="flex justify-end gap-2 p-4 border-t border-slate-100">
-                      <button
-                        onClick={() => setEditingProposal(null)}
-                        className="px-4 py-2 text-xs font-bold uppercase text-slate-500 hover:bg-slate-100 rounded transition-colors cursor-pointer"
-                      >
-                        {locale === "pt" ? "Cancelar" : "Cancel"}
-                      </button>
-                      <button
-                        onClick={saveEditedContent}
-                        disabled={savingEdit}
-                        className="px-4 py-2 text-xs font-bold uppercase bg-brand-600 hover:bg-brand-700 text-white rounded transition-colors cursor-pointer disabled:opacity-50"
-                      >
-                        {savingEdit ? (locale === "pt" ? "Salvando..." : "Saving...") : (locale === "pt" ? "Salvar e Regenerar Documento" : "Save & Regenerate Document")}
-                      </button>
+                    <div className="flex-1 min-h-[60vh] overflow-y-auto bg-slate-100">
+                      {previewLoading && (
+                        <div className="h-full flex items-center justify-center text-xs text-slate-400 font-mono">
+                          {locale === "pt" ? "Carregando documento..." : "Loading document..."}
+                        </div>
+                      )}
+                      {previewError && (
+                        <div className="h-full flex items-center justify-center text-xs text-danger-600 font-mono p-4 text-center">{previewError}</div>
+                      )}
+                      {!previewLoading && !previewError && previewFormat === "docx" && previewDocxHtml && (
+                        <div
+                          className="bg-white max-w-3xl mx-auto my-6 p-10 shadow-sm text-sm leading-relaxed prose prose-sm"
+                          dangerouslySetInnerHTML={{ __html: previewDocxHtml }}
+                        />
+                      )}
+                      {!previewLoading && !previewError && previewFormat === "pdf" && previewPdfUrl && (
+                        <iframe title="pdf-preview" src={previewPdfUrl} className="w-full h-full min-h-[70vh] border-0" />
+                      )}
                     </div>
                   </div>
                 </div>

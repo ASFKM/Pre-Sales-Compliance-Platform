@@ -1303,6 +1303,15 @@ model ProposalAiOpinionItem {
   severity     String? // "info" | "warning" | "critical"
   summary      String             @db.Text
   content      String             @db.Text
+  // Structured, machine-applicable half of the opinion (PARTE B do prompt "PreSales · F7") - set
+  // only when the AI had one concrete, specific change to recommend to a field this proposal's own
+  // type can actually take (PROPOSAL_TYPE_EDITABLE_FIELDS, server/utils/proposalTypes.ts) - most
+  // opinions won't have one and leave both null. Purely a suggestion: the AI never writes to
+  // Proposal itself: the client shows an "Aplicar" button that PUTs this exact value through the
+  // normal PUT /proposals/:id path only after the human clicks it - same permission/draft-only
+  // gate as any other manual edit.
+  suggestedField String?          @map("suggested_field")
+  suggestedValue String?          @map("suggested_value") @db.Text
   raw          Json?
   providerUsed String?            @map("provider_used")
   modelUsed    String?            @map("model_used")
