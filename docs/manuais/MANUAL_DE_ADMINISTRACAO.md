@@ -4,7 +4,7 @@ Este manual cobre a área **Configurações**, disponível para usuários com pe
 administrativa. Para o uso do dia a dia (projetos, propostas, POC, Precificação), veja o
 [Manual do Usuário](./MANUAL_DO_USUARIO.md).
 
-A área de Configurações tem 11 seções na barra lateral. Cada seção só aparece para quem tem a(s)
+A área de Configurações tem 12 seções na barra lateral. Cada seção só aparece para quem tem a(s)
 permissão(ões) correspondente(s) — é normal um administrador não-técnico não ver, por exemplo,
 "Armazenamento e Documentos".
 
@@ -21,6 +21,7 @@ permissão(ões) correspondente(s) — é normal um administrador não-técnico 
 7. [Sistema de Atualização de Produção](#7-sistema-de-atualização-de-produção)
 8. [Personalização e Identidade Visual](#8-personalização-e-identidade-visual)
 9. [Integrações, CRMs, ERPs e APIs](#9-integrações-crms-erps-e-apis)
+9-bis. [Demandas de Pré-Vendas (integração com o CMCRM)](#9-bis-demandas-de-pré-vendas-integração-com-o-cmcrm)
 10. [Armazenamento e Documentos](#10-armazenamento-e-documentos)
 11. [Auditoria e Diagnóstico](#11-auditoria-e-diagnóstico)
 12. [Boas práticas de administração](#12-boas-práticas-de-administração)
@@ -286,6 +287,83 @@ qualquer etapa falhar — não há passo manual de rollback a fazer.
 Conecte sistemas externos: conectores prontos para **Salesforce** e **HubSpot** (URL já
 pré-preenchida, só falta a credencial), ou um conector do tipo **customizado** para qualquer outro
 sistema com API compatível.
+
+> Isto **não** é a integração com o CMCRM (o CRM interno da empresa) descrita na seção seguinte.
+> São dois mecanismos diferentes: este aqui é o conector genérico para CRMs de terceiros; o par com
+> o CMCRM é outra coisa, ligada do lado de fora deste produto.
+
+---
+
+## 9-bis. Demandas de Pré-Vendas (integração com o CMCRM)
+
+**Permissão necessária:** `admin:settings` **ou** `demand:manage` (o gerente de pré-vendas também
+vê esta seção, sem precisar de acesso administrativo completo).
+
+Esta seção **não** é a fila de trabalho — quem assume, devolve ou direciona uma Demanda faz isso
+pelos cards da Início ou pela fila completa (Manual do Usuário, seção 4-bis). Aqui é o lado de
+configuração e auditoria: prazo por etapa, política de atribuição, alertas, tempo de resposta da
+equipe e o registro dos expurgos pedidos pelo CRM.
+
+### Onde isto se liga: uma nota importante
+
+**O administrador não ativa ou desativa a integração com o CMCRM por aqui.** O par entre esta
+instalação do PreSales e uma instalação do CMCRM é estabelecido do lado de fora, no **painel de
+Instalação do CMSaaS** (aba **Integração**) — é lá que alguém liga, desliga ou revoga o par. Esta
+seção só existe, e só mostra dado, quando o par já está ativo; sem par, ela simplesmente não
+aparece para ninguém (a permissão continua existindo, mas não há Demanda para configurar prazo
+sobre). Se um administrador do PreSales perguntar "como eu ligo a integração com o CRM", a resposta
+correta é: não é aqui — peça para quem administra o CMSaaS.
+
+### Prazos e desempenho
+
+**[PRINT: 39-admin-demandas-prazos.png]**
+
+- **Cobrar prazo por etapa** — desligado por padrão. Ligado, cada Demanda passa a ter um prazo para
+  três marcos: **assumir**, **iniciar a análise** e **entregar a proposta** (em horas, contadas a
+  partir do evento anterior — envio, atribuição e início da análise, respectivamente). Desligado,
+  nenhuma Demanda ganha prazo e nada é alertado — o CRM deixa de receber o prazo junto dos marcos.
+- **Quem trabalha em cada Demanda** — a política de atribuição da instalação:
+  - **Auto-serviço** (padrão) — qualquer pessoa da equipe assume qualquer Demanda da fila.
+  - **Direcionamento** — só o gerente de pré-vendas decide quem recebe cada Demanda; o botão de
+    assumir some da tela de quem não é gerente.
+- **Prazos vencidos** — lista de Demandas com algum marco estourado, com **Verificar agora** para
+  forçar uma nova varredura sem esperar o ciclo automático. Sem gerente de pré-vendas nomeado na
+  instalação, o alerta vai para toda a equipe.
+
+*(A mesma tela, mais abaixo, mostra o tempo médio de resposta da equipe — é a versão administrativa
+do gráfico "Desempenho da fila" que também aparece na Início de quem tem acesso à fila.)*
+
+### Expurgos
+
+**[PRINT: 40-admin-demandas-expurgos.png]**
+
+Quando o CRM manda apagar um documento ou uma empresa (pedido de retenção ou de titular de dados),
+o PreSales apaga a **cópia local** do que foi pedido e devolve a confirmação — mas **o trabalho já
+feito em cima do projeto nunca é apagado**: análise, precificação e proposta continuam existindo,
+só o documento-fonte (ou a referência à empresa) some. Esta tela é o registro de cada expurgo
+executado: o que o CRM pediu apagar, e o que de fato saiu.
+
+> O registro guarda o identificador do CRM, a referência do documento e o hash — nunca o nome do
+> arquivo nem o texto extraído. Num pedido de titular de dados, o nome do arquivo pode ser
+> exatamente o dado que se pediu para apagar.
+
+### Cancelamento pelo vendedor
+
+O cancelamento de uma Demanda **não é decidido no PreSales**. O vendedor cancela a oportunidade lá
+no CMCRM, sempre com **justificativa** e sempre com **aprovação do líder direto dele** — o gerente
+da equipe do vendedor, ou o administrador da organização quando esse vendedor não tem equipe
+configurada. O que chega ao PreSales é o cancelamento **já aprovado**: quem está com a Demanda (ou
+o gerente de pré-vendas daqui) vê o aviso e clica em **Encerrar demanda** para fechar o que ainda
+estava em andamento. Não existe, do lado do PreSales, uma tela para recusar ou reverter esse
+cancelamento — a decisão já foi tomada do outro lado.
+
+### Atualização pós-envio
+
+Uma mudança na oportunidade **depois** que a Demanda já foi enviada (prazo, escopo, valor) não
+sobrescreve nada automaticamente. Ela chega como uma **atualização pendente**, mostrando o antes e
+o depois de cada campo alterado, e fica esperando quem está com a Demanda decidir — campo por campo
+— entre levar a mudança para o projeto ou ignorá-la. O projeto em si só é tocado quando essa decisão
+é tomada; não existe um processo automático que reescreva um projeto que o pré-vendas já editou.
 
 ---
 

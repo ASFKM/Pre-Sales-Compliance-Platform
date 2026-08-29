@@ -95,6 +95,29 @@ const PROJETO_COM_ANALISE = "Sistema de Telemedicina";
 const TELAS: Tela[] = [
   // ---------- Manual do usuário -------------------------------------------------------------
   { arquivo: "03-home", o_que: "Página Inicial", async abrir(p) { await aba(p, "Início"); } },
+  {
+    // CDC 16 F13: os cards de demanda só aparecem com módulo ativo OU fila não-vazia (D06). O
+    // tenant de manual não tem par de verdade, então a fila vem de dados semeados — nunca de
+    // cliente real. Assume UMA demanda antes do print pra "Minhas demandas" não sair vazio: é o
+    // mesmo clique que qualquer pré-vendas dá, só que pilotado.
+    arquivo: "03b-home-demandas",
+    o_que: "Página Inicial — cards \"Novas demandas\" e \"Minhas demandas\" (CDC 16 F10)",
+    async abrir(p) {
+      await aba(p, "Início");
+      const detalhes = p.getByTestId(/^detalhes-/).first();
+      if ((await detalhes.count()) > 0) {
+        await detalhes.click();
+        await settle(p, 400);
+        const assumir = p.getByRole("button", { name: /Assumir e abrir projeto/i }).first();
+        if ((await assumir.count()) > 0) {
+          await assumir.click();
+          await settle(p, 1200);
+        }
+      }
+      await aba(p, "Início");
+      await settle(p, 500);
+    },
+  },
   { arquivo: "04-projetos", o_que: "Lista de projetos", async abrir(p) { await aba(p, "Projetos"); } },
   {
     arquivo: "05-novo-projeto-passo1",
@@ -103,6 +126,34 @@ const TELAS: Tela[] = [
       await aba(p, "Início");
       await p.getByRole("button", { name: /Adicionar Nova/i }).first().click();
       await settle(p, 700);
+    },
+  },
+  {
+    // Regravada na F13: a entrada não existia (só a 05 e a 07 existiam, com um buraco no meio
+    // desde sempre) e a imagem que o manual cita era de 16/07, à mão, anterior às nove fases de
+    // identidade visual. Upload real + análise real de IA — sem isso não existe passo 2 pra
+    // fotografar. Sucesso ou falha da IA terminam os dois em "validate" (ver NewProjectWizard.tsx),
+    // então o print sai de qualquer jeito.
+    //
+    // ACHADO FORA DO ESCOPO DESTA FASE, registrado aqui e no relatório: "Adicionar Nova" NÃO
+    // existe mais na Início — a F10 (28/08) tirou o gatilho de lá junto da lista de editais que o
+    // hospedava (ver o comentário no topo de src/components/Home.tsx: "setShowNewProjectModal
+    // saíram com a lista que os usava"). O único gatilho hoje é o botão "Novo Projeto" na aba
+    // Projetos (src/components/ProjectsList.tsx) — as entradas 05 e 07 abaixo continuam com a
+    // navegação ANTIGA e vão falhar se alguém tentar regravá-las sem corrigir isso primeiro. Não
+    // toquei nelas: fora do escopo desta fase, que é só a 06 e as telas da integração.
+    arquivo: "06-novo-projeto-passo2",
+    o_que: "Nova proposta — validar dados extraídos pela IA (passo 2)",
+    async abrir(p) {
+      await aba(p, "Projetos");
+      await p.getByRole("button", { name: /Novo Projeto/i }).first().click();
+      await settle(p, 500);
+      await p.setInputFiles('input[type="file"]', path.join(ROOT, "scripts/fixtures/regression-template.docx"));
+      await p.getByText(/regression-template\.docx/i).first().waitFor({ timeout: 15000 });
+      await p.getByRole("button", { name: /Analisar com IA/i }).first().click();
+      // A análise de IA de verdade pode levar bem mais que os 20s do timeout padrão da página.
+      await p.getByText(/Validar Dados/i).first().waitFor({ timeout: 90000 });
+      await settle(p, 500);
     },
   },
   {
@@ -175,6 +226,17 @@ const TELAS: Tela[] = [
     o_que: "Base de Conhecimento — entradas consolidadas",
     async abrir(p) { await aba(p, "Base de Conhecimento"); await subAba(p, "BASE DE CONHECIMENTO"); },
   },
+  {
+    // CDC 16 F9 tirou "Demandas" da tira de abas — a fila inteira só se abre a partir de um dos
+    // cards da Início ("Abrir a fila completa"), um por card, mesmo destino.
+    arquivo: "20-fila-demandas",
+    o_que: "Fila de Demandas — assumir, devolver ou direcionar",
+    async abrir(p) {
+      await aba(p, "Início");
+      await p.getByRole("button", { name: /Abrir a fila completa/i }).first().click();
+      await settle(p, 500);
+    },
+  },
 
   // ---------- Manual de administração ---------------------------------------------------------
   { arquivo: "26-admin-visao-geral", o_que: "Configurações — Visão Geral", async abrir(p) { await secaoAdmin(p, "Visão Geral"); } },
@@ -214,6 +276,23 @@ const TELAS: Tela[] = [
     arquivo: "38-admin-diagnostico",
     o_que: "Configurações — Diagnóstico Técnico (mesma seção, mais abaixo)",
     async abrir(p) { await secaoAdmin(p, "Auditoria e Diagnóstico"); await rolarAte(p, /Diagnóstico Técnico/i); },
+  },
+  {
+    // CDC 16 F8/F9: a seção "Demandas" da Administração NÃO é a fila (essa fica fora daqui, ver a
+    // 20-fila-demandas) — é prazo por etapa, política de atribuição, alertas, desempenho e o
+    // registro dos expurgos que o CRM pediu.
+    arquivo: "39-admin-demandas-prazos",
+    o_que: "Configurações — Demandas: prazos e desempenho",
+    async abrir(p) { await secaoAdmin(p, "Demandas"); },
+  },
+  {
+    arquivo: "40-admin-demandas-expurgos",
+    o_que: "Configurações — Demandas: expurgos",
+    async abrir(p) {
+      await secaoAdmin(p, "Demandas");
+      await p.getByRole("button", { name: /^Expurgos$/i }).first().click();
+      await settle(p, 400);
+    },
   },
 ];
 
