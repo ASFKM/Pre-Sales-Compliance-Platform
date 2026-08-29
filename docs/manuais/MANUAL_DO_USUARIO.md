@@ -13,6 +13,7 @@ integrações), veja o [Manual de Administração](./MANUAL_DE_ADMINISTRACAO.md)
 2. [Primeiro acesso](#2-primeiro-acesso)
 3. [Página Inicial](#3-página-inicial)
 4. [Projetos](#4-projetos)
+4-bis. [Demandas de Pré-Vendas (integração com o CMCRM)](#4-bis-demandas-de-pré-vendas-integração-com-o-cmcrm)
 5. [Criar um novo projeto](#5-criar-um-novo-projeto)
 6. [Área de Trabalho do projeto](#6-área-de-trabalho-do-projeto)
 7. [Estúdio de Propostas](#7-estúdio-de-propostas)
@@ -74,21 +75,25 @@ código de 6 dígitos gerado pelo seu aplicativo autenticador (Google Authentica
 
 **[PRINT: 03-home.png]**
 
-Ao entrar, você cai na Página Inicial, seu painel do dia a dia:
+Ao entrar, você cai na Página Inicial, seu painel do dia a dia. De cima para baixo:
 
-- **Minhas Tarefas** — lista pessoal de pendências. Você pode adicionar uma tarefa livre, marcar
-  como concluída ou excluir. Isso é só um lembrete pessoal, não afeta o andamento real dos
-  projetos.
-- **Licitações por Setor** — gráfico mostrando quantos projetos ativos existem por vertical de
-  negócio (Saúde, Educação, Transporte, etc.), ajudando a enxergar onde está concentrado o esforço
-  comercial.
-- **Pipeline de Status** — visão geral de quantos projetos estão em cada etapa (Rascunho, Análise
-  em Andamento, Aguardando Cliente, Concluído).
-- **Projetos e Editais Ativos** — atalho para os projetos mais recentes; clique em qualquer um
-  para abrir direto na Área de Trabalho.
-- **Indicador de POC** (se o módulo de Prova de Conceito estiver habilitado na sua instância) —
-  resumo rápido de quantas POCs estão em andamento.
-- **+ Adicionar Nova** — abre o assistente de criação de novo projeto (seção 5).
+- **Novas demandas / Minhas demandas** — só aparece em instalações integradas ao CMCRM, ou assim
+  que a primeira Demanda chegar. São os dois cards da fila de pré-vendas — veja a seção
+  [4-bis](#4-bis-demandas-de-pré-vendas-integração-com-o-cmcrm) para o que cada um faz.
+- **Cards de indicadores** — Propostas Ativas (total de projetos), Conformidade Média (dos
+  projetos já analisados), Próximo Prazo (o mais próximo entre todos os projetos) e, se o módulo de
+  Prova de Conceito estiver habilitado, POCs Ativas (com o total de ganhas/perdidas logo abaixo).
+- **Licitações por Setor / Vertical** — gráfico de pizza com a distribuição dos projetos por
+  vertical de negócio (Saúde, Educação, Transporte etc.), para enxergar onde está concentrado o
+  esforço comercial.
+- **Pipeline de Status** — barra de progresso por status de projeto (Rascunho, Análise em
+  Andamento, Aguardando Interno, Concluído), com contagem e percentual.
+- **Desempenho da fila** — só para quem enxerga a fila de Demandas: gráfico com o tempo médio de
+  resposta da equipe (do envio à assunção) e, se você tiver Demandas em aberto, o seu próprio
+  desempenho ao lado da média.
+
+> A Página Inicial não tem mais um botão para criar projeto: isso mudou de lugar na Fase 10 da
+> integração com o CMCRM. O ponto de partida agora é a aba **Projetos** — veja a seção 4.
 
 ---
 
@@ -99,6 +104,9 @@ Ao entrar, você cai na Página Inicial, seu painel do dia a dia:
 A aba **Projetos** lista todos os projetos da sua organização em formato de tabela: nome, cliente,
 vertical, status e prazo final.
 
+- **+ Novo Projeto**, no canto superior direito da lista, abre o assistente de criação de projeto
+  (seção 5) — é o único ponto de partida para um projeto novo hoje na interface, além do atalho
+  equivalente dentro da própria Área de Trabalho de um projeto já aberto.
 - Clique em qualquer linha para abrir o projeto na Área de Trabalho.
 - O botão de **editar** permite corrigir os dados cadastrais do projeto (não o conteúdo gerado
   pela IA).
@@ -109,9 +117,77 @@ vertical, status e prazo final.
 
 ---
 
+## 4-bis. Demandas de Pré-Vendas (integração com o CMCRM)
+
+*(Esta seção só se aplica a instalações integradas ao CMCRM — o CRM interno da empresa. Se sua
+instalação é standalone, os dois cards da Início e a fila descritos aqui simplesmente não
+aparecem, e você cria todo projeto pelo fluxo da seção 5.)*
+
+### De onde vem uma Demanda
+
+Uma **Demanda** chega pronta do CMCRM: um vendedor, ao qualificar uma oportunidade por lá, clica em
+**"Enviar para pré-vendas"**. Junto viaja a ficha que a IA do CRM já montou a partir da
+oportunidade — cliente, escopo, prazo, modalidade de contratação — mais os documentos anexados
+(edital, especificação técnica). Você não precisa pedir nada a esse vendedor nem reabrir a
+conversa: a Demanda chega pronta para alguém da equipe assumir.
+
+### A fila é única, de toda a equipe
+
+**[PRINT: 03b-home-demandas.png]**
+
+Os dois cards no topo da Início mostram a mesma fila, sob dois recortes diferentes:
+
+- **Novas demandas** — o que o CRM enviou e **ninguém assumiu ainda**. É de toda a equipe: todo
+  mundo com acesso à fila vê exatamente as mesmas linhas aqui.
+- **Minhas demandas** — o que **você** já assumiu e ainda está em aberto. É uma vista sua da mesma
+  fila, não uma fila separada seguindo só você.
+
+Em cada card, clique em **Detalhes** numa linha para abrir a Demanda e decidir o que fazer com ela;
+clique em **Abrir a fila completa** para ver a lista inteira, com mais colunas e filtros — a mesma
+tela que abre em **[PRINT: 20-fila-demandas.png]**.
+
+**Auto-serviço é o padrão**: qualquer pessoa da equipe pode assumir qualquer Demanda na fila,
+clicando em **Assumir e abrir projeto**. Algumas instalações configuram, em vez disso, uma
+política de **direcionamento** (o gerente de pré-vendas escolhe quem recebe cada Demanda) — nesse
+caso o botão de assumir não aparece para quem não é gerente, e a tela avisa isso explicitamente.
+
+### Ao assumir, a Demanda vira um Projeto normal
+
+Clicar em **Assumir e abrir projeto** cria um Projeto imediatamente e leva você direto para a Área
+de Trabalho dele. A partir daí, é o mesmo fluxo já descrito nas seções seguintes deste manual —
+Resumo Executivo, Matriz de Requisitos, BOM, Estúdio de Propostas etc. Nada muda por o projeto ter
+vindo de uma Demanda em vez de um upload manual.
+
+### Devolver uma Demanda
+
+Se depois de assumir você perceber que não é o caso certo para você (ou que falta informação),
+abra a Demanda e clique em **Devolver ao vendedor**, com um motivo — é esse motivo que o vendedor
+lê para saber o que corrigir antes de reenviar. Em instalações com gerente de pré-vendas
+configurado, a devolução vira um **pedido**, que o gerente aprova ou recusa; sem gerente, ela volta
+direto para a fila.
+
+### O que muda depois do envio
+
+Duas coisas chegam à Demanda depois que ela já foi assumida, sempre como aviso — nunca em silêncio:
+
+- **Atualização do CRM aguardando decisão** — se algo mudou na oportunidade depois do envio
+  (prazo, escopo, valor), a Demanda mostra o **antes e o depois** de cada campo alterado. Nada é
+  escrito automaticamente no seu projeto: você decide, campo por campo, **Levar para o projeto** ou
+  **Não levar**.
+- **Cancelamento aprovado no CRM** — se o vendedor cancelar a oportunidade lá (sempre com
+  justificativa, aprovada pelo líder dele), a Demanda mostra o aviso e, quando chega sua vez de
+  decidir, o botão **Encerrar demanda**.
+
+Os dois avisos também aparecem resumidos no topo da Início, acima dos cards, sempre que houver algo
+esperando sua decisão.
+
+---
+
 ## 5. Criar um novo projeto
 
-Existem dois caminhos para criar um projeto: **com IA** (recomendado, mais rápido) e **manual**.
+Existem dois caminhos para criar um projeto: **com IA** (recomendado, mais rápido) e **manual**. Os
+dois começam do mesmo lugar: clique em **+ Novo Projeto** na aba **Projetos** (seção 4) — ou, com um
+projeto já aberto, no atalho equivalente da Área de Trabalho.
 
 ### 5.1 Fluxo com IA (recomendado)
 
