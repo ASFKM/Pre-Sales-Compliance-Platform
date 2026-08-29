@@ -10,13 +10,13 @@ import { logDebugMessage, requireUserId } from "../middleware/security";
 import { ProposalTemplate, SlaRiskFlag, Proposal, Project, PlatformSettings } from "../../src/types";
 import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
 import { runWithTenant } from "../../src/tenantContext";
-import { PROPOSAL_TYPES, ProposalTypeValue, PROPOSAL_EDITABLE_FIELDS, ProposalEditableField, PROPOSAL_TYPE_EDITABLE_FIELDS, getRejectedEditableFields } from "../utils/proposalTypes";
+import { PROPOSAL_TYPES, ProposalTypeValue, PROPOSAL_EDITABLE_FIELDS, ProposalEditableField, PROPOSAL_TYPE_EDITABLE_FIELDS, getRejectedEditableFields, getReopenRegenerationSection } from "../utils/proposalTypes";
 import { DocxTemplateData } from "../utils/docx";
 import { getFleetLicenseStatus } from "../utils/fleetLicense";
 import { generateJsonWithProvider, ConnectedProvider } from "../utils/aiProviders";
 import { resolveProvider, checkCostCap, recordProviderFallback, recordAiUsage } from "../../src/aiOrchestrator";
 import { estimateCostUsd } from "../utils/aiPricing";
-import { extractKnowledgeBaseKeywords, parseAiJson } from "./analysis";
+import { extractKnowledgeBaseKeywords, parseAiJson, regenerateAnalysisSection } from "./analysis";
 import { prisma } from "../../src/prisma";
 import { randomId } from "../../src/idGenerator";
 import { LOGIC_VERSIONS } from "../../src/aiLogicVersions";
@@ -1026,14 +1026,108 @@ router.post("/proposals/:id/reopen", requirePermission("proposal:generate"), asy
       return res.status(404).json({ success: false, message: "Project not found." });
     }
 
-    const analysis = await dbStore.getAnalysisResult(rejected.project_id);
+    let analysis = await dbStore.getAnalysisResult(rejected.project_id);
     const platformSettings = await dbStore.getSettings();
     const templates = await dbStore.getProposalTemplates();
     const template = templates.find(t => t.id === rejected.template_id);
     const physicalFileFound = template ? await checkTemplatePhysicalFile(template, platformSettings) : false;
     const owner = await dbStore.getUserById(project.owner_user_id);
     const tenantId = req.headers["x-tenant-id"] as string;
+    const userId = requireUserId(req);
     const { pricingLines } = await resolvePricingLines(tenantId, rejected.project_id);
+
+    /*
+     * F8b (item 2) - decisão do dono: reabrir uma proposta que é RELATÓRIO PURO
+     * (executive_summary, risk_report, bom_report, questions_report) REGENERA o conteúdo do
+     * relatório do zero via IA, em vez de reaproveitar a análise que a v1 já tinha usado.
+     *
+     * Por que só esses 4: eles não têm campo estruturado editável nenhum
+     * (PROPOSAL_TYPE_EDITABLE_FIELDS vazio - ver getReopenRegenerationSection em
+     * server/utils/proposalTypes.ts, onde essa amarração é a definição e é provada por teste).
+     * Todo o conteúdo deles vem do AnalysisResult do projeto, então "reabrir sem regenerar" produz
+     * um documento byte-a-byte igual ao que acabou de ser recusado - a v2 nasceria idêntica à v1.
+     * Os outros 3 tipos (technical/commercial/technical_commercial) continuam exatamente como a F8
+     * os deixou: clonam os campos comerciais da v1, sem chamada de IA nenhuma, porque neles existe
+     * trabalho humano a preservar.
+     *
+     * A regeração roda pela MESMA rotina que gerou o conteúdo original (regenerateAnalysisSection,
+     * server/routes/analysis.ts - a mesma que o botão "reanalisar seção" da tela de análise
+     * dispara), e não por uma segunda implementação: ela relê os documentos do projeto, chama o
+     * provedor de IA configurado e grava a seção nova no AnalysisResult. O documento da v2 é então
+     * montado a partir DESSA análise já atualizada, umas linhas abaixo.
+     *
+     * Falha da IA REPROVA a reabertura (502), não cai em silêncio para o conteúdo antigo: uma v2
+     * que promete conteúdo regenerado e entrega uma cópia da v1 é exatamente o engano que este
+     * item veio corrigir. A v1 continua intocada e a reabertura pode ser repetida.
+     */
+    const regenerationSection = getReopenRegenerationSection(rejected.proposal_type);
+    let regeneration: { section: string; provider: string; model: string; estimated_cost_usd: number } | null = null;
+
+    if (regenerationSection) {
+      // Mesmas guardas que a rota de reanálise de seção aplica antes de gastar token: teto de
+      // custo mensal do tenant e registro do fallback de provedor.
+      const costCap = await checkCostCap(tenantId, platformSettings.monthly_cost_cap_usd ?? null);
+      if (costCap.blocked) {
+        return res.status(402).json({
+          success: false,
+          message: `Monthly AI cost cap reached ($${costCap.currentSpendUsd.toFixed(2)} of $${costCap.capUsd?.toFixed(2)}). Reopening a report proposal regenerates its content with AI, so it is blocked until next month or the cap is raised in Admin > AI, Prompts e Custos.`
+        });
+      }
+
+      const providerResolution = await resolveProvider("document_analysis", platformSettings);
+      if (providerResolution.isFallback) {
+        await recordProviderFallback({ tenantId, taskType: "document_analysis", intendedProvider: providerResolution.intendedProvider, userId });
+      }
+
+      try {
+        const regenerated = await regenerateAnalysisSection({
+          projectId: rejected.project_id,
+          section: regenerationSection,
+          tenantId,
+          project,
+          platformSettings,
+          providerResolution,
+          userId,
+        });
+        analysis = regenerated.analysis;
+        regeneration = {
+          section: regenerationSection,
+          provider: providerResolution.provider,
+          model: providerResolution.model,
+          estimated_cost_usd: regenerated.estimatedCostUsd,
+        };
+        await recordAiUsage({
+          tenantId,
+          taskType: "document_analysis",
+          provider: providerResolution.provider,
+          model: providerResolution.model,
+          estimatedCostUsd: regenerated.estimatedCostUsd,
+          userId,
+        });
+        logDebugMessage({
+          operation: "Proposal Reopen Regeneration",
+          message: `Regenerated analysis section "${regenerationSection}" with ${providerResolution.provider}/${providerResolution.model} before reopening ${rejected.proposal_type} proposal ${rejected.id}`,
+          status: "SUCCESS",
+          durationMs: Date.now() - startTime,
+          correlationId,
+          projectId: rejected.project_id
+        });
+      } catch (regenErr: any) {
+        logDebugMessage({
+          operation: "Proposal Reopen Regeneration Failure",
+          message: `Failed to regenerate analysis section "${regenerationSection}" for ${rejected.proposal_type} proposal ${rejected.id}: ${regenErr?.message}`,
+          status: "ERROR",
+          durationMs: Date.now() - startTime,
+          correlationId,
+          projectId: rejected.project_id,
+          error: regenErr
+        });
+        return res.status(502).json({
+          success: false,
+          message: `Could not regenerate the report content with AI, so the proposal was not reopened. Nothing was changed - try again. (${regenErr?.message || "unknown AI error"})`,
+        });
+      }
+    }
 
     const templateData = buildProposalTemplateData(
       template ?? { id: rejected.template_id, name: "N/D", version: rejected.template_version, template_type: rejected.proposal_type, file_path: "" },
@@ -1063,7 +1157,6 @@ router.post("/proposals/:id/reopen", requirePermission("proposal:generate"), asy
       brandingHeader
     );
 
-    const userId = requireUserId(req);
     const user = await dbStore.getUserById(userId);
 
     const reopened = await dbStore.createProposal(
@@ -1100,7 +1193,11 @@ router.post("/proposals/:id/reopen", requirePermission("proposal:generate"), asy
         previous_proposal_id: rejected.id,
         previous_version: rejected.version,
         new_version: reopened.version,
-        proposal_group_id: reopened.proposal_group_id
+        proposal_group_id: reopened.proposal_group_id,
+        // F8b (item 2): fica no registro QUAL seção da análise foi regenerada por IA nesta
+        // reabertura (e com qual provedor/modelo), ou `null` quando o tipo apenas clonou a v1.
+        // Sem isso, as duas reaberturas seriam indistinguíveis no log de auditoria.
+        regenerated_analysis: regeneration
       })
     });
 
@@ -1116,7 +1213,8 @@ router.post("/proposals/:id/reopen", requirePermission("proposal:generate"), asy
       proposal_id: reopened.id,
       version: reopened.version,
       previous_version_id: rejected.id,
-      proposal_group_id: reopened.proposal_group_id
+      proposal_group_id: reopened.proposal_group_id,
+      regenerated_analysis: regeneration
     });
   } catch (err) {
     next(err);

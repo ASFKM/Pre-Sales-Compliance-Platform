@@ -71,3 +71,43 @@ export function getRejectedEditableFields(
   const allowed = PROPOSAL_TYPE_EDITABLE_FIELDS[proposalType];
   return submittedFields.filter((f) => !allowed.includes(f));
 }
+
+/*
+ * F8b (item 2) - os 4 tipos que são RELATÓRIO PURO, e a seção da análise de onde cada um tira o
+ * conteúdo que vira o documento.
+ *
+ * O que os define não é a lista abaixo, é a linha de cima: são exatamente os tipos cujo
+ * PROPOSAL_TYPE_EDITABLE_FIELDS é VAZIO. Um relatório não tem campo estruturado que uma pessoa
+ * edite - o conteúdo dele é inteiramente derivado do AnalysisResult do projeto (ver
+ * buildProposalTemplateData em server/routes/proposals.ts: `analysis.executive_summary`,
+ * `analysis.risks`, `analysis.bom`, `analysis.clarification_questions`). É por isso que a decisão
+ * do dono sobre a reabertura só se aplica a eles: reabrir uma proposta técnica/comercial preserva
+ * o que a pessoa escreveu nos campos dela, e não haveria nada a preservar num relatório.
+ *
+ * A ligação entre as duas listas é provada por teste (proposalTypes.test.ts), não por disciplina:
+ * um tipo novo de relatório que alguém adicione a PROPOSAL_TYPE_EDITABLE_FIELDS com lista vazia e
+ * esqueça aqui quebra a suíte, em vez de reabrir em silêncio sem regenerar nada.
+ */
+export const ANALYSIS_SECTION_BY_REPORT_TYPE = {
+  executive_summary: "executive_summary",
+  risk_report: "risks",
+  bom_report: "bom",
+  questions_report: "clarification_questions",
+} as const satisfies Partial<Record<ProposalTypeValue, string>>;
+
+export type ReportOnlyProposalType = keyof typeof ANALYSIS_SECTION_BY_REPORT_TYPE;
+export type ReportAnalysisSection = (typeof ANALYSIS_SECTION_BY_REPORT_TYPE)[ReportOnlyProposalType];
+
+export const REPORT_ONLY_PROPOSAL_TYPES = Object.keys(ANALYSIS_SECTION_BY_REPORT_TYPE) as ReportOnlyProposalType[];
+
+export function isReportOnlyProposalType(proposalType: ProposalTypeValue): proposalType is ReportOnlyProposalType {
+  return proposalType in ANALYSIS_SECTION_BY_REPORT_TYPE;
+}
+
+// A seção da análise que a REABERTURA precisa regenerar via IA para este tipo de proposta, ou
+// `null` quando o tipo tem campo estruturado editável (technical/commercial/technical_commercial)
+// e portanto continua clonando a v1, sem chamada de IA nenhuma. Único lugar em que essa decisão é
+// tomada - a rota de reabertura (server/routes/proposals.ts) só consulta.
+export function getReopenRegenerationSection(proposalType: ProposalTypeValue): ReportAnalysisSection | null {
+  return isReportOnlyProposalType(proposalType) ? ANALYSIS_SECTION_BY_REPORT_TYPE[proposalType] : null;
+}
