@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { TriangleAlert, Download, PenLine, ShieldAlert, Sparkles, X, Wrench, Handshake, CircleDollarSign, Eye, CheckCircle2, type LucideIcon } from "lucide-react";
+import { TriangleAlert, Download, PenLine, ShieldAlert, Sparkles, X, Wrench, Handshake, CircleDollarSign, Eye, CheckCircle2, RotateCcw, type LucideIcon } from "lucide-react";
 import * as mammoth from "mammoth";
 import DOMPurify from "dompurify";
 import { Proposal, SlaRiskFlag } from "../types";
@@ -73,7 +73,7 @@ export default function Proposals({
   locale, hasPermission, proposals, selectedProjectId, activeTasks, waitForTask,
   fetchGlobalConfigs, fetchProjectDetails, handleReleaseProposal,
 }: ProposalsProps) {
-  const { handleUpdateProposalCommercial, handleUpdateProposalFields, handleSubmitProposalApproval } = useProposals({
+  const { handleUpdateProposalCommercial, handleUpdateProposalFields, handleSubmitProposalApproval, handleReopenProposal } = useProposals({
     locale, hasPermission, proposals, selectedProjectId, fetchGlobalConfigs, fetchProjectDetails,
   });
   const [exportingId, setExportingId] = useState<string | null>(null);
@@ -138,6 +138,46 @@ export default function Proposals({
     setEditingProposal(prop);
     setEditedFields(initial);
   };
+
+  /*
+   * PreSales F8 (PARTE B): "Reabrir e Editar" numa proposta REJEITADA.
+   *
+   * A proposta rejeitada some da fila de aprovação (a aba Aprovação só mostra ação em `submitted`),
+   * mas continua listada AQUI, no Estúdio de Propostas - que lista todas as propostas do projeto,
+   * em qualquer status. É por isso que o ponto de entrada é este card, e não uma tela nova.
+   *
+   * Reabrir cria a v2 no servidor e devolve o id dela; a lista é recarregada e o editor estruturado
+   * que JÁ existe abre na versão nova (ela nasce `draft`, então o PUT funciona nela sem mudança).
+   * O `useEffect` existe porque `proposals` só chega atualizado no render seguinte ao refetch - dá
+   * para pedir o editor antes de a linha nova existir na lista.
+   */
+  const [pendingEditorProposalId, setPendingEditorProposalId] = useState<string | null>(null);
+  const [reopeningId, setReopeningId] = useState<string | null>(null);
+
+  const reopenProposal = async (propId: string) => {
+    setReopeningId(propId);
+    try {
+      const newId = await handleReopenProposal(propId);
+      if (newId) setPendingEditorProposalId(newId);
+    } finally {
+      setReopeningId(null);
+    }
+  };
+
+  useEffect(() => {
+    if (!pendingEditorProposalId) return;
+    const target = proposals.find((p) => p.id === pendingEditorProposalId);
+    if (!target) return;
+    setPendingEditorProposalId(null);
+    // Os 4 tipos de relatório (executive_summary/risk_report/bom_report/questions_report) não têm
+    // NENHUM campo estruturado editável (PROPOSAL_TYPE_EDITABLE_FIELDS = []) - a v2 é criada do
+    // mesmo jeito, por consistência de auditoria, mas abrir um editor vazio nela só confundiria.
+    // Pendência registrada e ainda a confirmar com o dono do produto: o que exatamente se edita
+    // numa segunda versão desses quatro tipos.
+    if (PROPOSAL_TYPE_EDITABLE_FIELDS[target.proposal_type].length === 0) return;
+    openEditor(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proposals, pendingEditorProposalId]);
 
   const saveEditedFields = async () => {
     if (!editingProposal) return;
@@ -288,7 +328,9 @@ export default function Proposals({
               ) : (
                 <div className="space-y-6">
                   {proposals.map(prop => (
-                    <div key={prop.id} className="bg-white border border-slate-200 rounded-lg p-5 shadow-sm flex flex-col gap-4">
+                    // PreSales F8: âncora por proposta - é ela que faz o link "ver versão anterior"
+                    // de uma v2 levar até o card da v1 sem precisar de uma tela nova de histórico.
+                    <div key={prop.id} id={`proposal-${prop.id}`} className="bg-white border border-slate-200 rounded-lg p-5 shadow-sm flex flex-col gap-4 scroll-mt-6">
 
                       {/* Header block of proposal */}
                       <div className="flex justify-between items-start border-b border-slate-100 pb-3">
@@ -298,7 +340,11 @@ export default function Proposals({
                           </div>
                           <div>
                             <div className="flex items-center gap-2">
-                              <h3 className="text-sm font-bold text-slate-800 uppercase font-mono">{PROPOSAL_TYPE_LABEL[prop.proposal_type][locale]} - Draft v{prop.version}.0</h3>
+                              {/* PreSales F8: era "Draft v{version}.0" com `version` sempre 1 (campo
+                                  morto no banco) e a palavra "Draft" mesmo numa proposta já liberada.
+                                  Agora o número é a versão REAL da cadeia, e o estado quem diz é o
+                                  selo ao lado. */}
+                              <h3 className="text-sm font-bold text-slate-800 uppercase font-mono">{PROPOSAL_TYPE_LABEL[prop.proposal_type][locale]} - v{prop.version}</h3>
                               <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${
                                 prop.status === "released" ? "text-brand-700 bg-brand-50 border-brand-200" :
                                 prop.status === "approved" ? "text-success-700 bg-success-50 border-success-200" :
@@ -315,6 +361,17 @@ export default function Proposals({
                               </span>
                             </div>
                             <p className="text-xs text-slate-400 mt-0.5 font-mono">{locale === "pt" ? "Gerada por:" : "Generated by:"} {prop.generated_by} {locale === "pt" ? "em" : "on"} {new Date(prop.generated_at).toLocaleString()}</p>
+                            {prop.previous_version_id && (
+                              <p className="text-[11px] text-slate-400 mt-0.5 font-mono">
+                                {locale === "pt" ? "Reaberta a partir da versão rejeitada" : "Reopened from the rejected version"}{" "}
+                                <a
+                                  href={`#proposal-${prop.previous_version_id}`}
+                                  className="text-brand-700 hover:text-brand-800 underline underline-offset-2"
+                                >
+                                  v{prop.version - 1}
+                                </a>
+                              </p>
+                            )}
                           </div>
                         </div>
 
@@ -400,6 +457,28 @@ export default function Proposals({
                             <span className="bg-brand-50 text-brand-700 border border-brand-200 font-mono text-[11px] font-bold px-3 py-1.5 rounded">
                               {locale === "pt" ? "Versão Final Liberada" : "Final Version Released"}
                             </span>
+                          )}
+                          {/* PreSales F8: único caminho de volta para uma proposta REJEITADA. Ela não
+                              vira rascunho de novo - fica congelada como registro da recusa, e o
+                              botão cria uma VERSÃO NOVA a partir dela. */}
+                          {prop.status === "rejected" && hasPermission("proposal:generate") && (
+                            <button
+                              onClick={() => reopenProposal(prop.id)}
+                              disabled={reopeningId === prop.id}
+                              title={PROPOSAL_TYPE_EDITABLE_FIELDS[prop.proposal_type].length === 0
+                                ? (locale === "pt"
+                                  ? "Cria uma nova versão a partir desta proposta rejeitada. A versão rejeitada é preservada intacta. Atenção: este tipo de relatório não tem nenhum campo comercial editável hoje - a nova versão é regerada a partir da análise do projeto."
+                                  : "Creates a new version from this rejected proposal. The rejected version is preserved intact. Note: this report type has no editable commercial field today - the new version is regenerated from the project analysis.")
+                                : (locale === "pt"
+                                  ? "Cria uma nova versão editável a partir desta proposta rejeitada. A versão rejeitada é preservada intacta, com os documentos e pareceres dela."
+                                  : "Creates a new editable version from this rejected proposal. The rejected version is preserved intact, with its documents and opinions.")}
+                              className="flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 text-white font-mono text-[11px] font-bold px-3 py-1.5 rounded shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                            >
+                              <RotateCcw size={12} className={reopeningId === prop.id ? "animate-spin" : ""} />
+                              {reopeningId === prop.id
+                                ? (locale === "pt" ? "Reabrindo..." : "Reopening...")
+                                : (locale === "pt" ? "Reabrir e Editar" : "Reopen & Edit")}
+                            </button>
                           )}
                         </div>
                       </div>

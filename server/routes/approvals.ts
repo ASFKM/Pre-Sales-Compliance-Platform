@@ -5,6 +5,7 @@ import { dbStore } from "../../src/dbStore";
 import { requireAuth, requirePermission } from "./auth";
 import { requireUserId } from "../middleware/security";
 import { empurrarProposta } from "../utils/crmOutbox";
+import { validateApprovalDecisionComments } from "../utils/approvalDecision";
 
 const router = express.Router();
 
@@ -235,6 +236,22 @@ router.post("/proposals/:proposalId/approval/decision", requireAuth, async (req:
       return res.status(400).json({ success: false, message: "Decision must be approved or rejected." });
     }
 
+    /*
+     * PreSales F8 (PARTE A): o MOTIVO da rejeição passa a ser obrigatório de verdade - a regra
+     * mora em server/utils/approvalDecision.ts (pura, provada por teste unitário sem banco).
+     *
+     * A chamada é feita AQUI, e não num schema Zod no topo do handler, de propósito: a ordem das
+     * respostas desta rota (404 inexistente -> 400 status errado -> 400 decisão inválida -> 403
+     * aprovador errado -> 409 decisão duplicada) já é contrato exercitado por
+     * scripts/regression-approval-rbac.sh, e um parse no topo mudaria essa ordem para qualquer
+     * corpo malformado.
+     */
+    const commentsValidation = validateApprovalDecisionComments(decision, comments);
+    if (!commentsValidation.valid) {
+      return res.status(400).json({ success: false, message: commentsValidation.message });
+    }
+    const normalizedComments = commentsValidation.comments;
+
     const workflows = await dbStore.getApprovalWorkflows();
     const workflow = workflows.find(w => w.id === proposal.approval_workflow_id);
 
@@ -302,7 +319,7 @@ router.post("/proposals/:proposalId/approval/decision", requireAuth, async (req:
       stage_id: targetStageId,
       approver_user_id: userId,
       decision,
-      comments: comments || ""
+      comments: normalizedComments
     });
 
     let nextStatus: "submitted" | "approved" | "rejected";
@@ -341,7 +358,7 @@ router.post("/proposals/:proposalId/approval/decision", requireAuth, async (req:
       req.params.proposalId,
       {
         decision,
-        comments,
+        comments: normalizedComments,
         stage_id: targetStageId,
         next_status: nextStatus,
         approver_user_id: userId,

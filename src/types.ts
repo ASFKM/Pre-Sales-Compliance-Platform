@@ -619,6 +619,11 @@ export interface Proposal {
   generated_by: string;
   generated_at: string;
   version: number;
+  // PreSales F8 (versionamento por reabertura pós-rejeição) - ver o model Proposal em
+  // prisma/schema.prisma. `proposal_group_id` é estável por cadeia (v1/v2/v3 compartilham o mesmo);
+  // `previous_version_id` é o elo para trás, presente só a partir da v2.
+  proposal_group_id: string;
+  previous_version_id?: string | null;
   approval_workflow_id: string;
   manual_pricing_table?: PricingRow[];
   payment_terms?: string;

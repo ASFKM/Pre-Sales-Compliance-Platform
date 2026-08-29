@@ -549,6 +549,8 @@ function mapProposal(p: any): Proposal {
     generated_by: p.generatedBy,
     generated_at: p.generatedAt.toISOString(),
     version: p.version,
+    proposal_group_id: p.proposalGroupId,
+    previous_version_id: p.previousVersionId ?? null,
     approval_workflow_id: p.approvalWorkflowId,
     manual_pricing_table: p.manualPricingTable ?? undefined,
     payment_terms: p.paymentTerms ?? undefined,
@@ -1727,10 +1729,20 @@ class DBStore {
     return p ? mapProposal(p) : undefined;
   }
 
-  public async createProposal(prop: Omit<Proposal, "id" | "generated_at">): Promise<Proposal> {
+  // PreSales F8: `proposal_group_id` é opcional no INPUT e obrigatório na coluna. Uma proposta
+  // nova (nunca reaberta) é a cabeça da própria cadeia, então o grupo dela é o próprio id - e o id
+  // precisa ser gerado ANTES do create para poder ser gravado nas duas colunas na mesma linha.
+  // Quem reabre (POST /proposals/:id/reopen) passa o grupo da v1 explicitamente, e é assim que a
+  // v2 entra na cadeia existente em vez de abrir uma nova.
+  public async createProposal(
+    prop: Omit<Proposal, "id" | "generated_at" | "proposal_group_id"> & { proposal_group_id?: string }
+  ): Promise<Proposal> {
+    const id = randomId("prop");
     const p = await prisma.proposal.create({
       data: {
-        id: randomId("prop"),
+        id,
+        proposalGroupId: prop.proposal_group_id || id,
+        previousVersionId: prop.previous_version_id ?? null,
         tenantId: requireTenantId(),
         projectId: prop.project_id,
         proposalType: prop.proposal_type,

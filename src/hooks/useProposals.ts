@@ -107,5 +107,50 @@ export function useProposals(params: UseProposalsParams) {
     }
   };
 
-  return { handleUpdateProposalCommercial, handleUpdateProposalFields, handleSubmitProposalApproval };
+  /*
+   * PreSales F8 (PARTE B): reabrir uma proposta REJEITADA como uma versão nova.
+   *
+   * O servidor cria uma LINHA nova (id novo, `version = anterior + 1`, mesmo `proposal_group_id`,
+   * `previous_version_id` apontando para a rejeitada) e NUNCA toca na rejeitada - ela fica
+   * congelada como o registro do que foi recusado, com os arquivos e pareceres dela intactos (ver
+   * server/routes/proposals.ts's POST /proposals/:id/reopen).
+   *
+   * `proposal:generate` e não `proposal:edit`: reabrir cria uma proposta, e é essa a permissão que
+   * o servidor exige - checar aqui a errada só produziria um 403 confuso depois de o botão ter
+   * parecido disponível.
+   *
+   * Devolve o id da nova versão para quem chama abrir o editor estruturado dela (a v2 nasce em
+   * `draft`, então o PUT já existente funciona nela sem nenhuma mudança).
+   */
+  const handleReopenProposal = async (propId: string): Promise<string | null> => {
+    if (!hasPermission("proposal:generate")) {
+      alert(locale === "pt" ? "Você não tem permissão para reabrir propostas." : "You do not have permission to reopen proposals.");
+      return null;
+    }
+
+    try {
+      const res = await fetch(`/api/proposals/${propId}/reopen`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // 409 = esta proposta já foi reaberta antes (o elo é `@unique` no banco). O servidor devolve
+        // qual é a versão que já existe, então a tela pode ir direto para ela em vez de só reclamar.
+        if (res.status === 409 && data.proposal_id) {
+          await fetchProjectDetails(selectedProjectId);
+          fetchGlobalConfigs();
+          return data.proposal_id as string;
+        }
+        alert(data.message || (locale === "pt" ? "Não foi possível reabrir a proposta." : "Could not reopen the proposal."));
+        return null;
+      }
+      await fetchProjectDetails(selectedProjectId);
+      fetchGlobalConfigs();
+      return (data.proposal_id as string) || null;
+    } catch (e) {
+      console.error(e);
+      alert(locale === "pt" ? "Erro ao reabrir a proposta." : "Error reopening the proposal.");
+      return null;
+    }
+  };
+
+  return { handleUpdateProposalCommercial, handleUpdateProposalFields, handleSubmitProposalApproval, handleReopenProposal };
 }
