@@ -2,12 +2,7 @@ version: '3.8'
 
 services:
   # 1. Main Full-Stack Application
-  # PENDÊNCIA REGISTRADA (não é falso positivo - achado real, adiado de propósito): read_only na
-  # imagem própria (diferente de postgres/redis/minio abaixo, já validados ao vivo) exige antes
-  # auditar todo write path do código (temp de zip/docx, etc) e testar a imagem real - ver a nota
-  # completa no comentário de security_opt logo abaixo e no fechamento da fase F7. Sinalizado pro
-  # dono decidir se vira fase própria.
-  app: # nosemgrep: yaml.docker-compose.security.writable-filesystem-service.writable-filesystem-service
+  app:
     build:
       context: .
       dockerfile: Dockerfile
@@ -30,12 +25,41 @@ services:
         condition: service_healthy
     security_opt:
       - no-new-privileges:true
-    # read_only: true (added to postgres/redis/minio below, validated live) is deliberately NOT
-    # set here yet - this is the custom-built app image, and confirming every write path it needs
-    # (uploads is already the bind mount above, but temp files from zip/docx generation, npm/
-    # esbuild output, etc. aren't audited yet) needs its own validation pass building and smoke-
-    # testing the real image, not a blind flag flip on a customer-facing deployment file. Tracked
-    # as a follow-up, not silently dropped - see the F7 phase closing notes.
+    # F8b (item 3): read_only: true finalmente aplicado à imagem própria, depois da auditoria de
+    # write path que a F7 exigia antes de virar o flag - e depois de rodar a imagem REAL com ele.
+    #
+    # O que a auditoria do código encontrou:
+    #   - Arquivo de proposta (DOCX/PDF): NÃO passa por arquivo temporário. buildDocxBuffer/
+    #     buildPdfBuffer devolvem Buffer em memória e writeProposalFiles (server/utils/docx.ts)
+    #     entrega o Buffer direto ao StorageAdapter; o merge no template (docxtemplater,
+    #     server/utils/docxTemplateEngine.ts) também é Buffer -> Buffer. Não há LibreOffice, nem
+    #     zip em disco, nem diretório de conversão.
+    #   - Upload de documento/template/planilha: todos os multer deste servidor usam
+    #     memoryStorage() (documents.ts, templates.ts, pocs.ts, projectIntake.ts,
+    #     diagnosticsAgent.ts) - nenhum arquivo temporário do multer toca o disco.
+    #   - Única escrita persistente do processo: o LocalStorageAdapter, sempre sob `uploads`
+    #     (proposta gerada, documento enviado, template registrado sob uploads/templates, e a
+    #     sonda .storage-health-check de GET /settings/storage/status) - que é o bind mount logo
+    #     abaixo, e continua gravável com read_only ligado. Com STORAGE_MODE=s3/gcs nem isso.
+    #   - Log: pino escreve em stdout em produção (server/utils/logger.ts), nunca em arquivo.
+    #
+    # Medido na imagem real, com o rootfs somente-leitura: gerar proposta do zero (DOCX+PDF
+    # escritos no bind mount), exportar o DOCX pela rota, e reabrir a proposta rejeitada - inclusive
+    # a reabertura de um relatório, que chama o provedor de IA e regenera a seção - funcionam sem
+    # um único EROFS/EACCES. `npm audit --json`, que roda em runtime a cada heartbeat do Fleet
+    # Manager (performVulnerabilityScan em server/utils/fleetLicense.ts), também roda: foi medido
+    # com o rootfs somente-leitura e SEM tmpfs nenhum, e sai 0 - ele não precisa de cache gravável
+    # para essa subcomando. Ou seja: a aplicação, hoje, não escreve fora de `uploads`.
+    #
+    # O /tmp abaixo é, então, seguro-desemprego declarado, não necessidade medida: é para onde
+    # os.tmpdir() aponta, e é onde uma dependência que este teste não exercita (o cliente do GCS
+    # num upload retomável, um escritor em fluxo do exceljs) tentaria escrever. Um EROFS ali cairia
+    # dentro de um catch que devolve `null` e some, que é justamente o tipo de falha silenciosa que
+    # este repositório já pagou caro. Custa nada e não guarda estado - nada aqui precisa sobreviver
+    # ao container; o que precisa durar está no bind mount de uploads.
+    read_only: true
+    tmpfs:
+      - /tmp
     volumes:
       - ./uploads:/app/uploads
 

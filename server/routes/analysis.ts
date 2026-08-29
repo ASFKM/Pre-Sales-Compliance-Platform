@@ -6,12 +6,12 @@ import { requirePermission } from "./auth";
 import { logDebugMessage, requireUserId } from "../middleware/security";
 import { logger } from "../utils/logger";
 import { empurrarMarcoDaDemanda } from "../utils/crmOutbox";
-import { AnalysisResult, KnowledgeBaseEntry } from "../../src/types";
+import { AnalysisResult, KnowledgeBaseEntry, Project, PlatformSettings } from "../../src/types";
 import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
 import { generateJsonWithProvider, generateTextWithProvider, searchWebWithProvider, ConnectedProvider, ProviderFileInput } from "../utils/aiProviders";
 import { createStorageAdapter } from "../utils/storage";
 import { estimateCostUsd } from "../utils/aiPricing";
-import { resolveProvider, checkCostCap, recordProviderFallback, recordAiUsage } from "../../src/aiOrchestrator";
+import { resolveProvider, checkCostCap, recordProviderFallback, recordAiUsage, ProviderResolution } from "../../src/aiOrchestrator";
 import { runWithTenant } from "../../src/tenantContext";
 import { prisma } from "../../src/prisma";
 import { FACTORY_DEFAULT_ANALYSIS_PROMPT } from "../utils/promptDefaults";
@@ -19,6 +19,7 @@ import { buildDocxBuffer } from "../utils/docx";
 import { randomId } from "../../src/idGenerator";
 import { LOGIC_VERSIONS } from "../../src/aiLogicVersions";
 import { UNTRUSTED_DOCUMENT_WARNING } from "../utils/promptSafety";
+import { ANALYSIS_SECTION_BY_REPORT_TYPE, ReportOnlyProposalType } from "../utils/proposalTypes";
 
 const router = express.Router();
 
@@ -368,7 +369,27 @@ router.post("/projects/:projectId/analysis-result", requirePermission("analysis:
 // 8-section analysis and hoping. Reuses document_analysis's own provider/model config
 // (resolveProvider("document_analysis", ...)) - same AI capability, just a narrower prompt with
 // the section's entire output budget to itself instead of splitting it with the other 7 sections.
-const SECTION_CONFIG: Record<string, { schema: z.ZodTypeAny; label: string; shapeHint: string; needsBomEnrichment?: boolean }> = {
+//
+// F8b (item 2): as 4 seções abaixo deixaram de servir só ao botão "reanalisar seção" da tela de
+// análise - a reabertura de uma proposta dos 4 tipos que são RELATÓRIO PURO (executive_summary,
+// risk_report, bom_report, questions_report - ver REPORT_ONLY_PROPOSAL_TYPES em
+// server/utils/proposalTypes.ts) regenera o conteúdo do relatório por ESTE mesmo caminho, e não
+// por uma segunda implementação. Por isso `executive_summary` e `clarification_questions`, que
+// não estavam aqui, entraram: sem elas, dois dos quatro tipos de relatório não teriam rotina de
+// regeração nenhuma para chamar.
+//
+// `responseKind` existe por causa do `executive_summary`: ele é o único que é um OBJETO, não um
+// array. O prompt abaixo pedia "ONLY a JSON array" incondicionalmente - pedir isso para o resumo
+// executivo devolveria um array que o schema rejeita.
+interface SectionConfigEntry {
+  schema: z.ZodTypeAny;
+  label: string;
+  shapeHint: string;
+  needsBomEnrichment?: boolean;
+  responseKind?: "array" | "object";
+}
+
+const SECTION_CONFIG = {
   critical_requirements: {
     schema: z.array(CriticalRequirementSchema),
     label: "Requisitos Críticos",
@@ -390,7 +411,35 @@ const SECTION_CONFIG: Record<string, { schema: z.ZodTypeAny; label: string; shap
     shapeHint: `[{ "item_id": string, "sku": string, "part_number": string, "equipment_name": string, "manufacturer": string, "quantity": number, "unit": string, "category": string, "specification": string, "source_reference": string, "confidence": number (0-1) }]`,
     needsBomEnrichment: true,
   },
-};
+  executive_summary: {
+    schema: ExecutiveSummarySchema,
+    label: "Resumo Executivo",
+    responseKind: "object",
+    shapeHint: `{ "project_overview": string, "customer_context": string, "main_requirements": string, "main_risks": string, "main_opportunities": string, "recommended_strategy": string, "assumptions": string, "next_steps": string }`,
+  },
+  clarification_questions: {
+    schema: z.array(ClarificationQuestionSchema),
+    label: "Perguntas de Esclarecimento",
+    shapeHint: `[{ "question_id": string, "question": string, "reason": string, "source_reference": string, "related_requirement_or_risk": string, "priority": "high"|"medium"|"low", "target_audience": string }]`,
+  },
+} satisfies Record<string, SectionConfigEntry>;
+
+export type ReanalyzableSection = keyof typeof SECTION_CONFIG;
+
+// F8b (item 2): a garantia, em tempo de COMPILAÇÃO, de que toda seção para a qual um tipo de
+// relatório aponta (ANALYSIS_SECTION_BY_REPORT_TYPE, server/utils/proposalTypes.ts) existe de fato
+// aqui e portanto tem rotina de regeração. Sem esta linha, apontar um relatório novo para uma seção
+// que ninguém adicionou ao SECTION_CONFIG compilaria liso e só falharia na reabertura, em produção,
+// com "Seção inválida para reanálise". `tsc --noEmit` recusa antes.
+const _reportSectionsAreReanalyzable: Record<ReportOnlyProposalType, ReanalyzableSection> = ANALYSIS_SECTION_BY_REPORT_TYPE;
+void _reportSectionsAreReanalyzable;
+
+// Indexação por string arbitrária (o `section` que chega no corpo da requisição) - o `satisfies`
+// acima deu ao SECTION_CONFIG chaves literais, que é o que a checagem de compilação precisa, mas
+// tira dele a assinatura de índice que a validação de entrada usa.
+function getSectionConfig(section: string): SectionConfigEntry | undefined {
+  return (SECTION_CONFIG as Record<string, SectionConfigEntry>)[section];
+}
 
 router.post("/projects/:projectId/analysis-result/reanalyze-section", requirePermission("analysis:run"), async (req: Request, res: Response, next: NextFunction) => {
   const correlationId = (req.headers["x-correlation-id"] as string) || "corr-section-reanalysis";
@@ -400,7 +449,7 @@ router.post("/projects/:projectId/analysis-result/reanalyze-section", requirePer
   const tenantContext = { tenantId };
 
   const section = req.body?.section as string;
-  const sectionConfig = SECTION_CONFIG[section];
+  const sectionConfig = getSectionConfig(section);
   if (!sectionConfig) {
     return res.status(400).json({ success: false, message: `Seção inválida para reanálise: "${section}".` });
   }
@@ -437,177 +486,22 @@ router.post("/projects/:projectId/analysis-result/reanalyze-section", requirePer
   // Everything from here runs detached, same pattern as POST /projects/:projectId/analyze above.
   void runWithTenant(tenantContext, async () => {
   try {
-    await updateTaskProgress(task.id, { status: "running", currentStep: "Lendo documentos", progressPct: 15 });
-
-    // Same document-gathering logic as the full analysis handler above (POST /projects/:projectId/
-    // analyze) - duplicated rather than extracted into a shared helper, deliberately: that handler
-    // is real, tested production code, and this endpoint is new - safer to leave it untouched than
-    // risk a refactor regression on the primary analysis path.
-    const docs = await dbStore.getDocuments(projectId);
-    const VISION_MIME_TYPES = new Set(["application/pdf", "image/png", "image/jpeg", "image/webp"]);
-    let combinedExtractedText = "";
-    const documentFiles: ProviderFileInput[] = [];
-    const storageAdapterForDocs = createStorageAdapter(platformSettings);
-
-    for (let idx = 0; idx < docs.length; idx++) {
-      const doc = docs[idx];
-      if (VISION_MIME_TYPES.has(doc.mime_type)) {
-        try {
-          const buffer = await storageAdapterForDocs.readFile(doc.storage_path);
-          documentFiles.push({ mimeType: doc.mime_type, base64Data: buffer.toString("base64") });
-          combinedExtractedText += `\n--- DOCUMENT ${idx + 1}: ${doc.filename} (${doc.detected_document_type}) - sent as a real file below, read it directly ---\n`;
-        } catch (err) {
-          logger.error({ err, documentId: doc.id, filename: doc.filename }, "Failed to read document file for section reanalysis");
-        }
-        continue;
-      }
-      const text = await dbStore.getDocumentContent(doc.id);
-      if (text) {
-        combinedExtractedText += `\n--- START DOCUMENT ${idx + 1}: ${doc.filename} (${doc.detected_document_type}) ---\n`;
-        combinedExtractedText += text.substring(0, 10000);
-        combinedExtractedText += `\n--- END DOCUMENT ${idx + 1} ---\n`;
-      }
-    }
-    if (!combinedExtractedText) {
-      combinedExtractedText = "No document text was extracted. Standard project description fallback is used.";
-    }
-
-    await updateTaskProgress(task.id, { currentStep: "Analisando com IA", progressPct: 40 });
-
-    // Fetched here (not just before saving, as this endpoint originally did) so the BOM
-    // reanalysis prompt below can show the model what's already there - a reanalysis regenerating
-    // the whole section from the raw text alone, with no memory of prior extraction, is exactly
-    // how a previously-correct item silently got replaced by a wrong one (real bug, 2026-07-20).
-    const existing = await dbStore.getAnalysisResult(projectId);
-
-    // minLength=3 (era o padrão 4 até 2026-07-22): "PTZ"/"DAI" e outras siglas curtas e
-    // altamente distintivas deste dominio (DVR, LPR, VMS, NVR) tem so 3 caracteres e eram
-    // descartadas silenciosamente antes mesmo de chegar na busca da KB - confirmado com um caso
-    // real (item 5.1/5.2 do Termo de Referencia CFTV Via Sorocabana): a busca a nivel de
-    // documento nao achava nenhuma das 12+ entradas aprovadas sobre a DS-2DF8C448I5XG-ELW porque
-    // nem "ptz" nem "dai" sobreviviam ao filtro, mesmo a KB tendo cobertura completa do modelo.
-    // A busca por item do BOM (abaixo, em enrichBomWithWebSearch) ja usava minLength=3 por essa
-    // mesma razao - so a busca a nivel de documento ainda nao tinha recebido a mesma correcao.
-    const knowledgeBaseKeywords = extractKnowledgeBaseKeywords(
-      [project.name, project.customer_name, project.vertical, project.description, project.ai_orientation_text, combinedExtractedText]
-        .filter(Boolean)
-        .join(" "),
-      40,
-      3
-    );
-    // limit=60 (era o padrão 30 até 2026-07-22): confirmado com o mesmo caso real da correção de
-    // minLength acima - mesmo com "ptz"/"dai" agora presentes nas keywords, das 10 entradas
-    // aprovadas realmente sobre a DS-2DF8C448I5XG-ELW (entre 200 candidatas no total), só 2
-    // sobreviviam ao corte de 30, porque termos genéricos (câmera, tipo, poste, lote) raros
-    // O BASTANTE DENTRO DESTA CONSULTA especifica pontuam alto no ranking por peso IDF sem serem
-    // exclusivos deste produto. Não mexi no algoritmo de ranking em si (já tem histórico de dois
-    // ajustes anteriores documentados acima, delicado) - só dei mais espaço pra ele, o que já
-    // basta pra essas 10 entradas relevantes caberem quase todas.
-    const approvedKnowledge = await dbStore.searchApprovedKnowledgeBase(knowledgeBaseKeywords, 60);
-    const knowledgeBaseSection = approvedKnowledge.length > 0
-      ? `\nACCUMULATED KNOWLEDGE FROM PAST PROJECTS (human-reviewed and approved - apply only the
-entries that are actually relevant to this document; ignore anything that doesn't clearly match):
-${approvedKnowledge.map((k) => `- [${k.category}] Se: ${k.trigger} → Então: ${k.knowledge}`).join("\n")}\n`
-      : "";
-
-    // Only for the BOM section: show the model what's already saved for this project, so a
-    // reanalysis doesn't treat every item as a blank slate. The actual "don't blindly replace a
-    // correct item" enforcement is deterministic (reconcileBomWithExisting, below, after the AI
-    // responds) - this prompt text is a first line of defense (fewer spurious differences to
-    // reconcile in the first place), not the real guarantee.
-    const existingBomItems = section === "bom" ? (existing?.bom as any[] | undefined) || [] : [];
-    // specification is included below (it wasn't before, 2026-07-22 fix) specifically so the
-    // model can actually perform the internal-consistency check the paragraph after this list
-    // asks for - a real bug slipped through undetected for that exact reason: an item's own
-    // specification said "mesmo modelo/especificação da câmera PTZ com DAI do Lote 2" but its
-    // manufacturer/part_number pointed at a completely different, non-PTZ product, and no prior
-    // reanalysis pass could have caught it because this summary never showed the model the
-    // specification text to check against in the first place.
-    const existingBomSection = existingBomItems.length > 0
-      ? `\nCURRENT BOM ALREADY ON FILE FOR THIS PROJECT (from a previous analysis pass - human or
-automated review may already have confirmed some of these are correct):
-${existingBomItems.map((i) => `- ${i.equipment_name} [${i.category}] - manufacturer: ${i.manufacturer || "(empty)"}, part_number: ${i.part_number || "(empty)"}, specification: ${i.specification || "(empty)"}, confidence: ${typeof i.confidence === "number" ? i.confidence : "unknown"}`).join("\n")}
-Only report a DIFFERENT manufacturer/part_number/specification for an item above if the source
-documents give you clear evidence the current value is wrong or incomplete - disagreeing without
-new evidence is not a valid reason to change it. It is fine and expected to report the exact same
-values as above when they are still correct.
-EXCEPTION - internal consistency (this is not "new evidence from the documents", it is catching a
-mistake already present in the data above): if an item's OWN specification text above describes it
-as equivalent to, a spare/backup/sobressalente of, or "mesmo modelo/especificação de" another item
-in this same list (typically a spare/backup unit that must match its primary unit), but its
-manufacturer/part_number does NOT actually match that referenced item's manufacturer/part_number -
-report the CORRECTED manufacturer/part_number (matching the referenced item) for this item, and
-say so explicitly in this item's specification text. Silently repeating an internal contradiction
-because "it was already confirmed" is not correct behavior - a confirmed value can still be wrong.\n`
-      : "";
-
-    // The whole point of a per-section reanalysis: this prompt asks for ONLY this one section,
-    // with the entire output token budget available to it instead of splitting it 8 ways like the
-    // full analysis does - explicitly told to use that room for real thoroughness (every distinct
-    // item, not a summarized/collapsed version), and to flag ambiguity rather than guess, matching
-    // the rigor already confirmed on a real BOM extraction reviewed this session (precise
-    // source_reference per item, no invented values).
-    const prompt = `You are running a FOCUSED, SPECIALIST reanalysis of ONE section of a pre-sales tender
-analysis: "${sectionConfig.label}" (JSON key: "${section}"). This is NOT the full multi-section
-analysis - the entire output budget is available for this one section alone, so take the time to
-be exhaustive and precise instead of summarizing or collapsing similar items together. Extract
-EVERY distinct item the source material actually supports - do not merge similar-looking items
-into one, do not omit an item because it seems redundant with another, and do not invent a value
-(quantity, spec, reference) that isn't actually stated - if the source text is ambiguous about
-something, say so in the relevant text/notes field rather than guessing.
-${knowledgeBaseSection}${existingBomSection}
-PROJECT METADATA:
-- Name: ${project.name}
-- Customer: ${project.customer_name}
-- Vertical: ${project.vertical}
-- Description: ${project.description || "N/A"}
-
-${UNTRUSTED_DOCUMENT_WARNING}
-
-REAL EXTRACTED DOCUMENT TEXT:
-${combinedExtractedText}
-
-Respond with ONLY a JSON array (no markdown, no extra text) matching this exact shape:
-${sectionConfig.shapeHint}`;
-
-    let rawText: string, inputTokens: number, outputTokens: number, billedCostUsd: number | undefined;
-    ({ text: rawText, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt, documentFiles));
-    const realEstimatedCostUsd = billedCostUsd ?? estimateCostUsd(providerResolution.model, inputTokens, outputTokens);
-
-    const parsedJson = parseAiJson(rawText);
-    let validatedSection: any = sectionConfig.schema.parse(parsedJson);
-
-    if (sectionConfig.needsBomEnrichment) {
-      await updateTaskProgress(task.id, { currentStep: "Buscando equipamentos reais para o BOM", progressPct: 85 });
-      validatedSection = await enrichBomWithWebSearch(validatedSection, platformSettings, project.proposal_language, tenantId, project.ai_orientation_text || "", task.user_id);
-      validatedSection = computeConfidenceConsistency(validatedSection);
-    }
-
-    // Deterministic reconciliation against what was already saved - the real enforcement of "an
-    // already-correct BOM item is not replaced just because a reanalysis was requested" (the
-    // prompt instruction above reduces spurious differences, but only this step actually decides
-    // and logs it). See reconcileBomWithExisting's own comment for the exact rule.
-    let bomReconciliationDecisions: BomReconciliationDecision[] = [];
-    if (section === "bom") {
-      const reconciliation = reconcileBomWithExisting(validatedSection, existingBomItems);
-      validatedSection = reconciliation.items;
-      bomReconciliationDecisions = reconciliation.decisions;
-    }
-
-    // Same merge-on-save pattern as POST /projects/:projectId/analysis-result (the manual-edit
-    // endpoint) - read the existing full row, overwrite only this one field, save the whole thing
-    // back. Every other section (and the two proposal drafts) is left exactly as it was.
-    await updateTaskProgress(task.id, { currentStep: "Salvando resultado", progressPct: 95 });
-    const updatedLogicVersions = { ...(existing?.logic_versions || {}) };
-    if (section === "bom") updatedLogicVersions.bom_enrichment = LOGIC_VERSIONS.bom_enrichment;
-    const merged = { ...existing, [section]: validatedSection, project_id: projectId, updated_at: new Date().toISOString(), logic_versions: updatedLogicVersions };
-    await dbStore.saveAnalysisResult(merged as AnalysisResult);
+    const { estimatedCostUsd, bomReconciliationDecisions, analysisResultId } = await regenerateAnalysisSection({
+      projectId,
+      section,
+      tenantId,
+      project,
+      platformSettings,
+      providerResolution,
+      userId,
+      onProgress: (currentStep, progressPct) => updateTaskProgress(task.id, { status: "running", currentStep, progressPct }),
+    });
 
     await dbStore.addAuditLog({
       user_id: userId,
       action: "Section Reanalysis (AI)",
       entity_type: "AnalysisResult",
-      entity_id: existing?.id || "ar_section_reanalysis",
+      entity_id: analysisResultId || "ar_section_reanalysis",
       project_id: projectId,
       ip_address: "127.0.0.1",
       user_agent: "section-reanalysis",
@@ -631,7 +525,7 @@ ${sectionConfig.shapeHint}`;
     await completeTask(task.id, {
       resultType: "analysis_result",
       resultId: projectId,
-      estimatedCostUsd: realEstimatedCostUsd,
+      estimatedCostUsd,
       aiProvider: providerResolution.provider,
       intendedProvider: providerResolution.intendedProvider,
       isProviderFallback: providerResolution.isFallback,
@@ -641,7 +535,7 @@ ${sectionConfig.shapeHint}`;
       taskType: "document_analysis",
       provider: providerResolution.provider,
       model: providerResolution.model,
-      estimatedCostUsd: realEstimatedCostUsd,
+      estimatedCostUsd,
       backgroundTaskId: task.id,
       userId: task.user_id,
     });
@@ -651,6 +545,238 @@ ${sectionConfig.shapeHint}`;
   }
   });
 });
+
+/*
+ * F8b (item 2): a rotina de regeração de UMA seção da análise, extraída do corpo da rota acima
+ * para poder ser chamada de outro lugar — a reabertura de uma proposta que é RELATÓRIO PURO
+ * (server/routes/proposals.ts, POST /proposals/:id/reopen).
+ *
+ * A extração é literal: o que roda aqui é o mesmo código que já rodava dentro da rota, com as
+ * três chamadas de progresso trocadas por um callback opcional e o registro (auditoria, log,
+ * conclusão da tarefa, contabilidade de custo) devolvido a quem chamou, que é quem sabe se existe
+ * uma BackgroundTask por trás. NÃO é uma segunda implementação da regeração escrita para a
+ * reabertura: uma segunda implementação divergiria da primeira no primeiro ajuste de prompt, e o
+ * relatório regenerado pela reabertura deixaria de ser o mesmo relatório que a tela produz.
+ *
+ * O chamador é responsável por: carregar projeto/settings, resolver o provedor (e registrar o
+ * fallback), e conferir o teto de custo ANTES de chamar — exatamente o que a rota acima faz antes
+ * de responder 202. Esta função gasta token de IA de verdade; ela não confere teto sozinha.
+ *
+ * Salva a seção regenerada no AnalysisResult do projeto (mesmo merge-on-save da rota de edição
+ * manual: lê a linha inteira, sobrescreve SÓ este campo, grava de volta) e devolve o resultado
+ * já mesclado, para o chamador usar sem reler o banco.
+ */
+export interface AnalysisSectionRegeneration {
+  analysis: AnalysisResult;
+  analysisResultId: string | undefined;
+  estimatedCostUsd: number;
+  bomReconciliationDecisions: BomReconciliationDecision[];
+}
+
+export async function regenerateAnalysisSection(params: {
+  projectId: string;
+  section: string;
+  tenantId: string;
+  project: Project;
+  platformSettings: PlatformSettings;
+  providerResolution: ProviderResolution;
+  userId?: string | null;
+  onProgress?: (currentStep: string, progressPct: number) => Promise<unknown>;
+}): Promise<AnalysisSectionRegeneration> {
+  const { projectId, section, tenantId, project, platformSettings, providerResolution, userId, onProgress } = params;
+
+  const sectionConfig = getSectionConfig(section);
+  if (!sectionConfig) {
+    throw new Error(`Seção inválida para reanálise: "${section}".`);
+  }
+
+  await onProgress?.("Lendo documentos", 15);
+
+  // Same document-gathering logic as the full analysis handler above (POST /projects/:projectId/
+  // analyze) - duplicated rather than extracted into a shared helper, deliberately: that handler
+  // is real, tested production code, and this endpoint is new - safer to leave it untouched than
+  // risk a refactor regression on the primary analysis path.
+  const docs = await dbStore.getDocuments(projectId);
+  const VISION_MIME_TYPES = new Set(["application/pdf", "image/png", "image/jpeg", "image/webp"]);
+  let combinedExtractedText = "";
+  const documentFiles: ProviderFileInput[] = [];
+  const storageAdapterForDocs = createStorageAdapter(platformSettings);
+
+  for (let idx = 0; idx < docs.length; idx++) {
+    const doc = docs[idx];
+    if (VISION_MIME_TYPES.has(doc.mime_type)) {
+      try {
+        const buffer = await storageAdapterForDocs.readFile(doc.storage_path);
+        documentFiles.push({ mimeType: doc.mime_type, base64Data: buffer.toString("base64") });
+        combinedExtractedText += `\n--- DOCUMENT ${idx + 1}: ${doc.filename} (${doc.detected_document_type}) - sent as a real file below, read it directly ---\n`;
+      } catch (err) {
+        logger.error({ err, documentId: doc.id, filename: doc.filename }, "Failed to read document file for section reanalysis");
+      }
+      continue;
+    }
+    const text = await dbStore.getDocumentContent(doc.id);
+    if (text) {
+      combinedExtractedText += `\n--- START DOCUMENT ${idx + 1}: ${doc.filename} (${doc.detected_document_type}) ---\n`;
+      combinedExtractedText += text.substring(0, 10000);
+      combinedExtractedText += `\n--- END DOCUMENT ${idx + 1} ---\n`;
+    }
+  }
+  if (!combinedExtractedText) {
+    combinedExtractedText = "No document text was extracted. Standard project description fallback is used.";
+  }
+
+  await onProgress?.("Analisando com IA", 40);
+
+  // Fetched here (not just before saving, as this endpoint originally did) so the BOM
+  // reanalysis prompt below can show the model what's already there - a reanalysis regenerating
+  // the whole section from the raw text alone, with no memory of prior extraction, is exactly
+  // how a previously-correct item silently got replaced by a wrong one (real bug, 2026-07-20).
+  const existing = await dbStore.getAnalysisResult(projectId);
+
+  // minLength=3 (era o padrão 4 até 2026-07-22): "PTZ"/"DAI" e outras siglas curtas e
+  // altamente distintivas deste dominio (DVR, LPR, VMS, NVR) tem so 3 caracteres e eram
+  // descartadas silenciosamente antes mesmo de chegar na busca da KB - confirmado com um caso
+  // real (item 5.1/5.2 do Termo de Referencia CFTV Via Sorocabana): a busca a nivel de
+  // documento nao achava nenhuma das 12+ entradas aprovadas sobre a DS-2DF8C448I5XG-ELW porque
+  // nem "ptz" nem "dai" sobreviviam ao filtro, mesmo a KB tendo cobertura completa do modelo.
+  // A busca por item do BOM (abaixo, em enrichBomWithWebSearch) ja usava minLength=3 por essa
+  // mesma razao - so a busca a nivel de documento ainda nao tinha recebido a mesma correcao.
+  const knowledgeBaseKeywords = extractKnowledgeBaseKeywords(
+    [project.name, project.customer_name, project.vertical, project.description, project.ai_orientation_text, combinedExtractedText]
+      .filter(Boolean)
+      .join(" "),
+    40,
+    3
+  );
+  // limit=60 (era o padrão 30 até 2026-07-22): confirmado com o mesmo caso real da correção de
+  // minLength acima - mesmo com "ptz"/"dai" agora presentes nas keywords, das 10 entradas
+  // aprovadas realmente sobre a DS-2DF8C448I5XG-ELW (entre 200 candidatas no total), só 2
+  // sobreviviam ao corte de 30, porque termos genéricos (câmera, tipo, poste, lote) raros
+  // O BASTANTE DENTRO DESTA CONSULTA especifica pontuam alto no ranking por peso IDF sem serem
+  // exclusivos deste produto. Não mexi no algoritmo de ranking em si (já tem histórico de dois
+  // ajustes anteriores documentados acima, delicado) - só dei mais espaço pra ele, o que já
+  // basta pra essas 10 entradas relevantes caberem quase todas.
+  const approvedKnowledge = await dbStore.searchApprovedKnowledgeBase(knowledgeBaseKeywords, 60);
+  const knowledgeBaseSection = approvedKnowledge.length > 0
+    ? `\nACCUMULATED KNOWLEDGE FROM PAST PROJECTS (human-reviewed and approved - apply only the
+entries that are actually relevant to this document; ignore anything that doesn't clearly match):
+${approvedKnowledge.map((k) => `- [${k.category}] Se: ${k.trigger} → Então: ${k.knowledge}`).join("\n")}\n`
+    : "";
+
+  // Only for the BOM section: show the model what's already saved for this project, so a
+  // reanalysis doesn't treat every item as a blank slate. The actual "don't blindly replace a
+  // correct item" enforcement is deterministic (reconcileBomWithExisting, below, after the AI
+  // responds) - this prompt text is a first line of defense (fewer spurious differences to
+  // reconcile in the first place), not the real guarantee.
+  const existingBomItems = section === "bom" ? (existing?.bom as any[] | undefined) || [] : [];
+  // specification is included below (it wasn't before, 2026-07-22 fix) specifically so the
+  // model can actually perform the internal-consistency check the paragraph after this list
+  // asks for - a real bug slipped through undetected for that exact reason: an item's own
+  // specification said "mesmo modelo/especificação da câmera PTZ com DAI do Lote 2" but its
+  // manufacturer/part_number pointed at a completely different, non-PTZ product, and no prior
+  // reanalysis pass could have caught it because this summary never showed the model the
+  // specification text to check against in the first place.
+  const existingBomSection = existingBomItems.length > 0
+    ? `\nCURRENT BOM ALREADY ON FILE FOR THIS PROJECT (from a previous analysis pass - human or
+automated review may already have confirmed some of these are correct):
+${existingBomItems.map((i) => `- ${i.equipment_name} [${i.category}] - manufacturer: ${i.manufacturer || "(empty)"}, part_number: ${i.part_number || "(empty)"}, specification: ${i.specification || "(empty)"}, confidence: ${typeof i.confidence === "number" ? i.confidence : "unknown"}`).join("\n")}
+Only report a DIFFERENT manufacturer/part_number/specification for an item above if the source
+documents give you clear evidence the current value is wrong or incomplete - disagreeing without
+new evidence is not a valid reason to change it. It is fine and expected to report the exact same
+values as above when they are still correct.
+EXCEPTION - internal consistency (this is not "new evidence from the documents", it is catching a
+mistake already present in the data above): if an item's OWN specification text above describes it
+as equivalent to, a spare/backup/sobressalente of, or "mesmo modelo/especificação de" another item
+in this same list (typically a spare/backup unit that must match its primary unit), but its
+manufacturer/part_number does NOT actually match that referenced item's manufacturer/part_number -
+report the CORRECTED manufacturer/part_number (matching the referenced item) for this item, and
+say so explicitly in this item's specification text. Silently repeating an internal contradiction
+because "it was already confirmed" is not correct behavior - a confirmed value can still be wrong.\n`
+    : "";
+
+  // The whole point of a per-section reanalysis: this prompt asks for ONLY this one section,
+  // with the entire output token budget available to it instead of splitting it 8 ways like the
+  // full analysis does - explicitly told to use that room for real thoroughness (every distinct
+  // item, not a summarized/collapsed version), and to flag ambiguity rather than guess, matching
+  // the rigor already confirmed on a real BOM extraction reviewed this session (precise
+  // source_reference per item, no invented values).
+  //
+  // F8b (item 2): a instrução de idioma (`Target Language` + o parágrafo antes da forma de
+  // resposta) entrou agora. Ela FALTAVA aqui, embora a análise completa sempre a tenha tido - as
+  // 4 seções que existiam antes são majoritariamente estruturadas/enum, então o descuido passava
+  // despercebido; o `executive_summary`, que a reabertura de uma proposta-relatório regenera, é
+  // prosa pura, e sem esta instrução um projeto em português recebia um resumo executivo escrito
+  // em inglês dentro do próprio documento da proposta. Vale para as duas portas que chamam esta
+  // rotina (o botão da tela e a reabertura), porque é a mesma rotina.
+  const prompt = `You are running a FOCUSED, SPECIALIST reanalysis of ONE section of a pre-sales tender
+analysis: "${sectionConfig.label}" (JSON key: "${section}"). This is NOT the full multi-section
+analysis - the entire output budget is available for this one section alone, so take the time to
+be exhaustive and precise instead of summarizing or collapsing similar items together. Extract
+EVERY distinct item the source material actually supports - do not merge similar-looking items
+into one, do not omit an item because it seems redundant with another, and do not invent a value
+(quantity, spec, reference) that isn't actually stated - if the source text is ambiguous about
+something, say so in the relevant text/notes field rather than guessing.
+${knowledgeBaseSection}${existingBomSection}
+PROJECT METADATA:
+- Name: ${project.name}
+- Customer: ${project.customer_name}
+- Vertical: ${project.vertical}
+- Description: ${project.description || "N/A"}
+- Target Language: ${project.proposal_language}
+
+${UNTRUSTED_DOCUMENT_WARNING}
+
+REAL EXTRACTED DOCUMENT TEXT:
+${combinedExtractedText}
+
+Write every free-text value in ${project.proposal_language}. The field NAMES (keys) stay in English
+exactly as shown, and so do the fixed enum values listed in the shape below (priority, severity,
+category and the like are internal codes, never translated) - only the prose you generate changes
+language.
+
+Respond with ONLY a JSON ${sectionConfig.responseKind === "object" ? "object" : "array"} (no markdown, no extra text) matching this exact shape:
+${sectionConfig.shapeHint}`;
+
+  let rawText: string, inputTokens: number, outputTokens: number, billedCostUsd: number | undefined;
+  ({ text: rawText, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt, documentFiles));
+  const realEstimatedCostUsd = billedCostUsd ?? estimateCostUsd(providerResolution.model, inputTokens, outputTokens);
+
+  const parsedJson = parseAiJson(rawText);
+  let validatedSection: any = sectionConfig.schema.parse(parsedJson);
+
+  if (sectionConfig.needsBomEnrichment) {
+    await onProgress?.("Buscando equipamentos reais para o BOM", 85);
+    validatedSection = await enrichBomWithWebSearch(validatedSection, platformSettings, project.proposal_language, tenantId, project.ai_orientation_text || "", userId);
+    validatedSection = computeConfidenceConsistency(validatedSection);
+  }
+
+  // Deterministic reconciliation against what was already saved - the real enforcement of "an
+  // already-correct BOM item is not replaced just because a reanalysis was requested" (the
+  // prompt instruction above reduces spurious differences, but only this step actually decides
+  // and logs it). See reconcileBomWithExisting's own comment for the exact rule.
+  let bomReconciliationDecisions: BomReconciliationDecision[] = [];
+  if (section === "bom") {
+    const reconciliation = reconcileBomWithExisting(validatedSection, existingBomItems);
+    validatedSection = reconciliation.items;
+    bomReconciliationDecisions = reconciliation.decisions;
+  }
+
+  // Same merge-on-save pattern as POST /projects/:projectId/analysis-result (the manual-edit
+  // endpoint) - read the existing full row, overwrite only this one field, save the whole thing
+  // back. Every other section (and the two proposal drafts) is left exactly as it was.
+  await onProgress?.("Salvando resultado", 95);
+  const updatedLogicVersions = { ...(existing?.logic_versions || {}) };
+  if (section === "bom") updatedLogicVersions.bom_enrichment = LOGIC_VERSIONS.bom_enrichment;
+  const merged = { ...existing, [section]: validatedSection, project_id: projectId, updated_at: new Date().toISOString(), logic_versions: updatedLogicVersions };
+  await dbStore.saveAnalysisResult(merged as AnalysisResult);
+
+  return {
+    analysis: merged as AnalysisResult,
+    analysisResultId: existing?.id,
+    estimatedCostUsd: realEstimatedCostUsd,
+    bomReconciliationDecisions,
+  };
+}
 
 // Looks up a real part number/manufacturer for BOM items the document itself didn't specify
 // (sku/part_number left blank by the main analysis, per its own "never invent" instruction).
