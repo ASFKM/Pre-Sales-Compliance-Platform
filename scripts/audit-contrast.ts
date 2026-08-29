@@ -262,7 +262,7 @@ function combosDoCodigo(): { classes: string; texto: string }[] {
   const arquivos: string[] = [];
   const anda = (dir: string) => {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-      const p = path.join(dir, e.name);
+      const p = path.join(dir, e.name); // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal -- dev-only script; e.name comes from fs.readdirSync walking this repo's own source tree, never external input
       if (e.isDirectory()) anda(p);
       else if (e.name.endsWith(".tsx")) arquivos.push(p);
     }

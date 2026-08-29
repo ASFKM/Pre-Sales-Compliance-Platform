@@ -42,16 +42,19 @@ async function aba(page: Page, nome: string): Promise<void> {
  *  - sempre sem diferenciar maiúsculas: as sub-abas da Base de Conhecimento aparecem em caixa alta
  *    por CSS (`uppercase`), mas o texto do DOM continua "Upload de Arquivos (2)".
  */
+// Dev-only capture script, never runs in production. `prefixo`/`rotulo` below are always literal
+// strings hardcoded at each call site in this same file (e.g. subAba(page, "Documentos")), never
+// external/attacker input - no ReDoS surface.
 async function subAba(page: Page, prefixo: string): Promise<void> {
-  const ancorado = page.getByRole("button", { name: new RegExp("^" + prefixo, "i") }).first();
-  const alvo = (await ancorado.count()) > 0 ? ancorado : page.getByRole("button", { name: new RegExp(prefixo, "i") }).first();
+  const ancorado = page.getByRole("button", { name: new RegExp("^" + prefixo, "i") }).first(); // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
+  const alvo = (await ancorado.count()) > 0 ? ancorado : page.getByRole("button", { name: new RegExp(prefixo, "i") }).first(); // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
   await alvo.click();
   await settle(page);
 }
 
 async function secaoAdmin(page: Page, rotulo: string): Promise<void> {
   await aba(page, "Configurações");
-  await page.getByRole("button", { name: new RegExp("^" + rotulo, "i") }).first().click();
+  await page.getByRole("button", { name: new RegExp("^" + rotulo, "i") }).first().click(); // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- same as subAba above, rotulo is always a hardcoded literal
   await settle(page);
 }
 

@@ -7,6 +7,11 @@ updates:
       day: monday
       time: '08:00'
       timezone: America/Sao_Paulo
+    # Wait 7 days after a package version is published before Dependabot proposes it - a
+    # newly-published version has had no time for the community to catch a compromised release
+    # (supply-chain attack) or an unstable one.
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 10
     groups:
       frontend-runtime:
@@ -30,6 +35,8 @@ updates:
       day: monday
       time: '08:15'
       timezone: America/Sao_Paulo
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: ci
       include: scope

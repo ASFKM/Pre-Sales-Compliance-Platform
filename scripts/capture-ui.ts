@@ -63,7 +63,7 @@ if (screens.some((s) => s.authenticated) && (!email || !password)) {
 async function shoot(page: Page, targetDir: string, id: string): Promise<void> {
   fs.mkdirSync(targetDir, { recursive: true });
   await stabilize(page);
-  await page.screenshot({ ...SHOT_OPTIONS, path: path.join(targetDir, id + ".png") });
+  await page.screenshot({ ...SHOT_OPTIONS, path: path.join(targetDir, id + ".png") }); // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal -- dev-only capture script; `id` is always a hardcoded literal from this file's own SCREENS list, never external input
 }
 
 async function main(): Promise<void> {

@@ -1,0 +1,23 @@
+title = "gitleaks config — Pre-Sales Compliance Platform"
+
+[extend]
+useDefault = true
+
+# The 5 findings this allowlist suppresses (confirmed by reading the .forgejo/security-scan.yml
+# gitleaks run's own archived log on forge-01, 2026-08-29) are fake credentials used as INPUT
+# FIXTURES to test this repo's own secret-redaction/masking logic:
+#   - server/diagnostics/redact.test.ts:15  (jwt)          - server/diagnostics/redact.ts
+#   - src/diagnostics/redact.test.ts:11     (jwt)           - src/diagnostics/redact.ts (client mirror)
+#   - server/utils/security.test.ts:79      (stripe-access-token) - maskSecret()
+#   - server/utils/security.test.ts:96,106  (generic-api-key)     - maskSecret()
+# gitleaks finding them is correct behavior (the tests need input that LOOKS like a real
+# credential to prove the redactor catches it) - they were never real, live, or issued by any
+# provider. Scoped to these exact 3 files, not a broad `*.test.ts` glob, so a real secret pasted
+# into some OTHER test file later still gets caught.
+[allowlist]
+description = "Fake credentials used as fixtures to test redaction/masking code - not real secrets"
+paths = [
+  '''server/diagnostics/redact\.test\.ts''',
+  '''src/diagnostics/redact\.test\.ts''',
+  '''server/utils/security\.test\.ts''',
+]

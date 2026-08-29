@@ -10,7 +10,8 @@ import { logDebugMessage, requireUserId } from "../middleware/security";
 import { ProposalTemplate, SlaRiskFlag, Proposal, Project, PlatformSettings } from "../../src/types";
 import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
 import { runWithTenant } from "../../src/tenantContext";
-import { PROPOSAL_TYPES, ProposalTypeValue } from "../utils/proposalTypes";
+import { PROPOSAL_TYPES, ProposalTypeValue, PROPOSAL_EDITABLE_FIELDS, ProposalEditableField, PROPOSAL_TYPE_EDITABLE_FIELDS, getRejectedEditableFields } from "../utils/proposalTypes";
+import { DocxTemplateData } from "../utils/docx";
 import { getFleetLicenseStatus } from "../utils/fleetLicense";
 import { generateJsonWithProvider, ConnectedProvider } from "../utils/aiProviders";
 import { resolveProvider, checkCostCap, recordProviderFallback, recordAiUsage } from "../../src/aiOrchestrator";
@@ -83,6 +84,121 @@ async function checkTemplatePhysicalFile(template: ProposalTemplate, platformSet
   }
 }
 
+// Módulo de Precificação (add-on): busca opcional, nunca bloqueia a geração/edição de proposta pra
+// quem não tem o módulo (mesmo padrão de dado-opcional-de-add-on de server/routes/settings.ts:707,
+// não requireModule - essa rota nunca foi gated por add-on). Quando existe mais de uma
+// ProjectPricingSheet (BOM reimportado mais de uma vez), usa sempre a mais recente - não há flag de
+// "sessão atual" no schema. Extraído para ser reaproveitado pela geração inicial (POST) e pela
+// regeneração ao editar (PUT) - os dois precisam do mesmo dado de precificação atualizado.
+async function resolvePricingLines(tenantId: string, projectId: string): Promise<{ pricingLines: NonNullable<DocxTemplateData["pricing"]>["lines"]; pricingExcludedCount: number }> {
+  const license = tenantId ? await getFleetLicenseStatus(tenantId) : { modules: [] as string[] };
+  const pricingSheet = license.modules.includes("pricing")
+    ? await prisma.projectPricingSheet.findFirst({
+        where: { projectId },
+        orderBy: { createdAt: "desc" },
+        include: { lines: { include: { matchedItem: true } } },
+      })
+    : null;
+  // Só os campos abaixo chegam a templateData.pricing - ver o comentário de aviso em
+  // server/utils/docx.ts sobre por que markup/preço de lista nunca podem entrar aqui.
+  const pricingLines = (pricingSheet?.lines || [])
+    .filter((l) => l.matchStatus !== "unmatched" && (l.finalUnitPrice != null || l.finalPriceWithTax != null))
+    .map((l) => ({
+      description: l.matchedItem?.description || l.rawDescription || "",
+      quantity: l.quantity,
+      finalUnitPrice: l.finalUnitPrice,
+      finalPriceWithTax: l.finalPriceWithTax,
+    }));
+  // Linhas do BOM que ficaram de fora da tabela de preços da proposta por falta de preço cadastrado
+  // - só pra avisar o usuário na tela de geração, nunca chega em templateData/no documento.
+  const pricingExcludedCount = pricingSheet ? pricingSheet.lines.length - pricingLines.length : 0;
+  return { pricingLines, pricingExcludedCount };
+}
+
+// Monta o `DocxTemplateData` a partir de projeto/análise/campos comerciais da proposta - o MESMO
+// formato usado pelo resolvedor de variáveis do template engine (docxTemplateEngine.ts) e pelo
+// gerador genérico de texto (docx.ts's buildProposalText). Compartilhado entre a geração inicial
+// (POST) e a regeneração ao editar (PUT /proposals/:id) - antes desta fase, só o POST usava este
+// caminho; o PUT reescrevia editable_content como texto livre, o que sempre derrubava a
+// formatação/letterhead de um template real (ver PROPOSAL_TYPE_EDITABLE_FIELDS em proposalTypes.ts).
+function buildProposalTemplateData(
+  template: { id: string; name: string; version: string; template_type: string; file_path: string },
+  physicalFileFound: boolean,
+  project: Project,
+  ownerName: string | undefined,
+  analysis: any,
+  commercial: {
+    manual_pricing_table?: Array<Record<string, any>>;
+    payment_terms?: string;
+    delivery_terms?: string;
+    proposal_validity?: string;
+    commercial_assumptions?: string;
+    exclusions?: string;
+  },
+  pricingLines: NonNullable<DocxTemplateData["pricing"]>["lines"]
+): DocxTemplateData {
+  return {
+    template: {
+      id: template.id,
+      name: template.name,
+      version: template.version,
+      template_type: template.template_type,
+      file_path: template.file_path,
+      physical_file_found: physicalFileFound
+    },
+    project: {
+      name: project.name,
+      customer_name: project.customer_name,
+      description: project.description,
+      vertical: project.vertical,
+      opportunity_name: project.opportunity_name,
+      status: project.status,
+      deadline: project.deadline,
+      proposal_validity_date: project.proposal_validity_date,
+      procurement_modality: project.procurement_modality,
+      procurement_subtype: project.procurement_subtype,
+      owner_name: ownerName,
+    },
+    analysis: analysis ? {
+      executive_summary: analysis.executive_summary,
+      critical_requirements: analysis.critical_requirements,
+      risks: analysis.risks,
+      opportunities: analysis.opportunities,
+      bom: analysis.bom,
+      point_to_point_table: analysis.point_to_point_table,
+      preliminary_schedule: analysis.preliminary_schedule,
+      clarification_questions: analysis.clarification_questions
+    } : undefined,
+    proposal: commercial,
+    pricing: { lines: pricingLines }
+  };
+}
+
+// Renderiza (merge no template real quando existe, senão o gerador genérico) e grava DOCX/PDF -
+// compartilhado entre POST (geração inicial) e PUT (regeneração ao editar campos estruturados).
+async function renderAndWriteProposalDocuments(
+  templateData: DocxTemplateData,
+  template: Pick<ProposalTemplate, "file_type" | "storage_provider">,
+  physicalFileFound: boolean,
+  platformSettings: PlatformSettings,
+  projectId: string,
+  proposalType: string,
+  branding: { companyName?: string; primaryColorHex?: string; logoDataUrl?: string }
+): Promise<{ docx_file_path: string; pdf_file_path: string; proposalContent: string }> {
+  const proposalContent = buildProposalText(templateData);
+
+  let docxBufferOverride: Buffer | undefined;
+  if (physicalFileFound && template.file_type === "docx") {
+    const templateAdapter = createStorageAdapter({ ...platformSettings, storage_mode: template.storage_provider });
+    const templateBuffer = await templateAdapter.readFile(templateData.template!.file_path);
+    docxBufferOverride = renderDocxFromTemplate(templateBuffer, templateData);
+  }
+
+  const outputAdapter = createStorageAdapter(platformSettings);
+  const { docx_file_path, pdf_file_path } = await writeProposalFiles(outputAdapter, projectId, proposalType, proposalContent, docxBufferOverride, branding);
+  return { docx_file_path, pdf_file_path, proposalContent };
+}
+
 
 // Proposal validation schema
 const CreateProposalSchema = z.object({
@@ -105,7 +221,6 @@ const CreateProposalSchema = z.object({
   proposal_validity: z.string().optional(),
   commercial_assumptions: z.string().optional(),
   exclusions: z.string().optional(),
-  editable_content: z.string().optional(),
   // Item 3 (confiança no enriquecimento de BOM): permite prosseguir mesmo com itens de baixa
   // confiança/fabricante destoante na proposta comercial - ver checkBomConfidenceForCommercial.
   force_low_confidence_bom: z.boolean().optional().default(false)
@@ -187,68 +302,16 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
     const userName = user ? user.name : "System User";
     const owner = await dbStore.getUserById(project.owner_user_id);
 
-    // Módulo de Precificação (add-on): busca opcional, nunca bloqueia a geração de proposta pra
-    // quem não tem o módulo (mesmo padrão de dado-opcional-de-add-on de server/routes/
-    // settings.ts:707, não requireModule - essa rota nunca foi gated por add-on). Quando existe
-    // mais de uma ProjectPricingSheet (BOM reimportado mais de uma vez), usa sempre a mais
-    // recente - não há flag de "sessão atual" no schema. Só os campos abaixo chegam a
-    // templateData.pricing - ver o comentário de aviso em server/utils/docx.ts sobre por que
-    // markup/preço de lista nunca podem entrar aqui.
-    const license = tenantId ? await getFleetLicenseStatus(tenantId) : { modules: [] as string[] };
-    const pricingSheet = license.modules.includes("pricing")
-      ? await prisma.projectPricingSheet.findFirst({
-          where: { projectId },
-          orderBy: { createdAt: "desc" },
-          include: { lines: { include: { matchedItem: true } } },
-        })
-      : null;
-    const pricingLines = (pricingSheet?.lines || [])
-      .filter((l) => l.matchStatus !== "unmatched" && (l.finalUnitPrice != null || l.finalPriceWithTax != null))
-      .map((l) => ({
-        description: l.matchedItem?.description || l.rawDescription || "",
-        quantity: l.quantity,
-        finalUnitPrice: l.finalUnitPrice,
-        finalPriceWithTax: l.finalPriceWithTax,
-      }));
-    // Linhas do BOM que ficaram de fora da tabela de preços da proposta por falta de preço
-    // cadastrado (sem match no catálogo, ou matched mas ainda sem preço final calculado) - só
-    // pra avisar o usuário na tela de geração, nunca chega em templateData/no documento.
-    const pricingExcludedCount = pricingSheet ? pricingSheet.lines.length - pricingLines.length : 0;
+    const { pricingLines, pricingExcludedCount } = await resolvePricingLines(tenantId, projectId);
 
     // 1. Compile template data from projects, analysis result, and manual pricings
-    const templateData = {
-      template: {
-        id: template.id,
-        name: template.name,
-        version: template.version,
-        template_type: template.template_type,
-        file_path: template.file_path,
-        physical_file_found: physicalFileFound
-      },
-      project: {
-        name: project.name,
-        customer_name: project.customer_name,
-        description: project.description,
-        vertical: project.vertical,
-        opportunity_name: project.opportunity_name,
-        status: project.status,
-        deadline: project.deadline,
-        proposal_validity_date: project.proposal_validity_date,
-        procurement_modality: project.procurement_modality,
-        procurement_subtype: project.procurement_subtype,
-        owner_name: owner ? owner.name : undefined,
-      },
-      analysis: analysis ? {
-        executive_summary: analysis.executive_summary,
-        critical_requirements: analysis.critical_requirements,
-        risks: analysis.risks,
-        opportunities: analysis.opportunities,
-        bom: analysis.bom,
-        point_to_point_table: analysis.point_to_point_table,
-        preliminary_schedule: analysis.preliminary_schedule,
-        clarification_questions: analysis.clarification_questions
-      } : undefined,
-      proposal: {
+    const templateData = buildProposalTemplateData(
+      template,
+      physicalFileFound,
+      project,
+      owner ? owner.name : undefined,
+      analysis,
+      {
         manual_pricing_table: validated.manual_pricing_table,
         payment_terms: validated.payment_terms,
         delivery_terms: validated.delivery_terms,
@@ -256,8 +319,8 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
         commercial_assumptions: validated.commercial_assumptions,
         exclusions: validated.exclusions
       },
-      pricing: { lines: pricingLines }
-    };
+      pricingLines
+    );
 
     // Document generation runs in the background from here - respond immediately with the
     // task id, same pattern as document analysis (server/routes/analysis.ts).
@@ -270,32 +333,18 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
     void runWithTenant({ tenantId }, async () => {
     try {
       // 2. Build the full proposal text - this same text becomes the proposal's editable_content,
-      // so what the user reviews/edits on screen is exactly what's in the exported files
-      // (regenerating both from the edited text is what saving an edit does later, in
-      // PUT /proposals/:id).
-      await updateTaskProgress(task.id, { status: "running", currentStep: "Compilando conteúdo da proposta", progressPct: 30 });
-      const proposalContent = buildProposalText(templateData);
-
-      // 3. If the registered template has a real, readable .docx file, merge into it directly
-      // (preserves the template's own letterhead/styles) - otherwise fall back to the generic
-      // generator, same as before this template engine existed. A merge failure fails the task
-      // with a clear message rather than silently degrading to the generic document - the whole
-      // point of choosing a template is the letterhead it produces.
-      let docxBufferOverride: Buffer | undefined;
-      if (physicalFileFound && template.file_type === "docx") {
-        await updateTaskProgress(task.id, { currentStep: "Preenchendo template DOCX", progressPct: 55 });
-        const templateAdapter = createStorageAdapter({ ...platformSettings, storage_mode: template.storage_provider });
-        const templateBuffer = await templateAdapter.readFile(template.file_path);
-        docxBufferOverride = renderDocxFromTemplate(templateBuffer, templateData);
-      }
-
-      // 4. Write DOCX/PDF through the storage adapter (local/S3/GCS, whatever the tenant has
-      // configured) instead of a raw fs path under process.cwd() - survives a deploy without a
-      // single persistent disk.
-      await updateTaskProgress(task.id, { currentStep: "Gerando DOCX e PDF", progressPct: 65 });
-      const outputAdapter = createStorageAdapter(platformSettings);
+      // so what the user reviews/edits on screen is exactly what's in the exported files. If the
+      // registered template has a real, readable .docx file, it's merged into it directly
+      // (preserves the template's own letterhead/styles) - otherwise falls back to the generic
+      // generator. A merge failure fails the task with a clear message rather than silently
+      // degrading to the generic document - the whole point of choosing a template is the
+      // letterhead it produces. Regenerating on a later structured-field edit (PUT /proposals/:id)
+      // goes through this exact same helper, so the letterhead never gets lost on save.
+      await updateTaskProgress(task.id, { status: "running", currentStep: "Preenchendo e gerando documento", progressPct: 50 });
       const brandingHeader = await resolveBrandingHeader(projectId);
-      const { docx_file_path, pdf_file_path } = await writeProposalFiles(outputAdapter, projectId, proposalType, proposalContent, docxBufferOverride, brandingHeader);
+      const { docx_file_path, pdf_file_path, proposalContent } = await renderAndWriteProposalDocuments(
+        templateData, template, physicalFileFound, platformSettings, projectId, proposalType, brandingHeader
+      );
 
       // 5. Save proposal to database
       await updateTaskProgress(task.id, { currentStep: "Salvando proposta", progressPct: 90 });
@@ -507,6 +556,15 @@ const OPINION_PERSPECTIVE_LABEL: Record<OpinionPerspective, string> = {
   financial: "Financeiro",
 };
 
+// PARTE B (actionable AI opinion): of PROPOSAL_EDITABLE_FIELDS, only these five are plain text -
+// manual_pricing_table is a structured array the AI would have to invent line-by-line (item_id,
+// quantity, unit_price, discount, ...), which is a much riskier thing for a model to get right
+// than a paragraph of terms text, so it's deliberately excluded from what an opinion can suggest.
+// The AI is only ever offered fields this specific proposal's own type can take
+// (PROPOSAL_TYPE_EDITABLE_FIELDS ∩ this list) - it can't suggest editing a field the proposal's
+// type doesn't own, and the server re-validates that below regardless of what the model returns.
+const TEXT_SUGGESTIBLE_FIELDS = ["payment_terms", "delivery_terms", "proposal_validity", "commercial_assumptions", "exclusions"] as const satisfies readonly ProposalEditableField[];
+
 async function buildOpinionPrompt(
   perspective: OpinionPerspective,
   proposal: Proposal,
@@ -514,10 +572,18 @@ async function buildOpinionPrompt(
   analysisResult: any,
   tenantId: string,
   platformSettings: PlatformSettings,
-  userId: string
+  userId: string,
+  suggestibleFields: readonly ProposalEditableField[]
 ): Promise<string> {
   const header = `PROJECT: ${project.name} | Customer: ${project.customer_name} | Vertical: ${project.vertical}\n`;
-  const responseShape = `\n\nRespond with ONLY a JSON object (no markdown, no extra text), in this exact shape:\n{ "severity": "info"|"warning"|"critical", "summary": "one sentence in ${proposal.language}", "content": "2-4 short paragraphs in ${proposal.language}" }`;
+  // The AI never edits the proposal itself - suggested_field/suggested_value is only ever a
+  // recommendation the human reviewer applies explicitly (an "Apply" button in the client PUTs it
+  // to /proposals/:id). Omitted entirely from the requested shape when this proposal's type owns
+  // no suggestible field (the 4 report types), so the model isn't even offered the option.
+  const suggestionInstruction = suggestibleFields.length > 0
+    ? ` If (and only if) you have ONE concrete, specific change to recommend to one of this proposal's own fields, also include "suggested_field" (exactly one of: ${suggestibleFields.map((f) => `"${f}"`).join(", ")}) and "suggested_value" (the full exact replacement text for that field, in ${proposal.language}). Leave both out if you have no single concrete field-level change to propose - most reviews won't have one, and a vague/general suggestion doesn't count.`
+    : "";
+  const responseShape = `\n\nRespond with ONLY a JSON object (no markdown, no extra text), in this exact shape:\n{ "severity": "info"|"warning"|"critical", "summary": "one sentence in ${proposal.language}", "content": "2-4 short paragraphs in ${proposal.language}", "suggested_field": string|null, "suggested_value": string|null }.${suggestionInstruction}`;
 
   if (perspective === "technical") {
     const bom = (analysisResult?.bom || []) as any[];
@@ -644,6 +710,8 @@ router.post("/proposals/:id/opinion-panel", requirePermission("proposal:edit"), 
       let anyFailed = false;
       try {
         const analysisResult = await dbStore.getAnalysisResult(proposal.project_id);
+        const suggestibleFields = PROPOSAL_TYPE_EDITABLE_FIELDS[proposal.proposal_type]
+          .filter((f): f is (typeof TEXT_SUGGESTIBLE_FIELDS)[number] => (TEXT_SUGGESTIBLE_FIELDS as readonly string[]).includes(f));
 
         for (let i = 0; i < OPINION_PERSPECTIVES.length; i++) {
           const perspective = OPINION_PERSPECTIVES[i];
@@ -665,7 +733,7 @@ router.post("/proposals/:id/opinion-panel", requirePermission("proposal:edit"), 
           }
 
           try {
-            const prompt = await buildOpinionPrompt(perspective, proposal, project, analysisResult, tenantId, platformSettings, userId);
+            const prompt = await buildOpinionPrompt(perspective, proposal, project, analysisResult, tenantId, platformSettings, userId, suggestibleFields);
             let rawText = "", inputTokens = 0, outputTokens = 0, billedCostUsd: number | undefined;
             for (let attempt = 0; attempt < 2; attempt++) {
               try {
@@ -683,7 +751,17 @@ router.post("/proposals/:id/opinion-panel", requirePermission("proposal:edit"), 
               severity: z.enum(["info", "warning", "critical"]),
               summary: z.string(),
               content: z.string(),
+              suggested_field: z.string().nullish(),
+              suggested_value: z.string().nullish(),
             }).parse(parsed);
+
+            // Re-validate against the server's own allowlist rather than trusting the model - a
+            // hallucinated field name, a field this proposal's type doesn't own, or a suggestion
+            // with no value all get dropped down to a plain narrative opinion (never a hard
+            // failure: the rest of the opinion is still useful even with no applicable suggestion).
+            const isValidSuggestion = !!opinion.suggested_field
+              && !!opinion.suggested_value
+              && (suggestibleFields as readonly string[]).includes(opinion.suggested_field);
 
             await prisma.proposalAiOpinionItem.create({
               data: {
@@ -695,6 +773,8 @@ router.post("/proposals/:id/opinion-panel", requirePermission("proposal:edit"), 
                 severity: opinion.severity,
                 summary: opinion.summary,
                 content: opinion.content,
+                suggestedField: isValidSuggestion ? opinion.suggested_field : null,
+                suggestedValue: isValidSuggestion ? opinion.suggested_value : null,
                 raw: parsed,
                 providerUsed: providerResolution.provider,
                 modelUsed: providerResolution.model,
@@ -779,27 +859,70 @@ router.put("/proposals/:id", requirePermission("proposal:edit"), async (req: Req
       });
     }
 
+    // Root-cause fix: this proposal's type only owns a specific subset of the editable commercial
+    // fields (PROPOSAL_TYPE_EDITABLE_FIELDS, server/utils/proposalTypes.ts) - e.g. a risk_report
+    // has no payment_terms, a technical proposal has no pricing table. Reject anything outside
+    // that set instead of silently accepting it, same principle as checkBomConfidenceForCommercial
+    // above: garbage entering a field the template never reads for this type is worse than an
+    // explicit 400.
+    const submittedFields = (Object.keys(validated) as Array<keyof typeof validated>)
+      .filter((k): k is ProposalEditableField => (PROPOSAL_EDITABLE_FIELDS as readonly string[]).includes(k));
+    const rejectedFields = getRejectedEditableFields(existingProposal.proposal_type, submittedFields);
+    if (rejectedFields.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Campo(s) não aplicável(is) a propostas do tipo '${existingProposal.proposal_type}': ${rejectedFields.join(", ")}.`
+      });
+    }
+
     let proposal = await dbStore.updateProposal(req.params.id, validated);
 
-    // If the user edited the proposal's text, the exported DOCX/PDF must match what's on
-    // screen - regenerate both from the edited text through the storage adapter (regeneration
-    // always creates freshly-named storage paths), delete the now-orphaned old files, then point
-    // the proposal row at the new ones - rather than leaving the exports as a stale snapshot of
-    // the original AI-generated content. Always the generic (non-template) generator here, even
-    // if the proposal was originally created from a real template: editable_content is one flat
-    // text blob, not the structured {{cliente}}/{{bom}}/... fields the template engine needs, so
-    // there's no correct way to re-merge it - the DOCX intentionally reverts to the generic layout
-    // once the free text is edited.
-    if (validated.editable_content !== undefined && proposal) {
+    // Regenerate the exported DOCX/PDF whenever a structured commercial field actually changed, so
+    // the exported files always match what's on screen - through the SAME template-merge path
+    // generation used (renderAndWriteProposalDocuments, shared above), not the old flat-text
+    // regeneration that always discarded a real template's letterhead. templateData is rebuilt
+    // fresh from the project/analysis/template (exactly like initial generation), with the
+    // proposal's just-updated commercial fields merged in - there is no free-text field anymore
+    // for the user to desync from the template's actual placeholders.
+    if (submittedFields.length > 0 && proposal) {
+      const project = await dbStore.getProject(existingProposal.project_id);
+      if (!project) {
+        return res.status(404).json({ success: false, message: "Project not found." });
+      }
+      const analysis = await dbStore.getAnalysisResult(existingProposal.project_id);
       const platformSettings = await dbStore.getSettings();
-      const outputAdapter = createStorageAdapter(platformSettings);
+      const templates = await dbStore.getProposalTemplates();
+      const template = templates.find(t => t.id === existingProposal.template_id);
+      const physicalFileFound = template ? await checkTemplatePhysicalFile(template, platformSettings) : false;
+      const owner = await dbStore.getUserById(project.owner_user_id);
+      const tenantId = req.headers["x-tenant-id"] as string;
+      const { pricingLines } = await resolvePricingLines(tenantId, existingProposal.project_id);
+
+      const templateData = buildProposalTemplateData(
+        template ?? { id: existingProposal.template_id, name: "N/D", version: existingProposal.template_version, template_type: existingProposal.proposal_type, file_path: "" },
+        physicalFileFound,
+        project,
+        owner ? owner.name : undefined,
+        analysis,
+        {
+          manual_pricing_table: proposal.manual_pricing_table,
+          payment_terms: proposal.payment_terms,
+          delivery_terms: proposal.delivery_terms,
+          proposal_validity: proposal.proposal_validity,
+          commercial_assumptions: proposal.commercial_assumptions,
+          exclusions: proposal.exclusions,
+        },
+        pricingLines
+      );
+
       const brandingHeader = await resolveBrandingHeader(existingProposal.project_id);
-      const { docx_file_path, pdf_file_path } = await writeProposalFiles(
-        outputAdapter,
+      const { docx_file_path, pdf_file_path, proposalContent } = await renderAndWriteProposalDocuments(
+        templateData,
+        template ?? { file_type: "docx" as const, storage_provider: existingProposal.storage_provider },
+        physicalFileFound,
+        platformSettings,
         existingProposal.project_id,
         existingProposal.proposal_type,
-        validated.editable_content,
-        undefined,
         brandingHeader
       );
 
@@ -811,19 +934,20 @@ router.put("/proposals/:id", requirePermission("proposal:edit"), async (req: Req
         docx_file_path,
         pdf_file_path,
         storage_provider: platformSettings.storage_mode,
+        editable_content: proposalContent,
       });
     }
 
     const userId = requireUserId(req);
     await dbStore.addAuditLog({
       user_id: userId,
-      action: validated.editable_content !== undefined ? "Edit Proposal Content" : "Update Proposal Pricing Details",
+      action: submittedFields.length > 0 ? "Edit Proposal Terms" : "Update Proposal",
       entity_type: "Proposal",
       entity_id: req.params.id,
       project_id: proposal?.project_id,
       ip_address: req.ip || "127.0.0.1",
       user_agent: req.headers["user-agent"] || "unknown",
-      metadata: JSON.stringify({ ...validated, editable_content: validated.editable_content ? "[edited]" : undefined })
+      metadata: JSON.stringify(validated)
     });
 
     res.json(proposal);

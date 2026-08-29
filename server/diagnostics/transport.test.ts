@@ -14,7 +14,7 @@ describe("signDiagnosticsPayload (server/diagnostics/transport.ts)", () => {
 
     const signature = signDiagnosticsPayload(apiKey, timestamp, body);
 
-    const expected = crypto.createHmac("sha256", apiKey).update(`${timestamp}.${body}`).digest("hex");
+    const expected = crypto.createHmac("sha256", apiKey).update(`${timestamp}.${body}`).digest("hex"); // nosemgrep: javascript.lang.security.audit.hardcoded-hmac-key.hardcoded-hmac-key -- test-only, apiKey="test-api-key" (line 10) is a fixture verifying the real HMAC function, not a real secret
     expect(signature).toBe(expected);
   });
 
@@ -47,8 +47,8 @@ describe("signAttachmentPayload (server/diagnostics/transport.ts)", () => {
     const signature = signAttachmentPayload(apiKey, timestamp, fileBuffer);
 
     const fileHash = crypto.createHash("sha256").update(fileBuffer).digest("hex");
-    const expected = crypto.createHmac("sha256", apiKey).update(`${timestamp}.${fileHash}`).digest("hex");
-    expect(signature).toBe(expected);
+    const expected = crypto.createHmac("sha256", apiKey).update(`${timestamp}.${fileHash}`).digest("hex"); // nosemgrep: javascript.lang.security.audit.hardcoded-hmac-key.hardcoded-hmac-key -- same test fixture as above (line 10)
+    expect(signature).toBe(expected); // nosemgrep: javascript.lang.security.audit.hardcoded-hmac-key.hardcoded-hmac-key -- same test fixture as above
   });
 
   it("changes if the file contents change", () => {
