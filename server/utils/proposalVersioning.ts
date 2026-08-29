@@ -67,6 +67,9 @@ export function buildReopenedProposalFields(
     proposal_group_id: rejected.proposal_group_id,
     previous_version_id: rejected.id,
     approval_workflow_id: rejected.approval_workflow_id,
+    // F6: os campos livres do template ja aprovados por uma pessoa acompanham a nova versao -
+    // uma rejeicao comercial nao invalida o texto tecnico que alguem revisou e aceitou.
+    template_field_values: rejected.template_field_values ?? null,
     manual_pricing_table: rejected.manual_pricing_table,
     payment_terms: rejected.payment_terms,
     delivery_terms: rejected.delivery_terms,

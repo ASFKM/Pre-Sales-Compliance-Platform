@@ -8,6 +8,16 @@ import { requireAuth, requirePermission } from "./auth";
 import { requireUserId } from "../middleware/security";
 import { createStorageAdapter, validateUploadedFile } from "../utils/storage";
 import { extractTemplatePlaceholders } from "../utils/docxTemplateEngine";
+import { ConversaoDeDocumentoError, converterDocParaDocx } from "../utils/docConversion";
+import {
+  contarPlaceholdersDoDocOriginal,
+  ehExtensaoPdf,
+  fileTypeFromExtension,
+  MOTIVO_CONVERSAO_PERDEU_VARIAVEIS,
+  MOTIVO_EXTENSAO_RECUSADA,
+  MOTIVO_PDF_RECUSADO,
+  conversaoPreservouAsVariaveis,
+} from "../utils/templateUpload";
 import { TEMPLATE_VARIABLE_CATALOG, getAllKnownVariableNames } from "../utils/templateVariableCatalog";
 import { PROPOSAL_TYPES } from "../utils/proposalTypes";
 import { runWithTenant } from "../../src/tenantContext";
@@ -55,13 +65,6 @@ const UpdateProposalTemplateSchema = z.object({
   default_template: z.boolean().optional(),
 });
 
-function fileTypeFromExtension(originalFilename: string): "docx" | "doc" | "pdf" | null {
-  const ext = path.extname(originalFilename).toLowerCase();
-  if (ext === ".docx") return "docx";
-  if (ext === ".doc") return "doc";
-  if (ext === ".pdf") return "pdf";
-  return null;
-}
 
 async function hasDuplicateTemplateName(name: string, ignoreId?: string) {
   const templates = await dbStore.getProposalTemplates();
@@ -114,12 +117,60 @@ router.post("/proposals", requirePermission("template:manage"), upload.single("f
 
     const fileType = fileTypeFromExtension(file.originalname);
     if (!fileType) {
-      return res.status(400).json({ success: false, message: "Only DOCX, DOC or PDF files are supported for proposal templates." });
+      return res.status(400).json({ success: false, message: ehExtensaoPdf(file.originalname) ? MOTIVO_PDF_RECUSADO : MOTIVO_EXTENSAO_RECUSADA });
     }
 
     const fileValidation = validateUploadedFile(file.originalname, file.mimetype, file.size);
     if (!fileValidation.valid) {
       return res.status(400).json({ success: false, message: fileValidation.error });
+    }
+
+    /*
+     * F6 - o .doc vira .docx aqui, antes de qualquer coisa ser gravada, e a conversão é VERIFICADA.
+     *
+     * Converter não basta: o docxtemplater casa `{{variavel}}` dentro de um único run do XML, e uma
+     * conversão pode fragmentar o texto em runs ({{cli + ente}}), fazendo o placeholder deixar de
+     * ser reconhecido. O template seria aceito e mesclaria em branco - a mesma falha silenciosa,
+     * só que mais adiante. Por isso o arquivo convertido é reaberto com o parser real do motor
+     * (o mesmo que a rota de inspeção de variáveis usa) e, se nenhum placeholder sobreviveu, o
+     * upload é RECUSADO com o motivo explícito em vez de virar um template mudo.
+     *
+     * Um .docx enviado direto não passa por esta verificação de propósito: um template sem nenhum
+     * {{...}} é legítimo (uma carta de apresentação fixa, por exemplo) e sempre foi aceito. O que
+     * se checa aqui é especificamente se a CONVERSÃO destruiu algo que existia na origem.
+     */
+    let fileBuffer = file.buffer;
+    let storedFilename = file.originalname;
+    let storedMimeType = file.mimetype;
+    let storedFileType: "docx" = "docx";
+
+    if (fileType === "doc") {
+      const placeholdersNaOrigem = contarPlaceholdersDoDocOriginal(file.buffer);
+      try {
+        fileBuffer = await converterDocParaDocx(file.buffer);
+      } catch (err) {
+        if (err instanceof ConversaoDeDocumentoError) {
+          return res.status(400).json({ success: false, message: err.message });
+        }
+        throw err;
+      }
+
+      let placeholdersConvertidos: string[];
+      try {
+        placeholdersConvertidos = extractTemplatePlaceholders(fileBuffer);
+      } catch (err: any) {
+        return res.status(400).json({
+          success: false,
+          message: `A conversão do .doc não gerou um .docx que o motor de templates consiga ler (${err?.message ?? "erro desconhecido"}). Abra o arquivo no Word, salve como .docx e envie novamente.`,
+        });
+      }
+
+      if (!conversaoPreservouAsVariaveis(placeholdersNaOrigem, placeholdersConvertidos.length)) {
+        return res.status(400).json({ success: false, message: MOTIVO_CONVERSAO_PERDEU_VARIAVEIS });
+      }
+
+      storedFilename = `${path.basename(file.originalname, path.extname(file.originalname))}.docx`;
+      storedMimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
     }
 
     const validated = ProposalTemplateFormSchema.parse(req.body);
@@ -138,11 +189,13 @@ router.post("/proposals", requirePermission("template:manage"), upload.single("f
 
       const platformSettings = await dbStore.getSettings();
       const storageAdapter = createStorageAdapter(platformSettings);
-      const filePath = await storageAdapter.uploadFile(TEMPLATE_STORAGE_NAMESPACE, file.buffer, file.originalname, file.mimetype);
+      const filePath = await storageAdapter.uploadFile(TEMPLATE_STORAGE_NAMESPACE, fileBuffer, storedFilename, storedMimeType);
 
       const tpl = await dbStore.createProposalTemplate({
         ...validated,
-        file_type: fileType,
+        // Sempre "docx": um .doc já foi convertido acima, então o resto do sistema (geração,
+        // inspeção de variáveis, regeneração ao editar) nunca precisa lidar com outro formato.
+        file_type: storedFileType,
         file_path: filePath,
         storage_provider: platformSettings.storage_mode,
       });

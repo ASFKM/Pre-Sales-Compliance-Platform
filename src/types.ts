@@ -625,6 +625,9 @@ export interface Proposal {
   proposal_group_id: string;
   previous_version_id?: string | null;
   approval_workflow_id: string;
+  // F6: nome-da-variavel-do-template -> texto aprovado por uma pessoa. Ver o comentario do campo
+  // templateFieldValues em prisma/schema.prisma.
+  template_field_values?: Record<string, string> | null;
   manual_pricing_table?: PricingRow[];
   payment_terms?: string;
   delivery_terms?: string;

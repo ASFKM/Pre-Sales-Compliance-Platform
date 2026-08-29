@@ -204,6 +204,79 @@ export default function Proposals({
     }
   };
 
+  /*
+   * F6 - revisão do documento gerado (frente c) e sugestões de conteúdo (frentes a/b).
+   *
+   * A revisão não usa IA e não custa nada: ela reabre o documento REAL e confere marcador não
+   * substituído, soma de precificação e itens do BOM. Lista vazia significa "conferido e limpo",
+   * e a tela diz isso com todas as letras - "não achei nada" e "não olhei" são estados diferentes
+   * para quem está prestes a mandar a proposta ao cliente.
+   */
+  const [revisao, setRevisao] = useState<Record<string, { achados: Array<{ tipo: string; severidade: string; descricao: string }>; total: number } | null>>({});
+  const [revisandoId, setRevisandoId] = useState<string | null>(null);
+  const revisarDocumento = async (propId: string) => {
+    setRevisandoId(propId);
+    try {
+      const res = await fetch(`/api/proposals/${propId}/revisao`);
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível revisar o documento." : "Could not review the document."));
+        return;
+      }
+      setRevisao((atual) => ({ ...atual, [propId]: { achados: data.achados, total: data.total } }));
+    } finally {
+      setRevisandoId(null);
+    }
+  };
+
+  /*
+   * Sugestões de conteúdo: a IA redige, a pessoa aplica. Mesmo contrato do parecer acionável da
+   * F7 - nada é gravado sem um clique, campo a campo.
+   */
+  const [sugestoes, setSugestoes] = useState<Record<string, Array<{ variavel: string; valor_sugerido: string; origem: string; justificativa: string }>>>({});
+  const [sugerindoId, setSugerindoId] = useState<string | null>(null);
+  const [aplicandoCampo, setAplicandoCampo] = useState<string | null>(null);
+
+  const pedirSugestoes = async (propId: string) => {
+    setSugerindoId(propId);
+    try {
+      const res = await fetch(`/api/proposals/${propId}/sugerir-conteudo`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível gerar sugestões." : "Could not generate suggestions."));
+        return;
+      }
+      setSugestoes((atual) => ({ ...atual, [propId]: data.sugestoes }));
+      if (data.sugestoes.length === 0 && data.message) alert(data.message);
+    } finally {
+      setSugerindoId(null);
+    }
+  };
+
+  const aplicarSugestao = async (propId: string, variavel: string, valor: string) => {
+    const chave = `${propId}-${variavel}`;
+    setAplicandoCampo(chave);
+    try {
+      const res = await fetch(`/api/proposals/${propId}/campos-do-template`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ campos: { [variavel]: valor } }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível aplicar o campo." : "Could not apply the field."));
+        return;
+      }
+      // Aplicado: sai da lista de pendentes. O documento só muda quando a proposta for regerada.
+      setSugestoes((atual) => ({
+        ...atual,
+        [propId]: (atual[propId] || []).filter((sg) => sg.variavel !== variavel),
+      }));
+    } finally {
+      setAplicandoCampo(null);
+    }
+  };
+
   // PARTE A (preview do documento real): busca o DOCX/PDF já exportado (as mesmas rotas de
   // download, /export/docx e /export/pdf) e renderiza inline - DOCX via mammoth (já é dependência
   // do produto, usada no server para extração de upload; o mesmo pacote roda no browser),
@@ -412,6 +485,31 @@ export default function Proposals({
                               </button>
                             );
                           })()}
+                          {hasPermission("proposal:edit") && (
+                            <button
+                              onClick={() => revisarDocumento(prop.id)}
+                              disabled={revisandoId === prop.id}
+                              className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-mono text-[11px] font-bold px-3 py-1.5 rounded border border-slate-200 transition-all shadow-sm disabled:opacity-50 cursor-pointer"
+                              title={locale === "pt" ? "Confere o documento gerado: marcador de variável não substituído, soma da precificação e itens do BOM. Sem IA, sem custo." : "Checks the generated document: unreplaced placeholders, pricing totals and BOM items. No AI, no cost."}
+                            >
+                              {revisandoId === prop.id
+                                ? (locale === "pt" ? "Revisando..." : "Reviewing...")
+                                : (locale === "pt" ? "Revisar Documento" : "Review Document")}
+                            </button>
+                          )}
+                          {prop.status === "draft" && hasPermission("proposal:edit") && (
+                            <button
+                              onClick={() => pedirSugestoes(prop.id)}
+                              disabled={sugerindoId === prop.id}
+                              className="flex items-center gap-1.5 bg-brand-50 hover:bg-brand-100 text-brand-700 font-mono text-[11px] font-bold px-3 py-1.5 rounded border border-brand-200 transition-all shadow-sm disabled:opacity-50 cursor-pointer"
+                              title={locale === "pt" ? "A IA redige, a partir da análise técnica, os campos de texto do template que sairiam em branco. Você revisa e aplica campo a campo." : "AI drafts the template's blank text fields from the technical analysis. You review and apply field by field."}
+                            >
+                              <Sparkles size={12} className={sugerindoId === prop.id ? "animate-pulse" : ""} />
+                              {sugerindoId === prop.id
+                                ? (locale === "pt" ? "Redigindo..." : "Drafting...")
+                                : (locale === "pt" ? "Sugerir Conteúdo" : "Suggest Content")}
+                            </button>
+                          )}
                           {hasPermission("proposal:export") && (
                             <>
                               <button
@@ -600,6 +698,72 @@ export default function Proposals({
                         )
                       )}
 
+                      {revisao[prop.id] && (
+                        <div className="mt-3 border-t border-slate-200 pt-3">
+                          <p className="text-[10px] uppercase font-bold text-slate-400 font-mono mb-2">
+                            {locale === "pt" ? "Revisão do documento" : "Document review"}
+                          </p>
+                          {revisao[prop.id]!.total === 0 ? (
+                            <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded p-2">
+                              {locale === "pt"
+                                ? "Documento conferido: nenhum marcador de variável sobrou, a soma da precificação bate com o total e os itens do BOM estão no documento."
+                                : "Document checked: no placeholder left behind, pricing adds up to the stated total, and BOM items are present."}
+                            </p>
+                          ) : (
+                            <ul className="space-y-1.5">
+                              {revisao[prop.id]!.achados.map((achado, i) => (
+                                <li
+                                  key={i}
+                                  className={`text-xs rounded p-2 border ${achado.severidade === "alta" ? "bg-red-50 border-red-200 text-red-800" : "bg-amber-50 border-amber-200 text-amber-800"}`}
+                                >
+                                  {achado.descricao}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                      {sugestoes[prop.id] && sugestoes[prop.id].length > 0 && (
+                        <div className="mt-3 border-t border-slate-200 pt-3">
+                          <p className="text-[10px] uppercase font-bold text-slate-400 font-mono mb-2">
+                            {locale === "pt" ? "Sugestões de conteúdo (revise antes de aplicar)" : "Content suggestions (review before applying)"}
+                          </p>
+                          <ul className="space-y-2">
+                            {sugestoes[prop.id].map((sg) => (
+                              <li key={sg.variavel} className="text-xs bg-slate-50 border border-slate-200 rounded p-2">
+                                <div className="flex items-center justify-between gap-2 mb-1">
+                                  <span className="font-mono font-bold text-slate-600">
+                                    {`{{${sg.variavel}}}`}
+                                    <span className="ml-2 font-normal text-slate-400">
+                                      {sg.origem === "variavel_livre"
+                                        ? (locale === "pt" ? "campo livre do template" : "free template field")
+                                        : (locale === "pt" ? "seção sem conteúdo na análise" : "section missing from analysis")}
+                                    </span>
+                                  </span>
+                                  <button
+                                    onClick={(e) => { e.preventDefault(); aplicarSugestao(prop.id, sg.variavel, sg.valor_sugerido); }}
+                                    disabled={aplicandoCampo === `${prop.id}-${sg.variavel}`}
+                                    className="bg-brand-600 hover:bg-brand-700 text-white font-mono text-[10px] font-bold px-2 py-1 rounded disabled:opacity-50 cursor-pointer shrink-0"
+                                  >
+                                    {aplicandoCampo === `${prop.id}-${sg.variavel}`
+                                      ? (locale === "pt" ? "Aplicando..." : "Applying...")
+                                      : (locale === "pt" ? "Aplicar" : "Apply")}
+                                  </button>
+                                </div>
+                                <p className="text-slate-700 whitespace-pre-wrap">{sg.valor_sugerido}</p>
+                                {sg.justificativa && (
+                                  <p className="text-[11px] text-slate-400 mt-1">{sg.justificativa}</p>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                          <p className="text-[11px] text-slate-400 mt-2">
+                            {locale === "pt"
+                              ? "Aplicar grava o texto na proposta. O documento passa a mostrá-lo na próxima geração."
+                              : "Applying stores the text on the proposal. The document shows it on the next generation."}
+                          </p>
+                        </div>
+                      )}
                       {opinionRuns[prop.id] && (
                         <div className="space-y-2">
                           <h4 className="text-xs uppercase font-bold text-brand-700 tracking-wider font-mono flex items-center gap-1.5">

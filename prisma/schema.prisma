@@ -1260,6 +1260,19 @@ model Proposal {
   nextVersion           Proposal?        @relation("ProposalVersionChain")
   approvalWorkflowId    String           @map("approval_workflow_id")
   approvalWorkflow      ApprovalWorkflow @relation(fields: [approvalWorkflowId], references: [id])
+  // F6: valores das variaveis do TEMPLATE que o sistema nao sabe preencher sozinho - as
+  // "variaveis livres" que o autor do modelo criou ({{justificativa_tecnica}}) e as secoes de
+  // texto que a analise nao produziu. Mapa simples nome-da-variavel -> texto.
+  //
+  // Existe porque, antes desta fase, uma sugestao de conteudo nao teria onde ser gravada: o
+  // PUT /proposals/:id so aceita os campos comerciais de PROPOSAL_EDITABLE_FIELDS, e uma variavel
+  // livre nao existe em lugar nenhum do modelo de dados. Sem isto, "preencher variavel livre" nao
+  // passaria de um texto na tela para a pessoa copiar a mao.
+  //
+  // Todo valor aqui foi APROVADO por uma pessoa (a IA sugere, o humano aplica) e so pode conter
+  // variavel que podeSerSugeridaPelaIa() libera - nunca preco, quantidade ou item de BOM, que tem
+  // fonte propria. Ver server/utils/proposalAiAssist.ts.
+  templateFieldValues   Json?            @map("template_field_values")
   manualPricingTable    Json?            @map("manual_pricing_table")
   paymentTerms          String?          @map("payment_terms") @db.Text
   deliveryTerms         String?          @map("delivery_terms") @db.Text
