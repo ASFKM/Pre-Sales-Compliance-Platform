@@ -17,6 +17,32 @@ import { sanitizeAndMaskObject } from "../utils/security";
 // yet (Fase 1 of the Zero Trust rollout), so it would make browsers try to upgrade requests to a
 // https:// origin that doesn't exist here.
 const isProductionEnv = process.env.NODE_ENV === "production";
+
+/**
+ * Origens do Keycloak que o navegador precisa alcançar a partir das páginas deste produto.
+ *
+ * Vêm de `KEYCLOAK_ISSUER_URLS` — a MESMA lista que a verificação de token usa —, então as duas
+ * pontas não podem divergir: se uma rota do Keycloak entra ou sai, entra ou sai nos dois lugares
+ * de uma vez. Escrever a lista aqui à mão seria criar uma segunda verdade sobre o mesmo fato.
+ *
+ * `connect-src` cobre a busca da configuração do realm e a troca do código de autorização por
+ * token. `frame-src` cobre a renovação silenciosa, que roda num iframe que navega até o Keycloak
+ * e volta — sem ela, o token expira em 5 minutos e a pessoa cai para fora no meio do trabalho,
+ * sem nenhuma mensagem que explique o motivo.
+ */
+const origensDoKeycloak = (process.env.KEYCLOAK_ISSUER_URLS ?? "")
+  .split(",")
+  .map((u) => u.trim())
+  .filter(Boolean)
+  .map((u) => {
+    try {
+      return new URL(u).origin;
+    } catch {
+      return "";
+    }
+  })
+  .filter(Boolean);
+
 export const helmetMiddleware = helmet({
   contentSecurityPolicy: isProductionEnv
     ? {
@@ -26,7 +52,8 @@ export const helmetMiddleware = helmet({
           styleSrc: ["'self'", "'unsafe-inline'"],
           imgSrc: ["'self'", "data:"],
           fontSrc: ["'self'", "data:"],
-          connectSrc: ["'self'"],
+          connectSrc: ["'self'", ...origensDoKeycloak],
+          frameSrc: ["'self'", ...origensDoKeycloak],
           objectSrc: ["'none'"],
           baseUri: ["'self'"],
           frameAncestors: ["'self'"],
