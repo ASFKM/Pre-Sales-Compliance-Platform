@@ -27,6 +27,11 @@ import { runWithTenant } from "../../src/tenantContext";
 import { isLockedOut, recordFailedAttempt, clearFailedAttempts } from "../utils/lockout";
 import { checkLicenseEnforcement, getFleetLicenseStatus } from "../utils/fleetLicense";
 
+import {
+  verificarTokenDoKeycloak,
+  emailDoToken,
+} from "../utils/keycloakAuth";
+
 const router = express.Router();
 
 const REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -126,7 +131,40 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   try {
     let session: Awaited<ReturnType<typeof getSession>>;
     if (token) {
-      session = await getSession(token);
+      /**
+       * Fase 13 — a identidade passou a vir do Keycloak (realm `cloudmountain`, compartilhado
+       * com o CMCRM e o CMSaaS), e não mais de uma sessão própria em Redis.
+       *
+       * A ligação entre os dois mundos é o E-MAIL: `users.email` é único no banco inteiro (não
+       * por tenant), e é ele que identifica a pessoa e, por tabela, o tenant dela. Tudo o que
+       * vem depois desta linha — papel atual, licença, status, `runWithTenant` — continua
+       * exatamente como estava, lendo do Postgres.
+       *
+       * Uma conta que existe no Keycloak mas não aqui recebe a mesma resposta de um token
+       * inválido, de propósito: o realm é compartilhado pelos três produtos, então "não tem
+       * conta neste produto" é situação esperada, e diferenciá-la contaria a quem perguntasse
+       * quais e-mails existem aqui. Não há provisionamento automático — uma conta sem papel
+       * atribuído não teria permissão nenhuma de qualquer forma.
+       */
+      let usuarioDoToken;
+      try {
+        const claims = await verificarTokenDoKeycloak(token);
+        usuarioDoToken = await dbStore.getUserByEmail(emailDoToken(claims));
+      } catch {
+        usuarioDoToken = null;
+      }
+      session = usuarioDoToken
+        ? {
+            token,
+            userId: usuarioDoToken.id,
+            roleId: usuarioDoToken.role_id,
+            // O segundo fator é responsabilidade do Keycloak agora: se ele emitiu o token, o que
+            // ele exigia já foi cumprido antes de o produto ver qualquer coisa.
+            mfaVerified: true,
+            createdAt: new Date(),
+            expiresAt: new Date(),
+          }
+        : undefined;
     } else if (ticketParam) {
       const resolved = await resolveSseTicket(ticketParam);
       // mfaVerified: true - o ticket só existe porque quem o emitiu (GET /auth/sse-ticket) já
@@ -195,13 +233,10 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     // hatch option here on purpose - the one route that must stay reachable
     // (POST /api/auth/change-password) doesn't go through requireAuth at all, it reads the login
     // token directly out of the request body, mirroring /mfa/enroll and /mfa/verify's own design.
-    if (user.must_change_password) {
-      return res.status(403).json({
-        success: false,
-        code: "PASSWORD_CHANGE_REQUIRED",
-        message: "A senha precisa ser trocada antes de continuar."
-      });
-    }
+    // Fase 13 — a troca obrigatória de senha saiu daqui: quem a exige agora é a required action
+    // `UPDATE_PASSWORD` do Keycloak, que acontece ANTES de qualquer token ser emitido. Um token
+    // válido já é prova de que a pendência foi resolvida, e manter a checagem aqui bloquearia
+    // para sempre quem migrou (a coluna continua `true` no banco até a migration removê-la).
 
     // Bind session info to request headers for downstream endpoint use
     req.headers["x-user-id"] = session.userId;
@@ -272,155 +307,6 @@ export function requireModule(moduleName: string) {
 }
 
 // LOGIN ENDPOINT
-router.post("/login", loginRateLimiter, async (req: Request, res: Response, next: NextFunction) => {
-  const correlationId = (req.headers["x-correlation-id"] as string) || "corr-auth";
-  const startTime = Date.now();
-
-  try {
-    await ensurePasswordHashes();
-    const { email, password } = req.body;
-    const ip = req.ip || "127.0.0.1";
-
-    if (!email || !password) {
-      return res.status(400).json({ success: false, message: "Email and password are required." });
-    }
-
-    if (await isLockedOut("pwd", email, ip)) {
-      logDebugMessage({
-        operation: "User Authentication",
-        message: `Login blocked: account+IP locked out after repeated failures for email: ${email}`,
-        status: "WARN",
-        durationMs: Date.now() - startTime,
-        correlationId
-      });
-      return res.status(429).json({ success: false, message: "Too many failed login attempts. Try again in 15 minutes." });
-    }
-
-    const user = await dbStore.getUserByEmail(email.toLowerCase().trim());
-    const passwordHash = user ? await dbStore.getUserPasswordHash(user.id) : null;
-
-    if (!user || !comparePasswords(password, passwordHash || "")) {
-      await recordFailedAttempt("pwd", email, ip);
-      logDebugMessage({
-        operation: "User Authentication",
-        message: `Failed login attempt for email: ${email}`,
-        status: "WARN",
-        durationMs: Date.now() - startTime,
-        correlationId
-      });
-      return res.status(401).json({ success: false, message: "Invalid credentials." });
-    }
-
-    await clearFailedAttempts("pwd", email, ip);
-
-    // Everything from here on knows the user, and therefore the tenant.
-    await runWithTenant({ tenantId: user.tenant_id }, async () => {
-      // Phase 7 (fleet/license management): full_lockout blocks the login itself, not just
-      // authenticated calls after the fact - requireAuth alone can't cover this, since a brand
-      // new session doesn't go through it yet. read_only intentionally isn't checked here: it
-      // still allows login (see requireAuth's own GET/HEAD/OPTIONS carve-out for the rest).
-      const enforcement = await checkLicenseEnforcement(user.tenant_id);
-      if (enforcement.blocked) {
-        await dbStore.addAuditLog({
-          user_id: user.id,
-          action: "Blocked Login For Suspended License",
-          entity_type: "Authentication",
-          entity_id: user.id,
-          ip_address: req.ip || "127.0.0.1",
-          user_agent: req.headers["user-agent"] || "unknown",
-          metadata: JSON.stringify({ email: user.email })
-        });
-
-        res.status(403).json({
-          success: false,
-          code: "LICENSE_SUSPENDED",
-          message: enforcement.message
-        });
-        return;
-      }
-
-      if (user.status && user.status !== "ACTIVE") {
-        await dbStore.addAuditLog({
-          user_id: user.id,
-          action: "Blocked Login For Non-Active User",
-          entity_type: "Authentication",
-          entity_id: user.id,
-          ip_address: req.ip || "127.0.0.1",
-          user_agent: req.headers["user-agent"] || "unknown",
-          metadata: JSON.stringify({ email: user.email, status: user.status })
-        });
-
-        res.status(403).json({
-          success: false,
-          message: "User account is not active."
-        });
-        return;
-      }
-
-      if (isProductionRuntime() && comparePasswords("password123", passwordHash || "")) {
-        await dbStore.addAuditLog({
-          user_id: user.id,
-          action: "Blocked Default Demo Credential Login",
-          entity_type: "Authentication",
-          entity_id: user.id,
-          ip_address: req.ip || "127.0.0.1",
-          user_agent: req.headers["user-agent"] || "unknown",
-          metadata: JSON.stringify({ email: user.email })
-        });
-
-        res.status(403).json({
-          success: false,
-          message: "Default demo credentials are disabled in production runtime."
-        });
-        return;
-      }
-
-      // Generate secure session token (MFA required if user profile has mfa_enabled = true)
-      const mfaRequired = user.mfa_enabled;
-      const session = await createSession(user.id, user.role_id, mfaRequired);
-      const role = await dbStore.getRoleById(user.role_id);
-
-      logDebugMessage({
-        operation: "User Authentication",
-        message: `Successful credentials check for ${user.name}. MFA Required: ${mfaRequired}`,
-        status: "SUCCESS",
-        durationMs: Date.now() - startTime,
-        correlationId,
-        userId: user.id
-      });
-
-      // Create Audit Log
-      await dbStore.addAuditLog({
-        user_id: user.id,
-        action: "Credential Challenge Passed",
-        entity_type: "User",
-        entity_id: user.id,
-        ip_address: req.ip || "127.0.0.1",
-        user_agent: req.headers["user-agent"] || "unknown",
-        metadata: JSON.stringify({ email: user.email, mfa_required: mfaRequired })
-      });
-
-      // No MFA needed - the user is fully authenticated right now, so start the refresh token
-      // family here. If MFA IS required, the family only starts once /mfa/verify succeeds -
-      // a password alone shouldn't grant a renewable session.
-      if (!mfaRequired) {
-        const refreshToken = await createRefreshFamily(user.id, user.role_id);
-        setRefreshCookie(res, refreshToken);
-      }
-
-      res.json({
-        success: true,
-        mfa_required: mfaRequired,
-        must_change_password: user.must_change_password,
-        token: session.token,
-        user: await buildSessionUser(user, role)
-      });
-    });
-
-  } catch (err) {
-    next(err);
-  }
-});
 
 // MFA ENROLLMENT ENDPOINT - generates a real TOTP secret for the logged-in-but-not-yet-MFA-verified
 // session. Uses the login token directly (like /mfa/verify), not requireAuth, since a user who has
@@ -428,241 +314,29 @@ router.post("/login", loginRateLimiter, async (req: Request, res: Response, next
 // (secret already exists) requires the session to already be mfaVerified, so a stolen password alone
 // can never be used to silently reset someone's MFA - only an administrator can do that (via user
 // update, which clears the secret).
-router.post("/mfa/enroll", async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const { token } = req.body;
-
-    if (!token) {
-      return res.status(400).json({ success: false, message: "Token is required." });
-    }
-
-    const session = await getSession(token);
-    if (!session) {
-      return res.status(401).json({ success: false, message: "Invalid or expired login session." });
-    }
-
-    const user = await dbStore.getUserById(session.userId);
-    if (!user) {
-      return res.status(404).json({ success: false, message: "User not found." });
-    }
-
-    await runWithTenant({ tenantId: user.tenant_id }, async () => {
-      if (!user.mfa_enabled) {
-        res.status(400).json({ success: false, message: "MFA is not enabled for this account." });
-        return;
-      }
-
-      const existingSecret = await dbStore.getUserMfaSecretEncrypted(user.id);
-      if (existingSecret && !session.mfaVerified) {
-        res.status(403).json({
-          success: false,
-          message: "MFA is already configured for this account. Complete MFA verification to re-enroll, or ask an administrator to reset it."
-        });
-        return;
-      }
-
-      const secret = generateTotpSecret();
-      const otpauthUrl = buildTotpEnrollmentUri(user.email, secret);
-      const qrCode = await buildTotpQrCodeDataUrl(otpauthUrl);
-
-      await dbStore.setUserMfaSecret(user.id, encryptSecret(secret));
-
-      await dbStore.addAuditLog({
-        user_id: user.id,
-        action: existingSecret ? "MFA TOTP Re-enrolled" : "MFA TOTP Enrolled",
-        entity_type: "User",
-        entity_id: user.id,
-        ip_address: req.ip || "127.0.0.1",
-        user_agent: req.headers["user-agent"] || "unknown",
-        metadata: JSON.stringify({})
-      });
-
-      res.json({ success: true, secret, otpauth_url: otpauthUrl, qr_code: qrCode });
-    });
-  } catch (err) {
-    next(err);
-  }
-});
 
 // PASSWORD CHANGE ENDPOINT (roadmap, segurança) - self-service, covers both the mandatory
 // first-change flow (new user or admin password reset) and a user voluntarily changing their own
 // password later. Uses the login token directly (like /mfa/enroll and /mfa/verify above), not
 // requireAuth, since a user with must_change_password=true cannot pass requireAuth at all - this
 // is the one route that stays reachable in that state.
-router.post("/change-password", async (req: Request, res: Response, next: NextFunction) => {
-  const correlationId = (req.headers["x-correlation-id"] as string) || "corr-auth";
-  try {
-    const { token, current_password, new_password } = req.body;
-
-    if (!token || !current_password || !new_password) {
-      return res.status(400).json({ success: false, message: "Token, senha atual e nova senha são obrigatórios." });
-    }
-    if (typeof new_password !== "string" || new_password.length < 8) {
-      return res.status(400).json({ success: false, message: "A nova senha precisa ter pelo menos 8 caracteres." });
-    }
-
-    const session = await getSession(token);
-    if (!session) {
-      return res.status(401).json({ success: false, message: "Invalid or expired session token.", correlationId });
-    }
-
-    // AUD-004 (auditoria de segurança, 2026-07-19): sem isso, quem só tivesse a senha atual (ex.:
-    // phishing, senha vazada) podia trocar a senha de uma conta com MFA ativo antes de completar
-    // o MFA. Contas sem MFA habilitado não são afetadas (mfaVerified já vem true na criação da
-    // sessão nesse caso via createSession), e o fluxo de primeiro acesso (enroll -> verify -> troca
-    // de senha) continua funcionando sem mudança, já que nenhum dos dois depende da senha já ter
-    // sido trocada.
-    if (!session.mfaVerified) {
-      return res.status(401).json({ success: false, code: "MFA_REQUIRED", message: "Conclua a verificação de MFA antes de trocar a senha.", correlationId });
-    }
-
-    const user = await dbStore.getUserById(session.userId);
-    if (!user) {
-      return res.status(404).json({ success: false, message: "User not found." });
-    }
-
-    await runWithTenant({ tenantId: user.tenant_id }, async () => {
-      const passwordHash = await dbStore.getUserPasswordHash(user.id);
-      if (!comparePasswords(current_password, passwordHash || "")) {
-        res.status(401).json({ success: false, message: "Senha atual incorreta." });
-        return;
-      }
-      if (comparePasswords(new_password, passwordHash || "")) {
-        res.status(400).json({ success: false, message: "A nova senha precisa ser diferente da senha atual." });
-        return;
-      }
-
-      await dbStore.updateUser(user.id, { password_hash: hashPassword(new_password), must_change_password: false });
-
-      await dbStore.addAuditLog({
-        user_id: user.id,
-        action: "Password Changed",
-        entity_type: "User",
-        entity_id: user.id,
-        ip_address: req.ip || "127.0.0.1",
-        user_agent: req.headers["user-agent"] || "unknown",
-        metadata: JSON.stringify({})
-      });
-
-      res.json({ success: true });
-    });
-  } catch (err) {
-    next(err);
-  }
-});
 
 // MFA VERIFY ENDPOINT
-router.post("/mfa/verify", async (req: Request, res: Response, next: NextFunction) => {
-  const correlationId = (req.headers["x-correlation-id"] as string) || "corr-mfa";
-  const startTime = Date.now();
-
-  try {
-    const { token, code } = req.body;
-
-    if (!token || !code) {
-      return res.status(400).json({ success: false, message: "Token and verification code are required." });
-    }
-
-    const session = await getSession(token);
-    if (!session) {
-      return res.status(401).json({ success: false, message: "Invalid or expired login session." });
-    }
-
-    const ip = req.ip || "127.0.0.1";
-    const sessionUser = await dbStore.getUserById(session.userId);
-    const lockoutEmail = sessionUser?.email || session.userId;
-
-    // Same full_lockout gap as /login: this session exists but hasn't gone through requireAuth
-    // yet, so nothing else would catch a lockout that started between password step and MFA step.
-    if (sessionUser) {
-      const enforcement = await checkLicenseEnforcement(sessionUser.tenant_id);
-      if (enforcement.blocked) {
-        return res.status(403).json({ success: false, code: "LICENSE_SUSPENDED", message: enforcement.message });
-      }
-    }
-
-    if (await isLockedOut("mfa", lockoutEmail, ip)) {
-      logDebugMessage({
-        operation: "MFA Verification",
-        message: `MFA verification blocked: account+IP locked out after repeated failures for user: ${session.userId}`,
-        status: "WARN",
-        durationMs: Date.now() - startTime,
-        correlationId,
-        userId: session.userId
-      });
-      return res.status(429).json({ success: false, message: "Too many failed MFA attempts. Try again in 15 minutes." });
-    }
-
-    // Real TOTP if the account has enrolled a secret; demo codes only remain valid as a
-    // bootstrapping/testing fallback for accounts that haven't enrolled a real secret yet.
-    const encryptedSecret = await dbStore.getUserMfaSecretEncrypted(session.userId);
-    let mfaAccepted = false;
-
-    if (encryptedSecret) {
-      mfaAccepted = await verifyTotpCode(decryptSecret(encryptedSecret), code);
-    } else if (isDemoRuntime()) {
-      mfaAccepted = code === "123456" || code === "000000" || code === "111111";
-    }
-
-    if (!mfaAccepted) {
-      await recordFailedAttempt("mfa", lockoutEmail, ip);
-    } else {
-      await clearFailedAttempts("mfa", lockoutEmail, ip);
-      await verifySessionMfa(token);
-
-      const user = await dbStore.getUserById(session.userId);
-
-      if (user) {
-        const refreshToken = await createRefreshFamily(user.id, user.role_id);
-        setRefreshCookie(res, refreshToken);
-      }
-
-      const result = await (user ? runWithTenant({ tenantId: user.tenant_id }, async () => {
-        await dbStore.setUserLastLogin(user.id);
-
-        await dbStore.addAuditLog({
-          user_id: user.id,
-          action: "MFA Multi-Factor Challenge Verified",
-          entity_type: "User",
-          entity_id: session.userId,
-          ip_address: req.ip || "127.0.0.1",
-          user_agent: req.headers["user-agent"] || "unknown",
-          metadata: JSON.stringify({ mfa_verified: true })
-        });
-
-        const role = await dbStore.getRoleById(user.role_id);
-        return await buildSessionUser(user, role);
-      }) : Promise.resolve(null));
-
-      logDebugMessage({
-        operation: "MFA Verification",
-        message: `MFA verification passed for session of user: ${session.userId}`,
-        status: "SUCCESS",
-        durationMs: Date.now() - startTime,
-        correlationId,
-        userId: session.userId
-      });
-
-      return res.json({
-        success: true,
-        verified: true,
-        must_change_password: user?.must_change_password,
-        user: result
-      });
-    }
-
-    return res.status(400).json({
-      success: false,
-      message: encryptedSecret
-        ? "Invalid MFA verification code."
-        : "MFA is enabled for this account but not yet enrolled. Call /api/auth/mfa/enroll first."
-    });
-  } catch (err) {
-    next(err);
-  }
-});
 
 // LOGOUT ENDPOINT
+/**
+ * Fase 13 — saíram deste arquivo: `POST /login`, `/mfa/enroll`, `/mfa/verify`,
+ * `/change-password` e `/refresh`.
+ *
+ * Senha, segundo fator, troca obrigatória e renovação de token passaram a ser responsabilidade
+ * do Keycloak. A política de senha do realm é mais forte do que a que havia aqui (12 caracteres
+ * com histórico de 5, contra 8), e o realm traz WebAuthn, que este produto nunca teve.
+ *
+ * O mecanismo próprio de refresh — família por login, rotação e detecção de reuso — foi
+ * substituído pelo do Keycloak, que faz o mesmo com revogação a cada uso
+ * (`revokeRefreshToken`/`refreshTokenMaxReuse: 0` no realm). O cookie `ca_refresh_token` deixa de
+ * ser emitido.
+ */
 router.post("/logout", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   const token = req.headers["x-session-token"] as string;
   const userId = req.headers["x-user-id"] as string;
@@ -711,28 +385,9 @@ router.get("/sse-ticket", requireAuth, async (req: Request, res: Response, next:
 // Silent refresh: the frontend calls this before the short-lived access token expires. The
 // refresh token itself is never visible to the frontend - it travels only as the httpOnly
 // cookie set at login/MFA-verify, sent automatically by the browser.
-router.post("/refresh", async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const refreshToken = readRefreshCookie(req);
-    if (!refreshToken) {
-      return res.status(401).json({ success: false, message: "No refresh token present." });
-    }
-
-    const rotated = await rotateRefreshToken(refreshToken);
-    if (!rotated) {
-      res.clearCookie(REFRESH_TOKEN_COOKIE_NAME, { path: "/api/auth" });
-      return res.status(401).json({ success: false, message: "Refresh token is invalid, reused, or expired. Please log in again." });
-    }
-
-    setRefreshCookie(res, rotated.refreshToken);
-    res.json({ success: true, token: rotated.session.token });
-  } catch (err) {
-    next(err);
-  }
-});
 
 // GET CURRENT SESSION PROFILE
-router.get("/me", async (req: Request, res: Response, next: NextFunction) => {
+router.get("/me", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   const authHeader = req.headers["authorization"];
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({ success: false, message: "Unauthenticated." });
