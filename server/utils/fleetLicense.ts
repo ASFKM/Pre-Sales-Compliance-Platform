@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { getAppVersion } from "./appVersion";
 import os from "os";
+import { statfsSync } from "fs";
 import { dbStore } from "../../src/dbStore";
 import { redis } from "../../src/redis";
 import { runWithTenant } from "../../src/tenantContext";
@@ -306,7 +307,46 @@ async function performVulnerabilityScan(): Promise<VulnerabilityScanResult | nul
   }
 }
 
-function collectSystemInfo() {
+/**
+ * The disk of the filesystem this installation actually runs on.
+ *
+ * WHICH filesystem: the one holding `process.cwd()`, not `/`. That is where the app is installed
+ * and writes (uploads included), and therefore the disk whose filling up takes the installation
+ * down - under a containerized deployment `/` can be the image's read-only overlay, which never
+ * fills and whose number would say nothing.
+ *
+ * The CMCRM agent measures by the same rule, and that is a requirement rather than a coincidence:
+ * both numbers land in the same meters on the CMSaaS installations screen, and two different
+ * rules would make two incomparable fleets look comparable.
+ *
+ * "Used" is `blocks - bfree`, which is what `df` labels Used - it counts the root-reserved blocks
+ * that `bavail` discounts. Using `bavail` would report more than `df` does and nobody could
+ * reconcile the screen against a terminal.
+ *
+ * `statfsSync` is built in from Node 18.15 on, so this adds no dependency. Failing here is
+ * deliberately silent: without disk, the heartbeat still goes out complete in everything else - a
+ * heartbeat that failed over an optional metric would trade a missing number for an installation
+ * that disappears from the panel.
+ */
+function collectDiskInfo(): { disk_total_mb?: number; disk_used_mb?: number } {
+  try {
+    const fs = statfsSync(process.cwd());
+    const blockSize = Number(fs.bsize);
+    const totalBytes = Number(fs.blocks) * blockSize;
+    const usedBytes = (Number(fs.blocks) - Number(fs.bfree)) * blockSize;
+    if (!Number.isFinite(totalBytes) || totalBytes <= 0) return {};
+    return {
+      disk_total_mb: Math.round(totalBytes / (1024 * 1024)),
+      // Clamped at zero for the `bfree > blocks` case some network filesystems report, which
+      // would otherwise draw an inverted bar on the fleet screen.
+      disk_used_mb: Math.max(0, Math.round(usedBytes / (1024 * 1024))),
+    };
+  } catch {
+    return {};
+  }
+}
+
+export function collectSystemInfo() {
   const totalMemoryMb = Math.round(os.totalmem() / (1024 * 1024));
   const usedMemoryMb = Math.round((os.totalmem() - os.freemem()) / (1024 * 1024));
   const cores = os.cpus().length || 1;
@@ -320,6 +360,7 @@ function collectSystemInfo() {
     cpu_load_percent: cpuLoadPercent,
     total_memory_mb: totalMemoryMb,
     memory_used_mb: usedMemoryMb,
+    ...collectDiskInfo(),
     node_version: process.version,
     app_version: getAppVersion().version,
     app_git_sha: getAppVersion().gitShaShort,
