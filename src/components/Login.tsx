@@ -104,10 +104,22 @@ export default function Login({ onLoginSuccess }: LoginProps) {
      * Até a F14b era um fundo chapado, sem nada em volta, enquanto a tela seguinte tem vídeo,
      * véu e rodapé de marca — quem batia numa falha via a tela de outro produto.
      */
-    <div className="relative min-h-screen flex flex-col items-center justify-center overflow-hidden p-4">
+    <div
+      className="relative min-h-screen flex flex-col items-center justify-center overflow-hidden bg-cover bg-center p-4"
+      style={{ backgroundImage: "url(/hero-poster.webp)" }}
+    >
       {/* `aria-hidden` porque é decoração; `muted` + arquivo sem trilha de áudio é o que libera
           o autoplay sem interação; `playsInline` impede o iOS de abrir em tela cheia. Mesmos
           atributos, pelos mesmos motivos, que `cloudmountain-fundo.js` usa no tema. */}
+      {/*
+        O poster tambem entra como FUNDO do contentor, e nao so como atributo do <video>.
+        Medido: quando o navegador nao consegue decodificar o arquivo, o elemento vai para
+        MEDIA_ERR_SRC_NOT_SUPPORTED e para de desenhar o proprio poster — a tela fica BRANCA, sem
+        erro visivel. Foi assim que esta tela apareceu vazia numa captura, com o arquivo integro
+        (md5 conferido), servido com `video/mp4` e com Range (206) funcionando.
+        Com o quadro no fundo, o pior caso vira a imagem parada em vez de nada, que e exatamente o
+        que `prefers-reduced-motion` ja entrega de proposito.
+      */}
       <video
         aria-hidden="true"
         autoPlay
@@ -115,10 +127,21 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         loop
         playsInline
         poster="/hero-poster.webp"
+        /*
+         * `src` DIRETO no <video>, e nao um <source> filho.
+         *
+         * Medido: com `<source>`, o React monta o <video> primeiro e anexa o filho depois — a
+         * essa altura o navegador ja rodou o algoritmo de selecao de recurso e desistiu.
+         * Resultado: `networkState === 3` (NETWORK_NO_SOURCE), `readyState === 0`, o arquivo
+         * nunca chega a ser pedido na rede, e a tela fica branca sem nenhum erro. O poster
+         * carrega (200) e mesmo assim nao pinta, porque o elemento esta em estado de "sem fonte".
+         *
+         * O tema do Keycloak nao tem esse problema porque monta o <video> por JS, com
+         * appendChild — o filho ja esta la quando o elemento entra no documento.
+         */
+        src="/hero-loop.mp4"
         className="absolute inset-0 h-full w-full object-cover"
-      >
-        <source src="/hero-loop.mp4" type="video/mp4" />
-      </video>
+      />
       <div aria-hidden="true" className="absolute inset-0 bg-black/55" />
       <img src="/brand/logo-on-dark.svg" alt="PreSales" className="relative z-10 h-12 mb-6" />
       {erro ? (
