@@ -379,29 +379,18 @@ router.get("/sse-ticket", requireAuth, async (req: Request, res: Response, next:
 // cookie set at login/MFA-verify, sent automatically by the browser.
 
 // GET CURRENT SESSION PROFILE
+/**
+ * Fase 13 — quem identifica a pessoa é o `requireAuth` acima, e ele já publicou `x-user-id`.
+ *
+ * Esta rota resolvia a sessão por conta própria, no Redis, e por isso continuou dando 401 mesmo
+ * depois de a autenticação virar OIDC — achado ao provar o SSO: o Keycloak devolvia a pessoa sem
+ * pedir login (o SSO funcionava), e era ESTA rota que a recusava, com a mensagem de sessão
+ * expirada. Ler o cabeçalho que o middleware acabou de escrever é a única fonte correta agora.
+ */
 router.get("/me", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
-  const authHeader = req.headers["authorization"];
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({ success: false, message: "Unauthenticated." });
-  }
-
   try {
-    const token = authHeader.split(" ")[1];
-    const session = await getSession(token);
-
-    if (!session) {
-      return res.status(401).json({ success: false, message: "Session expired or invalid." });
-    }
-
-    if (!session.mfaVerified) {
-      return res.status(401).json({
-        success: false,
-        code: "MFA_REQUIRED",
-        message: "MFA verification is required before accessing this endpoint."
-      });
-    }
-
-    const user = await dbStore.getUserById(session.userId);
+    const userId = req.headers["x-user-id"] as string;
+    const user = await dbStore.getUserById(userId);
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found." });
     }
