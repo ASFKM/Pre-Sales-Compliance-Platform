@@ -53,21 +53,13 @@ function readRefreshCookie(req: Request): string | undefined {
   return match ? decodeURIComponent(match.slice(REFRESH_TOKEN_COOKIE_NAME.length + 1)) : undefined;
 }
 
-// Seed password hashes for initial users if they do not exist
-async function ensurePasswordHashes() {
-  if (isProductionRuntime()) {
-    return;
-  }
-
-  const users = await dbStore.getUsers();
-  for (const u of users) {
-    const existingHash = await dbStore.getUserPasswordHash(u.id);
-    if (!existingHash) {
-      // Demo-only seeded password. Never auto-created in production runtime.
-      await dbStore.updateUser(u.id, { password_hash: hashPassword("password123") });
-    }
-  }
-}
+/**
+ * Fase 13 — `ensurePasswordHashes` foi removida junto com o login por senha.
+ *
+ * Ela semeava a senha de demonstração ("password123") em usuários sem hash, fora de produção.
+ * Não há mais hash para semear: quem guarda credencial é o Keycloak, e uma conta de teste ganha
+ * senha lá, pelo mesmo caminho que qualquer outra.
+ */
 
 // Async because enabled_modules comes from the cached, signature-verified Fleet Manager
 // heartbeat (server/utils/fleetLicense.ts) - the same source AdminConsole's "Assinatura e

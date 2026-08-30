@@ -14,7 +14,6 @@
 import "dotenv/config";
 import { prisma } from "../src/prisma";
 import { runWithTenant } from "../src/tenantContext";
-import { hashPassword } from "../server/utils/security";
 import { randomId } from "../src/idGenerator";
 import { lerChaveDoCrm, resolverDestino } from "../server/utils/crmPort";
 import { drenarFila } from "../server/utils/crmOutbox";
@@ -107,7 +106,6 @@ async function main() {
           tenantId: TENANT,
           name: "Pre-vendas da prova F4",
           email: EMAIL,
-          passwordHash: hashPassword(senha),
           roleId: papel.id,
           status: "ACTIVE",
         },
@@ -115,7 +113,7 @@ async function main() {
     if (existente) {
       await prisma.user.update({
         where: { id: usuario.id },
-        data: { passwordHash: hashPassword(senha), status: "ACTIVE", mustChangePassword: false },
+        data: { status: "ACTIVE"},
       });
     }
 
@@ -398,7 +396,6 @@ async function main() {
               tenantId: TENANT,
               name: `Aprovador da prova F4 (${papelDoAprovador})`,
               email: emailAprovador,
-              passwordHash: hashPassword(senha),
               roleId: papelDoAprovador,
               status: "ACTIVE",
             },
@@ -408,9 +405,7 @@ async function main() {
             where: { id: jaExiste.id },
             data: {
               roleId: papelDoAprovador,
-              passwordHash: hashPassword(senha),
               status: "ACTIVE",
-              mustChangePassword: false,
             },
           });
         }

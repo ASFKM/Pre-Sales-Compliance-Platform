@@ -256,7 +256,7 @@ async function bootstrapTenant(a: Answers): Promise<{ tenantId: string; adminEma
   const { prisma } = await import("../src/prisma");
   const { runWithTenant } = await import("../src/tenantContext");
   const { randomId } = await import("../src/idGenerator");
-  const { hashPassword, encryptSecret } = await import("../server/utils/security");
+  const { encryptSecret } = await import("../server/utils/security");
   const { BRAND_DEFAULT_PRIMARY, BRAND_DEFAULT_ACCENT } = await import("../src/brandTheme");
 
   const tenantId = `tenant_${slugify(a.companyName)}_${randomSuffix()}`;
@@ -308,8 +308,6 @@ async function bootstrapTenant(a: Answers): Promise<{ tenantId: string; adminEma
         email: normalizedEmail,
         roleId,
         status: "ACTIVE",
-        mfaEnabled: false,
-        passwordHash: hashPassword(a.adminPassword),
       },
     });
 

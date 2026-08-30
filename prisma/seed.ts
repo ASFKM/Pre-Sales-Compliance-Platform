@@ -96,11 +96,10 @@ async function main() {
   }
 
   console.log("Seeding users (password: password123)...");
-  const passwordHash = hashPassword("password123");
   const users = [
-    { id: "u1", name: "Alex Rivera", email: "alex.rivera@enterprise.com", roleId: "r1", mfaEnabled: true },
-    { id: "u2", name: "Marcus Vance", email: "marcus.vance@enterprise.com", roleId: "r2", mfaEnabled: false },
-    { id: "u3", name: "Elena Rostova", email: "elena.rostova@enterprise.com", roleId: "r3", mfaEnabled: true }
+    { id: "u1", name: "Alex Rivera", email: "alex.rivera@enterprise.com", roleId: "r1"},
+    { id: "u2", name: "Marcus Vance", email: "marcus.vance@enterprise.com", roleId: "r2"},
+    { id: "u3", name: "Elena Rostova", email: "elena.rostova@enterprise.com", roleId: "r3"}
   ];
 
   for (const user of users) {
@@ -108,10 +107,10 @@ async function main() {
     if (existing) {
       await prisma.user.update({
         where: { id: user.id },
-        data: { name: user.name, email: user.email, roleId: user.roleId, mfaEnabled: user.mfaEnabled }
+        data: { name: user.name, email: user.email, roleId: user.roleId}
       });
     } else {
-      await prisma.user.create({ data: { ...user, tenantId: tenant.id, status: "ACTIVE", passwordHash } });
+      await prisma.user.create({ data: { ...user, tenantId: tenant.id, status: "ACTIVE" } });
     }
   }
 

@@ -1,6 +1,5 @@
 import "dotenv/config";
 import { prisma } from "../src/prisma";
-import { hashPassword } from "../server/utils/security";
 import { randomId } from "../src/idGenerator";
 import { drenarFila } from "../server/utils/crmOutbox";
 
@@ -57,14 +56,13 @@ export async function entrarComo(
         tenantId: TENANT,
         name: nome,
         email,
-        passwordHash: hashPassword(senha),
         roleId,
         status: "ACTIVE",
       },
     }));
   await prisma.user.update({
     where: { id: usuario.id },
-    data: { passwordHash: hashPassword(senha), roleId, status: "ACTIVE", mustChangePassword: false, name: nome },
+    data: { roleId, status: "ACTIVE", name: nome },
   });
 
   const r = await fetch(`${BASE}/api/auth/login`, {

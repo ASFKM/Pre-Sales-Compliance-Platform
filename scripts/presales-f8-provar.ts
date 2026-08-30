@@ -26,7 +26,6 @@ import "dotenv/config";
 import * as mammoth from "mammoth";
 import { prisma } from "../src/prisma";
 import { runWithTenant } from "../src/tenantContext";
-import { hashPassword } from "../server/utils/security";
 import { randomId } from "../src/idGenerator";
 import { dbStore } from "../src/dbStore";
 import { createStorageAdapter } from "../server/utils/storage";
@@ -52,11 +51,11 @@ async function garantirUsuario(email: string, papel: string, nome: string, senha
   if (existente) {
     return prisma.user.update({
       where: { id: existente.id },
-      data: { roleId: papel, passwordHash: hashPassword(senha), status: "ACTIVE", mustChangePassword: false, mfaEnabled: false },
+      data: { roleId: papel, status: "ACTIVE"},
     });
   }
   return prisma.user.create({
-    data: { id: randomId("usr"), tenantId: TENANT, name: nome, email, passwordHash: hashPassword(senha), roleId: papel, status: "ACTIVE" },
+    data: { id: randomId("usr"), tenantId: TENANT, name: nome, email, roleId: papel, status: "ACTIVE" },
   });
 }
 
