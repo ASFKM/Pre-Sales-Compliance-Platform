@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { canonicalJsonDeep, verifyCommandsSignature } from "./fleetLicense";
+import { canonicalJsonDeep, verifyCommandsSignature, collectSystemInfo } from "./fleetLicense";
 
 /**
  * CDC14-F2-001 - `fleet-manager:docs/cdc/15-presales-assinatura-v2.md`.
@@ -136,5 +136,53 @@ describe("CDC14-F2-001: uma assinatura legítima não vale para a carga adultera
   it("RECUSA a mesma assinatura contra um latest_release trocado em trânsito", () => {
     const assinatura = assinarComParDeTeste({ commands: [], latest_release: releaseOriginal });
     expect(comChaveDeTeste(() => verifyCommandsSignature([], releaseAdulterada, assinatura))).toBe(false);
+  });
+});
+
+/**
+ * F12 — a coleta de sistema do heartbeat, que até esta fase não tinha teste nenhum.
+ *
+ * Escrito pela ótica do que NÃO pode sair no payload: o defeito plausível aqui não derruba nada,
+ * só entrega um número errado que vira medidor colorido na tela do CMSaaS, com a mesma aparência
+ * de um número certo. Uma unidade trocada (bytes onde deveriam ir megabytes) passa por todo
+ * typecheck e por toda montagem de payload.
+ */
+describe("collectSystemInfo: o que não pode sair no heartbeat", () => {
+  it("não reporta disco impossível", () => {
+    const info = collectSystemInfo();
+
+    // Ausente é resposta legítima — um filesystem que recuse `statfs`. Mas ausente é diferente de
+    // zero: um total zerado do outro lado vira divisão por zero.
+    if (info.disk_total_mb === undefined) {
+      expect(info.disk_used_mb).toBeUndefined();
+      return;
+    }
+
+    expect(info.disk_total_mb).toBeGreaterThan(0);
+    expect(info.disk_used_mb).toBeDefined();
+    expect(info.disk_used_mb!).toBeGreaterThanOrEqual(0);
+    // Usado acima do total desenharia uma barra passando de 100% na lista de instalações.
+    expect(info.disk_used_mb!).toBeLessThanOrEqual(info.disk_total_mb!);
+    // Guarda de unidade: em megabytes, nenhum disco real chega a 100 TB neste parque. Se a
+    // conversão escapar e o valor sair em bytes, este limite estoura.
+    expect(info.disk_total_mb!).toBeLessThan(1024 * 1024 * 100);
+  });
+
+  it("não deixa a coleta de disco derrubar o resto do heartbeat", () => {
+    // O que não pode acontecer é uma instalação sumir do painel por causa de uma métrica
+    // opcional: sem disco, o heartbeat continua saindo completo em todo o resto.
+    expect(() => collectSystemInfo()).not.toThrow();
+    const info = collectSystemInfo();
+    expect(info.total_memory_mb).toBeGreaterThan(0);
+    expect(info.memory_used_mb).toBeLessThanOrEqual(info.total_memory_mb);
+    expect(info.node_version).toBe(process.version);
+  });
+
+  it("não reporta carga de CPU fora da escala que a tela desenha", () => {
+    const info = collectSystemInfo();
+    expect(info.cpu_load_percent).toBeGreaterThanOrEqual(0);
+    // O medidor da lista pinta de 0 a 100; acima disso a barra vaza do trilho.
+    expect(info.cpu_load_percent).toBeLessThanOrEqual(100);
+    expect(info.cpu_cores).toBeGreaterThan(0);
   });
 });
