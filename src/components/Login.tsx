@@ -142,11 +142,15 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         src="/hero-loop.mp4"
         className="absolute inset-0 h-full w-full object-cover"
       />
-      <div aria-hidden="true" className="absolute inset-0 bg-black/55" />
-      <img src="/brand/logo-on-dark.svg" alt="PreSales" className="relative z-10 h-12 mb-6" />
+      <div aria-hidden="true" className="absolute inset-0 bg-white/45" />
+      {/* Cartao, e nao conteudo solto sobre a montanha: e o que faz esta tela se parecer com a
+          do Keycloak para onde ela leva. A logo passa a ser a versao de fundo CLARO, porque o
+          veu agora e claro — a de fundo escuro sumia dentro do cartao. */}
+      <div className="relative z-10 flex w-full max-w-[380px] flex-col items-center gap-5 rounded-lg border border-slate-200 bg-white/95 p-8 shadow-lg">
+        <img src="/brand/logo-on-light.svg" alt="PreSales" className="h-12" />
       {erro ? (
-        <div className="relative z-10 w-full max-w-sm space-y-4 text-center">
-          <div className="text-xs rounded-lg p-3 bg-danger-900/40 border border-danger-700 text-danger-200">{erro}</div>
+        <div className="w-full space-y-4 text-center">
+          <div className="text-xs rounded-lg p-3 bg-danger-50 border border-danger-200 text-danger-700">{erro}</div>
           <button
             onClick={() => {
               setErro(null);
@@ -159,11 +163,12 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           </button>
         </div>
       ) : (
-        <div className="relative z-10 flex flex-col items-center">
+        <div className="flex flex-col items-center">
           <div className="w-10 h-10 border-4 border-brand-500 border-t-transparent rounded-full animate-spin mb-4" />
-          <p className="text-slate-200 font-mono text-xs">{mensagem}</p>
+          <p className="text-slate-600 font-mono text-xs">{mensagem}</p>
         </div>
       )}
+      </div>
 
       {/* Rodapé de marca, na mesma anatomia do tema do Keycloak: rótulo minúsculo em versalete
           sobre a marca da casa, num scrim escuro. O "Licensed to" NÃO entra aqui — ele depende
