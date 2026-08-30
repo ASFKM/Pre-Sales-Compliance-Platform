@@ -96,10 +96,33 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   }
 
   return (
-    <div className="min-h-screen bg-brand-950 flex flex-col items-center justify-center p-4">
-      <img src="/brand/logo-on-dark.svg" alt="PreSales" className="h-12 mb-6" />
+    /*
+     * A moldura desta tela é a MESMA do tema `cloudmountain` do Keycloak, para onde ela leva.
+     * Ela não coleta credencial nenhuma — quem pergunta usuário e senha é o Keycloak, desde a
+     * Fase 13 —, mas ela APARECE: enquanto o redirecionamento não acontece, e principalmente
+     * quando ele falha (Keycloak fora do ar, certificado desconhecido, rede caindo no meio).
+     * Até a F14b era um fundo chapado, sem nada em volta, enquanto a tela seguinte tem vídeo,
+     * véu e rodapé de marca — quem batia numa falha via a tela de outro produto.
+     */
+    <div className="relative min-h-screen flex flex-col items-center justify-center overflow-hidden p-4">
+      {/* `aria-hidden` porque é decoração; `muted` + arquivo sem trilha de áudio é o que libera
+          o autoplay sem interação; `playsInline` impede o iOS de abrir em tela cheia. Mesmos
+          atributos, pelos mesmos motivos, que `cloudmountain-fundo.js` usa no tema. */}
+      <video
+        aria-hidden="true"
+        autoPlay
+        muted
+        loop
+        playsInline
+        poster="/hero-poster.webp"
+        className="absolute inset-0 h-full w-full object-cover"
+      >
+        <source src="/hero-loop.mp4" type="video/mp4" />
+      </video>
+      <div aria-hidden="true" className="absolute inset-0 bg-black/55" />
+      <img src="/brand/logo-on-dark.svg" alt="PreSales" className="relative z-10 h-12 mb-6" />
       {erro ? (
-        <div className="w-full max-w-sm space-y-4 text-center">
+        <div className="relative z-10 w-full max-w-sm space-y-4 text-center">
           <div className="text-xs rounded-lg p-3 bg-danger-900/40 border border-danger-700 text-danger-200">{erro}</div>
           <button
             onClick={() => {
@@ -113,11 +136,20 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           </button>
         </div>
       ) : (
-        <>
+        <div className="relative z-10 flex flex-col items-center">
           <div className="w-10 h-10 border-4 border-brand-500 border-t-transparent rounded-full animate-spin mb-4" />
-          <p className="text-slate-400 font-mono text-xs">{mensagem}</p>
-        </>
+          <p className="text-slate-200 font-mono text-xs">{mensagem}</p>
+        </div>
       )}
+
+      {/* Rodapé de marca, na mesma anatomia do tema do Keycloak: rótulo minúsculo em versalete
+          sobre a marca da casa, num scrim escuro. O "Licensed to" NÃO entra aqui — ele depende
+          de uma consulta ao CMSaaS, e esta tela pode estar justamente no meio de uma falha de
+          rede. */}
+      <div className="pointer-events-none absolute bottom-5 left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-1 rounded-[14px] border border-white/10 bg-[rgba(10,18,32,0.42)] px-[1.15rem] py-[0.6rem] backdrop-blur-[10px]">
+        <span className="font-mono text-[9px] uppercase leading-none tracking-[0.12em] text-white/80">Powered by</span>
+        <img src="/logo-cloudmountain.png" alt="CloudMountain" className="block h-8 w-auto opacity-85" />
+      </div>
     </div>
   );
 }
