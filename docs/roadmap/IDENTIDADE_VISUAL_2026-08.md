@@ -336,8 +336,23 @@ significa "arte escura" — e o mesmo erro já custou uma sessão em outro produ
 | `App.tsx` topbar | `/logo-mountain.png` | `/brand/symbol-on-dark.svg` |
 | `Login.tsx` marca do cartão | `/logo-mountain.png` | `/brand/logo-on-dark.svg` |
 | `index.html` | **nenhum `<link rel="icon">`** | 6 declarações + `theme-color` |
-| `Login.tsx` rodapé "POWERED BY" | `/logo-cloudmountain-full.png` | **inalterado, de propósito** |
+| `Login.tsx` rodapé "POWERED BY" | `/logo-cloudmountain-full.png` | **a linha inteira saiu na F13** — ver nota abaixo |
 | `AdminConsole.tsx` `cmsaas-icon.png` | — | **não tocado** (não é marca do produto) |
+
+> **Atualização de 30/08/2026 (F14).** A linha do rodapé "POWERED BY" deixou de existir neste
+> repositório. A Fase 13 substituiu o formulário de login deste produto por um redirecionamento
+> para o Keycloak — `src/components/Login.tsx` hoje só conduz o fluxo OIDC, e o bloco de rodapé
+> que ficava logo abaixo do formulário foi embora junto com ele.
+>
+> A marca não sumiu: ela mudou de casa. Agora é desenhada pelo tema `cloudmountain`, no
+> repositório do CMCRM (`production/infra/keycloak/themes/cloudmountain/login/`), que é a tela de
+> entrada compartilhada pelos três produtos. Lá ela ganhou a metade que faltava — "Licensed to"
+> com a logo do cliente da instalação, buscada em `GET /api/public/installations/:id/brand` no
+> CMSaaS.
+>
+> Por isso `public/logo-cloudmountain-full.png` foi removido daqui: ficou sem nenhum consumidor
+> (conferido por busca em `src/`, `index.html` e nos manifestos). O tema do Keycloak carrega a
+> própria cópia, e o histórico do git guarda esta.
 
 O logo por tenant (`brandLogoDataUrl`) continua vencendo quando existe — a troca foi só no
 *fallback*. Nenhuma classe de cor foi alterada: esta é fase de ativo, e misturá-la com
