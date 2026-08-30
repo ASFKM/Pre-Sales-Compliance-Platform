@@ -8,7 +8,6 @@
 import "dotenv/config";
 import { prisma } from "../src/prisma";
 import { runWithTenant } from "../src/tenantContext";
-import { hashPassword } from "../server/utils/security";
 import { randomId } from "../src/idGenerator";
 
 const TENANT = "tenant_default";
@@ -27,9 +26,9 @@ function checar(rotulo: string, condicao: boolean, detalhe: string) {
 async function garantirUsuario(email: string, papel: string, nome: string, senha: string) {
   const existente = await prisma.user.findFirst({ where: { email } });
   if (existente) {
-    return prisma.user.update({ where: { id: existente.id }, data: { roleId: papel, passwordHash: hashPassword(senha), status: "ACTIVE", mustChangePassword: false, mfaEnabled: false } });
+    return prisma.user.update({ where: { id: existente.id }, data: { roleId: papel, status: "ACTIVE"} });
   }
-  return prisma.user.create({ data: { id: randomId("usr"), tenantId: TENANT, name: nome, email, passwordHash: hashPassword(senha), roleId: papel, status: "ACTIVE" } });
+  return prisma.user.create({ data: { id: randomId("usr"), tenantId: TENANT, name: nome, email, roleId: papel, status: "ACTIVE" } });
 }
 
 async function entrar(email: string, senha: string): Promise<Record<string, string> | null> {

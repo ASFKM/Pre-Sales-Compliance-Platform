@@ -17,7 +17,6 @@
 import "dotenv/config";
 import { prisma } from "../src/prisma";
 import { runWithTenant } from "../src/tenantContext";
-import { hashPassword } from "../server/utils/security";
 import { randomId } from "../src/idGenerator";
 
 const BASE = process.env.BASE_URL || "http://127.0.0.1:3000";
@@ -78,7 +77,6 @@ async function main() {
         tenantId: TENANT,
         name: NOME,
         email: EMAIL,
-        passwordHash: hashPassword(senha),
         roleId: papel.id,
         status: "ACTIVE",
       },
