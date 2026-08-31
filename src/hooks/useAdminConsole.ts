@@ -267,6 +267,7 @@ export function useAdminConsole(params: UseAdminConsoleParams) {
           name: newUserName.trim(),
           email: newUserEmail.trim(),
           role_id: newUserRoleId,
+          initial_password: newUserPassword || "ChangeMe123!",
         }),
       });
 

@@ -8,11 +8,11 @@ export interface User {
   id: string;
   tenant_id: string;
   name: string;
-  // Fase 13 — o e-mail é a chave que liga esta conta à identidade no Keycloak (realm
-  // `cloudmountain`, compartilhado com o CMCRM e o CMSaaS) e, por tabela, ao tenant dela.
   email: string;
-  // `mfa_enabled` e `must_change_password` saíram: segundo fator e troca obrigatória são do
-  // Keycloak agora, e acontecem antes de este produto ver qualquer token.
+  mfa_enabled: boolean;
+  // Roadmap (segurança): true na criação e sempre que o admin redefine a senha - bloqueia toda
+  // rota autenticada (via requireAuth) exceto POST /api/auth/change-password até ser zerado.
+  must_change_password: boolean;
   status: UserStatus;
   role_id: string;
   created_at: string;

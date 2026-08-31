@@ -95,11 +95,25 @@ async function main() {
     }
   }
 
-  console.log("Seeding users (password: password123)...");
+  /**
+   * F1 (31/08/2026) — os usuários de demonstração voltam a nascer com senha.
+   *
+   * A senha antiga era "password123", que tem 11 caracteres e não passaria no mínimo de 12 que a
+   * volta da autenticacão estabeleceu. Como o seed é de desenvolvimento e CI, e as três contas são
+   * fictícias, ela virou uma que cabe na regra. Isto NÃO toca os 27 usuários reais do banco de
+   * desenvolvimento: eles perderam o hash na migration destrutiva de 30/08 e ficam para depois,
+   * por decisão do dono — só o administrador master volta agora.
+   *
+   * `POST /api/auth/login` continua barrando esta senha quando `APP_RUNTIME_MODE=production`,
+   * então um banco de desenvolvimento promovido a produção não entra com ela.
+   */
+  const SENHA_DE_DEMONSTRACAO = "Demonstracao2026!";
+  console.log(`Seeding users (password: ${SENHA_DE_DEMONSTRACAO})...`);
+  const passwordHash = hashPassword(SENHA_DE_DEMONSTRACAO);
   const users = [
-    { id: "u1", name: "Alex Rivera", email: "alex.rivera@enterprise.com", roleId: "r1"},
-    { id: "u2", name: "Marcus Vance", email: "marcus.vance@enterprise.com", roleId: "r2"},
-    { id: "u3", name: "Elena Rostova", email: "elena.rostova@enterprise.com", roleId: "r3"}
+    { id: "u1", name: "Alex Rivera", email: "alex.rivera@enterprise.com", roleId: "r1", mfaEnabled: false },
+    { id: "u2", name: "Marcus Vance", email: "marcus.vance@enterprise.com", roleId: "r2", mfaEnabled: false },
+    { id: "u3", name: "Elena Rostova", email: "elena.rostova@enterprise.com", roleId: "r3", mfaEnabled: false }
   ];
 
   for (const user of users) {
@@ -107,10 +121,10 @@ async function main() {
     if (existing) {
       await prisma.user.update({
         where: { id: user.id },
-        data: { name: user.name, email: user.email, roleId: user.roleId}
+        data: { name: user.name, email: user.email, roleId: user.roleId, mfaEnabled: user.mfaEnabled, passwordHash }
       });
     } else {
-      await prisma.user.create({ data: { ...user, tenantId: tenant.id, status: "ACTIVE" } });
+      await prisma.user.create({ data: { ...user, tenantId: tenant.id, status: "ACTIVE", passwordHash } });
     }
   }
 

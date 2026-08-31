@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
-import { userManager, entrar } from "../auth/oidc";
+import React, { useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import { ArrowRight, CircleAlert, Key, Lock, Mail, ShieldAlert } from "lucide-react";
+import ApiClient from "../lib/api";
 
 interface LoginProps {
   locale: "pt";
@@ -7,110 +9,155 @@ interface LoginProps {
 }
 
 /**
- * Fase 13 — a tela de entrada deixou de pedir e-mail e senha.
+ * F1 (31/08/2026) — a tela volta a pedir e-mail e senha.
  *
- * Quem pergunta isso agora é o Keycloak, no realm `cloudmountain` compartilhado pelos três
- * produtos, com a tela da casa (mesmo vídeo de fundo, logo e paleta do PreSales). Sumiram daqui
- * os passos de segundo fator e de troca obrigatória de senha: os dois acontecem lá, antes de
- * este produto ver qualquer token.
+ * Decisão do dono: sai o Keycloak compartilhado, e cada produto volta a gerenciar os próprios
+ * usuários. Os três passos que a Fase 13 tinha empurrado para o realm estão de volta aqui, na
+ * mesma ordem de antes: credenciais, segundo fator (só para quem tem `mfa_enabled`) e troca
+ * obrigatória de senha (conta nova, ou senha redefinida por um administrador).
  *
- * Este componente faz as DUAS pontas do fluxo, e é por isso que ele não virou duas telas: a
- * aplicação não usa roteador de cliente para a entrada (o `App.tsx` decide por estado local se
- * mostra o login ou o produto), então uma rota `/callback` dependeria de o servidor devolver o
- * index.html para um caminho que ele nunca serviu. Chegando com `?code=` na URL, ele conclui a
- * entrada; sem isso, manda a pessoa para o Keycloak.
+ * O que NÃO voltou é a aparência antiga. A moldura desta tela — vídeo, véu claro, cartão branco
+ * e rodapé de marca — é a que a F14/F14b padronizou entre os três produtos, e ela fica. A Fase 13
+ * esvaziou o cartão; esta fase o preenche de novo, sem mexer na casca.
+ *
+ * O mínimo da senha é 12 caracteres, o mesmo número que `TAMANHO_MINIMO_DE_SENHA` impõe no
+ * servidor. Aqui ele existe só para avisar antes de gastar uma ida à rede: quem decide é a rota.
  */
+const TAMANHO_MINIMO_DE_SENHA = 12;
+
 export default function Login({ onLoginSuccess }: LoginProps) {
-  const [erro, setErro] = useState<string | null>(null);
-  const [mensagem, setMensagem] = useState("Levando você para a tela de entrada…");
+  const ehAmbienteDeDemonstracao = import.meta.env.VITE_APP_RUNTIME_MODE !== "production";
 
-  useEffect(() => {
-    let cancelado = false;
+  const [email, setEmail] = useState("");
+  const [senha, setSenha] = useState("");
+  const [codigoMfa, setCodigoMfa] = useState("");
+  const [mfaObrigatorio, setMfaObrigatorio] = useState(false);
+  const [tokenPendente, setTokenPendente] = useState("");
+  const [usuarioPendente, setUsuarioPendente] = useState<any>(null);
+  const [trocaDeSenhaObrigatoria, setTrocaDeSenhaObrigatoria] = useState(false);
+  const [senhaAtual, setSenhaAtual] = useState("");
+  const [novaSenha, setNovaSenha] = useState("");
+  const [confirmacaoDaNovaSenha, setConfirmacaoDaNovaSenha] = useState("");
+  const [erro, setErro] = useState("");
+  const [carregando, setCarregando] = useState(false);
 
-    const params = new URLSearchParams(window.location.search);
-    const voltandoDoKeycloak = params.has("code") && params.has("state");
-    const erroDoKeycloak = params.get("error");
+  const CREDENCIAL_INVALIDA = "E-mail ou senha inválidos.";
 
-    if (erroDoKeycloak) {
-      setErro(params.get("error_description") ?? erroDoKeycloak);
-      limparUrl();
+  const entrarComSenha = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErro("");
+    setCarregando(true);
+
+    try {
+      const res: any = await ApiClient.post("/api/auth/login", {
+        email: email.trim(),
+        password: senha,
+      });
+
+      if (res.success) {
+        if (res.mfa_required) {
+          setTokenPendente(res.token);
+          setMfaObrigatorio(true);
+        } else if (res.must_change_password) {
+          setTokenPendente(res.token);
+          setUsuarioPendente(res.user);
+          setTrocaDeSenhaObrigatoria(true);
+        } else {
+          onLoginSuccess(res.user, res.token);
+        }
+      } else {
+        setErro(CREDENCIAL_INVALIDA);
+      }
+    } catch (err: any) {
+      setErro(err.message || CREDENCIAL_INVALIDA);
+    } finally {
+      setCarregando(false);
+    }
+  };
+
+  const verificarMfa = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErro("");
+    setCarregando(true);
+
+    try {
+      const res: any = await ApiClient.post("/api/auth/mfa/verify", {
+        token: tokenPendente,
+        code: codigoMfa.trim(),
+      });
+
+      if (res.success && res.verified) {
+        if (res.must_change_password) {
+          setUsuarioPendente(res.user);
+          setTrocaDeSenhaObrigatoria(true);
+        } else {
+          onLoginSuccess(res.user, tokenPendente);
+        }
+      } else {
+        setErro("Código de verificação MFA inválido.");
+      }
+    } catch (err: any) {
+      setErro(err.message || "Código de verificação MFA inválido.");
+    } finally {
+      setCarregando(false);
+    }
+  };
+
+  const trocarSenha = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErro("");
+
+    if (novaSenha.length < TAMANHO_MINIMO_DE_SENHA) {
+      setErro(`A nova senha precisa ter pelo menos ${TAMANHO_MINIMO_DE_SENHA} caracteres.`);
+      return;
+    }
+    if (novaSenha !== confirmacaoDaNovaSenha) {
+      setErro("A nova senha e a confirmação não conferem.");
       return;
     }
 
-    if (voltandoDoKeycloak) {
-      setMensagem("Concluindo sua entrada…");
-      userManager
-        .signinRedirectCallback()
-        .then(async (user) => {
-          if (cancelado) return;
-          /**
-           * O token vai para `localStorage` sob a MESMA chave de sempre: o interceptor global de
-           * `fetch` (App.tsx) e o `ApiClient` leem daí, e manter a chave é o que dispensou mexer
-           * em todas as chamadas do produto.
-           */
-          localStorage.setItem("ca_session_token", user.access_token);
-          limparUrl();
+    setCarregando(true);
+    try {
+      const res: any = await ApiClient.post("/api/auth/change-password", {
+        token: tokenPendente,
+        current_password: senhaAtual,
+        new_password: novaSenha,
+      });
 
-          /**
-           * Quem responde se esta pessoa TEM acesso a este produto é o servidor: o realm é
-           * compartilhado, então um token válido pode pertencer a alguém que só usa o CMCRM ou o
-           * CMSaaS. Sem esta conferência, a pessoa entraria na casca do produto e só descobriria
-           * ao ver todas as telas falharem.
-           */
-          const res = await fetch("/api/auth/me", {
-            headers: { Authorization: `Bearer ${user.access_token}` },
-          });
-          const dados = await res.json().catch(() => null);
-          if (!res.ok || !dados?.success) {
-            localStorage.removeItem("ca_session_token");
-            setErro("Sua conta não tem acesso a este produto.");
-            return;
-          }
-          onLoginSuccess(dados.user, user.access_token);
-        })
-        .catch((e) => {
-          if (cancelado) return;
-          limparUrl();
-          setErro(e?.message ?? "Não foi possível concluir a entrada.");
-        });
-      return;
+      if (res.success) {
+        onLoginSuccess(usuarioPendente, tokenPendente);
+      } else {
+        setErro(res.message || CREDENCIAL_INVALIDA);
+      }
+    } catch (err: any) {
+      setErro(err.message || CREDENCIAL_INVALIDA);
+    } finally {
+      setCarregando(false);
     }
+  };
 
-    entrar().catch((e) => {
-      if (cancelado) return;
-      setErro(e?.message ?? "Não foi possível abrir a tela de entrada.");
-    });
+  const classeDoCampo =
+    "w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-brand-500 transition-colors";
+  const classeDoRotulo =
+    "block text-[11px] font-mono text-slate-500 uppercase tracking-wider mb-1.5";
+  const classeDoBotao =
+    "w-full py-2.5 bg-brand-600 hover:bg-brand-500 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer";
 
-    return () => {
-      cancelado = true;
-    };
-  }, [onLoginSuccess]);
-
-  /**
-   * Tira o código de autorização da barra de endereço. Ele é de uso único e já foi gasto; deixá-lo
-   * ali faz o botão "voltar" tentar usá-lo de novo e produzir um erro sem sentido para quem só
-   * quis voltar uma página.
-   */
-  function limparUrl() {
-    window.history.replaceState({}, document.title, window.location.pathname);
-  }
+  const avisoDeErro = erro ? (
+    <div className="bg-danger-50 border border-danger-200 text-danger-700 p-3 rounded-lg flex items-center gap-2 text-xs">
+      <CircleAlert className="w-4 h-4 shrink-0" />
+      <span>{erro}</span>
+    </div>
+  ) : null;
 
   return (
-    /*
-     * A moldura desta tela é a MESMA do tema `cloudmountain` do Keycloak, para onde ela leva.
-     * Ela não coleta credencial nenhuma — quem pergunta usuário e senha é o Keycloak, desde a
-     * Fase 13 —, mas ela APARECE: enquanto o redirecionamento não acontece, e principalmente
-     * quando ele falha (Keycloak fora do ar, certificado desconhecido, rede caindo no meio).
-     * Até a F14b era um fundo chapado, sem nada em volta, enquanto a tela seguinte tem vídeo,
-     * véu e rodapé de marca — quem batia numa falha via a tela de outro produto.
-     */
     <div
+      id="login-screen-wrapper"
       className="relative min-h-screen flex flex-col items-center justify-center overflow-hidden bg-cover bg-center p-4"
       style={{ backgroundImage: "url(/hero-poster.webp)" }}
     >
       {/* `aria-hidden` porque é decoração; `muted` + arquivo sem trilha de áudio é o que libera
-          o autoplay sem interação; `playsInline` impede o iOS de abrir em tela cheia. Mesmos
-          atributos, pelos mesmos motivos, que `cloudmountain-fundo.js` usa no tema. */}
+          o autoplay sem interação; `playsInline` impede o iOS de abrir em tela cheia. */}
       {/*
         O poster tambem entra como FUNDO do contentor, e nao so como atributo do <video>.
         Medido: quando o navegador nao consegue decodificar o arquivo, o elemento vai para
@@ -135,45 +182,212 @@ export default function Login({ onLoginSuccess }: LoginProps) {
          * Resultado: `networkState === 3` (NETWORK_NO_SOURCE), `readyState === 0`, o arquivo
          * nunca chega a ser pedido na rede, e a tela fica branca sem nenhum erro. O poster
          * carrega (200) e mesmo assim nao pinta, porque o elemento esta em estado de "sem fonte".
-         *
-         * O tema do Keycloak nao tem esse problema porque monta o <video> por JS, com
-         * appendChild — o filho ja esta la quando o elemento entra no documento.
          */
         src="/hero-loop.mp4"
         className="absolute inset-0 h-full w-full object-cover"
       />
       <div aria-hidden="true" className="absolute inset-0 bg-white/45" />
-      {/* Cartao, e nao conteudo solto sobre a montanha: e o que faz esta tela se parecer com a
-          do Keycloak para onde ela leva. A logo passa a ser a versao de fundo CLARO, porque o
-          veu agora e claro — a de fundo escuro sumia dentro do cartao. */}
-      <div className="relative z-10 flex w-full max-w-[380px] flex-col items-center gap-5 rounded-lg border border-slate-200 bg-white/95 p-8 shadow-lg">
+
+      {/* Cartao, e nao conteudo solto sobre a montanha: e a anatomia que a F14b padronizou entre
+          os tres produtos. A logo e a versao de fundo CLARO, porque o veu e claro — a de fundo
+          escuro sumia dentro do cartao. */}
+      <div
+        id="login-card"
+        className="relative z-10 flex w-full max-w-[380px] flex-col items-center gap-5 rounded-lg border border-slate-200 bg-white/95 p-8 shadow-lg"
+      >
         <img src="/brand/logo-on-light.svg" alt="PreSales" className="h-12" />
-      {erro ? (
-        <div className="w-full space-y-4 text-center">
-          <div className="text-xs rounded-lg p-3 bg-danger-50 border border-danger-200 text-danger-700">{erro}</div>
-          <button
-            onClick={() => {
-              setErro(null);
-              setMensagem("Levando você para a tela de entrada…");
-              entrar().catch((e) => setErro(e?.message ?? "Não foi possível abrir a tela de entrada."));
-            }}
-            className="w-full rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-sm font-semibold py-2.5"
-          >
-            Entrar
-          </button>
-        </div>
-      ) : (
-        <div className="flex flex-col items-center">
-          <div className="w-10 h-10 border-4 border-brand-500 border-t-transparent rounded-full animate-spin mb-4" />
-          <p className="text-slate-600 font-mono text-xs">{mensagem}</p>
-        </div>
-      )}
+
+        <AnimatePresence mode="wait">
+          {trocaDeSenhaObrigatoria ? (
+            <motion.form
+              key="password-change-form"
+              initial={{ opacity: 0, x: 10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -10 }}
+              onSubmit={trocarSenha}
+              className="w-full space-y-4"
+            >
+              <div className="text-center">
+                <div className="mx-auto w-10 h-10 bg-warning-50 border border-warning-200 rounded-xl flex items-center justify-center mb-3 text-warning-600">
+                  <ShieldAlert className="w-5 h-5" />
+                </div>
+                <h3 className="text-sm font-semibold text-slate-900">Troca de Senha Obrigatória</h3>
+                <p className="text-[11px] text-slate-500 max-w-xs mx-auto leading-normal mt-1">
+                  Esta é uma conta nova ou sua senha foi redefinida - defina uma nova senha para continuar.
+                </p>
+              </div>
+
+              {avisoDeErro}
+
+              <div>
+                <label className={classeDoRotulo}>Senha Atual</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                  <input
+                    type="password"
+                    required
+                    value={senhaAtual}
+                    onChange={(e) => setSenhaAtual(e.target.value)}
+                    className={classeDoCampo}
+                    placeholder="••••••••"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className={classeDoRotulo}>Nova Senha</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                  <input
+                    type="password"
+                    required
+                    minLength={TAMANHO_MINIMO_DE_SENHA}
+                    value={novaSenha}
+                    onChange={(e) => setNovaSenha(e.target.value)}
+                    className={classeDoCampo}
+                    placeholder="••••••••"
+                  />
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Mínimo de {TAMANHO_MINIMO_DE_SENHA} caracteres.
+                </p>
+              </div>
+
+              <div>
+                <label className={classeDoRotulo}>Confirmar Nova Senha</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                  <input
+                    type="password"
+                    required
+                    minLength={TAMANHO_MINIMO_DE_SENHA}
+                    value={confirmacaoDaNovaSenha}
+                    onChange={(e) => setConfirmacaoDaNovaSenha(e.target.value)}
+                    className={classeDoCampo}
+                    placeholder="••••••••"
+                  />
+                </div>
+              </div>
+
+              <button type="submit" disabled={carregando} className={classeDoBotao}>
+                {carregando ? "Salvando..." : "Definir Nova Senha"}
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </motion.form>
+          ) : !mfaObrigatorio ? (
+            <motion.form
+              key="credentials-form"
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 10 }}
+              onSubmit={entrarComSenha}
+              className="w-full space-y-4"
+            >
+              <p className="text-xs text-slate-500 text-center leading-relaxed">
+                Plataforma de Engenharia de Pré-Vendas e Propostas
+              </p>
+
+              {avisoDeErro}
+
+              <div>
+                <label className={classeDoRotulo}>E-mail Corporativo</label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                  <input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        e.currentTarget.form?.requestSubmit();
+                      }
+                    }}
+                    className={classeDoCampo}
+                    placeholder="voce@empresa.com"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className={classeDoRotulo}>Senha</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                  <input
+                    type="password"
+                    required
+                    value={senha}
+                    onChange={(e) => setSenha(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        e.currentTarget.form?.requestSubmit();
+                      }
+                    }}
+                    className={classeDoCampo}
+                    placeholder="••••••••"
+                  />
+                </div>
+              </div>
+
+              <button type="submit" disabled={carregando} className={classeDoBotao}>
+                {carregando ? "Autenticando..." : "Entrar"}
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </motion.form>
+          ) : (
+            <motion.form
+              key="mfa-form"
+              initial={{ opacity: 0, x: 10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -10 }}
+              onSubmit={verificarMfa}
+              className="w-full space-y-4"
+            >
+              <div className="text-center">
+                <div className="mx-auto w-10 h-10 bg-brand-50 border border-brand-200 rounded-xl flex items-center justify-center mb-3 text-brand-600">
+                  <Key className="w-5 h-5" />
+                </div>
+                <h3 className="text-sm font-semibold text-slate-900">Autenticação de Dois Fatores</h3>
+                <p className="text-[11px] text-slate-500 max-w-xs mx-auto leading-normal mt-1">
+                  Digite o código de 6 dígitos do seu aplicativo autenticador
+                </p>
+              </div>
+
+              {avisoDeErro}
+
+              <div>
+                <label className={`${classeDoRotulo} text-center`}>Código de Verificação MFA</label>
+                <input
+                  type="text"
+                  required
+                  maxLength={6}
+                  value={codigoMfa}
+                  onChange={(e) => setCodigoMfa(e.target.value)}
+                  className="w-full text-center tracking-[0.5em] font-mono text-lg py-2.5 bg-white border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:border-brand-500 transition-colors"
+                  placeholder={ehAmbienteDeDemonstracao ? "ex: 123456" : "Código de verificação"}
+                />
+              </div>
+
+              <button type="submit" disabled={carregando} className={classeDoBotao}>
+                {carregando ? "Verificando..." : "Verificar e Autenticar"}
+                <ArrowRight className="w-4 h-4" />
+              </button>
+
+              {ehAmbienteDeDemonstracao && (
+                <div className="text-center text-[10px] text-slate-400 pt-2 font-mono leading-normal">
+                  Código MFA válido: 123456, 000000 ou 111111
+                </div>
+              )}
+            </motion.form>
+          )}
+        </AnimatePresence>
       </div>
 
-      {/* Rodapé de marca, na mesma anatomia do tema do Keycloak: rótulo minúsculo em versalete
+      {/* Rodapé de marca, na mesma anatomia que a F14 definiu: rótulo minúsculo em versalete
           sobre a marca da casa, num scrim escuro. O "Licensed to" NÃO entra aqui — ele depende
-          de uma consulta ao CMSaaS, e esta tela pode estar justamente no meio de uma falha de
-          rede. */}
+          de uma consulta ao CMSaaS, e esta tela precisa aparecer inteira mesmo sem rede. */}
       <div className="pointer-events-none absolute bottom-5 left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-1 rounded-[14px] border border-white/10 bg-[rgba(10,18,32,0.42)] px-[1.15rem] py-[0.6rem] backdrop-blur-[10px]">
         <span className="font-mono text-[9px] uppercase leading-none tracking-[0.12em] text-white/80">Powered by</span>
         <img src="/logo-cloudmountain.png" alt="CloudMountain" className="block h-8 w-auto opacity-85" />
