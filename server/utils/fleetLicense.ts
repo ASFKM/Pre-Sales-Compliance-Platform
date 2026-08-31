@@ -9,6 +9,7 @@ import { prisma } from "../../src/prisma";
 import { decryptSecret } from "./security";
 import { randomId } from "../../src/idGenerator";
 import { logger } from "./logger";
+import { createStorageAdapter } from "./storage";
 import { reconcileIncomingKnowledgeEntry, IncomingGlobalKbEntry } from "./knowledgeBaseReconciliation";
 import { persistLatestRelease, triggerImmediateUpdate } from "./updateScheduler";
 
@@ -414,6 +415,88 @@ async function verifyAndCacheLicensePayload(tenantId: string, data: { license: L
 // Called periodically (every 15-60 min) for every tenant with fleet reporting enabled. Never
 // throws - a fleet manager outage or network failure must not disrupt the Pre-Sales Compliance
 // Platform itself (fail-open is the whole point).
+
+// ---------------------------------------------------------------------------------------------
+// Status dos servicos essenciais, para o heartbeat.
+//
+// O conjunto e o do PreSales: banco, cache, storage e autenticacao. Os tres primeiros sao os
+// mesmos que `/api/health/readiness` (server.ts) ja decide - reusar a MESMA regra e o ponto:
+// duas definicoes de "o banco esta de pe" fariam o readiness e o painel do CMSaaS discordarem
+// sobre a mesma instalacao.
+//
+// A autenticacao e a checagem que faltava: se o Keycloak cai ninguem entra, e o readiness
+// continuava respondendo 200 "ready". Bate no JWKS - o mesmo documento que `keycloakAuth.ts`
+// busca para validar cada token - e nao na pagina de login: e o que a aplicacao precisa
+// alcancar, responde sem sessao, e um Keycloak de pe com o realm errado devolve 404 ali.
+type StatusDeServico = "operational" | "degraded" | "down" | "unknown";
+
+interface ServicoReportado {
+  key: string;
+  label: string;
+  status: StatusDeServico;
+  latency_ms?: number;
+  detail?: string;
+}
+
+const TIMEOUT_DE_CHECK_MS = 5000;
+
+async function comTimeout<T>(promessa: Promise<T>, rotulo: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const limite = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${rotulo}: tempo esgotado em ${TIMEOUT_DE_CHECK_MS}ms`)), TIMEOUT_DE_CHECK_MS);
+  });
+  try {
+    return await Promise.race([promessa, limite]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function medirServico(
+  key: string,
+  label: string,
+  check: () => Promise<boolean>
+): Promise<ServicoReportado> {
+  const comeco = Date.now();
+  try {
+    const ok = await comTimeout(check(), key);
+    return { key, label, status: ok ? "operational" : "down", latency_ms: Date.now() - comeco };
+  } catch (err) {
+    // O check estourando NAO e o mesmo que o servico estar fora: `unknown` diz "nao consegui
+    // verificar", que e o que de fato aconteceu.
+    return {
+      key,
+      label,
+      status: "unknown",
+      latency_ms: Date.now() - comeco,
+      // Truncado: o CMSaaS aceita 300 caracteres neste campo e uma stack de driver passa disso.
+      detail: (err instanceof Error ? err.message : String(err)).slice(0, 300),
+    };
+  }
+}
+
+async function checarKeycloak(): Promise<boolean> {
+  const jwksUrl = process.env.KEYCLOAK_JWKS_URL;
+  if (!jwksUrl) return false;
+  const resposta = await fetch(jwksUrl, { method: "GET" });
+  return resposta.ok;
+}
+
+export async function coletarStatusDosServicos(): Promise<ServicoReportado[]> {
+  return Promise.all([
+    medirServico("database", "Banco de dados", async () => {
+      await prisma.$queryRaw`SELECT 1`;
+      return true;
+    }),
+    medirServico("cache", "Cache e filas", async () => (await redis.ping()) === "PONG"),
+    medirServico("storage", "Armazenamento", async () => {
+      const settings = await dbStore.getSettings();
+      return createStorageAdapter(settings).checkReachable();
+    }),
+    medirServico("auth", "Autenticacao", checarKeycloak),
+  ]);
+}
+
 export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
   await runWithTenant({ tenantId }, async () => {
     try {
@@ -460,9 +543,15 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
         model: (settings as any)[`${taskType}_model`] || settings.default_model,
       }));
 
+      // Os checks nao podem derrubar o heartbeat: um storage fora do ar nao pode fazer a
+      // instalacao sumir do painel. `coletarStatusDosServicos` ja converte cada falha em status,
+      // mas um erro fora dele viraria excecao aqui.
+      const services = await coletarStatusDosServicos().catch(() => undefined);
+
       const body = JSON.stringify({
         logs,
         vulnerabilities: vulnerabilities || undefined,
+        services,
         system_info: collectSystemInfo(),
         config_snapshot: sanitizeSettingsForBackup(settings as unknown as Record<string, any>),
         knowledge_base_entries: kbEntriesToSync.map((e) => ({
