@@ -18,25 +18,32 @@ import { UserManager, WebStorageStateStore, type User } from "oidc-client-ts";
  * exatamente para quem está fora de casa.
  */
 /**
- * Configuração padrão do Keycloak, para quando o build não recebeu as variáveis `VITE_*`.
+ * A configuração do Keycloak vem do build, e NÃO tem valor padrão.
  *
- * Estas variáveis são resolvidas em tempo de BUILD pelo Vite — e o build de uma atualização
- * acontece dentro do `scripts/update.sh`, na própria instalação, lendo o `.env` que já estava
- * lá. Uma instalação anterior à Fase 13 não tem essas linhas, e o `update.sh` preserva o `.env`
- * mas nunca acrescenta variável nova: o resultado seria um front compilado sem saber onde fica o
- * Keycloak, ou seja, sem login — e o health check pós-atualização não olha autenticação, então a
- * atualização passaria como bem-sucedida.
+ * Houve padrão aqui — os endereços da CloudMountain — e foi um erro conceitual: este produto é
+ * instalado em cliente, e cada cliente tem o seu Keycloak. Um front compilado apontando para o
+ * servidor de outra empresa é pior do que um front que não sobe: manda gente autenticar em lugar
+ * errado e falha de um jeito que ninguém investiga.
  *
- * NÃO HÁ SEGREDO AQUI. O fluxo é Authorization Code + PKCE com cliente público: não existe
- * `client_secret` neste produto, e estes três valores aparecem na barra de endereço de qualquer
- * usuário que faça login. O `.env` continua vencendo — isto é piso, não teto.
+ * Estas variáveis são resolvidas em tempo de BUILD pelo Vite, lendo o `.env` da instalação — que
+ * o wizard escreve ao perguntar o ambiente. Sem elas, `configuracaoAusente` fica verdadeiro e a
+ * aplicação mostra o que falta, em vez de tentar falar com um endereço inexistente e morrer com
+ * "Failed to fetch", que não diz nada a ninguém.
  */
-const PADRAO_URLS = "https://192.168.3.197:8443,https://100.106.236.106:8443,https://cmcrm-dev-01.tail7af88b.ts.net:8443";
-const PADRAO_REALM = "cloudmountain";
-const PADRAO_CLIENT_ID = "presales-web";
+const URLS = (import.meta.env.VITE_KEYCLOAK_URLS as string | undefined)?.trim();
+const REALM = (import.meta.env.VITE_KEYCLOAK_REALM as string | undefined)?.trim();
+const CLIENT_ID = (import.meta.env.VITE_KEYCLOAK_CLIENT_ID as string | undefined)?.trim();
+
+export const configuracaoAusente: string[] = [
+  !URLS ? "VITE_KEYCLOAK_URLS" : "",
+  !REALM ? "VITE_KEYCLOAK_REALM" : "",
+  !CLIENT_ID ? "VITE_KEYCLOAK_CLIENT_ID" : "",
+].filter(Boolean);
+
+export const keycloakConfigurado = configuracaoAusente.length === 0;
 
 function rotaDoKeycloak(): string {
-  const rotas = ((import.meta.env.VITE_KEYCLOAK_URLS as string | undefined) || PADRAO_URLS)
+  const rotas = (URLS ?? "")
     .split(",")
     .map((u) => u.trim())
     .filter(Boolean);
@@ -57,12 +64,12 @@ function rotaDoKeycloak(): string {
    * (outra VPN, outro nome) deve degradar para "tenta a principal" em vez de falhar com a lista
    * vazia — o pior caso vira um aviso de rede, não uma tela morta.
    */
-  return rotas.find(casa) ?? rotas[0]!;
+  return rotas.find(casa) ?? rotas[0] ?? "";
 }
 
 export const userManager = new UserManager({
-  authority: `${rotaDoKeycloak()}/realms/${import.meta.env.VITE_KEYCLOAK_REALM || PADRAO_REALM}`,
-  client_id: import.meta.env.VITE_KEYCLOAK_CLIENT_ID || PADRAO_CLIENT_ID,
+  authority: `${rotaDoKeycloak()}/realms/${REALM ?? ""}`,
+  client_id: CLIENT_ID ?? "",
   /**
    * A volta do Keycloak cai na RAIZ, não numa rota `/callback` própria: este produto não usa
    * roteador de cliente para a tela de entrada (o `App.tsx` decide por estado local se mostra o

@@ -63,7 +63,7 @@ import pricingRouter from "./server/routes/pricing";
 import demandsRouter from "./server/routes/demands";
 import crmDirectoryRouter from "./server/routes/crmDirectory";
 import externalCrmRouter from "./server/routes/externalCrm";
-import { jwksUrlDoKeycloak } from "./server/utils/keycloakConfig";
+import { configuracaoDoKeycloak } from "./server/utils/keycloakConfig";
 
 const app = express();
 
@@ -165,19 +165,24 @@ app.get("/api/health", (req: Request, res: Response) => {
  * token. Não é a página de login: é o que a aplicação de fato precisa alcançar, responde sem
  * sessão, e um Keycloak de pé com o realm errado devolve 404 aqui, que é a falha que interessa.
  */
-async function verificarKeycloak(): Promise<boolean> {
-  const jwksUrl = jwksUrlDoKeycloak();
+async function verificarKeycloak(): Promise<"reachable" | "unreachable" | "not_configured"> {
+  const cfg = configuracaoDoKeycloak();
+  // "Não configurado" e "fora do ar" são estados diferentes e o readiness diz qual: um se resolve
+  // no wizard, o outro no servidor de autenticação. Os dois reprovam o check — um produto sem
+  // login não deve ser dado como pronto — mas quem lê precisa saber para onde ir.
+  if (!cfg) return "not_configured";
+  const jwksUrl = cfg.jwksUrl;
   try {
     const controlador = new AbortController();
     const limite = setTimeout(() => controlador.abort(), 5000);
     try {
       const resposta = await fetch(jwksUrl, { method: "GET", signal: controlador.signal });
-      return resposta.ok;
+      return resposta.ok ? "reachable" : "unreachable";
     } finally {
       clearTimeout(limite);
     }
   } catch {
-    return false;
+    return "unreachable";
   }
 }
 
@@ -201,7 +206,7 @@ app.get("/api/health/readiness", async (req: Request, res: Response) => {
     storageOk = false;
   }
 
-  const ready = databaseOk && redisOk && storageOk && authOk;
+  const ready = databaseOk && redisOk && storageOk && authOk === "reachable";
 
   res.status(ready ? 200 : 503).json({
     success: ready,
@@ -209,7 +214,7 @@ app.get("/api/health/readiness", async (req: Request, res: Response) => {
     database: databaseOk ? "connected" : "unreachable",
     redis: redisOk ? "connected" : "unreachable",
     storage: storageOk ? "accessible" : "unreachable",
-    auth: authOk ? "reachable" : "unreachable"
+    auth: authOk
   });
 });
 

@@ -1,5 +1,5 @@
 import { createRemoteJWKSet, jwtVerify, type JWTPayload, type JWTVerifyGetKey } from "jose";
-import { realmDoKeycloak, audienceDoKeycloak, issuerUrlsDoKeycloak, jwksUrlDoKeycloak } from "./keycloakConfig";
+import { configuracaoDoKeycloak, variaveisAusentes } from "./keycloakConfig";
 
 /**
  * Fase 13 — verificação do token emitido pelo Keycloak, no lugar da sessão própria em Redis.
@@ -71,9 +71,20 @@ let emissoresCache: string[] | null = null;
 function config() {
   if (jwksCache && emissoresCache) return { jwks: jwksCache, emissores: emissoresCache };
 
-  const realm = realmDoKeycloak();
-  const audience = audienceDoKeycloak();
-  const listaEmissores = issuerUrlsDoKeycloak();
+  const cfg = configuracaoDoKeycloak();
+  if (!cfg) {
+    // Mensagem que diz O QUE falta e onde resolver. Antes havia padrão embutido aqui, apontando
+    // para o Keycloak da CloudMountain — o que numa instalação de cliente mandaria a autenticação
+    // dele para um servidor alheio, e falharia de um jeito que ninguém investiga porque a tela
+    // não acusa nada.
+    throw new Error(
+      `Keycloak não configurado nesta instalação: falta ${variaveisAusentes().join(", ")}. ` +
+        `Rode o wizard (npm run setup) ou defina essas variáveis no .env e reinicie o serviço.`
+    );
+  }
+  const realm = cfg.realm;
+  const audience = cfg.audience;
+  const listaEmissores = cfg.issuerUrls;
   /**
    * O JWKS vem de UM endereço só, escolhido aqui — nunca derivado do que o token diz. As chaves
    * são do realm, não da rota; deixar a busca de chave seguir o token trocaria a âncora de
@@ -85,12 +96,8 @@ function config() {
    * runtime seria tarde demais). Sem isso a busca de JWKS falha com `SELF_SIGNED_CERT_IN_CHAIN`
    * e nenhum login funciona.
    */
-  const jwksUrl = jwksUrlDoKeycloak();
+  const jwksUrl = cfg.jwksUrl;
 
-  if (!realm) throw new Error("KEYCLOAK_REALM ausente");
-  if (!audience) throw new Error("KEYCLOAK_AUDIENCE ausente");
-  if (!listaEmissores) throw new Error("KEYCLOAK_ISSUER_URLS ausente");
-  if (!jwksUrl) throw new Error("KEYCLOAK_JWKS_URL ausente");
 
   emissoresCache = montarEmissoresAceitos(listaEmissores, realm);
   jwksCache = createRemoteJWKSet(new URL(jwksUrl));
