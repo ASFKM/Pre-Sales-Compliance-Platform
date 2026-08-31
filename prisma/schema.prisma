@@ -230,6 +230,8 @@ model Tenant {
   updatedAt      DateTime       @updatedAt @map("updated_at")
 
   users                   User[]
+  passwordPolicy          PasswordPolicy?
+  passwordHistory         PasswordHistory[]
   roles                   Role[]
   projects                Project[]
   documents               Document[]
@@ -326,7 +328,13 @@ model User {
   createdAt          DateTime   @default(now()) @map("created_at")
   updatedAt          DateTime   @updatedAt @map("updated_at")
   lastLoginAt        DateTime?  @map("last_login_at")
+  // F3 (01/09/2026) - quando esta senha foi definida. E o que a VALIDADE da politica de senha
+  // (password_policies.validade_em_dias) mede. Nulo em quem nunca trocou desde a F1; nulo conta
+  // como VENCIDA quando ha validade configurada, para a validade alcancar justamente as contas
+  // mais antigas em vez de dar vida eterna a elas.
+  passwordChangedAt  DateTime?  @map("password_changed_at")
 
+  passwordHistory      PasswordHistory[]
   ownedProjects        Project[]        @relation("ProjectOwner")
   managedEngineers     TeamMembership[] @relation("TeamManager")
   teamMemberships      TeamMembership[] @relation("TeamEngineer")
@@ -2593,4 +2601,61 @@ model CrmPurgeExecution {
 
   @@index([tenantId, executedAt])
   @@map("crm_purge_executions")
+}
+
+/// F3 (01/09/2026) - a politica de senha deixa de ser constante no codigo e vira editavel em
+/// Administracao > Usuarios. UMA LINHA POR TENANT: este produto e multi-tenant e cada instalacao
+/// tem o proprio administrador, entao quem manda na politica e o tenant, nao o processo. No
+/// CMSaaS, que nao tem conceito de tenant, a mesma politica e uma linha unica.
+///
+/// Os CAMPOS tem a mesma semantica nos tres produtos (server/utils/politicaDeSenha.ts, arquivo
+/// deliberadamente identico): se `exigir_especial` quisesse dizer coisas diferentes em cada um,
+/// a mesma politica produziria senhas diferentes em cada tela.
+///
+/// LINHA AUSENTE NAO E ERRO: significa padrao de fabrica (12, numero, especial, historico 5, sem
+/// validade). Os defaults abaixo repetem esse padrao para que uma gravacao parcial nao invente
+/// outro.
+model PasswordPolicy {
+  id                   String   @id
+  tenantId             String   @unique @map("tenant_id")
+  tenant               Tenant   @relation(fields: [tenantId], references: [id])
+  comprimentoMinimo    Int      @default(12) @map("comprimento_minimo")
+  exigirMaiuscula      Boolean  @default(false) @map("exigir_maiuscula")
+  exigirMinuscula      Boolean  @default(false) @map("exigir_minuscula")
+  exigirNumero         Boolean  @default(true) @map("exigir_numero")
+  exigirEspecial       Boolean  @default(true) @map("exigir_especial")
+  /// Quantas senhas anteriores nao podem ser reusadas. 0 desliga a verificacao E apaga o
+  /// historico guardado.
+  historicoDeReuso     Int      @default(5) @map("historico_de_reuso")
+  /// Dias ate a senha vencer. 0 = sem validade.
+  validadeEmDias       Int      @default(0) @map("validade_em_dias")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+  updatedByUserId      String?  @map("updated_by_user_id")
+
+  @@map("password_policies")
+}
+
+/// F3 (01/09/2026) - hashes de senhas ANTERIORES, so para responder "esta senha ja foi usada?".
+///
+/// Duas regras que o codigo impoe e o schema nao consegue impor sozinho:
+///   1. A tabela e PODADA a cada troca para exatamente `historicoDeReuso` entradas por pessoa -
+///      sem isso ela cresce sem limite. Ver `registrarSenhaNoHistorico`.
+///   2. Um hash antigo continua sendo material de senha: NENHUMA rota devolve esta coluna, e ela
+///      so e lida dentro de `senhaJaFoiUsada`.
+///
+/// Carrega `tenant_id` como todo o resto deste produto - o recorte por tenant e da extensao do
+/// Prisma (src/prisma.ts), e um modelo com tenant_id fora de TENANT_SCOPED_MODELS reprova no
+/// src/prisma.test.ts de proposito.
+model PasswordHistory {
+  id           String   @id
+  tenantId     String   @map("tenant_id")
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  userId       String   @map("user_id")
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([userId, createdAt])
+  @@index([tenantId])
+  @@map("password_history")
 }

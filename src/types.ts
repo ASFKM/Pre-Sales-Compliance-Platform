@@ -18,6 +18,10 @@ export interface User {
   created_at: string;
   updated_at: string;
   last_login_at?: string;
+  // F3 (01/09/2026): quando a senha atual foi definida. E o que a VALIDADE da politica de senha
+  // mede (`precisaTrocarSenha`). Ausente em quem nunca trocou - e ausente conta como VENCIDA
+  // quando ha validade configurada.
+  password_changed_at?: string;
 }
 
 export interface Role {

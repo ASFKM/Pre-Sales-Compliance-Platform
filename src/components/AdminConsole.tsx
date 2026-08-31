@@ -15,6 +15,14 @@ import {
 } from "../types";
 import { useAdminConsole } from "../hooks/useAdminConsole";
 import ApiClient from "../lib/api";
+import RequisitosDeSenha from "./RequisitosDeSenha";
+import {
+  PoliticaDeSenha,
+  POLITICA_PADRAO,
+  LIMITES_DA_POLITICA,
+  requisitosDaPolitica,
+  senhaCumprePolitica,
+} from "../../server/utils/politicaDeSenha";
 // CDC 16 F9: as duas vistas que moravam dentro da tela de Demandas. Vieram para
 // cá inteiras, sem reescrita — o dono pediu que a configuração do módulo ficasse
 // na Administração, e não que ela mudasse de forma.
@@ -580,6 +588,58 @@ export default function AdminConsole({
   const [newUserPassword, setNewUserPassword] = useState<string>("ChangeMe123!");
   const [editingUserId, setEditingUserId] = useState<string>("");
   const [editingUserPassword, setEditingUserPassword] = useState<string>("");
+  /**
+   * F3 (01/09/2026) — a política de senha DESTE tenant, editável nesta tela.
+   *
+   * Vem de `GET /api/users/password-policy` (autenticada), e não da rota pública que os
+   * formulários de senha usam: aqui a tela precisa também dos LIMITES, para desenhar os campos.
+   * Enquanto ela não chega, vale o padrão de fábrica — se ele divergir do real, o efeito é um
+   * requisito a mais ou a menos na lista por um instante, nunca uma senha aceita indevidamente,
+   * porque quem aceita é a rota.
+   */
+  const [politicaDeSenha, setPoliticaDeSenha] = useState<PoliticaDeSenha>(POLITICA_PADRAO);
+  const [limitesDaPolitica, setLimitesDaPolitica] = useState(LIMITES_DA_POLITICA);
+  const [politicaDeSenhaSalva, setPoliticaDeSenhaSalva] = useState<string>("");
+  const [politicaDeSenhaMensagem, setPoliticaDeSenhaMensagem] = useState<string>("");
+
+  useEffect(() => {
+    ApiClient.get<{ politica: PoliticaDeSenha; limites: typeof LIMITES_DA_POLITICA }>("/api/users/password-policy")
+      .then((resposta) => {
+        setPoliticaDeSenha(resposta.politica);
+        if (resposta.limites) setLimitesDaPolitica(resposta.limites);
+        setPoliticaDeSenhaSalva(JSON.stringify(resposta.politica));
+      })
+      // Quem não tem `admin:users` leva 403 aqui e simplesmente não vê o painel — a lista de
+      // requisitos dos formulários continua desenhada pelo padrão de fábrica.
+      .catch(() => undefined);
+  }, []);
+
+  const politicaDeSenhaAlterada =
+    politicaDeSenhaSalva !== "" && JSON.stringify(politicaDeSenha) !== politicaDeSenhaSalva;
+
+  const mudarPoliticaDeSenha = (campo: keyof PoliticaDeSenha, valor: number | boolean) => {
+    setPoliticaDeSenhaMensagem("");
+    setPoliticaDeSenha((atual) => ({ ...atual, [campo]: valor }));
+  };
+
+  /**
+   * O servidor GRAMPEIA aos limites em vez de recusar (comprimento 4 vira 8), então a tela adota
+   * de volta o que ele devolveu — é isso, e não o que foi digitado, que passa a valer.
+   */
+  const salvarPoliticaDeSenha = async () => {
+    try {
+      const resposta = await ApiClient.put<{ politica: PoliticaDeSenha; limites: typeof LIMITES_DA_POLITICA }>(
+        "/api/users/password-policy",
+        politicaDeSenha
+      );
+      setPoliticaDeSenha(resposta.politica);
+      if (resposta.limites) setLimitesDaPolitica(resposta.limites);
+      setPoliticaDeSenhaSalva(JSON.stringify(resposta.politica));
+      setPoliticaDeSenhaMensagem(locale === "pt" ? "Política salva." : "Policy saved.");
+    } catch (err: any) {
+      setPoliticaDeSenhaMensagem(err?.message || (locale === "pt" ? "Não foi possível salvar." : "Could not save."));
+    }
+  };
   // Roadmap (segurança): marcado por padrão sempre que o admin define uma senha nova para um
   // usuário existente - o admin desmarca conscientemente se não quiser forçar a troca.
   const [forcePasswordChangeOnReset, setForcePasswordChangeOnReset] = useState<boolean>(true);
@@ -1160,6 +1220,121 @@ export default function AdminConsole({
                       </button>
                     </div>
 
+                    {/* F3 (01/09/2026) — A POLÍTICA DE SENHA, EDITÁVEL, NA TELA QUE GOVERNA AS CONTAS.
+                        Vale para toda senha definida neste tenant: troca, criação e redefinição.
+                        O servidor aplica; esta tela mostra o que falta enquanto se digita. */}
+                    <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
+                      <div>
+                        <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">
+                          {locale === "pt" ? "Política de Senha" : "Password Policy"}
+                        </h3>
+                        <p className="text-xs text-slate-500 mt-1">
+                          {locale === "pt"
+                            ? "Vale para toda senha definida nesta instalação: troca, criação de conta e redefinição. Quem aplica é o servidor — a tela apenas mostra o que falta enquanto se digita."
+                            : "Applies to every password set in this installation. The server enforces it; this screen only shows what is missing while typing."}
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
+                        <div>
+                          <label htmlFor="politica-comprimento" className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">
+                            {locale === "pt" ? "Comprimento mínimo" : "Minimum length"}
+                          </label>
+                          <input
+                            id="politica-comprimento"
+                            type="number"
+                            min={limitesDaPolitica.comprimento_minimo.minimo}
+                            max={limitesDaPolitica.comprimento_minimo.maximo}
+                            value={politicaDeSenha.comprimento_minimo}
+                            onChange={(e) => mudarPoliticaDeSenha("comprimento_minimo", Number(e.target.value))}
+                            className="w-full p-2 bg-white border border-slate-200 rounded"
+                          />
+                          <p className="text-[10px] text-slate-500 mt-1">
+                            {locale === "pt" ? "Entre" : "Between"} {limitesDaPolitica.comprimento_minimo.minimo} {locale === "pt" ? "e" : "and"} {limitesDaPolitica.comprimento_minimo.maximo}.
+                          </p>
+                        </div>
+
+                        <div>
+                          <label htmlFor="politica-historico" className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">
+                            {locale === "pt" ? "Histórico de reuso" : "Reuse history"}
+                          </label>
+                          <input
+                            id="politica-historico"
+                            type="number"
+                            min={limitesDaPolitica.historico_de_reuso.minimo}
+                            max={limitesDaPolitica.historico_de_reuso.maximo}
+                            value={politicaDeSenha.historico_de_reuso}
+                            onChange={(e) => mudarPoliticaDeSenha("historico_de_reuso", Number(e.target.value))}
+                            className="w-full p-2 bg-white border border-slate-200 rounded"
+                          />
+                          <p className="text-[10px] text-slate-500 mt-1">
+                            {locale === "pt"
+                              ? "Quantas senhas anteriores não podem ser repetidas. 0 desliga e apaga o histórico guardado."
+                              : "How many previous passwords cannot be reused. 0 disables it and deletes the stored history."}
+                          </p>
+                        </div>
+
+                        <div>
+                          <label htmlFor="politica-validade" className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block mb-1">
+                            {locale === "pt" ? "Validade (dias)" : "Expiry (days)"}
+                          </label>
+                          <input
+                            id="politica-validade"
+                            type="number"
+                            min={limitesDaPolitica.validade_em_dias.minimo}
+                            max={limitesDaPolitica.validade_em_dias.maximo}
+                            value={politicaDeSenha.validade_em_dias}
+                            onChange={(e) => mudarPoliticaDeSenha("validade_em_dias", Number(e.target.value))}
+                            className="w-full p-2 bg-white border border-slate-200 rounded"
+                          />
+                          <p className="text-[10px] text-slate-500 mt-1">
+                            {locale === "pt"
+                              ? "0 = sem validade. Vencida, a senha cai na MESMA tela de troca obrigatória."
+                              : "0 = never expires. An expired password lands on the SAME mandatory-change screen."}
+                          </p>
+                        </div>
+                      </div>
+
+                      <fieldset className="flex flex-wrap gap-x-5 gap-y-2">
+                        <legend className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono mb-1">
+                          {locale === "pt" ? "Exigir na composição" : "Require in composition"}
+                        </legend>
+                        {([
+                          ["exigir_maiuscula", "Letra maiúscula", "Uppercase letter"],
+                          ["exigir_minuscula", "Letra minúscula", "Lowercase letter"],
+                          ["exigir_numero", "Número", "Number"],
+                          ["exigir_especial", "Caractere especial", "Special character"],
+                        ] as [keyof PoliticaDeSenha, string, string][]).map(([campo, rotuloPt, rotuloEn]) => (
+                          <label key={campo} className="flex items-center gap-1.5 text-xs text-slate-600">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(politicaDeSenha[campo])}
+                              onChange={(e) => mudarPoliticaDeSenha(campo, e.target.checked)}
+                            />
+                            {locale === "pt" ? rotuloPt : rotuloEn}
+                          </label>
+                        ))}
+                      </fieldset>
+
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={salvarPoliticaDeSenha}
+                          disabled={!politicaDeSenhaAlterada}
+                          className="bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-xs font-bold px-3 py-2 rounded"
+                        >
+                          {locale === "pt" ? "Salvar Política" : "Save Policy"}
+                        </button>
+                        {politicaDeSenhaMensagem && (
+                          <span className="text-xs text-slate-600" role="status">{politicaDeSenhaMensagem}</span>
+                        )}
+                        {politicaDeSenhaAlterada && !politicaDeSenhaMensagem && (
+                          <span className="text-xs text-slate-400">
+                            {locale === "pt" ? "Alterações não salvas." : "Unsaved changes."}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
                     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
                       <div className="p-4 border-b border-slate-200 flex items-center justify-between">
                         <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">{tx("User Access Directory", "Diretório de Acesso de Usuários")}</h3>
@@ -1205,11 +1380,17 @@ export default function AdminConsole({
                             />
                             <button
                               onClick={handleCreateUser}
-                              className="bg-brand-600 hover:bg-brand-700 text-white font-bold rounded px-3 py-2"
+                              disabled={!senhaCumprePolitica(newUserPassword, politicaDeSenha)}
+                              className="bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white font-bold rounded px-3 py-2"
                             >
                               {locale === "pt" ? "Criar Usuário" : "Create User"}
                             </button>
                           </div>
+                          {/* F3: a senha inicial passa pela MESMA politica que a pessoa tera de
+                              cumprir - a rota recusa uma senha que a tela deixasse passar. Ela
+                              tambem entra no historico de reuso, para a primeira troca nao
+                              repetir a senha que o administrador ditou. */}
+                          <RequisitosDeSenha senha={newUserPassword} politica={politicaDeSenha} />
                           <p className="text-[10px] text-slate-500 mt-2">
                             {locale === "pt" ? "A senha inicial poderá ser alterada pelo administrador via reset de senha." : "The initial password can be changed later by the administrator."}
                           </p>
@@ -1314,16 +1495,17 @@ export default function AdminConsole({
                                           value={editingUserPassword}
                                           onChange={(e) => setEditingUserPassword(e.target.value)}
                                           placeholder={locale === "pt" ? "Nova senha" : "New password"}
-                                          className="w-28 p-1 border border-slate-200 rounded text-[10px]"
+                                          className="w-36 p-1 border border-slate-200 rounded text-[10px]"
                                         />
                                         <button
                                           onClick={async () => {
-                                            // F1 (31/08/2026): 12, o mesmo numero que o
-                                            // servidor exige (TAMANHO_MINIMO_DE_SENHA). A tela
-                                            // avisa antes de gastar uma ida ao servidor; quem
-                                            // decide de verdade e a rota.
-                                            if (editingUserPassword.length < 12) {
-                                              alert(locale === "pt" ? "A senha deve ter pelo menos 12 caracteres." : "Password must have at least 12 characters.");
+                                            // F3 (01/09/2026): o criterio e a POLITICA do tenant,
+                                            // nao um numero escrito aqui. A tela avisa antes de
+                                            // gastar uma ida ao servidor; quem decide de verdade
+                                            // e a rota (PUT /api/users/:id aplica a mesma).
+                                            const pendentes = requisitosDaPolitica(editingUserPassword, politicaDeSenha).filter((r) => !r.atendido);
+                                            if (pendentes.length > 0) {
+                                              alert(`${locale === "pt" ? "A senha nao cumpre a politica" : "Password does not meet the policy"}: ${pendentes.map((r) => r.texto).join("; ")}.`);
                                               return;
                                             }
                                             await handleUpdateUser(u.id, { password: editingUserPassword, force_password_change: forcePasswordChangeOnReset });
@@ -1337,6 +1519,7 @@ export default function AdminConsole({
                                           OK
                                         </button>
                                       </div>
+                                      <RequisitosDeSenha senha={editingUserPassword} politica={politicaDeSenha} />
                                       <label className="flex items-center gap-1 text-[9px] text-slate-500">
                                         <input
                                           type="checkbox"

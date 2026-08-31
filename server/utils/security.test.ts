@@ -3,7 +3,6 @@ import crypto from "crypto";
 import {
   hashPassword,
   comparePasswords,
-  TAMANHO_MINIMO_DE_SENHA,
   encryptSecret,
   decryptSecret,
   maskSecret,
@@ -12,6 +11,12 @@ import {
   buildTotpEnrollmentUri,
   verifyTotpCode,
 } from "./security";
+import {
+  POLITICA_PADRAO,
+  LIMITES_DA_POLITICA,
+  normalizarPolitica,
+  violacoesDaPolitica,
+} from "./politicaDeSenha";
 
 describe("password hashing", () => {
   it("hashes and verifies a correct password", () => {
@@ -42,8 +47,26 @@ describe("password hashing", () => {
     expect(comparePasswords("wrong-password", legacyHash)).toBe(false);
   });
 
-  it("exige no minimo 12 caracteres (a politica configuravel vem na F3)", () => {
-    expect(TAMANHO_MINIMO_DE_SENHA).toBe(12);
+  // F3 (01/09/2026): a constante saiu. O que este teste guarda agora e o PADRAO DE FABRICA da
+  // politica configuravel - o valor que vale numa instalacao que nunca abriu a tela. Baixar este
+  // 12 seria a mesma regressao que baixar a constante era, so que passando despercebida por vir
+  // de um "default".
+  it("o padrao de fabrica da politica exige 12 caracteres, numero e caractere especial", () => {
+    expect(POLITICA_PADRAO.comprimento_minimo).toBe(12);
+    expect(POLITICA_PADRAO.exigir_numero).toBe(true);
+    expect(POLITICA_PADRAO.exigir_especial).toBe(true);
+  });
+
+  it("o chao do comprimento minimo e 8 - a tela nao pode desfazer a saida dos 8 caracteres", () => {
+    expect(LIMITES_DA_POLITICA.comprimento_minimo.minimo).toBe(8);
+    expect(normalizarPolitica({ comprimento_minimo: 4 }).comprimento_minimo).toBe(8);
+  });
+
+  it("acento e letra, nao caractere especial", () => {
+    const politica = { ...POLITICA_PADRAO, exigir_especial: true, exigir_numero: false };
+    // "senhacomacentoa" + "e" acentuado: 15 letras, nenhuma pontuacao.
+    expect(violacoesDaPolitica("senhacomacento\u00e9", politica).length).toBe(1);
+    expect(violacoesDaPolitica("senhacomacento!", politica).length).toBe(0);
   });
 
   it("rejects garbage hash values instead of throwing", () => {

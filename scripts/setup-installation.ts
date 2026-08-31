@@ -11,6 +11,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { execSync } from "child_process";
 import readline from "node:readline/promises";
+import { POLITICA_PADRAO, violacoesDaPolitica, mensagemDeViolacao, requisitosDaPolitica } from "../server/utils/politicaDeSenha";
 
 // ESM ("type": "module" in package.json) has no __dirname - derive it from import.meta.url.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -89,20 +90,48 @@ function generateSecret(): string {
 }
 
 /**
- * F1 (31/08/2026) — o mesmo número que `TAMANHO_MINIMO_DE_SENHA` (server/utils/security.ts).
- * Repetido aqui, e não importado, porque este script roda ANTES de o `.env` existir e importar
- * aquele módulo puxaria a conexão com o Redis junto — o mesmo motivo pelo qual `bootstrapTenant`
- * importa tudo por `await import()` lá embaixo.
+ * F3 (01/09/2026) — o número copiado saiu; o wizard usa o PADRÃO DE FÁBRICA da política.
+ *
+ * Importar `politicaDeSenha.ts` aqui é seguro, e importar `security.ts` não era: o primeiro é um
+ * módulo de funções puras, sem um único import; o segundo abre a conexão com o Redis no topo, e
+ * este script roda ANTES de o `.env` existir (é o mesmo motivo pelo qual `bootstrapTenant` importa
+ * tudo por `await import()` lá embaixo).
+ *
+ * É o PADRÃO, e não a política do tenant, porque o tenant está sendo criado agora — não há linha
+ * em `password_policies` para ler. Quem quiser outra política a define na tela, depois, em
+ * Administração › Usuários.
  */
-const MINIMO_DA_SENHA = 12;
+const POLITICA_DA_INSTALACAO = POLITICA_PADRAO;
+
+/**
+ * F3 (01/09/2026) — a senha gerada é montada POR CLASSE, para caber na política em vez de só ser
+ * longa. Sorteio uniforme de um alfabeto misto não garante um único dígito: numa instalação que
+ * exige número, a senha impressa aqui podia ser uma que a própria tela de troca recusaria.
+ *
+ * Continua sem os caracteres que se confundem lidos na tela (O/0, I/l/1) — ela é impressa uma vez
+ * e digitada à mão pelo menos uma vez.
+ */
+const MAIUSCULAS = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+const MINUSCULAS = "abcdefghijkmnopqrstuvwxyz";
+const NUMEROS = "23456789";
+const ESPECIAIS = "!@#$%";
+
+function sortearDe(alfabeto: string): string {
+  return alfabeto[crypto.randomInt(alfabeto.length)];
+}
 
 function generateStrongPassword(): string {
-  // 20 chars, alphanumeric + a few symbols - printed once, meant to be rotated/saved by the
-  // operator immediately (Admin > Usuários e Acessos has a reset-password action for later).
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
-  return Array.from(crypto.randomBytes(20))
-    .map((b) => chars[b % chars.length])
-    .join("");
+  const comprimento = Math.max(20, POLITICA_DA_INSTALACAO.comprimento_minimo);
+  const caracteres = [sortearDe(MAIUSCULAS), sortearDe(MINUSCULAS), sortearDe(NUMEROS), sortearDe(ESPECIAIS)];
+  const alfabeto = MAIUSCULAS + MINUSCULAS + NUMEROS + ESPECIAIS;
+  while (caracteres.length < comprimento) caracteres.push(sortearDe(alfabeto));
+
+  // Fisher-Yates com randomInt: embaralhamento uniforme e criptográfico.
+  for (let i = caracteres.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(i + 1);
+    [caracteres[i], caracteres[j]] = [caracteres[j], caracteres[i]];
+  }
+  return caracteres.join("");
 }
 
 interface Answers {
@@ -249,19 +278,27 @@ async function collectAnswers(): Promise<Answers> {
    * `password_hash` não existia mais e imprimir uma senha teria sido mentir. Agora a coluna
    * existe de novo: a senha informada aqui é gravada em scrypt e serve para entrar.
    *
-   * O mínimo é 12 caracteres, o mesmo número que `TAMANHO_MINIMO_DE_SENHA` impõe no servidor —
-   * aceitar menos aqui criaria uma instalação cuja senha inicial a própria tela de troca recusaria.
+   * O critério é o PADRÃO DE FÁBRICA da política de senha (F3) — aceitar menos aqui criaria uma
+   * instalação cuja senha inicial a própria tela de troca recusaria.
    */
   console.log("\n--- Acesso do administrador ---");
-  console.log(`A senha vive neste produto, em scrypt. Mínimo de ${MINIMO_DA_SENHA} caracteres.`);
+  console.log("A senha vive neste produto, em scrypt. A política inicial exige:");
+  for (const requisito of requisitosDaPolitica("", POLITICA_DA_INSTALACAO)) {
+    console.log(`  - ${requisito.texto}`);
+  }
+  console.log("  (dá para mudar depois em Administração > Usuários)");
   let adminPassword = await ask("Senha do administrador (Enter para gerar uma forte automaticamente)");
   let passwordWasGenerated = false;
   if (!adminPassword) {
     adminPassword = generateStrongPassword();
     passwordWasGenerated = true;
   }
-  while (adminPassword.length < MINIMO_DA_SENHA) {
-    console.log(`Curta demais: são pelo menos ${MINIMO_DA_SENHA} caracteres.`);
+  for (
+    let violacoes = violacoesDaPolitica(adminPassword, POLITICA_DA_INSTALACAO);
+    violacoes.length > 0;
+    violacoes = violacoesDaPolitica(adminPassword, POLITICA_DA_INSTALACAO)
+  ) {
+    console.log(mensagemDeViolacao(violacoes));
     adminPassword = await ask("Senha do administrador", { required: true });
     passwordWasGenerated = false;
   }

@@ -2,6 +2,8 @@ import React, { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowRight, CircleAlert, Key, Lock, Mail, ShieldAlert } from "lucide-react";
 import ApiClient from "../lib/api";
+import RequisitosDeSenha, { usePoliticaDeSenha } from "./RequisitosDeSenha";
+import { requisitosDaPolitica } from "../../server/utils/politicaDeSenha";
 
 interface LoginProps {
   locale: "pt";
@@ -20,10 +22,14 @@ interface LoginProps {
  * e rodapé de marca — é a que a F14/F14b padronizou entre os três produtos, e ela fica. A Fase 13
  * esvaziou o cartão; esta fase o preenche de novo, sem mexer na casca.
  *
- * O mínimo da senha é 12 caracteres, o mesmo número que `TAMANHO_MINIMO_DE_SENHA` impõe no
- * servidor. Aqui ele existe só para avisar antes de gastar uma ida à rede: quem decide é a rota.
+ * F3 (01/09/2026) — O NÚMERO COPIADO SAIU. A política de senha (comprimento, classes de
+ * caractere, histórico e validade) é editável por tenant em Administração › Usuários, e chega
+ * aqui por `GET /api/auth/password-policy` — com o token pendente, para o servidor resolver de
+ * qual instalação é a política, em vez de a tela escolher.
+ *
+ * A lista de requisitos acende enquanto a pessoa digita. Continua valendo que quem decide é a
+ * rota: a tela avisa antes de gastar uma ida à rede.
  */
-const TAMANHO_MINIMO_DE_SENHA = 12;
 
 export default function Login({ onLoginSuccess }: LoginProps) {
   const ehAmbienteDeDemonstracao = import.meta.env.VITE_APP_RUNTIME_MODE !== "production";
@@ -38,6 +44,9 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   const [senhaAtual, setSenhaAtual] = useState("");
   const [novaSenha, setNovaSenha] = useState("");
   const [confirmacaoDaNovaSenha, setConfirmacaoDaNovaSenha] = useState("");
+  // Enquanto não há token pendente (primeira tela), o servidor devolve o padrão de fábrica; assim
+  // que o login identifica a pessoa, a política vem a do tenant dela.
+  const politicaDeSenha = usePoliticaDeSenha(tokenPendente || undefined);
   const [erro, setErro] = useState("");
   const [carregando, setCarregando] = useState(false);
 
@@ -107,8 +116,9 @@ export default function Login({ onLoginSuccess }: LoginProps) {
     e.preventDefault();
     setErro("");
 
-    if (novaSenha.length < TAMANHO_MINIMO_DE_SENHA) {
-      setErro(`A nova senha precisa ter pelo menos ${TAMANHO_MINIMO_DE_SENHA} caracteres.`);
+    const pendentes = requisitosDaPolitica(novaSenha, politicaDeSenha).filter((r) => !r.atendido);
+    if (pendentes.length > 0) {
+      setErro(`A senha não cumpre a política: ${pendentes.map((r) => r.texto).join("; ")}.`);
       return;
     }
     if (novaSenha !== confirmacaoDaNovaSenha) {
@@ -241,16 +251,17 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                   <input
                     type="password"
                     required
-                    minLength={TAMANHO_MINIMO_DE_SENHA}
+                    minLength={politicaDeSenha.comprimento_minimo}
                     value={novaSenha}
                     onChange={(e) => setNovaSenha(e.target.value)}
                     className={classeDoCampo}
                     placeholder="••••••••"
+                    aria-describedby="requisitos-da-senha"
                   />
                 </div>
-                <p className="text-[10px] text-slate-500 mt-1">
-                  Mínimo de {TAMANHO_MINIMO_DE_SENHA} caracteres.
-                </p>
+                <div id="requisitos-da-senha">
+                  <RequisitosDeSenha senha={novaSenha} politica={politicaDeSenha} />
+                </div>
               </div>
 
               <div>
@@ -260,7 +271,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                   <input
                     type="password"
                     required
-                    minLength={TAMANHO_MINIMO_DE_SENHA}
+                    minLength={politicaDeSenha.comprimento_minimo}
                     value={confirmacaoDaNovaSenha}
                     onChange={(e) => setConfirmacaoDaNovaSenha(e.target.value)}
                     className={classeDoCampo}

@@ -19,9 +19,15 @@ import {
   revokeRefreshToken,
   REFRESH_TOKEN_COOKIE_NAME,
   issueSseTicket,
-  resolveSseTicket,
-  TAMANHO_MINIMO_DE_SENHA
+  resolveSseTicket
 } from "../utils/security";
+import { POLITICA_PADRAO, requisitosDaPolitica, violacoesDaPolitica, mensagemDeViolacao } from "../utils/politicaDeSenha";
+import {
+  lerPolitica,
+  precisaTrocarSenha,
+  registrarSenhaNoHistorico,
+  senhaJaFoiUsada,
+} from "../utils/politicaDeSenhaRepo";
 import { logDebugMessage, loginRateLimiter } from "../middleware/security";
 import { isProductionRuntime, isDemoRuntime } from "../config/runtime";
 import { runWithTenant } from "../../src/tenantContext";
@@ -194,7 +200,11 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     // hatch option here on purpose - the one route that must stay reachable
     // (POST /api/auth/change-password) doesn't go through requireAuth at all, it reads the login
     // token directly out of the request body, mirroring /mfa/enroll and /mfa/verify's own design.
-    if (user.must_change_password) {
+    // F3 (01/09/2026): o MESMO gate responde por duas coisas - a troca definida por um
+    // administrador e a senha VENCIDA pela validade da politica do tenant. Sao a mesma pergunta
+    // porque barram a mesma pessoa; um segundo caminho paralelo para a validade seria mais um
+    // lugar para esquecer, que foi exatamente o que aconteceu com GET /me ate a F1.
+    if (await precisaTrocarSenha(user)) {
       return res.status(403).json({
         success: false,
         code: "PASSWORD_CHANGE_REQUIRED",
@@ -412,7 +422,8 @@ router.post("/login", loginRateLimiter, async (req: Request, res: Response, next
       res.json({
         success: true,
         mfa_required: mfaRequired,
-        must_change_password: user.must_change_password,
+        // F3: um so gate - troca definida pelo administrador OU senha vencida (`precisaTrocarSenha`).
+        must_change_password: await precisaTrocarSenha(user),
         token: session.token,
         user: await buildSessionUser(user, role)
       });
@@ -498,13 +509,14 @@ router.post("/change-password", async (req: Request, res: Response, next: NextFu
     if (!token || !current_password || !new_password) {
       return res.status(400).json({ success: false, message: "Token, senha atual e nova senha são obrigatórios." });
     }
-    // F1 (31/08/2026): 12, nao os 8 de antes da Fase 13 - baixar de volta seria regressao de
-    // seguranca. A politica CONFIGURAVEL (maiuscula, numero, caractere especial) e a F3.
-    if (typeof new_password !== "string" || new_password.length < TAMANHO_MINIMO_DE_SENHA) {
-      return res.status(400).json({
-        success: false,
-        message: `A nova senha precisa ter pelo menos ${TAMANHO_MINIMO_DE_SENHA} caracteres.`
-      });
+    // F3 (01/09/2026): a politica vem do banco, por tenant, e e ESTA linha que decide. A tela
+    // mostra os mesmos requisitos enquanto a pessoa digita (GET /api/auth/password-policy), mas
+    // mostrar e conveniencia: uma tela pode ser contornada, esta verificacao nao.
+    //
+    // A politica so pode ser lida DEPOIS de resolver a sessao (e preciso saber o tenant), entao a
+    // verificacao de composicao desceu para junto da verificacao de senha atual, mais abaixo.
+    if (typeof new_password !== "string") {
+      return res.status(400).json({ success: false, message: "Nova senha invalida." });
     }
 
     const session = await getSession(token);
@@ -527,6 +539,12 @@ router.post("/change-password", async (req: Request, res: Response, next: NextFu
       return res.status(404).json({ success: false, message: "User not found." });
     }
 
+    const politica = await lerPolitica(user.tenant_id);
+    const violacoes = violacoesDaPolitica(new_password, politica);
+    if (violacoes.length > 0) {
+      return res.status(400).json({ success: false, message: mensagemDeViolacao(violacoes) });
+    }
+
     await runWithTenant({ tenantId: user.tenant_id }, async () => {
       const passwordHash = await dbStore.getUserPasswordHash(user.id);
       if (!comparePasswords(current_password, passwordHash || "")) {
@@ -537,8 +555,24 @@ router.post("/change-password", async (req: Request, res: Response, next: NextFu
         res.status(400).json({ success: false, message: "A nova senha precisa ser diferente da senha atual." });
         return;
       }
+      // F3 - historico de reuso. A mensagem diz QUANTAS senhas a politica cobre, mas nunca qual
+      // delas bateu: dizer "essa foi a sua senha de marco" e contar algo sobre uma senha antiga.
+      if (await senhaJaFoiUsada(user.tenant_id, user.id, new_password)) {
+        res.status(400).json({
+          success: false,
+          message: `A nova senha nao pode repetir nenhuma das ultimas ${politica.historico_de_reuso} senhas usadas.`
+        });
+        return;
+      }
 
-      await dbStore.updateUser(user.id, { password_hash: hashPassword(new_password), must_change_password: false });
+      // `updateUser` carimba `password_changed_at` sozinho quando recebe `password_hash` - e o
+      // que zera o relogio da validade. Sem isso, uma senha recem-trocada continuaria vencida e a
+      // pessoa cairia na tela de troca de novo, para sempre.
+      const novoHash = hashPassword(new_password);
+      await dbStore.updateUser(user.id, { password_hash: novoHash, must_change_password: false });
+      // O historico guarda a senha NOVA: "as ultimas N senhas usadas" inclui a que acabou de
+      // valer. Guardar a antiga em vez desta faria uma politica de 5 barrar 6 senhas na pratica.
+      await registrarSenhaNoHistorico(user.tenant_id, user.id, novoHash);
 
       await dbStore.addAuditLog({
         user_id: user.id,
@@ -652,7 +686,7 @@ router.post("/mfa/verify", async (req: Request, res: Response, next: NextFunctio
       return res.json({
         success: true,
         verified: true,
-        must_change_password: user?.must_change_password,
+        must_change_password: user ? await precisaTrocarSenha(user) : false,
         user: result
       });
     }
@@ -737,6 +771,38 @@ router.post("/refresh", async (req: Request, res: Response, next: NextFunction) 
   }
 });
 
+/**
+ * F3 (01/09/2026) - a politica de senha VIGENTE, para a tela mostrar os requisitos enquanto a
+ * pessoa digita, em vez de so quando ela erra.
+ *
+ * O TENANT VEM DO TOKEN PENDENTE, nao de um parametro. Esta rota e usada pela tela de troca
+ * obrigatoria, que roda antes de existir sessao completa (mesmo desenho de /mfa/enroll e
+ * /change-password: o token vem no corpo/consulta, nao pelo requireAuth). Aceitar um tenant vindo
+ * de fora deixaria qualquer um perguntar a politica de qualquer instalacao.
+ *
+ * SEM TOKEN a resposta e o PADRAO DE FABRICA, nao um erro: a tela de login precisa desenhar algo
+ * antes de a pessoa se identificar, e o que se revela e "senhas aqui tem 12 caracteres e pedem
+ * numero" - a mesma coisa que a primeira mensagem de erro revelaria. Nenhum dado de conta sai
+ * daqui.
+ */
+router.get("/password-policy", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const token = (req.query.token as string) || "";
+    let tenantId: string | undefined;
+    if (token) {
+      const session = await getSession(token);
+      if (session) {
+        const user = await dbStore.getUserById(session.userId);
+        tenantId = user?.tenant_id;
+      }
+    }
+    const politica = tenantId ? await lerPolitica(tenantId) : POLITICA_PADRAO;
+    res.json({ success: true, politica, requisitos: requisitosDaPolitica("", politica) });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET CURRENT SESSION PROFILE
 router.get("/me", async (req: Request, res: Response, next: NextFunction) => {
   const authHeader = req.headers["authorization"];
@@ -778,7 +844,7 @@ router.get("/me", async (req: Request, res: Response, next: NextFunction) => {
     // Mesmo codigo do requireAuth, para o frontend tratar os dois do mesmo jeito. A rota que
     // resolve a pendencia (POST /change-password) continua alcancavel: ela le o token do corpo
     // e nao passa por aqui.
-    if (user.must_change_password) {
+    if (await precisaTrocarSenha(user)) {
       return res.status(403).json({
         success: false,
         code: "PASSWORD_CHANGE_REQUIRED",
