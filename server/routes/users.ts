@@ -5,6 +5,7 @@ import { dbStore } from "../../src/dbStore";
 import { requirePermission } from "./auth";
 import { requireUserId } from "../middleware/security";
 import { UserStatus } from "../../src/types";
+import { hashPassword, TAMANHO_MINIMO_DE_SENHA } from "../utils/security";
 
 const router = express.Router();
 
@@ -19,6 +20,11 @@ const CreateUserSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters long"),
   email: z.string().email("Invalid email format"),
   role_id: z.string().min(1, "Role ID is required"),
+  // F1 (31/08/2026): o minimo subiu de 8 para 12 - ver TAMANHO_MINIMO_DE_SENHA.
+  initial_password: z
+    .string()
+    .min(TAMANHO_MINIMO_DE_SENHA, `Initial password must be at least ${TAMANHO_MINIMO_DE_SENHA} characters long`)
+    .optional(),
 });
 
 const UpdateUserSchema = z.object({
@@ -26,8 +32,14 @@ const UpdateUserSchema = z.object({
   email: z.string().email().optional(),
   role_id: z.string().optional(),
   status: z.nativeEnum(UserStatus).optional(),
+  mfa_enabled: z.boolean().optional(),
+  password: z
+    .string()
+    .min(TAMANHO_MINIMO_DE_SENHA, `Password must be at least ${TAMANHO_MINIMO_DE_SENHA} characters long`)
+    .optional(),
   // Roadmap (segurança): só tem efeito junto de `password` - default true (força a troca), o
   // admin desmarca conscientemente na tela se não quiser. Ignorado se nenhuma senha for enviada.
+  force_password_change: z.boolean().optional(),
 });
 
 // Protect with users admin permissions
@@ -59,6 +71,9 @@ router.post("/", requirePermission("admin:users"), async (req: Request, res: Res
       name: validated.name,
       email: normalizedEmail,
       role_id: validated.role_id,
+      // F1: o padrao tinha 12 caracteres por acaso; agora ha uma regra, e ele tem de caber
+      // nela - senao a rota criaria uma conta com senha que a propria rota recusaria.
+      password_hash: hashPassword(validated.initial_password || "TrocarAgora2026!"),
     });
 
     // Audit Log
@@ -107,19 +122,23 @@ router.put("/:id", requirePermission("admin:users"), async (req: Request, res: R
       }
     }
 
+    const { password, force_password_change, ...safeUpdates } = validated;
     const updatedUser = await dbStore.updateUser(req.params.id, {
-      ...validated,
+      ...safeUpdates,
       email: normalizedEmail,
+      ...(password ? { password_hash: hashPassword(password), must_change_password: force_password_change !== false } : {}),
     });
 
-    // Fase 13 — ligar/desligar segundo fator e redefinir senha saíram desta tela: são do
-    // Keycloak agora, que os oferece nativamente e de forma mais completa (TOTP, WebAuthn,
-    // códigos de recuperação, política de senha). Manter aqui significaria duas verdades sobre a
-    // mesma credencial, e só uma delas autenticaria de fato.
+    // Disabling MFA also clears the enrolled TOTP secret so a future re-enable starts fresh
+    // instead of silently resurrecting an old secret nobody can prove they still hold.
+    if (validated.mfa_enabled === false) {
+      await dbStore.setUserMfaSecret(req.params.id, null);
+    }
 
-    // Não há mais senha neste payload para redigir: o corpo aceito por esta rota passou a ser só
-    // nome, e-mail, papel e status.
     const auditMetadata = { ...validated } as any;
+    if (auditMetadata.password) {
+      auditMetadata.password = "[password-updated]";
+    }
 
     await dbStore.addAuditLog({
       user_id: requireUserId(req),

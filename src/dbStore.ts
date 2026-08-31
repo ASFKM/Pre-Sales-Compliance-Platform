@@ -58,6 +58,8 @@ function mapUser(u: any): User {
     tenant_id: u.tenantId,
     name: u.name,
     email: u.email,
+    mfa_enabled: u.mfaEnabled,
+    must_change_password: u.mustChangePassword,
     status: u.status,
     role_id: u.roleId,
     created_at: u.createdAt.toISOString(),
@@ -642,20 +644,18 @@ class DBStore {
     return u ? mapUser(u) : undefined;
   }
 
-  /**
-   * Fase 13 — criar alguém aqui é dizer que essa pessoa existe neste produto, com que papel e em
-   * que tenant. A CREDENCIAL não vem junto: ela vive no Keycloak (realm `cloudmountain`,
-   * compartilhado com o CMCRM e o CMSaaS), e a mesma senha vale para os três produtos.
-   *
-   * Quem cria uma conta por aqui precisa garantir que ela também exista no realm — senão a pessoa
-   * consegue se autenticar em nada, ou se autentica e não é reconhecida aqui. O caminho para isso
-   * é o script `migra-contas-para-sso.ts` do repositório do CMCRM, ou o console do realm.
-   */
+  public async getUserPasswordHash(id: string): Promise<string | null> {
+    const u = await prisma.user.findUnique({ where: { id }, select: { passwordHash: true } });
+    return u?.passwordHash ?? null;
+  }
+
   public async createUser(data: {
     name: string;
     email: string;
     role_id: string;
     status?: UserStatus;
+    mfa_enabled?: boolean;
+    password_hash: string;
   }): Promise<User> {
     const u = await prisma.user.create({
       data: {
@@ -665,12 +665,17 @@ class DBStore {
         email: data.email.toLowerCase().trim(),
         roleId: data.role_id,
         status: data.status || UserStatus.ACTIVE,
+        mfaEnabled: data.mfa_enabled ?? false,
+        passwordHash: data.password_hash,
+        // Roadmap (segurança): sempre true na criação, sem opção de desligar - o admin sempre
+        // define/aceita a senha inicial, então o usuário sempre precisa trocá-la no primeiro login.
+        mustChangePassword: true,
       },
     });
     return mapUser(u);
   }
 
-  public async updateUser(id: string, updates: Partial<User>): Promise<User | undefined> {
+  public async updateUser(id: string, updates: Partial<User> & { password_hash?: string }): Promise<User | undefined> {
     const exists = await prisma.user.findUnique({ where: { id } });
     if (!exists) return undefined;
 
@@ -681,6 +686,9 @@ class DBStore {
         email: updates.email ? updates.email.toLowerCase().trim() : undefined,
         roleId: updates.role_id,
         status: updates.status,
+        mfaEnabled: updates.mfa_enabled,
+        passwordHash: updates.password_hash,
+        mustChangePassword: updates.must_change_password,
       },
     });
     return mapUser(u);
@@ -697,6 +705,15 @@ class DBStore {
 
   public async setUserLastLogin(id: string): Promise<void> {
     await prisma.user.update({ where: { id }, data: { lastLoginAt: new Date() } });
+  }
+
+  public async getUserMfaSecretEncrypted(id: string): Promise<string | null> {
+    const u = await prisma.user.findUnique({ where: { id }, select: { mfaTotpSecret: true } });
+    return u?.mfaTotpSecret ?? null;
+  }
+
+  public async setUserMfaSecret(id: string, encryptedSecret: string | null): Promise<void> {
+    await prisma.user.update({ where: { id }, data: { mfaTotpSecret: encryptedSecret } });
   }
 
   // Roles

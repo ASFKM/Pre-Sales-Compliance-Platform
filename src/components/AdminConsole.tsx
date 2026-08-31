@@ -579,8 +579,10 @@ export default function AdminConsole({
   const [newUserRoleId, setNewUserRoleId] = useState<string>("r3");
   const [newUserPassword, setNewUserPassword] = useState<string>("ChangeMe123!");
   const [editingUserId, setEditingUserId] = useState<string>("");
+  const [editingUserPassword, setEditingUserPassword] = useState<string>("");
   // Roadmap (segurança): marcado por padrão sempre que o admin define uma senha nova para um
   // usuário existente - o admin desmarca conscientemente se não quiser forçar a troca.
+  const [forcePasswordChangeOnReset, setForcePasswordChangeOnReset] = useState<boolean>(true);
 
   const [showNewConnectorForm, setShowNewConnectorForm] = useState<boolean>(false);
   const [newConnectorName, setNewConnectorName] = useState<string>("");
@@ -1258,12 +1260,18 @@ export default function AdminConsole({
                                   ))}
                                 </select>
                               </td>
-                              {/* Fase 13 — o segundo fator saiu desta tela: é do Keycloak agora,
-                                  que oferece TOTP, WebAuthn e códigos de recuperação. Manter o
-                                  interruptor aqui daria a impressão de controlar algo que ele
-                                  não controla mais. */}
-                              <td className="p-3 text-center text-[10px] text-slate-400">
-                                {tx("in Keycloak", "no Keycloak")}
+                              <td className="p-3 text-center">
+                                <label className="inline-flex items-center gap-2 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={!!u.mfa_enabled}
+                                    onChange={(e) => {
+                                      setUsers(users.map((usr) => usr.id === u.id ? { ...usr, mfa_enabled: e.target.checked } : usr));
+                                      handleUpdateUser(u.id, { mfa_enabled: e.target.checked });
+                                    }}
+                                  />
+                                  <span>{u.mfa_enabled ? tx("Active", "Ativo") : tx("Disabled", "Desativado")}</span>
+                                </label>
                               </td>
                               <td className="p-3">
                                 <select
@@ -1299,9 +1307,45 @@ export default function AdminConsole({
                                     </button>
                                   </div>
                                   {editingUserId === u.id && (
-                                    <span className="text-[10px] text-slate-400">
-                                      {tx("password in Keycloak", "senha no Keycloak")}
-                                    </span>
+                                    <div className="flex flex-col gap-1">
+                                      <div className="flex gap-1">
+                                        <input
+                                          type="password"
+                                          value={editingUserPassword}
+                                          onChange={(e) => setEditingUserPassword(e.target.value)}
+                                          placeholder={locale === "pt" ? "Nova senha" : "New password"}
+                                          className="w-28 p-1 border border-slate-200 rounded text-[10px]"
+                                        />
+                                        <button
+                                          onClick={async () => {
+                                            // F1 (31/08/2026): 12, o mesmo numero que o
+                                            // servidor exige (TAMANHO_MINIMO_DE_SENHA). A tela
+                                            // avisa antes de gastar uma ida ao servidor; quem
+                                            // decide de verdade e a rota.
+                                            if (editingUserPassword.length < 12) {
+                                              alert(locale === "pt" ? "A senha deve ter pelo menos 12 caracteres." : "Password must have at least 12 characters.");
+                                              return;
+                                            }
+                                            await handleUpdateUser(u.id, { password: editingUserPassword, force_password_change: forcePasswordChangeOnReset });
+                                            setEditingUserId("");
+                                            setEditingUserPassword("");
+                                            setForcePasswordChangeOnReset(true);
+                                            alert(locale === "pt" ? "Senha atualizada." : "Password updated.");
+                                          }}
+                                          className="bg-brand-600 text-white px-2 py-1 rounded text-[10px] font-bold"
+                                        >
+                                          OK
+                                        </button>
+                                      </div>
+                                      <label className="flex items-center gap-1 text-[9px] text-slate-500">
+                                        <input
+                                          type="checkbox"
+                                          checked={forcePasswordChangeOnReset}
+                                          onChange={(e) => setForcePasswordChangeOnReset(e.target.checked)}
+                                        />
+                                        {locale === "pt" ? "Forçar troca de senha no próximo login" : "Force password change on next login"}
+                                      </label>
+                                    </div>
                                   )}
                                 </div>
                               </td>

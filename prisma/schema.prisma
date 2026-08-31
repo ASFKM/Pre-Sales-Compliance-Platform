@@ -303,25 +303,29 @@ model Tenant {
 }
 
 model User {
-  id          String     @id
-  tenantId    String     @map("tenant_id")
-  tenant      Tenant     @relation(fields: [tenantId], references: [id])
-  name        String
-  // O e-mail é a chave que liga esta conta à identidade no Keycloak (realm `cloudmountain`,
-  // compartilhado com o CMCRM e o CMSaaS) e, por tabela, ao tenant dela. Não há coluna para o
-  // `sub`: o vínculo é por e-mail, que já era único no banco inteiro.
-  email       String     @unique
-  // Fase 13 — `password_hash`, `mfa_enabled`, `mfa_totp_secret` e `must_change_password` foram
-  // REMOVIDAS. Senha, segundo fator e troca obrigatória passaram a ser do Keycloak, com política
-  // mais forte (12 caracteres com histórico de 5, contra os 8 daqui) e WebAuthn de brinde.
-  // `password_hash` guardava, além de scrypt, um formato legado SHA-256 SEM SALT — manter isso
-  // num banco que ninguém mais consulta para autenticar seria conservar o risco sem a função.
-  status      UserStatus @default(ACTIVE)
-  roleId      String     @map("role_id")
-  role        Role       @relation(fields: [roleId], references: [id])
-  createdAt   DateTime   @default(now()) @map("created_at")
-  updatedAt   DateTime   @updatedAt @map("updated_at")
-  lastLoginAt DateTime?  @map("last_login_at")
+  id                 String     @id
+  tenantId           String     @map("tenant_id")
+  tenant             Tenant     @relation(fields: [tenantId], references: [id])
+  name               String
+  email              String     @unique
+  // F1 (31/08/2026) - a credencial VOLTA para este produto. O Keycloak compartilhado saiu de
+  // cena: PreSales, CMSaaS e CMCRM voltam a gerenciar os proprios usuarios. O hash e scrypt com
+  // salt por usuario (server/utils/security.ts). O formato legado SHA-256 SEM SALT, que a coluna
+  // aceitava antes da Fase 13, NAO voltou - e nenhum dado antigo sobreviveu a migration
+  // destrutiva de 30/08, entao nao ha nada nesse formato para ler.
+  passwordHash       String?    @map("password_hash")
+  mfaEnabled         Boolean    @default(false) @map("mfa_enabled")
+  mfaTotpSecret      String?    @map("mfa_totp_secret")
+  // Roadmap (seguranca): sempre true na criacao, ou quando o admin redefine a senha de um usuario
+  // que a perdeu - bloqueia todas as rotas exceto POST /api/auth/change-password ate ser zerado.
+  // Mesmo padrao estrutural de gate que mfaEnabled/session.mfaVerified ja usa (ver requireAuth).
+  mustChangePassword Boolean    @default(false) @map("must_change_password")
+  status             UserStatus @default(ACTIVE)
+  roleId             String     @map("role_id")
+  role               Role       @relation(fields: [roleId], references: [id])
+  createdAt          DateTime   @default(now()) @map("created_at")
+  updatedAt          DateTime   @updatedAt @map("updated_at")
+  lastLoginAt        DateTime?  @map("last_login_at")
 
   ownedProjects        Project[]        @relation("ProjectOwner")
   managedEngineers     TeamMembership[] @relation("TeamManager")

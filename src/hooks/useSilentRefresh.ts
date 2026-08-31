@@ -1,45 +1,32 @@
 import { useEffect } from "react";
-import { userManager } from "../auth/oidc";
 
-/**
- * Mantém o token de acesso renovado em segundo plano.
- *
- * Fase 13 — antes isto batia em `POST /api/auth/refresh`, que rodava o mecanismo próprio de
- * família de refresh token com detecção de reuso. Esse mecanismo saiu junto com o login próprio:
- * quem renova agora é o Keycloak, que faz o mesmo com revogação a cada uso
- * (`revokeRefreshToken` e `refreshTokenMaxReuse: 0` no realm).
- *
- * O `UserManager` já cuida da renovação sozinho (`automaticSilentRenew`). O que este hook faz é
- * o elo que falta: copiar o token novo para `localStorage`, de onde o interceptor global de
- * `fetch` o lê. Sem isso a renovação aconteceria e ninguém usaria o resultado — as requisições
- * continuariam saindo com o token velho até ele expirar, e só então a pessoa cairia para fora.
- */
-export function useSilentRefresh(enabled: boolean, onFailure: () => void) {
+// Phase 2 (auth hardening): the access token is now short-lived (10 min) since it's backed by
+// refresh token rotation - this keeps it renewed in the background so the user is never
+// interrupted by it expiring mid-session. The refresh token itself is an httpOnly cookie, never
+// touched here; the browser sends it automatically with this same-origin request.
+const REFRESH_INTERVAL_MS = 8 * 60 * 1000;
+
+export function useSilentRefresh(isAuthenticated: boolean, onSessionExpired: () => void) {
   useEffect(() => {
-    if (!enabled) return;
+    if (!isAuthenticated) return;
 
-    const aoCarregar = (user: { access_token: string }) => {
-      localStorage.setItem("ca_session_token", user.access_token);
+    const refresh = async () => {
+      try {
+        const res = await fetch("/api/auth/refresh", { method: "POST" });
+        if (!res.ok) {
+          onSessionExpired();
+          return;
+        }
+        const data = await res.json();
+        if (data.token) {
+          localStorage.setItem("ca_session_token", data.token);
+        }
+      } catch (err) {
+        console.error("Silent token refresh failed", err);
+      }
     };
 
-    /**
-     * Falha de renovação é o fim da sessão: o refresh token expirou, foi revogado, ou o Keycloak
-     * está fora do ar. Dispara o mesmo caminho de saída que qualquer 401 já dispara, em vez de
-     * deixar a pessoa numa tela que silenciosamente para de funcionar.
-     */
-    const aoFalhar = () => {
-      localStorage.removeItem("ca_session_token");
-      onFailure();
-    };
-
-    userManager.events.addUserLoaded(aoCarregar);
-    userManager.events.addSilentRenewError(aoFalhar);
-    userManager.events.addAccessTokenExpired(aoFalhar);
-
-    return () => {
-      userManager.events.removeUserLoaded(aoCarregar);
-      userManager.events.removeSilentRenewError(aoFalhar);
-      userManager.events.removeAccessTokenExpired(aoFalhar);
-    };
-  }, [enabled, onFailure]);
+    const interval = setInterval(refresh, REFRESH_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [isAuthenticated, onSessionExpired]);
 }

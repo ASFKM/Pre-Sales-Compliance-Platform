@@ -3,7 +3,7 @@ import crypto from "crypto";
 import {
   hashPassword,
   comparePasswords,
-  isLegacyPasswordHash,
+  TAMANHO_MINIMO_DE_SENHA,
   encryptSecret,
   decryptSecret,
   maskSecret,
@@ -32,11 +32,18 @@ describe("password hashing", () => {
     expect(comparePasswords("same input", b)).toBe(true);
   });
 
-  it("still verifies legacy plain SHA-256 hashes", () => {
+  // F1 (31/08/2026): o inverso do que este teste afirmava. O ramo SHA-256 SEM SALT nao voltou
+  // junto com a autenticacao propria, e um hash nesse formato deixa de autenticar - inclusive
+  // com a senha certa. Nao ha registro nesse formato para quebrar: a migration destrutiva de
+  // 30/08 apagou todos os hashes antes desta volta.
+  it("recusa hash legado em SHA-256 sem sal, mesmo com a senha certa", () => {
     const legacyHash = crypto.createHash("sha256").update("legacy-password").digest("hex");
-    expect(isLegacyPasswordHash(legacyHash)).toBe(true);
-    expect(comparePasswords("legacy-password", legacyHash)).toBe(true);
+    expect(comparePasswords("legacy-password", legacyHash)).toBe(false);
     expect(comparePasswords("wrong-password", legacyHash)).toBe(false);
+  });
+
+  it("exige no minimo 12 caracteres (a politica configuravel vem na F3)", () => {
+    expect(TAMANHO_MINIMO_DE_SENHA).toBe(12);
   });
 
   it("rejects garbage hash values instead of throwing", () => {

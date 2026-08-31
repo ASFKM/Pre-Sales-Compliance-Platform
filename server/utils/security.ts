@@ -8,9 +8,19 @@ const PASSWORD_HASH_ALGORITHM = "scrypt";
 const PASSWORD_HASH_KEY_LENGTH = 64;
 const PASSWORD_HASH_SALT_LENGTH = 16;
 
-function legacySha256PasswordHash(password: string): string {
-  return crypto.createHash("sha256").update(password).digest("hex");
-}
+/**
+ * F1 (31/08/2026) - o tamanho minimo da senha, em um lugar so.
+ *
+ * Sao 12, e nao os 8 que este produto exigia antes da Fase 13. Baixar de volta para 8 seria
+ * regressao: a politica do realm que autenticou o produto nos ultimos dois dias ja exigia 12, e
+ * a volta da autenticacao para dentro do produto nao e motivo para enfraquecer o que existe.
+ *
+ * A politica CONFIGURAVEL (maiuscula, numero, caractere especial, escolhidos em
+ * Administracao > Usuarios) e a F3 deste mesmo programa. Aqui ha so a constante correta, lida
+ * pelo servidor (POST /api/auth/change-password, criacao e redefinicao de usuario) e espelhada
+ * na tela de troca de senha.
+ */
+export const TAMANHO_MINIMO_DE_SENHA = 12;
 
 function safeEqualHex(leftHex: string, rightHex: string): boolean {
   try {
@@ -33,10 +43,18 @@ export function hashPassword(password: string): string {
   return `${PASSWORD_HASH_ALGORITHM}$${salt}$${derived}`;
 }
 
-export function isLegacyPasswordHash(hashed: string): boolean {
-  return /^[a-f0-9]{64}$/i.test(hashed);
-}
-
+/**
+ * F1 (31/08/2026) - SO scrypt.
+ *
+ * Ate a Fase 13 esta funcao tambem aceitava um hash SHA-256 SEM SALT (`isLegacyPasswordHash`),
+ * herdado de contas antigas: 64 digitos hexadecimais, sem sal, sem custo, quebravel em tabela
+ * arco-iris. Esse ramo NAO voltou junto com o resto da autenticacao. Nao ha o que ele leria: a
+ * migration destrutiva de 30/08 apagou todos os hashes, entao nenhum registro nesse formato
+ * sobreviveu, e aceita-lo agora seria abrir uma porta que nao serve a ninguem.
+ *
+ * Um hash em formato desconhecido - inclusive os 64 hex de antigamente - recebe `false`, o mesmo
+ * que uma senha errada.
+ */
 export function comparePasswords(passwordInput: string, hashed: string): boolean {
   if (!hashed) return false;
 
@@ -47,10 +65,6 @@ export function comparePasswords(passwordInput: string, hashed: string): boolean
     const [, salt, storedDerived] = parts;
     const derived = crypto.scryptSync(passwordInput, salt, PASSWORD_HASH_KEY_LENGTH).toString("hex");
     return safeEqualHex(derived, storedDerived);
-  }
-
-  if (isLegacyPasswordHash(hashed)) {
-    return safeEqualHex(legacySha256PasswordHash(passwordInput), hashed);
   }
 
   return false;
