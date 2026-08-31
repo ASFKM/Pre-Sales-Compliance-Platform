@@ -189,6 +189,17 @@ enum ProposalStatus {
   released
 }
 
+/// Item 18 do catalogo Reforma CloudMountain: a resposta do CLIENTE depois da liberacao.
+///
+/// Enum PROPRIO, e nao mais dois valores em `ProposalStatus`, porque sao eixos diferentes: o
+/// status conta onde a proposta esta no fluxo INTERNO (rascunho -> aprovada -> liberada), e isto
+/// conta o que o cliente respondeu depois que ela saiu. Misturar os dois faria uma proposta
+/// "recusada" ser ambigua para sempre - recusada por quem, o revisor ou o cliente?
+enum ClientDecision {
+  accepted
+  declined
+}
+
 enum ApproverType {
   user
   role
@@ -292,36 +303,36 @@ model Tenant {
 }
 
 model User {
-  id                 String     @id
-  tenantId           String     @map("tenant_id")
-  tenant             Tenant     @relation(fields: [tenantId], references: [id])
-  name               String
+  id          String     @id
+  tenantId    String     @map("tenant_id")
+  tenant      Tenant     @relation(fields: [tenantId], references: [id])
+  name        String
   // O e-mail é a chave que liga esta conta à identidade no Keycloak (realm `cloudmountain`,
   // compartilhado com o CMCRM e o CMSaaS) e, por tabela, ao tenant dela. Não há coluna para o
   // `sub`: o vínculo é por e-mail, que já era único no banco inteiro.
-  email              String     @unique
+  email       String     @unique
   // Fase 13 — `password_hash`, `mfa_enabled`, `mfa_totp_secret` e `must_change_password` foram
   // REMOVIDAS. Senha, segundo fator e troca obrigatória passaram a ser do Keycloak, com política
   // mais forte (12 caracteres com histórico de 5, contra os 8 daqui) e WebAuthn de brinde.
   // `password_hash` guardava, além de scrypt, um formato legado SHA-256 SEM SALT — manter isso
   // num banco que ninguém mais consulta para autenticar seria conservar o risco sem a função.
-  status             UserStatus @default(ACTIVE)
-  roleId             String     @map("role_id")
-  role               Role       @relation(fields: [roleId], references: [id])
-  createdAt          DateTime   @default(now()) @map("created_at")
-  updatedAt          DateTime   @updatedAt @map("updated_at")
-  lastLoginAt        DateTime?  @map("last_login_at")
+  status      UserStatus @default(ACTIVE)
+  roleId      String     @map("role_id")
+  role        Role       @relation(fields: [roleId], references: [id])
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+  lastLoginAt DateTime?  @map("last_login_at")
 
-  ownedProjects    Project[]        @relation("ProjectOwner")
-  managedEngineers TeamMembership[] @relation("TeamManager")
-  teamMemberships  TeamMembership[] @relation("TeamEngineer")
-  ownedPocs        Poc[]            @relation("PocOwner")
-  assignedDemands  Demand[]         @relation("DemandAssignee")
-  directedDemands  Demand[]         @relation("DemandDirectedBy")
-  returnRequests   Demand[]         @relation("DemandReturnRequester")
-  returnDecisions  Demand[]         @relation("DemandReturnDecider")
-  closedCancellations Demand[]      @relation("DemandCancellationCloser")
-  decidedDemandUpdates DemandUpdate[] @relation("DemandUpdateDecider")
+  ownedProjects        Project[]        @relation("ProjectOwner")
+  managedEngineers     TeamMembership[] @relation("TeamManager")
+  teamMemberships      TeamMembership[] @relation("TeamEngineer")
+  ownedPocs            Poc[]            @relation("PocOwner")
+  assignedDemands      Demand[]         @relation("DemandAssignee")
+  directedDemands      Demand[]         @relation("DemandDirectedBy")
+  returnRequests       Demand[]         @relation("DemandReturnRequester")
+  returnDecisions      Demand[]         @relation("DemandReturnDecider")
+  closedCancellations  Demand[]         @relation("DemandCancellationCloser")
+  decidedDemandUpdates DemandUpdate[]   @relation("DemandUpdateDecider")
 
   // Módulo de Precificação (add-on)
   priceListUploads       PriceListUpload[]
@@ -1288,6 +1299,24 @@ model Proposal {
   // read. Nullable: most proposals will never have a run.
   latestOpinionRunId    String?          @map("latest_opinion_run_id")
 
+  // ─── Item 18: a decisao do CLIENTE, registrada depois da liberacao ──────────────────────────
+  //
+  // Quem decide se o negocio foi ganho ou perdido e o CRM (`opportunities.status` no CMCRM) -
+  // decisao do dono em 31/08/2026. Estes campos existem para o cenario SEM integracao, em que o
+  // Comercial registra aqui o que o cliente respondeu, e este produto empurra o evento
+  // correspondente para a timeline do CRM.
+  //
+  // Campos separados, e nao um `status` novo: a proposta continua `released` depois da resposta.
+  // O que muda e o desfecho comercial dela, que e outro eixo (ver o comentario do enum).
+  //
+  // `clientDecisionNote` e OBRIGATORIA na recusa e opcional no aceite, pelo mesmo motivo que o
+  // CMCRM exige `outcomeReason` para marcar uma oportunidade como perdida: "perdemos" sem motivo
+  // e um dado que nao responde a nenhuma pergunta depois.
+  clientDecision         ClientDecision? @map("client_decision")
+  clientDecisionAt       DateTime?       @map("client_decision_at")
+  clientDecisionByUserId String?         @map("client_decision_by_user_id")
+  clientDecisionNote     String?         @map("client_decision_note") @db.Text
+
   decisions   ApprovalDecision[]
   opinionRuns ProposalOpinionRun[]
 
@@ -1326,16 +1355,16 @@ model ProposalOpinionRun {
 }
 
 model ProposalAiOpinionItem {
-  id           String             @id
-  tenantId     String             @map("tenant_id")
-  tenant       Tenant             @relation(fields: [tenantId], references: [id])
-  runId        String             @map("run_id")
-  run          ProposalOpinionRun @relation(fields: [runId], references: [id], onDelete: Cascade)
-  perspective  String // "technical" | "commercial" | "legal" | "financial"
-  status       String // "completed" | "failed"
-  severity     String? // "info" | "warning" | "critical"
-  summary      String             @db.Text
-  content      String             @db.Text
+  id             String             @id
+  tenantId       String             @map("tenant_id")
+  tenant         Tenant             @relation(fields: [tenantId], references: [id])
+  runId          String             @map("run_id")
+  run            ProposalOpinionRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  perspective    String // "technical" | "commercial" | "legal" | "financial"
+  status         String // "completed" | "failed"
+  severity       String? // "info" | "warning" | "critical"
+  summary        String             @db.Text
+  content        String             @db.Text
   // Structured, machine-applicable half of the opinion (PARTE B do prompt "PreSales · F7") - set
   // only when the AI had one concrete, specific change to recommend to a field this proposal's own
   // type can actually take (PROPOSAL_TYPE_EDITABLE_FIELDS, server/utils/proposalTypes.ts) - most
@@ -1343,12 +1372,12 @@ model ProposalAiOpinionItem {
   // Proposal itself: the client shows an "Aplicar" button that PUTs this exact value through the
   // normal PUT /proposals/:id path only after the human clicks it - same permission/draft-only
   // gate as any other manual edit.
-  suggestedField String?          @map("suggested_field")
-  suggestedValue String?          @map("suggested_value") @db.Text
-  raw          Json?
-  providerUsed String?            @map("provider_used")
-  modelUsed    String?            @map("model_used")
-  createdAt    DateTime           @default(now()) @map("created_at")
+  suggestedField String?            @map("suggested_field")
+  suggestedValue String?            @map("suggested_value") @db.Text
+  raw            Json?
+  providerUsed   String?            @map("provider_used")
+  modelUsed      String?            @map("model_used")
+  createdAt      DateTime           @default(now()) @map("created_at")
 
   @@unique([runId, perspective])
   @@index([tenantId])
@@ -2506,8 +2535,8 @@ model DemandUpdate {
   changes Json
   /// A espécie (`especieDaAtualizacao`): é o que separa "o prazo mudou" de
   /// "a oportunidade foi perdida" na tela, sem que a perda vire um estado.
-  kind String
-  note String? @db.Text
+  kind    String
+  note    String? @db.Text
 
   changedByCrmUserId String?  @map("changed_by_crm_user_id")
   changedByName      String?  @map("changed_by_name")

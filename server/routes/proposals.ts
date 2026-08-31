@@ -1601,6 +1601,132 @@ router.put("/proposals/:id/campos-do-template", requirePermission("proposal:edit
 });
 
 // RELEASE an approved proposal as the final customer-ready version
+/**
+ * Item 18 do catalogo Reforma CloudMountain — o Comercial registra o que o CLIENTE respondeu.
+ *
+ * Quem decide se o negocio foi ganho ou perdido e o CRM: e no CMCRM que a oportunidade vira
+ * `ganha` ou `perdida` (decisao do dono, 31/08/2026). Esta rota existe para o cenario SEM
+ * integracao — o Comercial ouve a resposta e a registra aqui, e daqui ela vira evento na timeline
+ * do CRM. Nao e o cliente que usa esta rota, e nao ha assinatura eletronica no caminho.
+ *
+ * `proposal:approve` e o mesmo gate da liberacao, e nao um permissao nova, por dois motivos: e a
+ * mesma pessoa que libera a proposta e recebe a resposta, e uma permissao inventada agora nao
+ * estaria em papel nenhum — o botao nasceria morto. Medido nos papeis reais: Administrator e
+ * Sales Manager tem; Pre-Sales Engineer NAO, que e o recorte certo (o engenheiro de pre-vendas
+ * nao responde pela resposta comercial do cliente).
+ */
+router.post("/proposals/:id/client-decision", requirePermission("proposal:approve"), async (req: Request, res: Response, next: NextFunction) => {
+  const correlationId = (req.headers["x-correlation-id"] as string) || "corr-proposal-client-decision";
+  const startTime = Date.now();
+
+  try {
+    const { decision, note } = (req.body ?? {}) as { decision?: unknown; note?: unknown };
+
+    if (decision !== "accepted" && decision !== "declined") {
+      return res.status(400).json({ success: false, message: "decision must be 'accepted' or 'declined'." });
+    }
+
+    const motivo = typeof note === "string" ? note.trim() : "";
+
+    /*
+     * Motivo OBRIGATORIO na recusa, opcional no aceite. E a mesma regra que o CMCRM ja aplica para
+     * marcar uma oportunidade como `perdida` (`outcomeReason`), e a mesma licao da F8, em que o
+     * motivo de rejeicao interna deixou de ser uma string fixa no codigo. "Perdemos" sem motivo e
+     * um dado que nao responde a nenhuma pergunta depois.
+     */
+    if (decision === "declined" && motivo.length === 0) {
+      return res.status(400).json({ success: false, message: "note is required when the client declines the proposal." });
+    }
+
+    const proposal = await dbStore.getProposal(req.params.id);
+    if (!proposal) {
+      return res.status(404).json({ success: false, message: "Proposal not found." });
+    }
+
+    /*
+     * So proposta LIBERADA tem resposta de cliente: antes disso ela nao saiu daqui, e uma
+     * "resposta" a um documento que o cliente nunca viu seria dado inventado.
+     */
+    if (proposal.status !== "released") {
+      return res.status(400).json({
+        success: false,
+        message: `Only released proposals can carry a client decision. Current status is '${proposal.status}'.`,
+      });
+    }
+
+    if (proposal.client_decision) {
+      /*
+       * 409, e nao sobrescrever em silencio. A primeira resposta ja virou evento na timeline do
+       * CRM, e um segundo registro produziria um segundo evento contando outra historia sobre o
+       * mesmo negocio — sem apagar o primeiro. Corrigir um registro errado e um pedido diferente
+       * deste, e precisa passar por quem sabe o que fazer com o evento ja emitido.
+       */
+      return res.status(409).json({
+        success: false,
+        message: `This proposal already carries a client decision ('${proposal.client_decision}').`,
+        decision: proposal.client_decision,
+        decided_at: proposal.client_decision_at,
+      });
+    }
+
+    const userId = requireUserId(req);
+    const linhas = await dbStore.registrarDecisaoDoCliente(req.params.id, decision, userId, decision === "declined" ? motivo : (motivo || null));
+
+    /*
+     * ZERO linhas significa que outra pessoa registrou entre o `getProposal` acima e este update
+     * — a condicao `clientDecision: null` do `where` segurou. Devolver 409 aqui e o que impede a
+     * corrida de virar dois eventos contraditorios no CRM.
+     */
+    if (linhas === 0) {
+      const atual = await dbStore.getProposal(req.params.id);
+      return res.status(409).json({
+        success: false,
+        message: "This proposal already carries a client decision (registered concurrently).",
+        decision: atual?.client_decision ?? null,
+      });
+    }
+
+    /*
+     * `proposal_accepted` ja existia no vocabulario do CMCRM desde a F3 e nunca tinha sido emitido
+     * por ninguem — a F9 registrou isso por escrito. `proposal_declined` e nome NOVO dos dois
+     * lados: reusar `proposal_rejected` faria a timeline mostrar "o revisor recusou" e "o cliente
+     * disse nao" com a mesma cor e o mesmo rotulo.
+     *
+     * `void`, como nas outras chamadas deste arquivo: a decisao ja esta gravada, e um CRM fora do
+     * ar nao pode desfaze-la. A fila do outbox reenvia.
+     */
+    void empurrarEventoDaProposta(req.params.id, decision === "accepted" ? "proposal_accepted" : "proposal_declined");
+
+    await dbStore.addAuditLog({
+      user_id: userId,
+      action: decision === "accepted" ? "Register Client Acceptance" : "Register Client Decline",
+      entity_type: "Proposal",
+      entity_id: proposal.id,
+      project_id: proposal.project_id,
+      ip_address: req.ip ?? "",
+      user_agent: req.get("user-agent") ?? "",
+      // O motivo entra no `metadata`, que e o campo que este modelo tem para contexto — e ele e
+      // string JSON, nao objeto. Registrar a decisao sem o motivo tiraria da auditoria justamente
+      // a parte que a torna util depois: nao "perdemos", e sim por que.
+      metadata: JSON.stringify({ decision, note: motivo || null, proposal_version: proposal.version }),
+    });
+
+    logDebugMessage({
+      operation: "Proposal Client Decision",
+      message: `Registered client decision '${decision}' for proposal ${req.params.id}`,
+      status: "SUCCESS",
+      durationMs: Date.now() - startTime,
+      correlationId,
+      projectId: proposal.project_id,
+    });
+
+    const atualizada = await dbStore.getProposal(req.params.id);
+    return res.json({ success: true, proposal: atualizada });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.post("/proposals/:id/release", requirePermission("proposal:approve"), async (req: Request, res: Response, next: NextFunction) => {
   const correlationId = (req.headers["x-correlation-id"] as string) || "corr-proposal-release";
   const startTime = Date.now();

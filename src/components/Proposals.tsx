@@ -73,10 +73,28 @@ export default function Proposals({
   locale, hasPermission, proposals, selectedProjectId, activeTasks, waitForTask,
   fetchGlobalConfigs, fetchProjectDetails, handleReleaseProposal,
 }: ProposalsProps) {
-  const { handleUpdateProposalCommercial, handleUpdateProposalFields, handleSubmitProposalApproval, handleReopenProposal } = useProposals({
+  const { handleUpdateProposalCommercial, handleUpdateProposalFields, handleSubmitProposalApproval, handleReopenProposal, handleClientDecision } = useProposals({
     locale, hasPermission, proposals, selectedProjectId, fetchGlobalConfigs, fetchProjectDetails,
   });
   const [exportingId, setExportingId] = useState<string | null>(null);
+  // Item 18: qual proposta está com o formulário de recusa aberto, o motivo digitado e o erro que
+  // o servidor devolveu. O motivo é obrigatório na recusa (a rota recusa sem ele), então ele
+  // precisa de um campo de verdade — não de um `confirm()` que não coleta texto.
+  const [recusandoId, setRecusandoId] = useState<string | null>(null);
+  const [motivoRecusa, setMotivoRecusa] = useState("");
+  const [erroDecisao, setErroDecisao] = useState<Record<string, string>>({});
+  const [salvandoDecisao, setSalvandoDecisao] = useState<string | null>(null);
+
+  async function registrarDecisao(propId: string, decision: "accepted" | "declined", note: string) {
+    setSalvandoDecisao(propId);
+    const erro = await handleClientDecision(propId, decision, note);
+    setSalvandoDecisao(null);
+    setErroDecisao((e) => ({ ...e, [propId]: erro ?? "" }));
+    if (!erro) {
+      setRecusandoId(null);
+      setMotivoRecusa("");
+    }
+  }
   // Roadmap item (official): "Pareceres de IA Multi-Perspectiva em Propostas" - keyed by
   // proposal.id, undefined = not yet fetched, null = fetched but no run exists yet.
   const [opinionRuns, setOpinionRuns] = useState<Record<string, OpinionRun | null | undefined>>({});
@@ -555,6 +573,84 @@ export default function Proposals({
                             <span className="bg-brand-50 text-brand-700 border border-brand-200 font-mono text-[11px] font-bold px-3 py-1.5 rounded">
                               {locale === "pt" ? "Versão Final Liberada" : "Final Version Released"}
                             </span>
+                          )}
+                          {/* Item 18 — a resposta do CLIENTE. Só aparece depois da liberação:
+                              antes disso a proposta não saiu daqui, e uma "resposta" a um
+                              documento que o cliente nunca viu seria dado inventado. Quem decide
+                              ganho/perda é o CRM; isto cobre o cenário SEM integração. */}
+                          {prop.status === "released" && prop.client_decision && (
+                            <span
+                              className={`font-mono text-[11px] font-bold px-3 py-1.5 rounded border ${
+                                prop.client_decision === "accepted"
+                                  ? "bg-success-50 text-success-700 border-success-200"
+                                  : "bg-danger-50 text-danger-700 border-danger-200"
+                              }`}
+                              title={prop.client_decision_note ?? undefined}
+                            >
+                              {prop.client_decision === "accepted"
+                                ? (locale === "pt" ? "Cliente aceitou" : "Client accepted")
+                                : (locale === "pt" ? "Cliente recusou" : "Client declined")}
+                            </span>
+                          )}
+                          {prop.status === "released" && !prop.client_decision && hasPermission("proposal:approve") && recusandoId !== prop.id && (
+                            <>
+                              <button
+                                onClick={() => registrarDecisao(prop.id, "accepted", "")}
+                                disabled={salvandoDecisao === prop.id}
+                                title={locale === "pt"
+                                  ? "Registra que o cliente aceitou esta proposta. O evento vai para a timeline do CRM. Quem marca a oportunidade como ganha continua sendo o CRM."
+                                  : "Registers that the client accepted this proposal. The event goes to the CRM timeline. Marking the opportunity as won is still the CRM's job."}
+                                className="bg-success-600 hover:bg-success-700 text-white font-mono text-[11px] font-bold px-3 py-1.5 rounded shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                              >
+                                {locale === "pt" ? "Cliente aceitou" : "Client accepted"}
+                              </button>
+                              <button
+                                onClick={() => { setRecusandoId(prop.id); setMotivoRecusa(""); setErroDecisao((e) => ({ ...e, [prop.id]: "" })); }}
+                                title={locale === "pt"
+                                  ? "Registra que o cliente recusou esta proposta. O motivo é obrigatório."
+                                  : "Registers that the client declined this proposal. A reason is required."}
+                                className="bg-white hover:bg-danger-50 text-danger-700 border border-danger-300 font-mono text-[11px] font-bold px-3 py-1.5 rounded shadow-sm transition-all cursor-pointer"
+                              >
+                                {locale === "pt" ? "Cliente recusou" : "Client declined"}
+                              </button>
+                            </>
+                          )}
+                          {recusandoId === prop.id && (
+                            /* O motivo é obrigatório na recusa — a rota devolve 400 sem ele. É a
+                               mesma regra que o CMCRM já aplica para marcar uma oportunidade como
+                               perdida, e a mesma lição da F8: "recusado" sem motivo é um dado que
+                               não responde a nenhuma pergunta depois. */
+                            <div className="flex flex-col gap-2 w-full mt-2">
+                              <label htmlFor={`motivo-recusa-${prop.id}`} className="font-mono text-[10px] uppercase tracking-wider text-slate-500">
+                                {locale === "pt" ? "Motivo da recusa (obrigatório)" : "Decline reason (required)"}
+                              </label>
+                              <textarea
+                                id={`motivo-recusa-${prop.id}`}
+                                value={motivoRecusa}
+                                onChange={(e) => setMotivoRecusa(e.target.value)}
+                                rows={2}
+                                placeholder={locale === "pt" ? "O que o cliente disse?" : "What did the client say?"}
+                                className="w-full max-w-lg border border-slate-300 rounded px-2 py-1.5 text-[12px] font-sans"
+                              />
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => registrarDecisao(prop.id, "declined", motivoRecusa)}
+                                  disabled={motivoRecusa.trim().length === 0 || salvandoDecisao === prop.id}
+                                  className="bg-danger-600 hover:bg-danger-700 text-white font-mono text-[11px] font-bold px-3 py-1.5 rounded shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                                >
+                                  {locale === "pt" ? "Registrar recusa" : "Register decline"}
+                                </button>
+                                <button
+                                  onClick={() => { setRecusandoId(null); setMotivoRecusa(""); }}
+                                  className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-mono text-[11px] font-bold px-3 py-1.5 rounded transition-all cursor-pointer"
+                                >
+                                  {locale === "pt" ? "Cancelar" : "Cancel"}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                          {erroDecisao[prop.id] && (
+                            <span className="font-mono text-[11px] text-danger-700">{erroDecisao[prop.id]}</span>
                           )}
                           {/* PreSales F8: único caminho de volta para uma proposta REJEITADA. Ela não
                               vira rascunho de novo - fica congelada como registro da recusa, e o

@@ -606,6 +606,15 @@ export interface ProposalTemplate {
 }
 
 export interface Proposal {
+  // Item 18 do catalogo Reforma CloudMountain: o que o CLIENTE respondeu depois da liberacao.
+  //
+  // Quem decide ganho/perda e o CRM (`opportunities.status` no CMCRM). Estes campos cobrem o
+  // cenario SEM integracao, em que o Comercial registra aqui a resposta e este produto empurra o
+  // evento correspondente para a timeline do outro lado.
+  client_decision?: "accepted" | "declined" | null;
+  client_decision_at?: string | null;
+  client_decision_by_user_id?: string | null;
+  client_decision_note?: string | null;
   id: string;
   project_id: string;
   proposal_type: "technical" | "commercial" | "technical_commercial" | "executive_summary" | "risk_report" | "bom_report" | "questions_report";
