@@ -159,10 +159,39 @@ app.get("/api/health", (req: Request, res: Response) => {
   });
 });
 
+/**
+ * Alcança o JWKS do Keycloak — o mesmo documento que `keycloakAuth.ts` busca para validar cada
+ * token. Não é a página de login: é o que a aplicação de fato precisa alcançar, responde sem
+ * sessão, e um Keycloak de pé com o realm errado devolve 404 aqui, que é a falha que interessa.
+ */
+async function verificarKeycloak(): Promise<boolean> {
+  const jwksUrl =
+    process.env.KEYCLOAK_JWKS_URL ??
+    "https://cmcrm-dev-01.tail7af88b.ts.net:8443/realms/cloudmountain/protocol/openid-connect/certs";
+  try {
+    const controlador = new AbortController();
+    const limite = setTimeout(() => controlador.abort(), 5000);
+    try {
+      const resposta = await fetch(jwksUrl, { method: "GET", signal: controlador.signal });
+      return resposta.ok;
+    } finally {
+      clearTimeout(limite);
+    }
+  } catch {
+    return false;
+  }
+}
+
 app.get("/api/health/readiness", async (req: Request, res: Response) => {
-  const [databaseOk, redisOk] = await Promise.all([
+  const [databaseOk, redisOk, authOk] = await Promise.all([
     prisma.$queryRaw`SELECT 1`.then(() => true).catch(() => false),
     redis.ping().then((reply) => reply === "PONG").catch(() => false),
+    // Autenticação entra no readiness (31/08/2026). Desde a Fase 13 o login inteiro depende do
+    // Keycloak, e este endpoint é o health check que o `scripts/update.sh` usa para decidir se
+    // uma atualização deu certo. Sem esta linha, uma atualização que deixe o produto sem login
+    // passa como bem-sucedida e NÃO dispara rollback — que é exatamente o modo de falha que
+    // uma instalação sem as variáveis do Keycloak produziria.
+    verificarKeycloak(),
   ]);
 
   let storageOk = false;
@@ -173,14 +202,15 @@ app.get("/api/health/readiness", async (req: Request, res: Response) => {
     storageOk = false;
   }
 
-  const ready = databaseOk && redisOk && storageOk;
+  const ready = databaseOk && redisOk && storageOk && authOk;
 
   res.status(ready ? 200 : 503).json({
     success: ready,
     status: ready ? "ready" : "not_ready",
     database: databaseOk ? "connected" : "unreachable",
     redis: redisOk ? "connected" : "unreachable",
-    storage: storageOk ? "accessible" : "unreachable"
+    storage: storageOk ? "accessible" : "unreachable",
+    auth: authOk ? "reachable" : "unreachable"
   });
 });
 
