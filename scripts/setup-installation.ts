@@ -6,6 +6,7 @@
 //
 // Usage: npm run setup
 import crypto from "crypto";
+import type { ResultadoDoProvisionamento } from "../server/utils/keycloakProvisioning";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -107,8 +108,18 @@ interface Answers {
   companyName: string;
   adminName: string;
   adminEmail: string;
-  adminPassword: string;
-  passwordWasGenerated: boolean;
+  /**
+   * Credenciais para cadastrar o administrador no Keycloak. Ausente quando quem instala optou por
+   * fazer esse passo depois — nesse caso o usuário local é criado e o passo vira pendência
+   * impressa no final, em vez de virar uma senha que não funciona.
+   */
+  keycloak?: {
+    baseUrl: string;
+    realm: string;
+    adminUser: string;
+    adminPassword: string;
+    senhaDoUsuario: string;
+  };
   geminiKey?: string;
   openaiKey?: string;
   anthropicKey?: string;
@@ -161,11 +172,31 @@ async function collectAnswers(): Promise<Answers> {
   console.log("\n--- Administrador inicial ---");
   const adminName = await ask("Nome do administrador", { required: true });
   const adminEmail = await ask("E-mail do administrador", { required: true });
-  let adminPassword = await ask("Senha do administrador (Enter para gerar uma forte automaticamente)");
-  let passwordWasGenerated = false;
-  if (!adminPassword) {
-    adminPassword = generateStrongPassword();
-    passwordWasGenerated = true;
+
+  /**
+   * Desde a Fase 13 a senha NÃO vive mais neste produto: as colunas de credencial saíram de
+   * `users` e o login resolve identidade pelo token do Keycloak. Até aqui o wizard continuava
+   * pedindo (ou gerando) uma senha e a IMPRIMIA ao final — uma senha que não era gravada em lugar
+   * nenhum, então quem instalasse tentaria entrar com ela e não conseguiria, sem nada explicando.
+   *
+   * Agora o wizard cadastra o administrador no próprio Keycloak. Precisa, para isso, das
+   * credenciais administrativas dele — que só quem está instalando tem. Pular é possível: o
+   * usuário local é criado do mesmo jeito, e o passo do Keycloak fica listado nas pendências do
+   * final, com o comando pronto. O que não acontece mais é o wizard afirmar que existe uma senha
+   * quando não existe.
+   */
+  console.log("\n--- Acesso do administrador (Keycloak) ---");
+  console.log("A autenticação dos três produtos vive num Keycloak compartilhado. Para o administrador");
+  console.log("conseguir entrar, a conta precisa existir lá — este passo cria e define a senha.");
+  const querKeycloak = await askYesNo("Cadastrar o administrador no Keycloak agora?", true);
+  let keycloak: Answers["keycloak"];
+  if (querKeycloak) {
+    const baseUrl = await ask("URL do Keycloak (ex.: https://host:8443)", { required: true });
+    const realm = await ask("Realm", { required: true, default: "cloudmountain" });
+    const adminUser = await ask("Usuário administrador do Keycloak", { required: true, default: "admin" });
+    const adminPasswordKc = await ask("Senha desse administrador", { required: true });
+    const senhaDoUsuario = await ask("Senha a definir para o administrador do produto", { required: true });
+    keycloak = { baseUrl, realm, adminUser, adminPassword: adminPasswordKc, senhaDoUsuario };
   }
 
   console.log("\n--- Provedores de IA (opcional - Enter pra pular, configura depois em Admin > IA) ---");
@@ -192,8 +223,7 @@ async function collectAnswers(): Promise<Answers> {
     companyName,
     adminName,
     adminEmail,
-    adminPassword,
-    passwordWasGenerated,
+    keycloak,
     geminiKey: geminiKey || undefined,
     openaiKey: openaiKey || undefined,
     anthropicKey: anthropicKey || undefined,
@@ -424,6 +454,43 @@ async function main() {
   console.log("[3/4] Criando tenant, administrador e configurações iniciais...");
   const { tenantId, adminEmail } = await bootstrapTenant(answers);
 
+  /**
+   * O cadastro no Keycloak vem DEPOIS do tenant, e não antes, de propósito: se o bootstrap falhar,
+   * não fica uma conta órfã no realm de um produto que não chegou a existir. O caminho inverso é
+   * recuperável — um usuário local sem conta no Keycloak é uma pendência que o final imprime, com
+   * o que fazer.
+   *
+   * Uma falha aqui NÃO aborta a instalação. O tenant, o papel e o usuário local já estão gravados;
+   * derrubar tudo por causa de um endereço de Keycloak digitado errado obrigaria a recomeçar uma
+   * instalação inteira que está correta.
+   */
+  let resultadoDoKeycloak: ResultadoDoProvisionamento | undefined;
+  if (answers.keycloak) {
+    console.log("\n[3.5/4] Cadastrando o administrador no Keycloak...");
+    try {
+      const { garantirAdministradorNoKeycloak } = await import("../server/utils/keycloakProvisioning");
+      resultadoDoKeycloak = await garantirAdministradorNoKeycloak(
+        {
+          baseUrl: answers.keycloak.baseUrl,
+          realm: answers.keycloak.realm,
+          adminUser: answers.keycloak.adminUser,
+          adminPassword: answers.keycloak.adminPassword,
+        },
+        { email: adminEmail, nome: answers.adminName, senha: answers.keycloak.senhaDoUsuario }
+      );
+      console.log(
+        resultadoDoKeycloak.situacao === "criado"
+          ? "    OK: conta criada no realm e senha definida."
+          : resultadoDoKeycloak.senhaDefinida
+            ? "    OK: a conta já existia no realm; a senha foi redefinida."
+            : "    OK: a conta já existia e mantém a senha atual (o realm proíbe reusar as últimas 5)."
+      );
+    } catch (err) {
+      console.log(`    FALHOU: ${err instanceof Error ? err.message : String(err)}`);
+      console.log("    A instalação segue — o passo do Keycloak aparece nas pendências do final.");
+    }
+  }
+
   console.log("[4/4] Build de produção (npm run build)...");
   try {
     execSync("npm run build", { cwd: ROOT, stdio: "inherit", env: process.env });
@@ -436,12 +503,24 @@ async function main() {
   console.log(`Tenant: ${tenantId}`);
   console.log(`Login: ${answers.appUrl}`);
   console.log(`E-mail: ${adminEmail}`);
-  if (answers.passwordWasGenerated) {
-    console.log(`Senha (gerada agora, não fica salva em nenhum log): ${answers.adminPassword}`);
+  if (resultadoDoKeycloak) {
+    console.log(
+      resultadoDoKeycloak.situacao === "criado"
+        ? "Acesso: conta criada no Keycloak e senha definida. O administrador já pode entrar."
+        : resultadoDoKeycloak.senhaDefinida
+          ? "Acesso: a conta já existia no Keycloak; a senha foi redefinida. O administrador já pode entrar."
+          : "Acesso: a conta já existia no Keycloak e mantém a senha que já tinha. O administrador entra com ela."
+    );
   } else {
-    console.log("Senha: a que você informou.");
+    console.log("Acesso: NÃO configurado no Keycloak — o administrador ainda não consegue entrar.");
   }
+
   console.log("\nPendências:");
+  if (!resultadoDoKeycloak) {
+    console.log(`- O administrador ${adminEmail} existe no produto mas NÃO no Keycloak, e por isso`);
+    console.log("  ainda não consegue entrar. Crie a conta no realm com esse mesmo e-mail e defina");
+    console.log("  uma senha — o e-mail é o que liga o token do Keycloak ao usuário daqui.");
+  }
   if (!answers.geminiKey && !answers.openaiKey && !answers.anthropicKey) {
     console.log("- Nenhum provedor de IA configurado. Configure em Admin > IA, Prompts e Custos antes do primeiro uso real.");
   }
