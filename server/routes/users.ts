@@ -5,7 +5,27 @@ import { dbStore } from "../../src/dbStore";
 import { requirePermission } from "./auth";
 import { requireUserId } from "../middleware/security";
 import { UserStatus } from "../../src/types";
-import { hashPassword, TAMANHO_MINIMO_DE_SENHA } from "../utils/security";
+import { hashPassword } from "../utils/security";
+import { getCurrentTenantId } from "../../src/tenantContext";
+import {
+  PoliticaDeSenha,
+  LIMITES_DA_POLITICA,
+  violacoesDaPolitica,
+  mensagemDeViolacao,
+  requisitosDaPolitica,
+} from "../utils/politicaDeSenha";
+import { lerPolitica, gravarPolitica, registrarSenhaNoHistorico } from "../utils/politicaDeSenhaRepo";
+
+/**
+ * F3 (01/09/2026) - o tenant desta requisicao. `requireAuth` ja abriu o contexto antes de chegar
+ * aqui (`runWithTenant`), entao ele sempre existe; o lance serve para transformar um contexto
+ * ausente em erro alto, e nao numa consulta silenciosamente sem recorte.
+ */
+function tenantDaRequisicao(): string {
+  const tenantId = getCurrentTenantId();
+  if (!tenantId) throw new Error("Rota de usuarios chamada fora do contexto de tenant.");
+  return tenantId;
+}
 
 const router = express.Router();
 
@@ -20,11 +40,9 @@ const CreateUserSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters long"),
   email: z.string().email("Invalid email format"),
   role_id: z.string().min(1, "Role ID is required"),
-  // F1 (31/08/2026): o minimo subiu de 8 para 12 - ver TAMANHO_MINIMO_DE_SENHA.
-  initial_password: z
-    .string()
-    .min(TAMANHO_MINIMO_DE_SENHA, `Initial password must be at least ${TAMANHO_MINIMO_DE_SENHA} characters long`)
-    .optional(),
+  // F3 (01/09/2026): o criterio nao e mais um numero fixo - a senha inicial tem de caber na
+  // POLITICA do tenant, verificada no handler (o Zod nao alcanca o banco).
+  initial_password: z.string().min(1).optional(),
 });
 
 const UpdateUserSchema = z.object({
@@ -33,13 +51,71 @@ const UpdateUserSchema = z.object({
   role_id: z.string().optional(),
   status: z.nativeEnum(UserStatus).optional(),
   mfa_enabled: z.boolean().optional(),
-  password: z
-    .string()
-    .min(TAMANHO_MINIMO_DE_SENHA, `Password must be at least ${TAMANHO_MINIMO_DE_SENHA} characters long`)
-    .optional(),
+  // F3: mesma coisa do `initial_password` - quem decide o criterio e a politica do tenant.
+  password: z.string().min(1).optional(),
   // Roadmap (segurança): só tem efeito junto de `password` - default true (força a troca), o
   // admin desmarca conscientemente na tela se não quiser. Ignorado se nenhuma senha for enviada.
   force_password_change: z.boolean().optional(),
+});
+
+/**
+ * F3 (01/09/2026) - A POLITICA DE SENHA DO TENANT, EDITAVEL EM ADMINISTRACAO > USUARIOS.
+ *
+ * DECLARADA ANTES DE `/:id` de proposito: no Express a primeira rota que casa vence, e
+ * `PUT /users/password-policy` cairia dentro de `PUT /users/:id` (com `id = "password-policy"`)
+ * se viesse depois - um 404 confuso, ou pior, um update tentado num id que nao existe.
+ *
+ * Mesma permissao que governa criar conta e redefinir senha (`admin:users`): quem pode dar senha
+ * a outra pessoa e quem pode dizer como as senhas devem ser.
+ */
+router.get("/password-policy", requirePermission("admin:users"), async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const politica = await lerPolitica(tenantDaRequisicao());
+    res.json({ success: true, politica, limites: LIMITES_DA_POLITICA, requisitos: requisitosDaPolitica("", politica) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const PoliticaDeSenhaSchema = z.object({
+  comprimento_minimo: z.number().int().optional(),
+  exigir_maiuscula: z.boolean().optional(),
+  exigir_minuscula: z.boolean().optional(),
+  exigir_numero: z.boolean().optional(),
+  exigir_especial: z.boolean().optional(),
+  historico_de_reuso: z.number().int().optional(),
+  validade_em_dias: z.number().int().optional(),
+});
+
+/**
+ * Os valores sao GRAMPEADOS aos limites em `normalizarPolitica`, nao recusados - um front que
+ * mande 4 no comprimento recebe 8 de volta e a tela mostra 8. O chao de 8 existe para que a tela
+ * nao possa desfazer a decisao de sair dos 8 caracteres de antes da Fase 13.
+ */
+router.put("/password-policy", requirePermission("admin:users"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const validated = PoliticaDeSenhaSchema.parse(req.body) as Partial<PoliticaDeSenha>;
+    const tenantId = tenantDaRequisicao();
+    const atorUserId = requireUserId(req);
+    const politica = await gravarPolitica(tenantId, validated, atorUserId);
+
+    await dbStore.addAuditLog({
+      user_id: atorUserId,
+      action: "Update Password Policy",
+      entity_type: "PasswordPolicy",
+      entity_id: tenantId,
+      ip_address: req.ip || "127.0.0.1",
+      user_agent: req.headers["user-agent"] || "unknown",
+      metadata: JSON.stringify(politica)
+    });
+
+    res.json({ success: true, politica, limites: LIMITES_DA_POLITICA, requisitos: requisitosDaPolitica("", politica) });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ success: false, message: err.issues[0].message });
+    }
+    next(err);
+  }
 });
 
 // Protect with users admin permissions
@@ -56,6 +132,25 @@ router.post("/", requirePermission("admin:users"), async (req: Request, res: Res
   try {
     const validated = CreateUserSchema.parse(req.body);
     const normalizedEmail = validated.email.toLowerCase().trim();
+    const tenantId = tenantDaRequisicao();
+    const politica = await lerPolitica(tenantId);
+
+    /**
+     * F3 - a senha inicial passa pela MESMA politica que a pessoa tera de cumprir. Vale tambem
+     * para o valor padrao usado quando nenhuma senha e informada: se a instalacao endureceu a
+     * politica a ponto de recusa-lo, criar a conta assim mesmo produziria uma conta cuja senha
+     * inicial a propria rota de troca recusaria - a pessoa entraria e travaria na primeira troca.
+     */
+    const senhaInicial = validated.initial_password || "TrocarAgora2026!";
+    const violacoes = violacoesDaPolitica(senhaInicial, politica);
+    if (violacoes.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: validated.initial_password
+          ? mensagemDeViolacao(violacoes)
+          : `A senha inicial padrao nao cumpre a politica desta instalacao. Informe uma senha inicial. ${mensagemDeViolacao(violacoes)}`
+      });
+    }
 
     const roleExists = await dbStore.getRoleById(validated.role_id);
     if (!roleExists) {
@@ -67,14 +162,17 @@ router.post("/", requirePermission("admin:users"), async (req: Request, res: Res
       return res.status(409).json({ success: false, message: "User email already exists." });
     }
 
+    const hashInicial = hashPassword(senhaInicial);
     const newUser = await dbStore.createUser({
       name: validated.name,
       email: normalizedEmail,
       role_id: validated.role_id,
-      // F1: o padrao tinha 12 caracteres por acaso; agora ha uma regra, e ele tem de caber
-      // nela - senao a rota criaria uma conta com senha que a propria rota recusaria.
-      password_hash: hashPassword(validated.initial_password || "TrocarAgora2026!"),
+      password_hash: hashInicial,
     });
+
+    // F3 - a senha inicial entra no historico como qualquer outra: sem isto, a primeira troca
+    // poderia "trocar" a senha pela mesma senha temporaria que o administrador acabou de ditar.
+    await registrarSenhaNoHistorico(tenantId, newUser.id, hashInicial);
 
     // Audit Log
     await dbStore.addAuditLog({
@@ -123,11 +221,28 @@ router.put("/:id", requirePermission("admin:users"), async (req: Request, res: R
     }
 
     const { password, force_password_change, ...safeUpdates } = validated;
+
+    // F3 - a senha que um administrador escolhe para outra pessoa passa pela MESMA politica que
+    // ela tera de cumprir. Deixar esta rota de fora seria a porta que devolve senhas fracas.
+    const tenantId = tenantDaRequisicao();
+    let novoHash: string | undefined;
+    if (password) {
+      const violacoes = violacoesDaPolitica(password, await lerPolitica(tenantId));
+      if (violacoes.length > 0) {
+        return res.status(400).json({ success: false, message: mensagemDeViolacao(violacoes) });
+      }
+      novoHash = hashPassword(password);
+    }
+
     const updatedUser = await dbStore.updateUser(req.params.id, {
       ...safeUpdates,
       email: normalizedEmail,
-      ...(password ? { password_hash: hashPassword(password), must_change_password: force_password_change !== false } : {}),
+      ...(novoHash ? { password_hash: novoHash, must_change_password: force_password_change !== false } : {}),
     });
+
+    if (novoHash) {
+      await registrarSenhaNoHistorico(tenantId, req.params.id, novoHash);
+    }
 
     // Disabling MFA also clears the enrolled TOTP secret so a future re-enable starts fresh
     // instead of silently resurrecting an old secret nobody can prove they still hold.

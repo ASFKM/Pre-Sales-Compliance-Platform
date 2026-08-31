@@ -65,6 +65,7 @@ function mapUser(u: any): User {
     created_at: u.createdAt.toISOString(),
     updated_at: u.updatedAt.toISOString(),
     last_login_at: u.lastLoginAt ? u.lastLoginAt.toISOString() : undefined,
+    password_changed_at: u.passwordChangedAt ? u.passwordChangedAt.toISOString() : undefined,
   } as User;
 }
 
@@ -667,6 +668,9 @@ class DBStore {
         status: data.status || UserStatus.ACTIVE,
         mfaEnabled: data.mfa_enabled ?? false,
         passwordHash: data.password_hash,
+        // F3: o relogio da validade comeca agora. Sem isto, uma conta criada hoje ja nasceria
+        // vencida num tenant com validade configurada (nulo conta como vencida).
+        passwordChangedAt: new Date(),
         // Roadmap (segurança): sempre true na criação, sem opção de desligar - o admin sempre
         // define/aceita a senha inicial, então o usuário sempre precisa trocá-la no primeiro login.
         mustChangePassword: true,
@@ -689,6 +693,10 @@ class DBStore {
         mfaEnabled: updates.mfa_enabled,
         passwordHash: updates.password_hash,
         mustChangePassword: updates.must_change_password,
+        // F3: trocar a senha zera o relogio da validade, e SO trocar a senha. `undefined` deixa a
+        // coluna intacta em qualquer outro update (nome, papel, status), que e o que se quer:
+        // renomear alguem nao deve renovar a validade da senha dessa pessoa.
+        passwordChangedAt: updates.password_hash ? new Date() : undefined,
       },
     });
     return mapUser(u);

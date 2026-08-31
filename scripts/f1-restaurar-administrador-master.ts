@@ -20,17 +20,51 @@ import "dotenv/config";
 import crypto from "crypto";
 import { prisma } from "../src/prisma";
 import { runWithTenant } from "../src/tenantContext";
-import { hashPassword, TAMANHO_MINIMO_DE_SENHA } from "../server/utils/security";
+import { hashPassword } from "../server/utils/security";
+import { PoliticaDeSenha, violacoesDaPolitica, mensagemDeViolacao } from "../server/utils/politicaDeSenha";
+import { lerPolitica, registrarSenhaNoHistorico } from "../server/utils/politicaDeSenhaRepo";
 
 const EMAIL_PADRAO = "alvaro.sakae@gmail.com";
 
-function gerarSenhaForte(): string {
-  // 20 caracteres, sem os que se confundem entre si (O/0, I/l/1) — a senha é lida da tela e
-  // digitada à mão pelo menos uma vez.
-  const alfabeto = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
-  return Array.from(crypto.randomBytes(20))
-    .map((b) => alfabeto[b % alfabeto.length])
-    .join("");
+/**
+ * F3 (01/09/2026) — a senha sorteada tem de CABER NA POLÍTICA DO TENANT, e não apenas ser longa.
+ *
+ * O sorteio anterior tirava 20 caracteres de um alfabeto misto: longo, mas sem garantir um único
+ * dígito ou símbolo. Num tenant que exige número, a senha entregue ao master podia ser uma senha
+ * que a própria rota de troca recusaria — a conta entraria e travaria na primeira troca.
+ *
+ * Aqui a senha é montada POR CLASSE (uma de cada, o resto do alfabeto inteiro) e embaralhada com
+ * `randomInt` — não `Math.random`, não `sort` com comparador aleatório, que enviesa a permutação.
+ * Continua sem os caracteres que se confundem lidos na tela (O/0, I/l/1), porque ela é digitada à
+ * mão pelo menos uma vez. No fim ainda passa por `violacoesDaPolitica`: construir certo e
+ * conferir depois custa nada e fecha a porta para um erro de alfabeto passar despercebido.
+ */
+const MAIUSCULAS = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+const MINUSCULAS = "abcdefghijkmnopqrstuvwxyz";
+const NUMEROS = "23456789";
+const ESPECIAIS = "!@#$%";
+
+function sortearDe(alfabeto: string): string {
+  return alfabeto[crypto.randomInt(alfabeto.length)];
+}
+
+function gerarSenhaForte(politica: PoliticaDeSenha): string {
+  const comprimento = Math.max(20, politica.comprimento_minimo);
+  const caracteres = [sortearDe(MAIUSCULAS), sortearDe(MINUSCULAS), sortearDe(NUMEROS), sortearDe(ESPECIAIS)];
+  const alfabeto = MAIUSCULAS + MINUSCULAS + NUMEROS + ESPECIAIS;
+  while (caracteres.length < comprimento) caracteres.push(sortearDe(alfabeto));
+
+  for (let i = caracteres.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(i + 1);
+    [caracteres[i], caracteres[j]] = [caracteres[j], caracteres[i]];
+  }
+
+  const senha = caracteres.join("");
+  const violacoes = violacoesDaPolitica(senha, politica);
+  if (violacoes.length > 0) {
+    throw new Error(`A senha sorteada não cumpriu a política vigente. ${mensagemDeViolacao(violacoes)}`);
+  }
+  return senha;
 }
 
 function argumento(nome: string): string | undefined {
@@ -42,15 +76,11 @@ async function main() {
   const email = (argumento("email") ?? EMAIL_PADRAO).toLowerCase().trim();
   const informada = argumento("senha");
 
-  if (informada && informada.length < TAMANHO_MINIMO_DE_SENHA) {
-    console.error(`A senha precisa ter pelo menos ${TAMANHO_MINIMO_DE_SENHA} caracteres.`);
-    process.exit(1);
-  }
-
-  const senha = informada ?? gerarSenhaForte();
-
   // Busca SEM recorte de tenant, do mesmo jeito que a rota de login faz: `users.email` é único no
   // banco inteiro, e o tenant só é conhecido depois de encontrar a pessoa.
+  //
+  // F3: a busca subiu para ANTES do sorteio da senha, porque a política é por tenant — não dá
+  // para sortear uma senha que caiba na política sem antes saber de que instalação é a conta.
   const usuario = await prisma.user.findUnique({
     where: { email },
     select: { id: true, tenantId: true, name: true, roleId: true },
@@ -61,10 +91,24 @@ async function main() {
     process.exit(1);
   }
 
+  const politica = await lerPolitica(usuario.tenantId);
+
+  if (informada) {
+    const violacoes = violacoesDaPolitica(informada, politica);
+    if (violacoes.length > 0) {
+      console.error(mensagemDeViolacao(violacoes));
+      process.exit(1);
+    }
+  }
+
+  const senha = informada ?? gerarSenhaForte(politica);
+
   const papel = await prisma.role.findUnique({
     where: { id: usuario.roleId },
     select: { name: true },
   });
+
+  const novoHash = hashPassword(senha);
 
   // O UPDATE precisa acontecer DENTRO do contexto de tenant: a RLS deste banco é forçada, e um
   // update sem o tenant definido afeta zero linhas e devolve sucesso — falha silenciosa.
@@ -72,7 +116,10 @@ async function main() {
     await prisma.user.update({
       where: { id: usuario.id },
       data: {
-        passwordHash: hashPassword(senha),
+        passwordHash: novoHash,
+        // F3 — zera o relógio da validade. Sem isto, num tenant com validade configurada a senha
+        // recém-entregue já chegaria vencida (`password_changed_at` nulo conta como vencida).
+        passwordChangedAt: new Date(),
         // O segredo TOTP foi destruído junto com o hash. Religar o segundo fator sem o segredo
         // trancaria a conta para fora: a tela pediria um código que ninguém consegue gerar.
         mfaEnabled: false,
@@ -84,6 +131,8 @@ async function main() {
       },
     });
   });
+
+  await registrarSenhaNoHistorico(usuario.tenantId, usuario.id, novoHash);
 
   console.log("");
   console.log("Administrador master restaurado.");

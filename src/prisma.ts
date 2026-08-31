@@ -46,6 +46,11 @@ export const TENANT_SCOPED_MODELS = new Set([
   "iaKbTaskConfig", "integrationConnector", "itemAliasMapping",
   "knowledgeBaseDocument", "knowledgeBaseEntry", "platformSettings", "poc", "pocAcceptance",
   "pocEquipmentItem", "pocFinalReportQuestion", "pocSuccessCriterion", "pocTask", "pocTestCase",
+  // F3 (01/09/2026): a politica de senha e o historico de reuso. Os dois carregam tenant_id e
+  // por isso PRECISAM estar aqui - src/prisma.test.ts cruza esta lista com o DMMF e reprova um
+  // modelo com tenant_id que ficou de fora. O historico em especial: um hash de senha antiga
+  // visivel de outro tenant seria o pior vazamento possivel desta tabela.
+  "passwordPolicy", "passwordHistory",
   "priceCatalogExtractionDraft", "priceCatalogItem", "priceHistoryEntry", "priceListUpload",
   "project", "projectPricingLine", "projectPricingSheet",
   "promptTemplate", "proposal", "proposalTemplate", "proposalOpinionRun",

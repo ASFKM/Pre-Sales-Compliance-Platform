@@ -9,18 +9,20 @@ const PASSWORD_HASH_KEY_LENGTH = 64;
 const PASSWORD_HASH_SALT_LENGTH = 16;
 
 /**
- * F1 (31/08/2026) - o tamanho minimo da senha, em um lugar so.
+ * F3 (01/09/2026) - `TAMANHO_MINIMO_DE_SENHA` NAO MORA MAIS AQUI, e nao deve voltar.
  *
- * Sao 12, e nao os 8 que este produto exigia antes da Fase 13. Baixar de volta para 8 seria
- * regressao: a politica do realm que autenticou o produto nos ultimos dois dias ja exigia 12, e
- * a volta da autenticacao para dentro do produto nao e motivo para enfraquecer o que existe.
+ * O criterio de uma senha virou uma politica editavel por tenant em Administracao > Usuarios
+ * (comprimento, classes de caractere, historico de reuso e validade). Ela vive em duas pecas:
  *
- * A politica CONFIGURAVEL (maiuscula, numero, caractere especial, escolhidos em
- * Administracao > Usuarios) e a F3 deste mesmo programa. Aqui ha so a constante correta, lida
- * pelo servidor (POST /api/auth/change-password, criacao e redefinicao de usuario) e espelhada
- * na tela de troca de senha.
+ *   server/utils/politicaDeSenha.ts      as regras, em funcoes puras, com a MESMA semantica nos
+ *                                        tres produtos - e importadas TAMBEM pela tela, que neste
+ *                                        produto alcanca `server/` (ver src/components/Login.tsx);
+ *   server/utils/politicaDeSenhaRepo.ts  a leitura/gravacao por tenant, o historico e o gate
+ *                                        `precisaTrocarSenha`.
+ *
+ * Uma constante nova aqui reintroduziria o problema inteiro: dois lugares dizendo o minimo, um
+ * deles sem saber que o administrador mudou de ideia.
  */
-export const TAMANHO_MINIMO_DE_SENHA = 12;
 
 function safeEqualHex(leftHex: string, rightHex: string): boolean {
   try {
