@@ -55,6 +55,18 @@ export type EventoDeSaida =
   // timeline que o vendedor vê animar na oportunidade.
   | "proposal_sent"
   | "proposal_rejected"
+  // Item 18: o desfecho COMERCIAL, a resposta do cliente depois que a proposta saiu.
+  //
+  // `proposal_accepted` ja existia no contrato e no vocabulario do CMCRM desde a F3 e nunca
+  // tinha sido emitido por ninguem - a F9 registrou isso explicitamente, porque ate aqui nao
+  // havia neste produto nenhum endpoint de decisao do CLIENTE (so aprovacao/recusa INTERNA
+  // antes de liberar).
+  //
+  // `proposal_declined` e nome NOVO dos dois lados, por decisao do dono: reusar
+  // `proposal_rejected` faria a timeline mostrar "o revisor recusou" e "o cliente disse nao"
+  // com a mesma cor e o mesmo rotulo.
+  | "proposal_accepted"
+  | "proposal_declined"
   // F5: o prazo do SLA que venceu (D19). O evento existia no contrato e na
   // porta do CMCRM desde a F3, e nunca tinha sido emitido por ninguém.
   | "sla_breached"
@@ -369,6 +381,19 @@ export type EventoDeLiberacao = Extract<
 >;
 
 /**
+ * A resposta do CLIENTE, depois da liberação (item 18).
+ *
+ * Tipo separado do `EventoDeLiberacao` de propósito: liberação é decisão INTERNA (o fluxo de
+ * aprovação deste produto), e isto é notícia de FORA. Um `Extract` único juntando os dois
+ * deixaria uma rota de aprovação aceitar `proposal_declined` por engano, e o compilador não teria
+ * como reclamar.
+ */
+export type EventoDeDecisaoDoCliente = Extract<
+  EventoDeSaida,
+  "proposal_accepted" | "proposal_declined"
+>;
+
+/**
  * Empurra o EVENTO de timeline (D30) que acompanha uma mudança de status de proposta — pronta
  * (aprovação interna completa), enviada (liberação) ou recusada (aprovação interna recusou).
  *
@@ -383,7 +408,7 @@ export type EventoDeLiberacao = Extract<
  */
 export async function empurrarEventoDaProposta(
   proposalId: string,
-  event: EventoDeLiberacao
+  event: EventoDeLiberacao | EventoDeDecisaoDoCliente
 ): Promise<void> {
   try {
     const envelope = await montarEnvelopeDaProposta(proposalId);

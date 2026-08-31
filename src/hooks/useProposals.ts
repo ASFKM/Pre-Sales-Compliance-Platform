@@ -152,5 +152,35 @@ export function useProposals(params: UseProposalsParams) {
     }
   };
 
-  return { handleUpdateProposalCommercial, handleUpdateProposalFields, handleSubmitProposalApproval, handleReopenProposal };
+  /**
+   * Item 18: registra o que o CLIENTE respondeu depois da liberação.
+   *
+   * Quem decide ganho/perda é o CRM — este caminho é o do cenário SEM integração, em que o
+   * Comercial ouve a resposta e a registra aqui. O servidor recusa com 409 se já houver decisão,
+   * inclusive numa corrida entre duas pessoas: por isso a mensagem de erro dele é MOSTRADA em vez
+   * de virar um "falhou" genérico — "já existe uma decisão" é informação, não defeito.
+   */
+  const handleClientDecision = async (
+    propId: string,
+    decision: "accepted" | "declined",
+    note: string,
+  ): Promise<string | null> => {
+    try {
+      const res = await fetch(`/api/proposals/${propId}/client-decision`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision, note }),
+      });
+      const data = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        return (data as any)?.message ?? (locale === "pt" ? "Não foi possível registrar a resposta do cliente." : "Could not register the client decision.");
+      }
+      await fetchProjectDetails(selectedProjectId);
+      return null;
+    } catch {
+      return locale === "pt" ? "Não foi possível registrar a resposta do cliente." : "Could not register the client decision.";
+    }
+  };
+
+  return { handleUpdateProposalCommercial, handleUpdateProposalFields, handleSubmitProposalApproval, handleReopenProposal, handleClientDecision };
 }

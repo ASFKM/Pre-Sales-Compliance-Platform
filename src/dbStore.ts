@@ -558,6 +558,10 @@ function mapProposal(p: any): Proposal {
     commercial_assumptions: p.commercialAssumptions ?? undefined,
     exclusions: p.exclusions ?? undefined,
     editable_content: p.editableContent ?? undefined,
+    client_decision: p.clientDecision ?? null,
+    client_decision_at: p.clientDecisionAt ? p.clientDecisionAt.toISOString() : null,
+    client_decision_by_user_id: p.clientDecisionByUserId ?? null,
+    client_decision_note: p.clientDecisionNote ?? null,
     latest_opinion_run_id: p.latestOpinionRunId ?? null,
   } as Proposal;
 }
@@ -1784,6 +1788,33 @@ class DBStore {
     } catch {
       return undefined;
     }
+  }
+
+  /**
+   * Item 18: grava a resposta do CLIENTE numa proposta ja liberada.
+   *
+   * `where` com `clientDecision: null` NAO e enfeite: e o que torna a gravacao segura contra duas
+   * pessoas registrando respostas diferentes ao mesmo tempo. Sem ele, o ultimo a escrever ganharia
+   * em silencio e o evento errado ja teria ido para o CRM. Com ele, o segundo `updateMany` afeta
+   * ZERO linhas e quem chamou sabe disso pelo retorno - e por isso o retorno e a contagem, nao a
+   * linha.
+   */
+  public async registrarDecisaoDoCliente(
+    id: string,
+    decisao: "accepted" | "declined",
+    usuarioId: string,
+    motivo: string | null,
+  ): Promise<number> {
+    const r = await prisma.proposal.updateMany({
+      where: { id, status: "released", clientDecision: null },
+      data: {
+        clientDecision: decisao,
+        clientDecisionAt: new Date(),
+        clientDecisionByUserId: usuarioId,
+        clientDecisionNote: motivo,
+      },
+    });
+    return r.count;
   }
 
   // Audit / Debug logs
