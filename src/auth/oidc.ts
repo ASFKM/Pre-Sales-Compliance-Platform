@@ -17,8 +17,26 @@ import { UserManager, WebStorageStateStore, type User } from "oidc-client-ts";
  * Mandar alguém que veio pelo Tailscale para o IP da LAN é a forma mais fácil de quebrar o login
  * exatamente para quem está fora de casa.
  */
+/**
+ * Configuração padrão do Keycloak, para quando o build não recebeu as variáveis `VITE_*`.
+ *
+ * Estas variáveis são resolvidas em tempo de BUILD pelo Vite — e o build de uma atualização
+ * acontece dentro do `scripts/update.sh`, na própria instalação, lendo o `.env` que já estava
+ * lá. Uma instalação anterior à Fase 13 não tem essas linhas, e o `update.sh` preserva o `.env`
+ * mas nunca acrescenta variável nova: o resultado seria um front compilado sem saber onde fica o
+ * Keycloak, ou seja, sem login — e o health check pós-atualização não olha autenticação, então a
+ * atualização passaria como bem-sucedida.
+ *
+ * NÃO HÁ SEGREDO AQUI. O fluxo é Authorization Code + PKCE com cliente público: não existe
+ * `client_secret` neste produto, e estes três valores aparecem na barra de endereço de qualquer
+ * usuário que faça login. O `.env` continua vencendo — isto é piso, não teto.
+ */
+const PADRAO_URLS = "https://192.168.3.197:8443,https://100.106.236.106:8443,https://cmcrm-dev-01.tail7af88b.ts.net:8443";
+const PADRAO_REALM = "cloudmountain";
+const PADRAO_CLIENT_ID = "presales-web";
+
 function rotaDoKeycloak(): string {
-  const rotas = (import.meta.env.VITE_KEYCLOAK_URLS as string)
+  const rotas = ((import.meta.env.VITE_KEYCLOAK_URLS as string | undefined) || PADRAO_URLS)
     .split(",")
     .map((u) => u.trim())
     .filter(Boolean);
@@ -43,8 +61,8 @@ function rotaDoKeycloak(): string {
 }
 
 export const userManager = new UserManager({
-  authority: `${rotaDoKeycloak()}/realms/${import.meta.env.VITE_KEYCLOAK_REALM}`,
-  client_id: import.meta.env.VITE_KEYCLOAK_CLIENT_ID,
+  authority: `${rotaDoKeycloak()}/realms/${import.meta.env.VITE_KEYCLOAK_REALM || PADRAO_REALM}`,
+  client_id: import.meta.env.VITE_KEYCLOAK_CLIENT_ID || PADRAO_CLIENT_ID,
   /**
    * A volta do Keycloak cai na RAIZ, não numa rota `/callback` própria: este produto não usa
    * roteador de cliente para a tela de entrada (o `App.tsx` decide por estado local se mostra o
