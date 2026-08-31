@@ -1,4 +1,5 @@
 import { createRemoteJWKSet, jwtVerify, type JWTPayload, type JWTVerifyGetKey } from "jose";
+import { realmDoKeycloak, audienceDoKeycloak, issuerUrlsDoKeycloak, jwksUrlDoKeycloak } from "./keycloakConfig";
 
 /**
  * Fase 13 — verificação do token emitido pelo Keycloak, no lugar da sessão própria em Redis.
@@ -66,36 +67,13 @@ let jwksCache: JWTVerifyGetKey | null = null;
 let emissoresCache: string[] | null = null;
 
 
-/**
- * Configuração padrão do Keycloak da CloudMountain.
- *
- * Existe porque a Fase 13 tornou estas variáveis OBRIGATÓRIAS (o código abaixo lançava sem elas)
- * numa aplicação que se atualiza sozinha, à distância, preservando o `.env` que já tinha. Uma
- * instalação anterior à fase atualizaria para um produto sem login, e o health check
- * pós-atualização — que olha banco, Redis e storage, não autenticação — daria isso como sucesso.
- *
- * NÃO HÁ SEGREDO AQUI. O fluxo é Authorization Code + PKCE com cliente público: não existe
- * `client_secret` neste produto. O que estes valores dizem é onde o Keycloak responde, qual é o
- * realm e qual é o id do cliente — os três públicos por construção, já que o navegador de
- * qualquer usuário os enxerga na URL de login.
- *
- * O JWKS aponta para o nome Tailscale de propósito: esse endereço tem certificado Let's Encrypt
- * de verdade, então a busca de chaves funciona sem depender de a instalação ter a CA interna
- * instalada — que é justamente o que uma instalação limpa não tem.
- *
- * O `.env` continua vencendo. Isto é piso, não teto.
- */
-const PADRAO_REALM = "cloudmountain";
-const PADRAO_AUDIENCE = "presales-web";
-const PADRAO_EMISSORES = "https://192.168.3.197:8443,https://100.106.236.106:8443,https://cmcrm-dev-01.tail7af88b.ts.net:8443";
-const PADRAO_JWKS = "https://cmcrm-dev-01.tail7af88b.ts.net:8443/realms/cloudmountain/protocol/openid-connect/certs";
 
 function config() {
   if (jwksCache && emissoresCache) return { jwks: jwksCache, emissores: emissoresCache };
 
-  const realm = process.env.KEYCLOAK_REALM ?? PADRAO_REALM;
-  const audience = process.env.KEYCLOAK_AUDIENCE ?? PADRAO_AUDIENCE;
-  const listaEmissores = process.env.KEYCLOAK_ISSUER_URLS ?? PADRAO_EMISSORES;
+  const realm = realmDoKeycloak();
+  const audience = audienceDoKeycloak();
+  const listaEmissores = issuerUrlsDoKeycloak();
   /**
    * O JWKS vem de UM endereço só, escolhido aqui — nunca derivado do que o token diz. As chaves
    * são do realm, não da rota; deixar a busca de chave seguir o token trocaria a âncora de
@@ -107,7 +85,7 @@ function config() {
    * runtime seria tarde demais). Sem isso a busca de JWKS falha com `SELF_SIGNED_CERT_IN_CHAIN`
    * e nenhum login funciona.
    */
-  const jwksUrl = process.env.KEYCLOAK_JWKS_URL ?? PADRAO_JWKS;
+  const jwksUrl = jwksUrlDoKeycloak();
 
   if (!realm) throw new Error("KEYCLOAK_REALM ausente");
   if (!audience) throw new Error("KEYCLOAK_AUDIENCE ausente");

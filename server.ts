@@ -63,6 +63,7 @@ import pricingRouter from "./server/routes/pricing";
 import demandsRouter from "./server/routes/demands";
 import crmDirectoryRouter from "./server/routes/crmDirectory";
 import externalCrmRouter from "./server/routes/externalCrm";
+import { jwksUrlDoKeycloak } from "./server/utils/keycloakConfig";
 
 const app = express();
 
@@ -165,9 +166,7 @@ app.get("/api/health", (req: Request, res: Response) => {
  * sessão, e um Keycloak de pé com o realm errado devolve 404 aqui, que é a falha que interessa.
  */
 async function verificarKeycloak(): Promise<boolean> {
-  const jwksUrl =
-    process.env.KEYCLOAK_JWKS_URL ??
-    "https://cmcrm-dev-01.tail7af88b.ts.net:8443/realms/cloudmountain/protocol/openid-connect/certs";
+  const jwksUrl = jwksUrlDoKeycloak();
   try {
     const controlador = new AbortController();
     const limite = setTimeout(() => controlador.abort(), 5000);

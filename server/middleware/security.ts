@@ -5,6 +5,7 @@ import rateLimit from "express-rate-limit";
 import { dbStore } from "../../src/dbStore";
 import { logger } from "../utils/logger";
 import { sanitizeAndMaskObject } from "../utils/security";
+import { origensDoKeycloak as origensDoKeycloakConfig } from "../utils/keycloakConfig";
 
 // 1. Configure Helmet middleware. CSP is only enforced when NODE_ENV=production - that's the
 // same signal server.ts uses to decide between serving the static dist/ build and mounting Vite's
@@ -30,18 +31,12 @@ const isProductionEnv = process.env.NODE_ENV === "production";
  * e volta — sem ela, o token expira em 5 minutos e a pessoa cai para fora no meio do trabalho,
  * sem nenhuma mensagem que explique o motivo.
  */
-const origensDoKeycloak = (process.env.KEYCLOAK_ISSUER_URLS ?? "")
-  .split(",")
-  .map((u) => u.trim())
-  .filter(Boolean)
-  .map((u) => {
-    try {
-      return new URL(u).origin;
-    } catch {
-      return "";
-    }
-  })
-  .filter(Boolean);
+// Vem de `keycloakConfig.ts`, e não de `process.env` direto: ler a variável aqui por conta
+// própria foi o que produziu o defeito de 31/08/2026 — o padrão entrou em `keycloakAuth.ts` e não
+// aqui, então numa instalação sem a variável a autenticação funcionava e a CSP saía SEM o
+// Keycloak, o navegador bloqueava a chamada e o produto mostrava "Failed to fetch" com o backend
+// de pé e o health check passando.
+const origensDoKeycloak = origensDoKeycloakConfig();
 
 export const helmetMiddleware = helmet({
   contentSecurityPolicy: isProductionEnv
