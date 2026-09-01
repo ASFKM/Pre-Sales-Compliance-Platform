@@ -45,7 +45,7 @@ login_token() {
 
   login_response="$(curl -s -X POST $REG_BASE/api/auth/login \
     -H "Content-Type: application/json" \
-    -d "{\"email\":\"$email\",\"password\":\"password123\"}")"
+    -d "{\"email\":\"$email\",\"password\":\"Demonstracao2026!\"}")"
 
   token="$(echo "$login_response" | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{const j=JSON.parse(s); if(!j.token){console.error(s); process.exit(1)} console.log(j.token)})')"
 

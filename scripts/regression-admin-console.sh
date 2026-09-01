@@ -66,7 +66,7 @@ login() {
   expect_save 200 "login $email" "$out" \
     -X POST $REG_BASE/api/auth/login \
     -H "Content-Type: application/json" \
-    -d "{\"email\":\"$email\",\"password\":\"password123\"}" >/dev/null
+    -d "{\"email\":\"$email\",\"password\":\"Demonstracao2026!\"}" >/dev/null
 
   local token
   token="$(node -e 'const fs=require("fs"); const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if(!j.token) process.exit(1); console.log(j.token)' "$out")"
