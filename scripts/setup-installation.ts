@@ -154,13 +154,6 @@ interface Answers {
    */
   adminPassword: string;
   passwordWasGenerated: boolean;
-  /** A configuração que a instalação vai USAR para autenticar — vai para o `.env`. */
-  keycloakAmbiente: {
-    baseUrl: string;
-    realm: string;
-    clientId: string;
-    rotas: string[];
-  };
   geminiKey?: string;
   openaiKey?: string;
   anthropicKey?: string;
@@ -215,62 +208,13 @@ async function collectAnswers(): Promise<Answers> {
   const adminEmail = await ask("E-mail do administrador", { required: true });
 
   /**
-   * Desde a Fase 13 a senha NÃO vive mais neste produto: as colunas de credencial saíram de
-   * `users` e o login resolve identidade pelo token do Keycloak. Até aqui o wizard continuava
-   * pedindo (ou gerando) uma senha e a IMPRIMIA ao final — uma senha que não era gravada em lugar
-   * nenhum, então quem instalasse tentaria entrar com ela e não conseguiria, sem nada explicando.
+   * F5 do doc 17 (01/09/2026) — o wizard deixou de perguntar Keycloak.
    *
-   * Agora o wizard cadastra o administrador no próprio Keycloak. Precisa, para isso, das
-   * credenciais administrativas dele — que só quem está instalando tem. Pular é possível: o
-   * usuário local é criado do mesmo jeito, e o passo do Keycloak fica listado nas pendências do
-   * final, com o comando pronto. O que não acontece mais é o wizard afirmar que existe uma senha
-   * quando não existe.
+   * Ele pedia endereço, realm, client id e rotas alternativas do provedor do CLIENTE, e TESTAVA o
+   * JWKS antes de gravar, porque errar ali só aparecia depois do deploy. Nada disso tem para onde
+   * ir: a F1 trouxe a autenticação para dentro do PreSales e o login é do produto. Quatro
+   * perguntas a menos numa instalação são quatro respostas a menos para errar.
    */
-  /**
-   * A autenticação deste produto é OIDC contra um Keycloak. Qual Keycloak, em que endereço e com
-   * que realm é característica do AMBIENTE DO CLIENTE — não há resposta padrão, e assumir uma
-   * seria apontar a autenticação de um cliente para um servidor que não é dele.
-   *
-   * O endereço precisa ser alcançável DESTA MÁQUINA e do NAVEGADOR de quem usa o produto, com
-   * certificado válido nos dois. Um certificado emitido para um nome não vale para o IP: o Node
-   * recusa com `ERR_TLS_CERT_ALTNAME_INVALID` e o login não acontece. Por isso o wizard TESTA o
-   * endereço antes de gravar, em vez de aceitar qualquer coisa e falhar depois do deploy.
-   */
-  console.log("\n--- Autenticação (Keycloak) ---");
-  console.log("Este produto autentica por OIDC contra um Keycloak. Informe o do AMBIENTE onde ele");
-  console.log("está sendo instalado — o endereço precisa ser alcançável por este servidor E pelo");
-  console.log("navegador de quem vai usar, com certificado válido nos dois.");
-
-  const kcBaseUrl = await ask("URL do Keycloak (ex.: https://keycloak.empresa.com)", { required: true });
-  const kcRealm = await ask("Realm", { required: true });
-  const kcClientId = await ask("Client ID desta aplicação", { required: true, default: "presales-web" });
-  const kcRotasExtras = await ask(
-    "Outras rotas pelo mesmo Keycloak, separadas por vírgula (Enter para nenhuma)"
-  );
-
-  const keycloakAmbiente = {
-    baseUrl: kcBaseUrl.replace(/\/+$/, ""),
-    realm: kcRealm,
-    clientId: kcClientId,
-    rotas: [kcBaseUrl.replace(/\/+$/, ""), ...kcRotasExtras.split(",").map((r) => r.trim()).filter(Boolean)],
-  };
-
-  // Testa antes de gravar. Um endereço que não responde agora não vai responder depois do deploy,
-  // e descobrir isso aqui custa uma pergunta — descobrir depois custa uma atualização revertida.
-  const jwksDeTeste = `${keycloakAmbiente.baseUrl}/realms/${encodeURIComponent(kcRealm)}/protocol/openid-connect/certs`;
-  process.stdout.write("Testando o endereço informado... ");
-  try {
-    const r = await fetch(jwksDeTeste, { signal: AbortSignal.timeout(8000) });
-    console.log(r.ok ? "OK." : `respondeu HTTP ${r.status} — confira a URL e o realm.`);
-    if (!r.ok && !(await askYesNo("Seguir mesmo assim?", false))) process.exit(1);
-  } catch (err) {
-    const causa = (err as { cause?: { code?: string } })?.cause?.code ?? (err as Error).message;
-    console.log(`FALHOU (${String(causa).slice(0, 60)}).`);
-    console.log("Se for ERR_TLS_CERT_ALTNAME_INVALID, o certificado não cobre este endereço —");
-    console.log("use o NOME para o qual ele foi emitido, não o IP.");
-    if (!(await askYesNo("Seguir mesmo assim?", false))) process.exit(1);
-  }
-
   /**
    * F1 (31/08/2026) — a senha volta a ser gravada aqui, e por isso volta a ser perguntada aqui.
    *
@@ -329,7 +273,6 @@ async function collectAnswers(): Promise<Answers> {
     adminEmail,
     adminPassword,
     passwordWasGenerated,
-    keycloakAmbiente,
     geminiKey: geminiKey || undefined,
     openaiKey: openaiKey || undefined,
     anthropicKey: anthropicKey || undefined,
@@ -365,26 +308,6 @@ function buildEnvFile(a: Answers, secretEncryptionKey: string, jwtSessionSecret:
     "# Redis",
     `REDIS_URL="${a.redisUrl}"`,
   ];
-
-  /**
-   * As sete variáveis do Keycloak. As quatro sem prefixo são lidas pelo servidor (validação de
-   * token, CSP e readiness); as três `VITE_` são resolvidas em tempo de BUILD pelo Vite e acabam
-   * dentro do bundle — por isso precisam estar aqui ANTES do `npm run build`.
-   *
-   * `KEYCLOAK_ISSUER_URLS` leva TODAS as rotas por onde o mesmo Keycloak responde: o front escolhe
-   * a da mesma família daquela por onde a pessoa chegou (ver src/auth/oidc.ts), porque de dentro
-   * de uma VPN o endereço da LAN não responde, e vice-versa.
-   */
-  const rotasDoKeycloak = a.keycloakAmbiente.rotas.join(",");
-  const jwks = `${a.keycloakAmbiente.baseUrl}/realms/${encodeURIComponent(a.keycloakAmbiente.realm)}/protocol/openid-connect/certs`;
-  lines.push("", "# Autenticação (Keycloak) - informada no wizard, específica deste ambiente");
-  lines.push(`KEYCLOAK_ISSUER_URLS=${rotasDoKeycloak}`);
-  lines.push(`KEYCLOAK_REALM=${a.keycloakAmbiente.realm}`);
-  lines.push(`KEYCLOAK_AUDIENCE=${a.keycloakAmbiente.clientId}`);
-  lines.push(`KEYCLOAK_JWKS_URL=${jwks}`);
-  lines.push(`VITE_KEYCLOAK_URLS=${rotasDoKeycloak}`);
-  lines.push(`VITE_KEYCLOAK_REALM=${a.keycloakAmbiente.realm}`);
-  lines.push(`VITE_KEYCLOAK_CLIENT_ID=${a.keycloakAmbiente.clientId}`);
 
   lines.push("", "# Chaves de IA (fallback de primeiro boot - normalmente configuradas por tenant no Admin Console)");
   if (a.geminiKey) lines.push(`GEMINI_API_KEY=${a.geminiKey}`);
