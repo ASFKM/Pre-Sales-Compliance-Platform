@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Cpu, MemoryStick, HardDrive, ServerCog } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import ApiClient from "../lib/api";
 import { faixaDeUso, corDaFaixa, percentualDeUso } from "./faixaDeUso";
@@ -29,14 +30,17 @@ interface PontoDeHardwareLocal {
 
 const INTERVALO_DE_ATUALIZACAO_MS = 15_000;
 
-function Cartao({ titulo, valor, cor, children }: { titulo: string; valor: string; cor: string; children: React.ReactNode }) {
+function Cartao({ icone, titulo, valor, cor, children }: { icone: React.ReactNode; titulo: string; valor: string; cor: string; children: React.ReactNode }) {
   return (
     <div className="col-span-12 sm:col-span-6 xl:col-span-3 bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-xs font-bold text-slate-800 uppercase font-mono">{titulo}</h3>
+        <h3 className="flex items-center gap-1.5 text-xs font-bold text-slate-800 uppercase font-mono">
+          {icone}
+          {titulo}
+        </h3>
         <span className="text-sm font-black font-mono tabular-nums" style={{ color: cor }}>{valor}</span>
       </div>
-      <div style={{ height: 132 }}>{children}</div>
+      <div style={{ height: 140 }}>{children}</div>
     </div>
   );
 }
@@ -106,7 +110,7 @@ export function AdminHardwareLocal({ locale }: { locale: "en" | "pt" }) {
 
   return (
     <>
-      <Cartao titulo="CPU" valor={pctCpu === null ? "—" : `${pctCpu}%`} cor={corDaFaixa(faixaDeUso(pctCpu))}>
+      <Cartao icone={<Cpu size={13} className="text-slate-400" />} titulo="CPU" valor={pctCpu === null ? "—" : `${pctCpu}%`} cor={corDaFaixa(faixaDeUso(pctCpu))}>
         {!pontos ? (
           carregando
         ) : (
@@ -125,7 +129,7 @@ export function AdminHardwareLocal({ locale }: { locale: "en" | "pt" }) {
         )}
       </Cartao>
 
-      <Cartao titulo={locale === "pt" ? "Memória" : "Memory"} valor={pctMemoria === null ? "—" : `${Math.round(pctMemoria)}%`} cor={corDaFaixa(faixaDeUso(pctMemoria))}>
+      <Cartao icone={<MemoryStick size={13} className="text-slate-400" />} titulo={locale === "pt" ? "Memória" : "Memory"} valor={pctMemoria === null ? "—" : `${Math.round(pctMemoria)}%`} cor={corDaFaixa(faixaDeUso(pctMemoria))}>
         {!pontos ? (
           carregando
         ) : (
@@ -144,11 +148,12 @@ export function AdminHardwareLocal({ locale }: { locale: "en" | "pt" }) {
         )}
       </Cartao>
 
-      <Cartao titulo={locale === "pt" ? "Disco" : "Disk"} valor={ultimo ? `${Math.round(percentualDeUso(ultimo.disk_used_mb, ultimo.disk_total_mb) ?? 0)}%` : "—"} cor={corDaFaixa(faixaDeUso(ultimo ? percentualDeUso(ultimo.disk_used_mb, ultimo.disk_total_mb) : null))}>
+      <Cartao icone={<HardDrive size={13} className="text-slate-400" />} titulo={locale === "pt" ? "Disco" : "Disk"} valor={ultimo ? `${Math.round(percentualDeUso(ultimo.disk_used_mb, ultimo.disk_total_mb) ?? 0)}%` : "—"} cor={corDaFaixa(faixaDeUso(ultimo ? percentualDeUso(ultimo.disk_used_mb, ultimo.disk_total_mb) : null))}>
         {!pontos ? carregando : <MedidorSegmentado usado={ultimo?.disk_used_mb ?? null} total={ultimo?.disk_total_mb ?? null} locale={locale} />}
       </Cartao>
 
       <Cartao
+        icone={<ServerCog size={13} className="text-slate-400" />}
         titulo={locale === "pt" ? "Serviços" : "Services"}
         valor={!pontos ? "—" : resumoServicos.texto}
         cor={!pontos ? "var(--color-slate-400)" : corServicos[resumoServicos.status]}
