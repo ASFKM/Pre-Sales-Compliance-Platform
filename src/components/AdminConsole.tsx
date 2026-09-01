@@ -792,12 +792,12 @@ export default function AdminConsole({
               </aside>
 
               <div className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-5 space-y-4">
-                <div className="w-full bg-white border border-slate-200 rounded-xl shadow-sm p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="w-full bg-white border border-slate-200 rounded-xl shadow-sm p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div>
-                    <p className="text-[10px] uppercase tracking-[0.25em] text-slate-400 font-mono">
+                    <p className="text-[9px] uppercase tracking-[0.2em] text-slate-400 font-mono">
                       {locale === "pt" ? "Administração do Sistema" : "System Administration"}
                     </p>
-                    <h2 className="text-xl font-bold text-slate-900 mt-1">
+                    <h2 className="text-base font-bold text-slate-900 mt-0.5">
                       {activeAdminSection === "overview" && canAccessAdminSection("overview") && (locale === "pt" ? "Visão Geral do Sistema" : "System Overview")}
                       {activeAdminSection === "users" && canAccessAdminSection("users") && (locale === "pt" ? "Usuários e Acessos" : "Users & Access")}
                       {activeAdminSection === "ai" && canAccessAdminSection("ai") && (locale === "pt" ? "IA, Prompts e Custos" : "AI, Prompts & Costs")}
@@ -812,12 +812,12 @@ export default function AdminConsole({
                       {activeAdminSection === "storage" && canAccessAdminSection("storage") && (locale === "pt" ? "Armazenamento e Documentos" : "Storage & Documents")}
                       {activeAdminSection === "audit" && canAccessAdminSection("audit") && (locale === "pt" ? "Auditoria e Diagnóstico" : "Audit & Diagnostics")}
                     </h2>
-                    <p className="text-xs text-slate-500 mt-1">
+                    <p className="text-[11px] text-slate-500 mt-0.5">
                       {locale === "pt" ? "Configure parâmetros globais sem contexto de projeto ou licitação." : "Configure global settings without project or bid context."}
                     </p>
                   </div>
                   <span
-                    className="text-xs text-white font-mono font-bold px-3 py-1.5 rounded-full shrink-0"
+                    className="text-[11px] text-white font-mono font-bold px-2.5 py-1 rounded-full shrink-0"
                     style={{ backgroundColor: brandPrimaryColor }}
                   >
                     SUPER ADMIN
@@ -826,7 +826,7 @@ export default function AdminConsole({
 
                 {activeAdminSection === "overview" && canAccessAdminSection("overview") && (
                   <div className="w-full space-y-3">
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
                       {[
                         [locale === "pt" ? "Usuários" : "Users", users.length, locale === "pt" ? "contas" : "accounts"],
                         [locale === "pt" ? "Templates" : "Templates", proposalTemplates.length, locale === "pt" ? "modelos" : "templates"],
@@ -843,56 +843,30 @@ export default function AdminConsole({
                           </div>
                         </div>
                       ))}
+
+                      <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+                        <p className="text-[10px] uppercase font-mono text-slate-400 tracking-wider mb-2">
+                          {locale === "pt" ? "Resumo Operacional" : "Operational Summary"}
+                        </p>
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-slate-500">Prompts</span>
+                            <span className="font-bold text-slate-800">{promptTemplates.length}</span>
+                          </div>
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-slate-500">{locale === "pt" ? "Auditoria" : "Audit"}</span>
+                            <span className="font-bold text-slate-800">{auditLogs.length} logs</span>
+                          </div>
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-slate-500">{locale === "pt" ? "Usuários" : "Users"}</span>
+                            <span className="font-bold text-slate-800">{locale === "pt" ? "30 / Ilimitado" : "30 / Unlimited"}</span>
+                          </div>
+                        </div>
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-12 gap-3">
                       <AdminHardwareLocal locale={locale} />
-                    </div>
-
-                    <div className="grid grid-cols-12 gap-3">
-                      <div className="col-span-12 xl:col-span-6 bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                        <h3 className="text-xs font-bold text-slate-800 uppercase font-mono mb-3">
-                          {locale === "pt" ? "Atalhos de Configuração" : "Configuration Shortcuts"}
-                        </h3>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                          <button onClick={() => setActiveAdminSection("branding")} className="p-2.5 text-left bg-slate-50 border border-slate-100 rounded-lg hover:border-brand-300">
-                            <span className="font-bold text-slate-700 block">{locale === "pt" ? "Visual" : "Branding"}</span>
-                            <span className="text-[10px] text-slate-500">{locale === "pt" ? "Logo/cores" : "Logo/colors"}</span>
-                          </button>
-                          <button onClick={() => setActiveAdminSection("templates")} className="p-2.5 text-left bg-slate-50 border border-slate-100 rounded-lg hover:border-brand-300">
-                            <span className="font-bold text-slate-700 block">{locale === "pt" ? "Templates" : "Templates"}</span>
-                            <span className="text-[10px] text-slate-500">{locale === "pt" ? "Modelos" : "Models"}</span>
-                          </button>
-                          <button onClick={() => setActiveAdminSection("approval_flow")} className="p-2.5 text-left bg-slate-50 border border-slate-100 rounded-lg hover:border-brand-300">
-                            <span className="font-bold text-slate-700 block">{locale === "pt" ? "Aprovação" : "Approval"}</span>
-                            <span className="text-[10px] text-slate-500">{locale === "pt" ? "Fluxo" : "Workflow"}</span>
-                          </button>
-                          <button onClick={() => setActiveAdminSection("storage")} className="p-2.5 text-left bg-slate-50 border border-slate-100 rounded-lg hover:border-brand-300">
-                            <span className="font-bold text-slate-700 block">Storage</span>
-                            <span className="text-[10px] text-slate-500">{locale === "pt" ? "Arquivos" : "Files"}</span>
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="col-span-12 xl:col-span-6 bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                        <h3 className="text-xs font-bold text-slate-800 uppercase font-mono mb-3">
-                          {locale === "pt" ? "Resumo Operacional" : "Operational Summary"}
-                        </h3>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-                          <div className="p-2.5 bg-slate-50 border border-slate-100 rounded-lg">
-                            <p className="text-[9px] uppercase font-mono text-slate-400">Prompts</p>
-                            <p className="font-bold text-slate-800 mt-1">{promptTemplates.length}</p>
-                          </div>
-                          <div className="p-2.5 bg-slate-50 border border-slate-100 rounded-lg">
-                            <p className="text-[9px] uppercase font-mono text-slate-400">{locale === "pt" ? "Auditoria" : "Audit"}</p>
-                            <p className="font-bold text-slate-800 mt-1">{auditLogs.length} logs</p>
-                          </div>
-                          <div className="p-2.5 bg-slate-50 border border-slate-100 rounded-lg">
-                            <p className="text-[9px] uppercase font-mono text-slate-400">{locale === "pt" ? "Usuários" : "Users"}</p>
-                            <p className="font-bold text-slate-800 mt-1">{locale === "pt" ? "30 / Ilimitado" : "30 / Unlimited"}</p>
-                          </div>
-                        </div>
-                      </div>
                     </div>
                   </div>
                 )}
