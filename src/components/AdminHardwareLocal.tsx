@@ -5,6 +5,7 @@ import ApiClient from "../lib/api";
 import { faixaDeUso, corDaFaixa, percentualDeUso } from "./faixaDeUso";
 import { MedidorSegmentado } from "./MedidorSegmentado";
 import { ListaDeServicosLocal, resumoDosServicos, type ServicoLocal } from "./statusDosServicos";
+import { HardwareHistoryModal, type MetricaDeHardware } from "./HardwareHistoryModal";
 
 // Os quatro cartões de hardware LOCAL da Visão Geral — mesma pergunta que o CMSaaS responde de
 // fora (CPU/memória/disco/serviços de uma instalação, em hardwareDaInstalacao.tsx), mas de
@@ -28,11 +29,17 @@ interface PontoDeHardwareLocal {
   servicos: ServicoLocal[];
 }
 
-const INTERVALO_DE_ATUALIZACAO_MS = 15_000;
+// 60s bate com a cadencia de escrita do sampler persistente (server/utils/hardwareLocalHistory.ts)
+// - perguntar mais rapido que o dado muda so gastaria requisicao.
+const INTERVALO_DE_ATUALIZACAO_MS = 60_000;
 
-function Cartao({ icone, titulo, valor, cor, children }: { icone: React.ReactNode; titulo: string; valor: string; cor: string; children: React.ReactNode }) {
+function Cartao({ icone, titulo, valor, cor, aoClicar, children }: { icone: React.ReactNode; titulo: string; valor: string; cor: string; aoClicar: () => void; children: React.ReactNode }) {
   return (
-    <div className="col-span-12 sm:col-span-6 xl:col-span-3 bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+    <button
+      type="button"
+      onClick={aoClicar}
+      className="col-span-12 sm:col-span-6 xl:col-span-3 bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-left hover:border-brand-300 hover:shadow-md transition-shadow cursor-pointer"
+    >
       <div className="flex items-center justify-between mb-3">
         <h3 className="flex items-center gap-1.5 text-xs font-bold text-slate-800 uppercase font-mono">
           {icone}
@@ -41,7 +48,7 @@ function Cartao({ icone, titulo, valor, cor, children }: { icone: React.ReactNod
         <span className="text-sm font-black font-mono tabular-nums" style={{ color: cor }}>{valor}</span>
       </div>
       <div style={{ height: 140 }}>{children}</div>
-    </div>
+    </button>
   );
 }
 
@@ -78,6 +85,7 @@ const TOOLTIP_ITEM_STYLE: React.CSSProperties = {
 export function AdminHardwareLocal({ locale }: { locale: "en" | "pt" }) {
   const [pontos, setPontos] = useState<PontoDeHardwareLocal[] | null>(null);
   const [erro, setErro] = useState("");
+  const [metricaAberta, setMetricaAberta] = useState<MetricaDeHardware | null>(null);
 
   useEffect(() => {
     let vivo = true;
@@ -138,7 +146,7 @@ export function AdminHardwareLocal({ locale }: { locale: "en" | "pt" }) {
 
   return (
     <>
-      <Cartao icone={<Cpu size={13} className="text-slate-400" />} titulo="CPU" valor={pctCpu === null ? "—" : `${pctCpu}%`} cor={corDaFaixa(faixaDeUso(pctCpu))}>
+      <Cartao aoClicar={() => setMetricaAberta("cpu")} icone={<Cpu size={13} className="text-slate-400" />} titulo="CPU" valor={pctCpu === null ? "—" : `${pctCpu}%`} cor={corDaFaixa(faixaDeUso(pctCpu))}>
         {!pontos ? (
           carregando
         ) : (
@@ -160,7 +168,7 @@ export function AdminHardwareLocal({ locale }: { locale: "en" | "pt" }) {
         )}
       </Cartao>
 
-      <Cartao icone={<MemoryStick size={13} className="text-slate-400" />} titulo={locale === "pt" ? "Memória" : "Memory"} valor={pctMemoria === null ? "—" : `${Math.round(pctMemoria)}%`} cor={corDaFaixa(faixaDeUso(pctMemoria))}>
+      <Cartao aoClicar={() => setMetricaAberta("memoria")} icone={<MemoryStick size={13} className="text-slate-400" />} titulo={locale === "pt" ? "Memória" : "Memory"} valor={pctMemoria === null ? "—" : `${Math.round(pctMemoria)}%`} cor={corDaFaixa(faixaDeUso(pctMemoria))}>
         {!pontos ? (
           carregando
         ) : (
@@ -182,11 +190,12 @@ export function AdminHardwareLocal({ locale }: { locale: "en" | "pt" }) {
         )}
       </Cartao>
 
-      <Cartao icone={<HardDrive size={13} className="text-slate-400" />} titulo={locale === "pt" ? "Disco" : "Disk"} valor={ultimo ? `${Math.round(percentualDeUso(ultimo.disk_used_mb, ultimo.disk_total_mb) ?? 0)}%` : "—"} cor={corDaFaixa(faixaDeUso(ultimo ? percentualDeUso(ultimo.disk_used_mb, ultimo.disk_total_mb) : null))}>
+      <Cartao aoClicar={() => setMetricaAberta("disco")} icone={<HardDrive size={13} className="text-slate-400" />} titulo={locale === "pt" ? "Disco" : "Disk"} valor={ultimo ? `${Math.round(percentualDeUso(ultimo.disk_used_mb, ultimo.disk_total_mb) ?? 0)}%` : "—"} cor={corDaFaixa(faixaDeUso(ultimo ? percentualDeUso(ultimo.disk_used_mb, ultimo.disk_total_mb) : null))}>
         {!pontos ? carregando : <MedidorSegmentado usado={ultimo?.disk_used_mb ?? null} total={ultimo?.disk_total_mb ?? null} locale={locale} />}
       </Cartao>
 
       <Cartao
+        aoClicar={() => setMetricaAberta("servicos")}
         icone={<ServerCog size={13} className="text-slate-400" />}
         titulo={locale === "pt" ? "Serviços" : "Services"}
         valor={!pontos ? "—" : resumoServicos.texto}
@@ -194,6 +203,10 @@ export function AdminHardwareLocal({ locale }: { locale: "en" | "pt" }) {
       >
         {!pontos ? carregando : <ListaDeServicosLocal servicos={servicos} historico={historicoDeServicos} locale={locale} />}
       </Cartao>
+
+      {metricaAberta && (
+        <HardwareHistoryModal metrica={metricaAberta} locale={locale} aoFechar={() => setMetricaAberta(null)} />
+      )}
     </>
   );
 }

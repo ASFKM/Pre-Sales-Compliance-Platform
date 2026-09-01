@@ -2659,3 +2659,47 @@ model PasswordHistory {
   @@index([tenantId])
   @@map("password_history")
 }
+
+
+/// F11 (01/09/2026) - historico persistente de hardware/servicos DESTA instalacao, para o popup
+/// de periodo/granularidade na Visao Geral. Sem tenant_id de proposito: CPU/memoria/disco/status
+/// dos servicos sao dado da INSTALACAO (o host), nao dado de negocio de um tenant - nao entra em
+/// TENANT_SCOPED_MODELS, e src/prisma.test.ts confirma isso (so cobra o inverso: quem TEM
+/// tenantId precisa estar no set, nao que todo modelo precise ter tenantId).
+///
+/// Uma amostra por minuto (server/utils/hardwareLocalHistory.ts), retida 7 dias brutos; depois
+/// disso o job de rollup (server/utils/hardwareRollup.ts) agrega em HardwareSampleHourly e apaga
+/// a bruta. `services` e o snapshot inteiro (mesmo formato de coletarStatusDosServicos()) como
+/// JSON, nao uma linha por servico - o conjunto de servicos monitorados pode mudar com o tempo
+/// sem exigir migration.
+model HardwareSample {
+  id             String   @id
+  measuredAt     DateTime @default(now()) @map("measured_at")
+  cpuLoadPercent Float?   @map("cpu_load_percent")
+  memoryUsedMb   Int?     @map("memory_used_mb")
+  totalMemoryMb  Int?     @map("total_memory_mb")
+  diskUsedMb     Int?     @map("disk_used_mb")
+  diskTotalMb    Int?     @map("disk_total_mb")
+  services       Json
+
+  @@index([measuredAt])
+  @@map("hardware_samples")
+}
+
+/// F11 - agregado por hora do HardwareSample, criado pelo job de rollup quando uma amostra bruta
+/// passa dos 7 dias. Os numericos viram media da hora; `servicesSummary` guarda o PIOR status de
+/// cada servico visto na hora (categorico nao tira media) mais quantas leituras down/degraded
+/// houve - o suficiente para a barra de disponibilidade do popup em granularidade de hora/dia.
+model HardwareSampleHourly {
+  id              String   @id
+  bucketStart     DateTime @unique @map("bucket_start")
+  cpuLoadPercent  Float?   @map("cpu_load_percent")
+  memoryUsedMb    Int?     @map("memory_used_mb")
+  totalMemoryMb   Int?     @map("total_memory_mb")
+  diskUsedMb      Int?     @map("disk_used_mb")
+  diskTotalMb     Int?     @map("disk_total_mb")
+  servicesSummary Json     @map("services_summary")
+  sampleCount     Int      @map("sample_count")
+
+  @@map("hardware_samples_hourly")
+}
