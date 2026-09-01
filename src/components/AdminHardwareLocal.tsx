@@ -47,6 +47,34 @@ function Cartao({ icone, titulo, valor, cor, children }: { icone: React.ReactNod
 
 const HORA_MINUTO = new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" });
 
+// Tooltip do recharts sai com a tipografia PADRAO da biblioteca por definicao (sem contentStyle/
+// labelStyle/itemStyle, ela nunca herda o resto do card) - por isso destoava do mono/uppercase que
+// os proprios cartoes ja usam para rotulo e valor. Um estilo so, reaproveitado nos dois graficos.
+const TOOLTIP_CONTENT_STYLE: React.CSSProperties = {
+  fontSize: 11,
+  lineHeight: 1.4,
+  background: "#fff",
+  border: "1px solid var(--color-slate-200)",
+  borderRadius: 8,
+  padding: "6px 8px",
+  boxShadow: "0 1px 2px rgba(0,0,0,0.06)",
+};
+const TOOLTIP_LABEL_STYLE: React.CSSProperties = {
+  fontFamily: "ui-monospace, monospace",
+  fontSize: 9,
+  textTransform: "uppercase",
+  letterSpacing: "0.05em",
+  color: "var(--color-slate-400)",
+  marginBottom: 2,
+};
+const TOOLTIP_ITEM_STYLE: React.CSSProperties = {
+  fontFamily: "ui-monospace, monospace",
+  fontSize: 12,
+  fontWeight: 700,
+  color: "var(--color-slate-800)",
+  padding: 0,
+};
+
 export function AdminHardwareLocal({ locale }: { locale: "en" | "pt" }) {
   const [pontos, setPontos] = useState<PontoDeHardwareLocal[] | null>(null);
   const [erro, setErro] = useState("");
@@ -120,6 +148,9 @@ export function AdminHardwareLocal({ locale }: { locale: "en" | "pt" }) {
               <YAxis domain={[0, 100]} tick={{ fontSize: 9 }} width={28} axisLine={false} tickLine={false} />
               <Tooltip
                 isAnimationActive={false}
+                contentStyle={TOOLTIP_CONTENT_STYLE}
+                labelStyle={TOOLTIP_LABEL_STYLE}
+                itemStyle={TOOLTIP_ITEM_STYLE}
                 formatter={(v: any) => [`${v}%`, "CPU"]}
                 labelFormatter={(v: any) => rotuloDoEixo(String(v))}
               />
@@ -139,6 +170,9 @@ export function AdminHardwareLocal({ locale }: { locale: "en" | "pt" }) {
               <YAxis domain={[0, 100]} tick={{ fontSize: 9 }} width={28} axisLine={false} tickLine={false} />
               <Tooltip
                 isAnimationActive={false}
+                contentStyle={TOOLTIP_CONTENT_STYLE}
+                labelStyle={TOOLTIP_LABEL_STYLE}
+                itemStyle={TOOLTIP_ITEM_STYLE}
                 formatter={(v: any) => [`${Math.round(v)}%`, locale === "pt" ? "Memória" : "Memory"]}
                 labelFormatter={(v: any) => rotuloDoEixo(String(v))}
               />
