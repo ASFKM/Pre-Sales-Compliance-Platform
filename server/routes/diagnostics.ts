@@ -3,6 +3,7 @@ import type { Request } from "../types/express";
 import { dbStore } from "../../src/dbStore";
 import { requirePermission } from "./auth";
 import { sanitizeAndMaskObject } from "../utils/security";
+import { getHistoricoDeHardwareLocal } from "../utils/hardwareLocalHistory";
 
 const router = express.Router();
 
@@ -158,6 +159,18 @@ router.get("/admin/system/status", requirePermission("admin:diagnostics"), async
       storage_mode: settings.storage_mode || "local",
       audit_logs: auditLogsCount,
       debug_logs: debugLogsCount
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/admin/system/hardware", requirePermission("admin:diagnostics"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    setNoStoreHeaders(res);
+    res.json({
+      success: true,
+      pontos: getHistoricoDeHardwareLocal()
     });
   } catch (err) {
     next(err);

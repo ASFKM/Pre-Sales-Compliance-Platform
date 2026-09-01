@@ -16,6 +16,7 @@ import {
 import { useAdminConsole } from "../hooks/useAdminConsole";
 import ApiClient from "../lib/api";
 import RequisitosDeSenha from "./RequisitosDeSenha";
+import { AdminHardwareLocal } from "./AdminHardwareLocal";
 import {
   PoliticaDeSenha,
   POLITICA_PADRAO,
@@ -845,46 +846,9 @@ export default function AdminConsole({
                     </div>
 
                     <div className="grid grid-cols-12 gap-3">
-                      <div className="col-span-12 xl:col-span-8 bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                        <div className="flex items-center justify-between mb-3">
-                          <h3 className="text-xs font-bold text-slate-800 uppercase font-mono">
-                            {locale === "pt" ? "Integrações" : "Integrations"}
-                          </h3>
-                          <button
-                            onClick={() => setActiveAdminSection("integrations")}
-                            className="text-[10px] font-bold text-brand-700 bg-brand-50 border border-brand-200 px-2 py-1 rounded"
-                          >
-                            {locale === "pt" ? "Gerenciar" : "Manage"}
-                          </button>
-                        </div>
+                      <AdminHardwareLocal locale={locale} />
 
-                        {integrations.length === 0 ? (
-                          <div className="h-28 flex flex-col items-center justify-center text-center border border-dashed border-slate-200 rounded-lg bg-slate-50 px-3">
-                            <p className="text-xs text-slate-400 italic">
-                              {locale === "pt" ? "Nenhuma integração configurada." : "No integration configured."}
-                            </p>
-                            <p className="text-[10px] text-slate-400 mt-1">
-                              {locale === "pt" ? "Adicione CRM, ERP ou API externa." : "Add CRM, ERP or external API."}
-                            </p>
-                          </div>
-                        ) : (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            {integrations.slice(0, 6).map(conn => (
-                              <div key={conn.id} className="p-2 bg-slate-50 border border-slate-100 rounded-lg">
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="font-semibold text-slate-700 text-xs truncate">{conn.name}</span>
-                                  <span className={`text-[9px] px-1.5 py-0.5 rounded uppercase font-bold shrink-0 ${conn.status === "connected" ? "bg-success-100 text-success-700" : "bg-slate-200 text-slate-700"}`}>
-                                    {conn.status}
-                                  </span>
-                                </div>
-                                <p className="text-[10px] text-slate-400 font-mono mt-1 truncate">{conn.type || "API"}</p>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="col-span-12 xl:col-span-4 bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                      <div className="col-span-12 sm:col-span-6 xl:col-span-3 bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
                         <h3 className="text-xs font-bold text-slate-800 uppercase font-mono mb-3">
                           {locale === "pt" ? "Sistema" : "System"}
                         </h3>
