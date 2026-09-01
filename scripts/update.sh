@@ -159,7 +159,18 @@ if [[ "$AVAILABLE_KB" -lt 2097152 ]]; then # 2GB
 fi
 
 step "Buscando referência $REF"
-git fetch --tags origin >> "$ERROR_LOG_FILE" 2>&1
+# --force porque uma tag LOCAL que divergiu da remota faz `git fetch --tags` sair com erro
+# ("would clobber existing tag") e, sob `set -e`, mata a atualizacao inteira antes mesmo do
+# backup. Foi o que aconteceu de verdade: as tres ultimas tentativas registradas em
+# system_update_history — 27/07/2026 (duas) e 01/09/2026 — falharam TODAS por causa da mesma
+# tag, `v1.0.0-update-system`, que aponta para 61bde65 aqui e para 194b486 no origin. O sistema
+# de atualizacao ficou mais de um mes sem conseguir aplicar nada, e ninguem viu.
+#
+# Quem manda na tag e o REMOTO: as releases do CMSaaS referenciam refs que vivem no origin, e uma
+# tag local divergente e sempre resíduo de um experimento local, nunca a verdade. Recusar o fetch
+# para preservar esse resíduo troca a atualizacao inteira por um pedaco de historia que ninguem
+# quer.
+git fetch --tags --force origin >> "$ERROR_LOG_FILE" 2>&1
 if ! git rev-parse --verify "$REF" >/dev/null 2>>"$ERROR_LOG_FILE"; then
   echo "Referência $REF não encontrada" >> "$ERROR_LOG_FILE"
   exit 1
