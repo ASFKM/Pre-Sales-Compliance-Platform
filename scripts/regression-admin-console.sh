@@ -66,7 +66,7 @@ login() {
   expect_save 200 "login $email" "$out" \
     -X POST $REG_BASE/api/auth/login \
     -H "Content-Type: application/json" \
-    -d "{\"email\":\"$email\",\"password\":\"password123\"}" >/dev/null
+    -d "{\"email\":\"$email\",\"password\":\"Demonstracao2026!\"}" >/dev/null
 
   local token
   token="$(node -e 'const fs=require("fs"); const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if(!j.token) process.exit(1); console.log(j.token)' "$out")"
@@ -138,13 +138,13 @@ expect 409 "duplicate user email is blocked" \
   -X POST $REG_BASE/api/users \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
-  -d "{\"name\":\"Duplicate User $SUFFIX\",\"email\":\"regression_$SUFFIX@example.com\",\"role_id\":\"$ROLE_ID\",\"initial_password\":\"ChangeMe123\"}"
+  -d "{\"name\":\"Duplicate User $SUFFIX\",\"email\":\"regression_$SUFFIX@example.com\",\"role_id\":\"$ROLE_ID\",\"initial_password\":\"ChangeMe123!\"}"
 
 expect 400 "missing user role is blocked" \
   -X POST $REG_BASE/api/users \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
-  -d "{\"name\":\"Missing Role User $SUFFIX\",\"email\":\"missing_role_$SUFFIX@example.com\",\"role_id\":\"role_missing\",\"initial_password\":\"ChangeMe123\"}"
+  -d "{\"name\":\"Missing Role User $SUFFIX\",\"email\":\"missing_role_$SUFFIX@example.com\",\"role_id\":\"role_missing\",\"initial_password\":\"ChangeMe123!\"}"
 
 expect 400 "self delete is blocked" \
   -X DELETE $REG_BASE/api/users/u1 \
