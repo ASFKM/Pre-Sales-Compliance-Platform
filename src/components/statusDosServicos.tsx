@@ -42,7 +42,7 @@ export function resumoDosServicos(servicos: ServicoLocal[]): { status: ServicoLo
   return { status: pior, texto: `${noAr}/${servicos.length}` };
 }
 
-const TRACOS = 30;
+const TRACOS_PADRAO = 30;
 
 const COR_DO_TRACO: Record<ServicoLocal["status"], string> = {
   operational: "var(--color-success-600)",
@@ -51,10 +51,12 @@ const COR_DO_TRACO: Record<ServicoLocal["status"], string> = {
   unknown: "var(--color-slate-300)",
 };
 
-/** A barra de disponibilidade de UM serviço — um traço por leitura, mais recente à direita. */
-function BarraDeDisponibilidade({ leituras }: { leituras: (ServicoLocal["status"] | null)[] }) {
-  const vazios = Math.max(0, TRACOS - leituras.length);
-  const preenchida: (ServicoLocal["status"] | null)[] = [...Array<null>(vazios).fill(null), ...leituras.slice(-TRACOS)];
+/** A barra de disponibilidade de UM serviço — um traço por leitura, mais recente à direita.
+ * `tracos` é configurável porque o popup de histórico (mais largo) mostra mais leituras que o
+ * cartão compacto da Visão Geral. */
+function BarraDeDisponibilidade({ leituras, tracos = TRACOS_PADRAO }: { leituras: (ServicoLocal["status"] | null)[]; tracos?: number }) {
+  const vazios = Math.max(0, tracos - leituras.length);
+  const preenchida: (ServicoLocal["status"] | null)[] = [...Array<null>(vazios).fill(null), ...leituras.slice(-tracos)];
   return (
     <div className="flex gap-px mt-0.5" aria-hidden="true">
       {preenchida.map((estado, i) => (
@@ -77,10 +79,12 @@ export function ListaDeServicosLocal({
   servicos,
   historico,
   locale,
+  tracos,
 }: {
   servicos: ServicoLocal[];
   historico: { medido_em: string; servicos: ServicoLocal[] }[];
   locale: "en" | "pt";
+  tracos?: number;
 }) {
   if (servicos.length === 0) {
     return (
@@ -118,7 +122,7 @@ export function ListaDeServicosLocal({
                   {locale === "pt" ? aparencia.rotuloPt : aparencia.rotuloEn}
                 </span>
               </div>
-              <BarraDeDisponibilidade leituras={serie} />
+              <BarraDeDisponibilidade leituras={serie} tracos={tracos} />
             </li>
           );
         })}

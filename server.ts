@@ -265,6 +265,11 @@ async function bootstrap() {
     logger.info({ port: PORT }, "Enterprise App Server listening");
   });
 
+  // F11: rollup horario do historico de hardware/servicos (server/utils/hardwareRollup.ts) -
+  // mesmo padrao boot-run + setInterval que o resto do produto ja usa pra tarefa periodica.
+  const { iniciarRollupDeHardware } = await import("./server/utils/hardwareRollup");
+  iniciarRollupDeHardware();
+
   // AUD-014: sem isso, um sinal de término do systemd matava o processo imediatamente, cortando
   // conexões em andamento sem aviso - inclusive uma análise de IA ou geração de proposta em
   // voo. server.close() para de aceitar conexões novas e deixa as abertas terminarem sozinhas,

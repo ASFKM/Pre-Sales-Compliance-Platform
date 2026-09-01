@@ -3,7 +3,7 @@ import type { Request } from "../types/express";
 import { dbStore } from "../../src/dbStore";
 import { requirePermission } from "./auth";
 import { sanitizeAndMaskObject } from "../utils/security";
-import { getHistoricoDeHardwareLocal } from "../utils/hardwareLocalHistory";
+import { consultarHistoricoDeHardware, garantirAmostragemDeHardware, type Granularidade } from "../utils/hardwareLocalHistory";
 
 const router = express.Router();
 
@@ -165,12 +165,52 @@ router.get("/admin/system/status", requirePermission("admin:diagnostics"), async
   }
 });
 
+const GRANULARIDADES_VALIDAS = new Set<Granularidade>(["minute", "hour", "day"]);
+const DOZE_HORAS_MS = 12 * 60 * 60 * 1000;
+// Um pouco mais que 366 dias - cobre o atalho "Este ano" sem abrir a porta pra uma consulta sem
+// fim (ex. from=1970 varrendo hardware_samples_hourly inteiro).
+const JANELA_MAXIMA_MS = 400 * 24 * 60 * 60 * 1000;
+
+// GET /admin/system/hardware - usada tanto pelos 4 cartoes da Visao Geral (sem query params,
+// atalho pras ultimas 12h por minuto) quanto pelo popup de historico (from/to/granularity
+// explicitos). E a MESMA consulta com parametros diferentes de proposito - os cartoes e o popup
+// nunca deveriam poder divergir sobre o que aconteceu num periodo.
 router.get("/admin/system/hardware", requirePermission("admin:diagnostics"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     setNoStoreHeaders(res);
+
+    // Garante a amostragem ANTES de capturar "agora": se esta e a primeira chamada desde o
+    // boot, a amostra recem-criada precisa nascer antes do `to` default ser calculado, senao o
+    // proprio filtro `measuredAt <= to` a exclui por alguns milissegundos de corrida.
+    await garantirAmostragemDeHardware();
+
+    const agora = new Date();
+    const fromRaw = req.query.from as string | undefined;
+    const toRaw = req.query.to as string | undefined;
+    const granularityRaw = (req.query.granularity as string | undefined) || "minute";
+
+    if (!GRANULARIDADES_VALIDAS.has(granularityRaw as Granularidade)) {
+      return res.status(400).json({ success: false, message: "granularity invalido. Use minute, hour ou day." });
+    }
+    const granularity = granularityRaw as Granularidade;
+
+    const to = toRaw ? new Date(toRaw) : agora;
+    const from = fromRaw ? new Date(fromRaw) : new Date(agora.getTime() - DOZE_HORAS_MS);
+
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+      return res.status(400).json({ success: false, message: "from/to precisam ser datas validas (ISO 8601)." });
+    }
+    if (from >= to) {
+      return res.status(400).json({ success: false, message: "from precisa ser anterior a to." });
+    }
+    if (to.getTime() - from.getTime() > JANELA_MAXIMA_MS) {
+      return res.status(400).json({ success: false, message: "Periodo maximo e de aproximadamente 1 ano." });
+    }
+
     res.json({
       success: true,
-      pontos: await getHistoricoDeHardwareLocal()
+      granularity,
+      pontos: await consultarHistoricoDeHardware({ from, to, granularity })
     });
   } catch (err) {
     next(err);
