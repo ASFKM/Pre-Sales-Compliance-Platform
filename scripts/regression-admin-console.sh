@@ -138,13 +138,13 @@ expect 409 "duplicate user email is blocked" \
   -X POST $REG_BASE/api/users \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
-  -d "{\"name\":\"Duplicate User $SUFFIX\",\"email\":\"regression_$SUFFIX@example.com\",\"role_id\":\"$ROLE_ID\",\"initial_password\":\"ChangeMe123\"}"
+  -d "{\"name\":\"Duplicate User $SUFFIX\",\"email\":\"regression_$SUFFIX@example.com\",\"role_id\":\"$ROLE_ID\",\"initial_password\":\"ChangeMe123!\"}"
 
 expect 400 "missing user role is blocked" \
   -X POST $REG_BASE/api/users \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
-  -d "{\"name\":\"Missing Role User $SUFFIX\",\"email\":\"missing_role_$SUFFIX@example.com\",\"role_id\":\"role_missing\",\"initial_password\":\"ChangeMe123\"}"
+  -d "{\"name\":\"Missing Role User $SUFFIX\",\"email\":\"missing_role_$SUFFIX@example.com\",\"role_id\":\"role_missing\",\"initial_password\":\"ChangeMe123!\"}"
 
 expect 400 "self delete is blocked" \
   -X DELETE $REG_BASE/api/users/u1 \
