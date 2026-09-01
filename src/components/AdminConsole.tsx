@@ -560,14 +560,6 @@ export default function AdminConsole({
       alert(err.message || (locale === "pt" ? "Não foi possível excluir." : "Could not delete."));
     }
   };
-  // Real per-provider connection status, derived from platformSettings (never a locally-simulated
-  // list) - "PROVIDER_STATUS" reflects whether a key is actually configured on the backend.
-  const PROVIDER_STATUS: { id: "gemini" | "openai" | "anthropic"; name: string; configured: boolean; masked: string }[] = [
-    { id: "gemini", name: "Google Gemini", configured: Boolean(platformSettings?.ai_api_key_configured), masked: platformSettings?.ai_api_key_masked || "" },
-    { id: "openai", name: "OpenAI ChatGPT", configured: Boolean(platformSettings?.openai_api_key_configured), masked: platformSettings?.openai_api_key_masked || "" },
-    { id: "anthropic", name: "Anthropic Claude", configured: Boolean(platformSettings?.anthropic_api_key_configured), masked: platformSettings?.anthropic_api_key_masked || "" },
-  ];
-
   const [templateUploadFile, setTemplateUploadFile] = useState<File | null>(null);
   const [templateUploadFileName, setTemplateUploadFileName] = useState<string>("");
   const [templateUploadName, setTemplateUploadName] = useState<string>("");
@@ -833,12 +825,11 @@ export default function AdminConsole({
 
                 {activeAdminSection === "overview" && canAccessAdminSection("overview") && (
                   <div className="w-full space-y-3">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       {[
                         [locale === "pt" ? "Usuários" : "Users", users.length, locale === "pt" ? "contas" : "accounts"],
                         [locale === "pt" ? "Templates" : "Templates", proposalTemplates.length, locale === "pt" ? "modelos" : "templates"],
                         [locale === "pt" ? "Integrações" : "Integrations", integrations.length, locale === "pt" ? "conectores" : "connectors"],
-                        [locale === "pt" ? "IAs Ativas" : "Active AIs", PROVIDER_STATUS.filter(p => p.configured).length, locale === "pt" ? "provedores" : "providers"],
                       ].map(([label, value, desc]) => (
                         <div key={String(label)} className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
                           <div className="flex items-center justify-between">
@@ -854,7 +845,7 @@ export default function AdminConsole({
                     </div>
 
                     <div className="grid grid-cols-12 gap-3">
-                      <div className="col-span-12 xl:col-span-5 bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                      <div className="col-span-12 xl:col-span-8 bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
                         <div className="flex items-center justify-between mb-3">
                           <h3 className="text-xs font-bold text-slate-800 uppercase font-mono">
                             {locale === "pt" ? "Integrações" : "Integrations"}
@@ -894,34 +885,6 @@ export default function AdminConsole({
                       </div>
 
                       <div className="col-span-12 xl:col-span-4 bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                        <div className="flex items-center justify-between mb-3">
-                          <h3 className="text-xs font-bold text-slate-800 uppercase font-mono">
-                            {locale === "pt" ? "Provedores de IA" : "AI Providers"}
-                          </h3>
-                          <button
-                            onClick={() => setActiveAdminSection("ai")}
-                            className="text-[10px] font-bold text-brand-700 bg-brand-50 border border-brand-200 px-2 py-1 rounded"
-                          >
-                            {locale === "pt" ? "Configurar" : "Configure"}
-                          </button>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {PROVIDER_STATUS.map(prov => (
-                            <div key={prov.id} className="p-2.5 bg-slate-50 border border-slate-100 rounded-lg">
-                              <div className="flex justify-between items-center gap-2">
-                                <span className="font-semibold text-slate-700 text-xs truncate">{prov.name}</span>
-                                <span className={`text-[9px] font-bold ${prov.configured ? "text-success-700" : "text-slate-400"}`}>
-                                  {prov.configured ? (locale === "pt" ? "Configurado" : "Configured") : (locale === "pt" ? "Não configurado" : "Not configured")}
-                                </span>
-                              </div>
-                              <p className="text-[10px] text-slate-500 font-mono mt-1 truncate">{prov.masked || (locale === "pt" ? "Sem chave" : "No key")}</p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="col-span-12 xl:col-span-3 bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
                         <h3 className="text-xs font-bold text-slate-800 uppercase font-mono mb-3">
                           {locale === "pt" ? "Sistema" : "System"}
                         </h3>
@@ -980,11 +943,7 @@ export default function AdminConsole({
                         <h3 className="text-xs font-bold text-slate-800 uppercase font-mono mb-3">
                           {locale === "pt" ? "Resumo Operacional" : "Operational Summary"}
                         </h3>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                          <div className="p-2.5 bg-slate-50 border border-slate-100 rounded-lg">
-                            <p className="text-[9px] uppercase font-mono text-slate-400">{locale === "pt" ? "Modelo" : "Model"}</p>
-                            <p className="font-bold text-slate-800 mt-1 truncate">{platformSettings?.document_analysis_model || "Gemini 2.5 Flash"}</p>
-                          </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
                           <div className="p-2.5 bg-slate-50 border border-slate-100 rounded-lg">
                             <p className="text-[9px] uppercase font-mono text-slate-400">Prompts</p>
                             <p className="font-bold text-slate-800 mt-1">{promptTemplates.length}</p>
