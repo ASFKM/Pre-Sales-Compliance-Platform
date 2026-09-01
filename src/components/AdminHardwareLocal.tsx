@@ -36,7 +36,7 @@ function Cartao({ titulo, valor, cor, children }: { titulo: string; valor: strin
         <h3 className="text-xs font-bold text-slate-800 uppercase font-mono">{titulo}</h3>
         <span className="text-sm font-black font-mono tabular-nums" style={{ color: cor }}>{valor}</span>
       </div>
-      <div style={{ height: 90 }}>{children}</div>
+      <div style={{ height: 132 }}>{children}</div>
     </div>
   );
 }
