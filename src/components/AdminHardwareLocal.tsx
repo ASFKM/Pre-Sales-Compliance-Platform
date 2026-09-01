@@ -1,18 +1,22 @@
 import { useEffect, useState } from "react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import ApiClient from "../lib/api";
+import { faixaDeUso, corDaFaixa, percentualDeUso } from "./faixaDeUso";
+import { MedidorSegmentado } from "./MedidorSegmentado";
+import { ListaDeServicosLocal, resumoDosServicos, type ServicoLocal } from "./statusDosServicos";
 
-// Os três cartões de hardware LOCAL da Visão Geral — mesma pergunta que o CMSaaS responde de
-// fora (CPU/memória/disco de uma instalação), mas de dentro: sem heartbeat, sem rede, só o que
-// `GET /api/admin/system/hardware` lê do próprio processo (server/utils/hardwareLocalHistory.ts,
-// que reaproveita a mesma `collectSystemInfo()` do heartbeat, para as duas leituras nunca
+// Os quatro cartões de hardware LOCAL da Visão Geral — mesma pergunta que o CMSaaS responde de
+// fora (CPU/memória/disco/serviços de uma instalação, em hardwareDaInstalacao.tsx), mas de
+// dentro: sem heartbeat, sem rede, só o que `GET /api/admin/system/hardware` lê do próprio
+// processo (server/utils/hardwareLocalHistory.ts, que reaproveita as MESMAS
+// `collectSystemInfo()`/`coletarStatusDosServicos()` do heartbeat, para as leituras nunca
 // divergirem).
 //
 // CPU e memória entram na MESMA escala (0–100%) de propósito: ao contrário do card do CMSaaS, que
-// evita eixo compartilhado porque desenha os dois num layout lado a lado (CPU em taxa, memória em
-// MB, escalas incomparáveis), aqui cada métrica tem o próprio gráfico — comparar "quão carregada
-// está a máquina" nos três cartões de relance é mais simples com os três em porcentagem do que
-// com um deles em megabytes.
+// evita eixo compartilhado porque desenha os dois lado a lado (CPU em taxa, memória em MB, escalas
+// incomparáveis), aqui cada métrica tem o próprio gráfico — comparar "quão carregada está a
+// máquina" nos quatro cartões de relance é mais simples com CPU/memória em porcentagem do que com
+// uma delas em megabytes.
 interface PontoDeHardwareLocal {
   medido_em: string;
   cpu_load_percent: number | null;
@@ -20,21 +24,10 @@ interface PontoDeHardwareLocal {
   total_memory_mb: number | null;
   disk_used_mb: number | null;
   disk_total_mb: number | null;
+  servicos: ServicoLocal[];
 }
 
 const INTERVALO_DE_ATUALIZACAO_MS = 15_000;
-
-function percentual(usado: number | null, total: number | null): number | null {
-  if (usado === null || total === null || total <= 0) return null;
-  return Math.min(100, Math.round((usado / total) * 100));
-}
-
-function corDaFaixa(pct: number | null): string {
-  if (pct === null) return "var(--color-slate-400)";
-  if (pct >= 90) return "var(--color-danger-600)";
-  if (pct >= 70) return "var(--color-warning-600)";
-  return "var(--color-brand-600)";
-}
 
 function Cartao({ titulo, valor, cor, children }: { titulo: string; valor: string; cor: string; children: React.ReactNode }) {
   return (
@@ -77,7 +70,7 @@ export function AdminHardwareLocal({ locale }: { locale: "en" | "pt" }) {
 
   if (erro) {
     return (
-      <div className="col-span-12 xl:col-span-9 bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+      <div className="col-span-12 bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
         <p className="text-xs text-danger-700">{erro}</p>
       </div>
     );
@@ -85,24 +78,37 @@ export function AdminHardwareLocal({ locale }: { locale: "en" | "pt" }) {
 
   const ultimo = pontos && pontos.length > 0 ? pontos[pontos.length - 1] : null;
   const pctCpu = ultimo ? ultimo.cpu_load_percent : null;
-  const pctMemoria = ultimo ? percentual(ultimo.memory_used_mb, ultimo.total_memory_mb) : null;
-  const pctDisco = ultimo ? percentual(ultimo.disk_used_mb, ultimo.disk_total_mb) : null;
+  const pctMemoria = ultimo ? percentualDeUso(ultimo.memory_used_mb, ultimo.total_memory_mb) : null;
+  const servicos = ultimo ? ultimo.servicos : [];
+  const resumoServicos = resumoDosServicos(servicos);
 
   const serieCpu = (pontos || []).map(p => ({ tempo: p.medido_em, valor: p.cpu_load_percent }));
-  const serieMemoria = (pontos || []).map(p => ({ tempo: p.medido_em, valor: percentual(p.memory_used_mb, p.total_memory_mb) }));
+  const serieMemoria = (pontos || []).map(p => ({ tempo: p.medido_em, valor: percentualDeUso(p.memory_used_mb, p.total_memory_mb) }));
+  const historicoDeServicos = (pontos || []).map(p => ({ medido_em: p.medido_em, servicos: p.servicos }));
 
   const rotuloDoEixo = (v: string) => {
     const d = new Date(v);
     return Number.isNaN(d.getTime()) ? "" : HORA_MINUTO.format(d);
   };
 
+  const carregando = (
+    <p className="h-full flex items-center justify-center text-[10px] text-slate-400">
+      {locale === "pt" ? "Carregando..." : "Loading..."}
+    </p>
+  );
+
+  const corServicos: Record<ServicoLocal["status"], string> = {
+    operational: "var(--color-success-600)",
+    degraded: "var(--color-warning-600)",
+    down: "var(--color-danger-600)",
+    unknown: "var(--color-slate-400)",
+  };
+
   return (
     <>
-      <Cartao titulo="CPU" valor={pctCpu === null ? "—" : `${pctCpu}%`} cor={corDaFaixa(pctCpu)}>
+      <Cartao titulo="CPU" valor={pctCpu === null ? "—" : `${pctCpu}%`} cor={corDaFaixa(faixaDeUso(pctCpu))}>
         {!pontos ? (
-          <p className="h-full flex items-center justify-center text-[10px] text-slate-400">
-            {locale === "pt" ? "Carregando..." : "Loading..."}
-          </p>
+          carregando
         ) : (
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={serieCpu} margin={{ top: 4, right: 4, bottom: 0, left: -18 }}>
@@ -119,11 +125,9 @@ export function AdminHardwareLocal({ locale }: { locale: "en" | "pt" }) {
         )}
       </Cartao>
 
-      <Cartao titulo={locale === "pt" ? "Memória" : "Memory"} valor={pctMemoria === null ? "—" : `${pctMemoria}%`} cor={corDaFaixa(pctMemoria)}>
+      <Cartao titulo={locale === "pt" ? "Memória" : "Memory"} valor={pctMemoria === null ? "—" : `${Math.round(pctMemoria)}%`} cor={corDaFaixa(faixaDeUso(pctMemoria))}>
         {!pontos ? (
-          <p className="h-full flex items-center justify-center text-[10px] text-slate-400">
-            {locale === "pt" ? "Carregando..." : "Loading..."}
-          </p>
+          carregando
         ) : (
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={serieMemoria} margin={{ top: 4, right: 4, bottom: 0, left: -18 }}>
@@ -131,7 +135,7 @@ export function AdminHardwareLocal({ locale }: { locale: "en" | "pt" }) {
               <YAxis domain={[0, 100]} tick={{ fontSize: 9 }} width={28} axisLine={false} tickLine={false} />
               <Tooltip
                 isAnimationActive={false}
-                formatter={(v: any) => [`${v}%`, locale === "pt" ? "Memória" : "Memory"]}
+                formatter={(v: any) => [`${Math.round(v)}%`, locale === "pt" ? "Memória" : "Memory"]}
                 labelFormatter={(v: any) => rotuloDoEixo(String(v))}
               />
               <Area type="monotone" dataKey="valor" stroke="var(--color-brand-700)" fill="var(--color-brand-300)" isAnimationActive={false} connectNulls />
@@ -140,20 +144,16 @@ export function AdminHardwareLocal({ locale }: { locale: "en" | "pt" }) {
         )}
       </Cartao>
 
-      <Cartao titulo={locale === "pt" ? "Disco" : "Disk"} valor={pctDisco === null ? "—" : `${pctDisco}%`} cor={corDaFaixa(pctDisco)}>
-        <div className="h-full flex flex-col justify-center gap-2">
-          <div className="w-full h-2.5 rounded-full bg-slate-100 overflow-hidden">
-            <div
-              className="h-full rounded-full transition-all"
-              style={{ width: `${pctDisco ?? 0}%`, backgroundColor: corDaFaixa(pctDisco) }}
-            />
-          </div>
-          <p className="text-[10px] text-slate-400 font-mono">
-            {ultimo?.disk_used_mb != null && ultimo?.disk_total_mb != null
-              ? `${(ultimo.disk_used_mb / 1024).toFixed(1)} GB / ${(ultimo.disk_total_mb / 1024).toFixed(1)} GB`
-              : locale === "pt" ? "Sem leitura de disco." : "No disk reading."}
-          </p>
-        </div>
+      <Cartao titulo={locale === "pt" ? "Disco" : "Disk"} valor={ultimo ? `${Math.round(percentualDeUso(ultimo.disk_used_mb, ultimo.disk_total_mb) ?? 0)}%` : "—"} cor={corDaFaixa(faixaDeUso(ultimo ? percentualDeUso(ultimo.disk_used_mb, ultimo.disk_total_mb) : null))}>
+        {!pontos ? carregando : <MedidorSegmentado usado={ultimo?.disk_used_mb ?? null} total={ultimo?.disk_total_mb ?? null} locale={locale} />}
+      </Cartao>
+
+      <Cartao
+        titulo={locale === "pt" ? "Serviços" : "Services"}
+        valor={!pontos ? "—" : resumoServicos.texto}
+        cor={!pontos ? "var(--color-slate-400)" : corServicos[resumoServicos.status]}
+      >
+        {!pontos ? carregando : <ListaDeServicosLocal servicos={servicos} historico={historicoDeServicos} locale={locale} />}
       </Cartao>
     </>
   );

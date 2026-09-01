@@ -847,35 +847,6 @@ export default function AdminConsole({
 
                     <div className="grid grid-cols-12 gap-3">
                       <AdminHardwareLocal locale={locale} />
-
-                      <div className="col-span-12 sm:col-span-6 xl:col-span-3 bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                        <h3 className="text-xs font-bold text-slate-800 uppercase font-mono mb-3">
-                          {locale === "pt" ? "Sistema" : "System"}
-                        </h3>
-
-                        <div className="space-y-2 text-xs text-slate-600">
-                          <div className="p-2.5 bg-slate-50 border border-slate-100 rounded-lg">
-                            <p className="text-[9px] uppercase font-mono text-slate-400">{locale === "pt" ? "Licença" : "License"}</p>
-                            <p className="font-bold text-slate-800 mt-1">
-                              {fleetLicenseStatus?.connected
-                                ? `${fleetLicenseStatus.plan_name || (locale === "pt" ? "Sem plano" : "No plan")} / ${fleetLicenseStatus.status === "active" ? (locale === "pt" ? "Ativa" : "Active") : (locale === "pt" ? "Suspensa" : "Suspended")}`
-                                : locale === "pt" ? "Não conectado" : "Not connected"}
-                            </p>
-                          </div>
-
-                          <div className="p-2.5 bg-slate-50 border border-slate-100 rounded-lg">
-                            <p className="text-[9px] uppercase font-mono text-slate-400">{locale === "pt" ? "Armazenamento" : "Storage"}</p>
-                            <p className="font-bold text-slate-800 mt-1">{platformSettings?.storage_mode || "local"}</p>
-                          </div>
-
-                          <div className="p-2.5 bg-slate-50 border border-slate-100 rounded-lg">
-                            <p className="text-[9px] uppercase font-mono text-slate-400">{locale === "pt" ? "Visual" : "Branding"}</p>
-                            <p className="font-bold text-slate-800 mt-1">
-                              {brandLogoDataUrl ? (locale === "pt" ? "Logo personalizada" : "Custom logo") : (locale === "pt" ? "Padrão" : "Default")}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
                     </div>
 
                     <div className="grid grid-cols-12 gap-3">

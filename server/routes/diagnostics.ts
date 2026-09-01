@@ -170,7 +170,7 @@ router.get("/admin/system/hardware", requirePermission("admin:diagnostics"), asy
     setNoStoreHeaders(res);
     res.json({
       success: true,
-      pontos: getHistoricoDeHardwareLocal()
+      pontos: await getHistoricoDeHardwareLocal()
     });
   } catch (err) {
     next(err);
