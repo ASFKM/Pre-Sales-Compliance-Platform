@@ -1013,13 +1013,10 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               <img src={brandLogoDataUrl} alt="Company logo" className="max-h-8 max-w-[170px] object-contain" />
             </div>
           ) : (
-            <div className="h-10 max-w-[190px] flex items-center justify-center">
-              <img src="/brand/symbol-on-dark.svg" alt="Pre-Sales Compliance Platform" className="max-h-9 max-w-[170px] object-contain" />
+            <div className="h-10 max-w-[210px] flex items-center justify-center">
+              <img src="/brand/logo-on-dark.svg" alt="Pre-Sales Compliance Platform" className="max-h-9 max-w-[210px] object-contain" />
             </div>
           )}
-          <div className="flex flex-col">
-            <span className="text-[10px] text-slate-400 font-mono">{tx("Pre-Sales Compliance Platform", "Plataforma de Compliance de Pré-Vendas")}</span>
-          </div>
         </div>
 
         {/* Global Nav Targets */}
