@@ -33,6 +33,7 @@ import { isProductionRuntime, isDemoRuntime } from "../config/runtime";
 import { runWithTenant } from "../../src/tenantContext";
 import { isLockedOut, recordFailedAttempt, clearFailedAttempts } from "../utils/lockout";
 import { checkLicenseEnforcement, getFleetLicenseStatus } from "../utils/fleetLicense";
+import { MARCA_AUSENTE, resolverMarcaDaInstalacao } from "../utils/marcaDaInstalacao";
 
 const router = express.Router();
 
@@ -800,6 +801,42 @@ router.get("/password-policy", async (req: Request, res: Response, next: NextFun
     res.json({ success: true, politica, requisitos: requisitosDaPolitica("", politica) });
   } catch (err) {
     next(err);
+  }
+});
+
+/**
+ * F6 (01/09/2026) - a MARCA DA INSTALACAO, para a tela de entrada escrever "Licensed to
+ * <cliente>" antes de qualquer pessoa se identificar.
+ *
+ * PUBLICA E DE MESMA ORIGEM, como a /password-policy logo acima e pelo mesmo motivo: a tela que
+ * consome isto roda antes de existir sessao. Nao ha token, nao ha tenant no contexto, e nao ha
+ * parametro de entrada - quem decide de quem e a instalacao e o servidor
+ * (server/utils/marcaDaInstalacao.ts), lendo o cache local que o heartbeat alimenta. NENHUMA
+ * CHAMADA DE REDE SAI DAQUI no momento do login.
+ *
+ * O QUE SAI: nome do cliente e logo, so. Toda a demais informacao da licenca - installation_id,
+ * status, modo de bloqueio, modulos, plano e datas de contrato - continua atras de autenticacao,
+ * em GET /api/settings/fleet/license. Numa rota sem sessao, o que aparece na porta de entrada e
+ * o que ja aparece impresso no contrato do cliente, e nada mais.
+ *
+ * SEM LIMITADOR PROPRIO, de proposito. O limitador global de /api (1000/15min por IP) ja cobre, e
+ * o custo por chamada e da mesma ordem da /password-policy: uma leitura indexada no Postgres, um
+ * GET no Redis e uma verificacao Ed25519, sem escrita e sem rede externa. Um limitador apertado
+ * como o do login (20/15min) seria ATIVAMENTE nocivo aqui - um escritorio inteiro atras de um
+ * mesmo NAT veria a marca sumir da tela na 21a carga da pagina, que e exatamente o "rotulo que
+ * pisca" que esta fase existe para evitar. A resposta e igual para todo mundo e muda no ritmo do
+ * heartbeat, entao vai com Cache-Control curto em vez de limitador.
+ *
+ * RESPONDE 200 SEMPRE. Sem marca a resposta e o shape explicito de ausencia
+ * ({ licenciado_para: null, logo_base64: null }), nunca 404 nem erro: um 500 nesta rota pintaria
+ * erro no console da tela de login por causa de um rotulo decorativo.
+ */
+router.get("/brand", async (_req: Request, res: Response) => {
+  try {
+    res.set("Cache-Control", "public, max-age=60");
+    res.json({ success: true, ...(await resolverMarcaDaInstalacao()) });
+  } catch {
+    res.json({ success: true, ...MARCA_AUSENTE });
   }
 });
 

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowRight, CircleAlert, Key, Lock, Mail, ShieldAlert } from "lucide-react";
 import ApiClient from "../lib/api";
@@ -29,7 +29,56 @@ interface LoginProps {
  *
  * A lista de requisitos acende enquanto a pessoa digita. Continua valendo que quem decide é a
  * rota: a tela avisa antes de gastar uma ida à rede.
+ *
+ * F6 (01/09/2026) — O "LICENSED TO" VOLTOU AO RODAPÉ. Decisão do dono: a tela de entrada volta a
+ * dizer de quem é esta instalação. O que impedia isso era a suposição de que a marca do cliente
+ * exigia perguntar ao CMSaaS — e ela caiu: o heartbeat já guarda a licença assinada no Redis
+ * local, e "GET /api/auth/brand" lê só esse cache. Zero rede no login, mesma origem, sem sessão.
  */
+
+interface MarcaDaInstalacao {
+  licenciado_para: string | null;
+  logo_base64: string | null;
+}
+
+const MARCA_AUSENTE: MarcaDaInstalacao = { licenciado_para: null, logo_base64: null };
+
+/**
+ * A marca desta instalação, vinda de "GET /api/auth/brand" — rota pública, mesma origem, servida
+ * do cache local que o heartbeat alimenta (nenhuma ida ao CMSaaS acontece aqui).
+ *
+ * Nasce AUSENTE e só troca de estado se a resposta trouxer um nome. Não existe estado
+ * "carregando", de propósito: enquanto a consulta não volta — ou se ela nunca voltar, porque o
+ * servidor é mais antigo que esta rota, porque a rede caiu, porque o JSON veio quebrado — a tela
+ * renderiza exatamente como renderizava antes desta fase. Um esqueleto ou um espaço reservado na
+ * porta de entrada seria pior do que a marca simplesmente aparecer quando chegar.
+ */
+function useMarcaDaInstalacao(): MarcaDaInstalacao {
+  const [marca, setMarca] = useState<MarcaDaInstalacao>(MARCA_AUSENTE);
+
+  useEffect(() => {
+    let ativo = true;
+    fetch("/api/auth/brand")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        const nome = typeof data?.licenciado_para === "string" ? data.licenciado_para.trim() : "";
+        if (!ativo || !nome) return;
+        // O logo entra direto no src de uma <img>: só data: URI de imagem, que é o que a CSP
+        // desta instalação aceita. O servidor já filtra; a tela não confia por confiar.
+        const logo =
+          typeof data?.logo_base64 === "string" && data.logo_base64.startsWith("data:image/")
+            ? data.logo_base64
+            : null;
+        setMarca({ licenciado_para: nome, logo_base64: logo });
+      })
+      .catch(() => undefined);
+    return () => {
+      ativo = false;
+    };
+  }, []);
+
+  return marca;
+}
 
 export default function Login({ onLoginSuccess }: LoginProps) {
   const ehAmbienteDeDemonstracao = import.meta.env.VITE_APP_RUNTIME_MODE !== "production";
@@ -47,6 +96,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   // Enquanto não há token pendente (primeira tela), o servidor devolve o padrão de fábrica; assim
   // que o login identifica a pessoa, a política vem a do tenant dela.
   const politicaDeSenha = usePoliticaDeSenha(tokenPendente || undefined);
+  const marcaDaInstalacao = useMarcaDaInstalacao();
   const [erro, setErro] = useState("");
   const [carregando, setCarregando] = useState(false);
 
@@ -396,10 +446,38 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         </AnimatePresence>
       </div>
 
-      {/* Rodapé de marca, na mesma anatomia que a F14 definiu: rótulo minúsculo em versalete
-          sobre a marca da casa, num scrim escuro. O "Licensed to" NÃO entra aqui — ele depende
-          de uma consulta ao CMSaaS, e esta tela precisa aparecer inteira mesmo sem rede. */}
+      {/* Rodapé de marca, na anatomia que a F14 definiu: rótulo minúsculo em versalete sobre a
+          marca correspondente, num scrim escuro.
+
+          F6 (01/09/2026) — O "LICENSED TO" ENTROU AQUI. O comentário que este substitui dizia que
+          ele NÃO entrava, porque dependia de uma consulta ao CMSaaS e esta tela precisa aparecer
+          inteira mesmo sem rede. A segunda metade continua valendo integralmente; a primeira
+          deixou de valer: o dado não vem mais do CMSaaS na hora do login. O heartbeat guarda a
+          licença assinada no Redis local, e "GET /api/auth/brand" lê SOMENTE esse cache — mesma
+          origem, sem sessão, sem sair da máquina.
+
+          O bloco do cliente só existe quando há marca. Instalação nova, cache vazio, Redis fora do
+          ar ou tenants licenciados que discordam de quem é o cliente: a consulta devolve nome
+          nulo, nada disto é renderizado, e o rodapé fica EXATAMENTE como era — nenhum espaço
+          reservado, nenhuma linha divisória órfã, nenhuma espera. A tela nunca depende desta
+          consulta para montar. */}
       <div className="pointer-events-none absolute bottom-5 left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-1 rounded-[14px] border border-white/10 bg-[rgba(10,18,32,0.42)] px-[1.15rem] py-[0.6rem] backdrop-blur-[10px]">
+        {marcaDaInstalacao.licenciado_para && (
+          <>
+            <span className="font-mono text-[9px] uppercase leading-none tracking-[0.12em] text-white/60">Licensed to</span>
+            <div className="flex items-center gap-2">
+              {marcaDaInstalacao.logo_base64 && (
+                <img
+                  src={marcaDaInstalacao.logo_base64}
+                  alt=""
+                  className="block h-5 w-auto max-w-[6rem] object-contain opacity-90"
+                />
+              )}
+              <span className="text-[11px] font-semibold leading-none text-white/90">{marcaDaInstalacao.licenciado_para}</span>
+            </div>
+            <div className="my-1 h-px w-full bg-white/10" aria-hidden="true" />
+          </>
+        )}
         <span className="font-mono text-[9px] uppercase leading-none tracking-[0.12em] text-white/80">Powered by</span>
         <img src="/logo-cloudmountain.png" alt="CloudMountain" className="block h-8 w-auto opacity-85" />
       </div>
