@@ -63,7 +63,6 @@ import pricingRouter from "./server/routes/pricing";
 import demandsRouter from "./server/routes/demands";
 import crmDirectoryRouter from "./server/routes/crmDirectory";
 import externalCrmRouter from "./server/routes/externalCrm";
-import { configuracaoDoKeycloak } from "./server/utils/keycloakConfig";
 
 const app = express();
 
@@ -161,26 +160,31 @@ app.get("/api/health", (req: Request, res: Response) => {
 });
 
 /**
- * Alcança o JWKS do Keycloak — o mesmo documento que `keycloakAuth.ts` busca para validar cada
- * token. Não é a página de login: é o que a aplicação de fato precisa alcançar, responde sem
- * sessão, e um Keycloak de pé com o realm errado devolve 404 aqui, que é a falha que interessa.
+ * A autenticação deste produto, no readiness.
+ *
+ * F5 do doc 17 (01/09/2026) — o ALVO mudou, o check não saiu. Ele batia no JWKS do Keycloak; a F1
+ * trouxe a credencial de volta para dentro do PreSales, e medir a saúde de um servidor do qual
+ * este produto já não depende erra nas duas direções: vermelho à toa, ou verde com o login
+ * quebrado. É a mesma troca que a F2 fez no CMSaaS e a F5 no CMCRM.
+ *
+ * São duas metades, porque cada uma sozinha mente: o segredo que assina a sessão precisa estar
+ * configurado (`JWT_SESSION_SECRET`, mínimo de 16 caracteres — o mesmo que `getJwtSecret()`
+ * exige, e sem ele todo login estoura), e precisa existir pelo menos uma conta ativa COM senha
+ * definida. A segunda é o estado real em que uma instalação fica quando a migração de senha não
+ * roda: o produto sobe, a tela responde, e ninguém entra. Depois da migration destrutiva de
+ * 30/08 todos os 28 usuários ficaram exatamente assim.
+ *
+ * Os três estados são preservados de propósito — `not_configured` se resolve no wizard,
+ * `unreachable` no banco, e os dois reprovam o check, porque um produto sem login não está pronto.
  */
-async function verificarKeycloak(): Promise<"reachable" | "unreachable" | "not_configured"> {
-  const cfg = configuracaoDoKeycloak();
-  // "Não configurado" e "fora do ar" são estados diferentes e o readiness diz qual: um se resolve
-  // no wizard, o outro no servidor de autenticação. Os dois reprovam o check — um produto sem
-  // login não deve ser dado como pronto — mas quem lê precisa saber para onde ir.
-  if (!cfg) return "not_configured";
-  const jwksUrl = cfg.jwksUrl;
+async function verificarAutenticacao(): Promise<"reachable" | "unreachable" | "not_configured"> {
+  const segredo = process.env.JWT_SESSION_SECRET;
+  if (!segredo || segredo.length < 16) return "not_configured";
   try {
-    const controlador = new AbortController();
-    const limite = setTimeout(() => controlador.abort(), 5000);
-    try {
-      const resposta = await fetch(jwksUrl, { method: "GET", signal: controlador.signal });
-      return resposta.ok ? "reachable" : "unreachable";
-    } finally {
-      clearTimeout(limite);
-    }
+    const comCredencial = await prisma.user.count({
+      where: { status: "ACTIVE", passwordHash: { not: null } },
+    });
+    return comCredencial > 0 ? "reachable" : "unreachable";
   } catch {
     return "unreachable";
   }
@@ -190,12 +194,10 @@ app.get("/api/health/readiness", async (req: Request, res: Response) => {
   const [databaseOk, redisOk, authOk] = await Promise.all([
     prisma.$queryRaw`SELECT 1`.then(() => true).catch(() => false),
     redis.ping().then((reply) => reply === "PONG").catch(() => false),
-    // Autenticação entra no readiness (31/08/2026). Desde a Fase 13 o login inteiro depende do
-    // Keycloak, e este endpoint é o health check que o `scripts/update.sh` usa para decidir se
-    // uma atualização deu certo. Sem esta linha, uma atualização que deixe o produto sem login
-    // passa como bem-sucedida e NÃO dispara rollback — que é exatamente o modo de falha que
-    // uma instalação sem as variáveis do Keycloak produziria.
-    verificarKeycloak(),
+    // Autenticação entra no readiness (31/08/2026). Este endpoint é o health check que o
+    // `scripts/update.sh` usa para decidir se uma atualização deu certo: sem esta linha, uma
+    // atualização que deixe o produto sem login passa como bem-sucedida e NÃO dispara rollback.
+    verificarAutenticacao(),
   ]);
 
   let storageOk = false;

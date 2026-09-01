@@ -5,7 +5,6 @@ import rateLimit from "express-rate-limit";
 import { dbStore } from "../../src/dbStore";
 import { logger } from "../utils/logger";
 import { sanitizeAndMaskObject } from "../utils/security";
-import { origensDoKeycloak as origensDoKeycloakConfig } from "../utils/keycloakConfig";
 
 // 1. Configure Helmet middleware. CSP is only enforced when NODE_ENV=production - that's the
 // same signal server.ts uses to decide between serving the static dist/ build and mounting Vite's
@@ -20,23 +19,15 @@ import { origensDoKeycloak as origensDoKeycloakConfig } from "../utils/keycloakC
 const isProductionEnv = process.env.NODE_ENV === "production";
 
 /**
- * Origens do Keycloak que o navegador precisa alcançar a partir das páginas deste produto.
+ * F5 do doc 17 (01/09/2026) — `connect-src`/`frame-src` deixaram de listar as origens do
+ * Keycloak.
  *
- * Vêm de `KEYCLOAK_ISSUER_URLS` — a MESMA lista que a verificação de token usa —, então as duas
- * pontas não podem divergir: se uma rota do Keycloak entra ou sai, entra ou sai nos dois lugares
- * de uma vez. Escrever a lista aqui à mão seria criar uma segunda verdade sobre o mesmo fato.
- *
- * `connect-src` cobre a busca da configuração do realm e a troca do código de autorização por
- * token. `frame-src` cobre a renovação silenciosa, que roda num iframe que navega até o Keycloak
- * e volta — sem ela, o token expira em 5 minutos e a pessoa cai para fora no meio do trabalho,
- * sem nenhuma mensagem que explique o motivo.
+ * Elas vinham de `KEYCLOAK_ISSUER_URLS`, derivadas da MESMA lista que a verificação de token
+ * usava, justamente para as duas pontas não divergirem. A F1 trouxe a autenticação para dentro
+ * do produto: não há mais segunda origem a alcançar — o login é uma chamada `same-origin` — e
+ * `'self'` sozinho é a política correta. Uma lista derivada de uma variável que ninguém mais
+ * define voltaria a abrir origens no dia em que alguém redefinisse a variável por engano.
  */
-// Vem de `keycloakConfig.ts`, e não de `process.env` direto: ler a variável aqui por conta
-// própria foi o que produziu o defeito de 31/08/2026 — o padrão entrou em `keycloakAuth.ts` e não
-// aqui, então numa instalação sem a variável a autenticação funcionava e a CSP saía SEM o
-// Keycloak, o navegador bloqueava a chamada e o produto mostrava "Failed to fetch" com o backend
-// de pé e o health check passando.
-const origensDoKeycloak = origensDoKeycloakConfig();
 
 export const helmetMiddleware = helmet({
   contentSecurityPolicy: isProductionEnv
@@ -47,8 +38,8 @@ export const helmetMiddleware = helmet({
           styleSrc: ["'self'", "'unsafe-inline'"],
           imgSrc: ["'self'", "data:"],
           fontSrc: ["'self'", "data:"],
-          connectSrc: ["'self'", ...origensDoKeycloak],
-          frameSrc: ["'self'", ...origensDoKeycloak],
+          connectSrc: ["'self'"],
+          frameSrc: ["'self'"],
           objectSrc: ["'none'"],
           baseUri: ["'self'"],
           frameAncestors: ["'self'"],

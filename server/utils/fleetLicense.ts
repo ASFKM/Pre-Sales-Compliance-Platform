@@ -424,10 +424,14 @@ async function verifyAndCacheLicensePayload(tenantId: string, data: { license: L
 // duas definicoes de "o banco esta de pe" fariam o readiness e o painel do CMSaaS discordarem
 // sobre a mesma instalacao.
 //
-// A autenticacao e a checagem que faltava: se o Keycloak cai ninguem entra, e o readiness
-// continuava respondendo 200 "ready". Bate no JWKS - o mesmo documento que `keycloakAuth.ts`
-// busca para validar cada token - e nao na pagina de login: e o que a aplicacao precisa
-// alcancar, responde sem sessao, e um Keycloak de pe com o realm errado devolve 404 ali.
+// A autenticacao e a checagem que faltava: quando ela quebra ninguem entra, e o readiness
+// continuava respondendo 200 "ready".
+//
+// F5 do doc 17 (01/09/2026): o alvo mudou junto com o produto. Era o JWKS do Keycloak; passou a
+// ser a autenticacao PROPRIA - segredo de sessao configurado e pelo menos uma conta ativa com
+// senha definida. Manter o alvo antigo faria esta linha do painel do CMSaaS reportar a saude de
+// um servico do qual o PreSales ja nao depende, nas duas direcoes: vermelho a toa, ou verde com
+// o login quebrado. Mesma decisao, mesma forma, nos tres produtos.
 type StatusDeServico = "operational" | "degraded" | "down" | "unknown";
 
 interface ServicoReportado {
@@ -475,11 +479,15 @@ async function medirServico(
   }
 }
 
-async function checarKeycloak(): Promise<boolean> {
-  const jwksUrl = process.env.KEYCLOAK_JWKS_URL;
-  if (!jwksUrl) return false;
-  const resposta = await fetch(jwksUrl, { method: "GET" });
-  return resposta.ok;
+async function checarAutenticacao(): Promise<boolean> {
+  // O mesmo minimo que `getJwtSecret()` exige em server/utils/security.ts: sem ele, todo login
+  // estoura na assinatura da sessao.
+  const segredo = process.env.JWT_SESSION_SECRET;
+  if (!segredo || segredo.length < 16) return false;
+  const comCredencial = await prisma.user.count({
+    where: { status: "ACTIVE", passwordHash: { not: null } },
+  });
+  return comCredencial > 0;
 }
 
 export async function coletarStatusDosServicos(): Promise<ServicoReportado[]> {
@@ -493,7 +501,7 @@ export async function coletarStatusDosServicos(): Promise<ServicoReportado[]> {
       const settings = await dbStore.getSettings();
       return createStorageAdapter(settings).checkReachable();
     }),
-    medirServico("auth", "Autenticacao", checarKeycloak),
+    medirServico("auth", "Autenticacao", checarAutenticacao),
   ]);
 }
 
