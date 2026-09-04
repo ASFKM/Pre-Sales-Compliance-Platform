@@ -15,7 +15,8 @@ import { duracao } from "./demandFormat";
 // por pessoa existe só neste produto. A média da EQUIPE vai para os dois papéis
 // porque é agregado e não recorte de gente, e a própria D20 já a manda até para
 // o CRM. Quem quiser o número por pessoa do time o encontra em
-// Configurações › Demandas, que é onde a F9 o pôs.
+// Configurações › SLA e Prazos, que é onde a F9 o pôs (a seção se chamava
+// "Demandas" até a F3 de 09/2026, que renomeou só o rótulo).
 //
 // A PIZZA é o item 6, e a razão de ela existir é do dono: ela entra no lugar do
 // gráfico de barras por setor. `recharts` já estava no produto (a Precificação
@@ -141,7 +142,7 @@ export function DemandPerformanceChart({ currentUserId }: { currentUserId: strin
         Últimos {dados?.days ?? 180} dias, em horas. O recorte por pessoa existe só aqui: o CRM vê o tempo da demanda
         dele e a média da equipe, e nunca o desempenho de quem trabalha nesta fila.
         {souGerente
-          ? " O número de cada pessoa do time fica em Configurações › Demandas."
+          ? " O número de cada pessoa do time fica em Configurações › SLA e Prazos."
           : " As barras claras são a média da equipe, que não é recorte de ninguém."}
       </p>
 

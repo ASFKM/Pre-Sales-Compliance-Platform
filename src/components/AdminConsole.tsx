@@ -767,7 +767,7 @@ export default function AdminConsole({
                     ["ai", locale === "pt" ? "IA, Prompts e Custos" : "AI, Prompts & Costs", locale === "pt" ? "Custos, relatórios e prompts" : "Costs, reports and prompts"],
                     ["templates", locale === "pt" ? "Templates de Propostas" : "Proposal Templates", locale === "pt" ? "Upload, preview e versionamento" : "Upload, preview and versioning"],
                     ["approval_flow", locale === "pt" ? "Fluxo de Aprovação" : "Approval Workflow", locale === "pt" ? "Etapas, responsáveis e regras" : "Stages, owners and rules"],
-                    ["demands", "Demandas", locale === "pt" ? "Prazos, desempenho e expurgos" : "Deadlines, performance and purges"],
+                    ["demands", locale === "pt" ? "SLA e Prazos" : "SLA & Deadlines", locale === "pt" ? "Prazos, desempenho e expurgos" : "Deadlines, performance and purges"],
                     ["subscription", locale === "pt" ? "Subscrição e Licença" : "Subscription & License", locale === "pt" ? "Plano, chave e limites" : "Plan, key and limits"],
                     ["system_updates", locale === "pt" ? "Atualizações do Sistema" : "System Updates", locale === "pt" ? "Versão, agendamento e histórico" : "Version, scheduling and history"],
                     ["branding", locale === "pt" ? "Identidade Visual" : "Branding", locale === "pt" ? "Logo, cores e aparência" : "Logo, colors and appearance"],
@@ -804,7 +804,7 @@ export default function AdminConsole({
                       {activeAdminSection === "templates" && canAccessAdminSection("templates") && (locale === "pt" ? "Templates de Propostas" : "Proposal Templates")}
 
                 {activeAdminSection === "approval_flow" && canAccessAdminSection("approval_flow") && (locale === "pt" ? "Fluxo de Aprovação de Propostas" : "Proposal Approval Workflow")}
-                      {activeAdminSection === "demands" && canAccessAdminSection("demands") && (locale === "pt" ? "Demandas: prazos, desempenho e expurgos" : "Demands: deadlines, performance and purges")}
+                      {activeAdminSection === "demands" && canAccessAdminSection("demands") && (locale === "pt" ? "SLA e Prazos: prazos, desempenho e expurgos" : "SLA & Deadlines: deadlines, performance and purges")}
                       {activeAdminSection === "subscription" && canAccessAdminSection("subscription") && (locale === "pt" ? "Subscrição e Licença" : "Subscription & License")}
                       {activeAdminSection === "system_updates" && canAccessAdminSection("system_updates") && (locale === "pt" ? "Atualizações do Sistema" : "System Updates")}
                       {activeAdminSection === "branding" && canAccessAdminSection("branding") && (locale === "pt" ? "Personalização e Identidade Visual" : "Branding & Visual Identity")}
@@ -2849,14 +2849,18 @@ export default function AdminConsole({
                     um com `demand:read` via o tempo de resposta de todo mundo.
                     A régua nova vive na ROTA (`GET /api/demands/performance`), e
                     não neste `if` — uma tela que esconde o que a API entrega não
-                    é recorte, é maquiagem. */}
+                    é recorte, é maquiagem.
+
+                    F3 (09/2026): só o RÓTULO visível da seção mudou, de "Demandas"
+                    para "SLA e Prazos". A chave `demands`, as duas permissões e as
+                    duas vistas (Prazos e Expurgos) continuam exatamente como estão. */}
                 {activeAdminSection === "demands" && canAccessAdminSection("demands") && (
                   <div className="w-full space-y-5">
                     <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
                       <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
                         <div>
                           <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-800">
-                            {locale === "pt" ? "Módulo de Demandas" : "Demands Module"}
+                            {locale === "pt" ? "Módulo de SLA e Prazos" : "SLA & Deadlines Module"}
                           </h3>
                           <p className="text-xs text-slate-500 mt-1">
                             {locale === "pt"
