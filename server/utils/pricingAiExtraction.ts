@@ -8,7 +8,7 @@
 // template passam primeiro por extractTextFromDocument (server/utils/extraction.ts), e o texto
 // resultante alimenta uma chamada só-texto.
 import { z } from "zod";
-import { ConnectedProvider, ProviderFileInput, generateJsonWithProvider } from "./aiProviders";
+import { ConnectedProvider, ProviderFileInput, generateJsonWithProvider, buildActorRef, AiTriggerType } from "./aiProviders";
 import { extractTextFromDocument } from "./extraction";
 import { parseAiJson } from "../routes/analysis";
 import { UNTRUSTED_DOCUMENT_WARNING } from "./promptSafety";
@@ -101,7 +101,15 @@ export async function extractPricingRowsWithAi(
   file: { buffer: Buffer; filename: string; mimeType: string },
   exchangeRate: number,
   provider: ConnectedProvider,
-  model: string
+  model: string,
+  // F4 (rodada 09/2026): antes desta fase esta funcao nao recebia NENHUM identificador - nem
+  // tenant, nem usuario -, entao a chamada de IA dela chegava ao CMSaaS sem dono. Quem pediu o
+  // upload sempre foi conhecido: o unico chamador (`commitAiExtractionFile`, em
+  // server/routes/pricing.ts) ja tinha `userId` e o usava no `recordAiUsage` local. `triggerType`
+  // vem de fora, e nao fixo aqui, porque e o chamador - nao esta funcao - que sabe se o upload
+  // esta sendo processado em fila ou com o usuario esperando na tela.
+  userId: string | null | undefined,
+  triggerType: AiTriggerType
 ): Promise<AiExtractionResult> {
   let files: ProviderFileInput[] | undefined;
   let prompt = EXTRACTION_PROMPT;
@@ -121,7 +129,7 @@ export async function extractPricingRowsWithAi(
     prompt += `\n\n${UNTRUSTED_DOCUMENT_WARNING}\n\n--- CONTEÚDO DO DOCUMENTO (${file.filename}) ---\n${extracted.text.substring(0, 20000)}`;
   }
 
-  const { text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(provider, model, prompt, files);
+  const { text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(provider, model, prompt, { taskKey: "pricing_catalog_extraction", actorRef: buildActorRef("user", userId), triggerType }, files);
   const parsed = ExtractionResponseSchema.parse(stripToJsonObject(text));
 
   const rows: DraftPricingRow[] = parsed.items.map((item) => {

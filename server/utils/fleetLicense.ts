@@ -533,19 +533,48 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
       // knowledgeBaseReconciliation.ts and heartbeat.ts for what happens to these on each end).
       const kbEntriesToSync = hadIaKbBefore ? await dbStore.getKnowledgeBaseEntriesToSync(50) : [];
 
-      // ia_kb add-on: this tenant's own current task->provider->model choices, sent on every
-      // heartbeat regardless of add-on status - the Fleet Manager only actually mirrors these
-      // while ia_kb is disabled for this installation (see heartbeat.ts), so sending them
-      // unconditionally is harmless and simpler than tracking the transition on this end too.
-      // Same task types as src/aiOrchestrator.ts's AiTaskType and AdminConsole.tsx's own
-      // orchestrator map (not the full AiTaskType union - proposal_opinion_panel was never added
-      // here, pre-existing gap, not touched by the Fase 6 pricing_budget_optimization addition).
-      const AI_TASK_TYPES = [
-        "document_analysis", "web_grounding", "spec_copilot", "document_classification",
-        "poc_test_generation", "poc_schedule_generation", "poc_final_report_generation",
-        "pricing_budget_optimization", "pricing_catalog_extraction",
+      // F4 (rodada 09/2026): UMA lista, duas afirmacoes diferentes saindo dela.
+      //
+      // `ai_task_catalog` e o que o PRODUTO sabe executar: e por produto, so muda quando o codigo
+      // muda, e o CMSaaS o adota em lugar da copia escrita a mao que ele mantinha
+      // (`TAREFAS_PRESALES` em server/utils/productAiTasks.ts, la). Aquela copia tinha nove
+      // entradas contra as onze reais - e um seed defasado e um seed que volta a valer no dia em
+      // que o produto parar de declarar, entao declarar aqui e o que impede o defasamento de
+      // voltar. `ai_task_config` continua sendo outra coisa: a ESCOLHA desta instalacao (que
+      // tarefa usa que provedor/modelo), por instalacao e mudando o tempo todo. As duas saem da
+      // mesma constante justamente para que nunca mais divirjam: ate a F4 esta lista tinha NOVE
+      // das onze de `AiTaskType` (src/aiOrchestrator.ts) - faltavam `proposal_opinion_panel` e
+      // `proposal_generation`, lacuna que o comentario daqui registrava sem corrigir.
+      //
+      // A ordem do outro lado ja favorece isto: o heartbeat do CMSaaS adota o catalogo declarado
+      // ANTES de recortar `ai_task_config` contra ele (comentario explicito em heartbeat.ts:405),
+      // entao as duas tarefas novas passam ja neste mesmo heartbeat, nao no seguinte.
+      //
+      // `capability` nao e decorativa: e ela que define que modelos o CMSaaS oferece para a
+      // tarefa. `vision` nas tres que recebem arquivo binario (documento de licitacao, chat do
+      // copiloto sobre PDF escaneado, planilha/catalogo de precos), `web_search` na unica que
+      // roda busca real, `text` no resto - que so recebe prompt. `requiresModule` espelha o
+      // add-on sem o qual a rota nem existe nesta instalacao.
+      const AI_TASK_CATALOG = [
+        { key: "document_analysis", label: "Analise de Documentos", capability: "vision" },
+        { key: "web_grounding", label: "Pesquisa com Grounding Web", capability: "web_search" },
+        { key: "spec_copilot", label: "Copiloto de Especificacoes (Chat)", capability: "vision" },
+        { key: "document_classification", label: "Classificacao de Documentos", capability: "text" },
+        { key: "poc_test_generation", label: "Geracao de Cadernos de Teste (POC)", capability: "text", requires_module: "poc" },
+        { key: "poc_schedule_generation", label: "Sugestao de Cronograma (POC)", capability: "text", requires_module: "poc" },
+        { key: "poc_final_report_generation", label: "Relatorio Final (POC)", capability: "text", requires_module: "poc" },
+        { key: "proposal_opinion_panel", label: "Painel de Pareceres (Propostas)", capability: "text" },
+        { key: "pricing_budget_optimization", label: "Otimizacao de Budget (Precificacao)", capability: "text", requires_module: "pricing" },
+        { key: "pricing_catalog_extraction", label: "Extracao de Catalogo (Precificacao)", capability: "vision", requires_module: "pricing" },
+        { key: "proposal_generation", label: "Geracao de Proposta", capability: "text" },
       ] as const;
-      const aiTaskConfig = AI_TASK_TYPES.map((taskType) => ({
+      const aiTaskCatalog = AI_TASK_CATALOG.map((t) => ({
+        key: t.key,
+        label: t.label,
+        capability: t.capability,
+        requires_module: (t as { requires_module?: string }).requires_module,
+      }));
+      const aiTaskConfig = AI_TASK_CATALOG.map(({ key: taskType }) => ({
         task_type: taskType,
         provider: (settings as any)[`${taskType}_provider`] || "gemini",
         model: (settings as any)[`${taskType}_model`] || settings.default_model,
@@ -571,6 +600,7 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
           source_document_name: e.source_document_name,
         })),
         ai_task_config: aiTaskConfig,
+        ai_task_catalog: aiTaskCatalog,
       });
       // Fase 1.6 of the Zero Trust rollout: HMAC over the exact bytes being sent, keyed with the
       // same per-installation API key the Bearer header already carries - see the Fleet

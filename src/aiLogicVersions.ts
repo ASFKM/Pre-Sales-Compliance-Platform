@@ -24,7 +24,12 @@ export const LOGIC_VERSIONS = {
   // v9 (F11, docs/cdc/16-integracao-cmcrm-presales.md, item 31): enrichBomWithWebSearch ganhou
   // um parâmetro `userId`, passado a recordAiUsage para atribuir a chamada a um dono - não muda
   // o que a função pesquisa/decide, só quem fica registrado como autor da chamada de IA.
-  bom_enrichment: 9,
+  // v10 (F4 da rodada 09/2026): mesma natureza do bump anterior - a funcao passou a mandar ao
+  // proxy do CMSaaS a tarefa real (`web_grounding`, no lugar do rotulo fixo "web_search"), o ator
+  // e o gatilho. Nao muda o que ela pesquisa nem o que decide com o resultado; muda o que fica
+  // registrado sobre a chamada. O bump existe porque o guard hasheia o CORPO da funcao, e a
+  // alternativa - deixar o fixture defasado - foi exatamente o que aconteceu antes da v8.
+  bom_enrichment: 10,
   // server/routes/proposals.ts - the 4 opinion-panel perspective prompt builders (technical/
   // commercial/legal/financial) and their shared cost-cap/sequential-execution worker. Stored on
   // ProposalOpinionRun.logicVersion directly (not AnalysisResult.logicVersions), same pattern.

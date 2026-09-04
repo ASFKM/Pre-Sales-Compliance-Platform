@@ -13,7 +13,7 @@ import { runWithTenant } from "../../src/tenantContext";
 import { PROPOSAL_TYPES, ProposalTypeValue, PROPOSAL_EDITABLE_FIELDS, ProposalEditableField, PROPOSAL_TYPE_EDITABLE_FIELDS, getRejectedEditableFields, getReopenRegenerationSection } from "../utils/proposalTypes";
 import { DocxTemplateData } from "../utils/docx";
 import { getFleetLicenseStatus } from "../utils/fleetLicense";
-import { generateJsonWithProvider, ConnectedProvider } from "../utils/aiProviders";
+import { generateJsonWithProvider, buildActorRef, ConnectedProvider } from "../utils/aiProviders";
 import { resolveProvider, checkCostCap, recordProviderFallback, recordAiUsage } from "../../src/aiOrchestrator";
 import { estimateCostUsd } from "../utils/aiPricing";
 import { extractKnowledgeBaseKeywords, parseAiJson, regenerateAnalysisSection } from "./analysis";
@@ -555,7 +555,7 @@ above. If no proposed term matches any knowledge base risk pattern, return an em
 Respond with ONLY a JSON array (no markdown, no extra text), in this exact shape:
 [{ "term_excerpt": "the exact proposed text being flagged", "risk_description": "why this is risky, in ${proposal.language}", "related_lesson": "the specific knowledge base lesson that applies", "severity": "high"|"medium"|"low" }]`;
 
-  const { text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);
+  const { text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt, { taskKey: "document_analysis", actorRef: buildActorRef("user", userId), triggerType: "user_action" });
   const parsed = parseAiJson(text);
   const risks: SlaRiskFlag[] = z.array(z.object({
     term_excerpt: z.string(),
@@ -805,7 +805,7 @@ router.post("/proposals/:id/opinion-panel", requirePermission("proposal:edit"), 
             let rawText = "", inputTokens = 0, outputTokens = 0, billedCostUsd: number | undefined;
             for (let attempt = 0; attempt < 2; attempt++) {
               try {
-                const result = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);
+                const result = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt, { taskKey: "proposal_opinion_panel", actorRef: buildActorRef("user", task.user_id), triggerType: "background_task" });
                 rawText = result.text; inputTokens = result.inputTokens; outputTokens = result.outputTokens; billedCostUsd = result.billedCostUsd;
                 break;
               } catch (callErr: any) {
@@ -1479,7 +1479,8 @@ router.post("/proposals/:id/sugerir-conteudo", requirePermission("proposal:edit"
     const { text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(
       providerResolution.provider as ConnectedProvider,
       providerResolution.model,
-      prompt
+      prompt,
+      { taskKey: "proposal_generation", actorRef: buildActorRef("user", userId), triggerType: "user_action" }
     );
 
     const parsed = parseAiJson(text);

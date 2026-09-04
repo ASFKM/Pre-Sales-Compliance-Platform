@@ -12,7 +12,7 @@ import { requireUserId } from "../middleware/security";
 import { createStorageAdapter, validateUploadedFile } from "../utils/storage";
 import { runWithTenant } from "../../src/tenantContext";
 import { resolveProvider, checkCostCap, recordProviderFallback, recordAiUsage } from "../../src/aiOrchestrator";
-import { generateJsonWithProvider } from "../utils/aiProviders";
+import { generateJsonWithProvider, buildActorRef } from "../utils/aiProviders";
 import { estimateCostUsd } from "../utils/aiPricing";
 import { prisma } from "../../src/prisma";
 import { FACTORY_DEFAULT_POC_TEST_GENERATION_PROMPT, FACTORY_DEFAULT_POC_SCHEDULE_GENERATION_PROMPT, FACTORY_DEFAULT_POC_FINAL_REPORT_GENERATION_PROMPT } from "../utils/promptDefaults";
@@ -1069,7 +1069,7 @@ não depende de nenhuma outra.`;
 
         await updateTaskProgress(task.id, { currentStep: "Gerando cronograma com IA", progressPct: 50 });
 
-        const { text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(resolution.provider, resolution.model, prompt);
+        const { text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(resolution.provider, resolution.model, prompt, { taskKey: "poc_schedule_generation", actorRef: buildActorRef("user", task.user_id), triggerType: "background_task" });
         const realEstimatedCostUsd = billedCostUsd ?? estimateCostUsd(resolution.model, inputTokens, outputTokens);
 
         await recordAiUsage({
@@ -1349,7 +1349,7 @@ provedores exigem um objeto no nível superior), sem markdown, sem texto extra, 
 
         await updateTaskProgress(task.id, { currentStep: "Gerando casos de teste com IA", progressPct: 50 });
 
-        const { text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(resolution.provider, resolution.model, prompt);
+        const { text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(resolution.provider, resolution.model, prompt, { taskKey: "poc_test_generation", actorRef: buildActorRef("user", task.user_id), triggerType: "background_task" });
         const realEstimatedCostUsd = billedCostUsd ?? estimateCostUsd(resolution.model, inputTokens, outputTokens);
 
         await recordAiUsage({
@@ -1524,7 +1524,7 @@ extra, no formato:
 
     let text: string, inputTokens: number, outputTokens: number, billedCostUsd: number | undefined;
     try {
-      ({ text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(resolution.provider, resolution.model, prompt));
+      ({ text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(resolution.provider, resolution.model, prompt, { taskKey: "poc_final_report_generation", actorRef: buildActorRef("user", requireUserId(req)), triggerType: "user_action" }));
     } catch (aiErr: any) {
       return res.status(502).json({ success: false, message: friendlyAiErrorMessage(aiErr, resolution.provider) });
     }

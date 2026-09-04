@@ -1,7 +1,6 @@
 import { prisma } from "./prisma";
 import { dbStore } from "./dbStore";
 import { randomId } from "./idGenerator";
-import { isIaKbActive } from "../server/utils/aiProviders";
 import { redis } from "./redis";
 
 // critical_extraction and proposal_generation were removed (2026-07 AI Orchestrator redesign) -
@@ -64,13 +63,14 @@ export async function resolveProvider(taskType: AiTaskType, settings: TaskProvid
   // ia_kb add-on: once active, the CMSaaS admin - not the tenant - chooses provider/model per
   // task (synced down on every heartbeat, see server/utils/fleetLicense.ts). Overrides the
   // tenant's own (now read-only, possibly stale) platform_settings fields above.
-  if (await isIaKbActive()) {
-    const taskConfig = await dbStore.getAllIaKbTaskConfig();
-    const override = taskConfig.find((c) => c.task_type === taskType);
-    if (override) {
-      intendedProvider = override.provider;
-      intendedModel = override.model;
-    }
+  // F4 (rodada 09/2026): o `if (await isIaKbActive())` que envolvia este bloco saiu junto com a
+  // funcao, que era `return true` fixo desde a F11 - o override do CMSaaS ja era incondicional na
+  // pratica, e a condicao so escondia isso de quem lesse.
+  const taskConfig = await dbStore.getAllIaKbTaskConfig();
+  const override = taskConfig.find((c) => c.task_type === taskType);
+  if (override) {
+    intendedProvider = override.provider;
+    intendedModel = override.model;
   }
 
   if (await isProviderConnected(intendedProvider, settings)) {

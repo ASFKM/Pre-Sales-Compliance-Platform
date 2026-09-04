@@ -7,7 +7,7 @@ import { dbStore } from "../../src/dbStore";
 import { requirePermission } from "./auth";
 import { requireUserId } from "../middleware/security";
 import { createStorageAdapter, validateUploadedFile } from "../utils/storage";
-import { generateJsonWithProvider, generateTextWithProvider, ConnectedProvider, ProviderFileInput } from "../utils/aiProviders";
+import { generateJsonWithProvider, generateTextWithProvider, buildActorRef, ConnectedProvider, ProviderFileInput } from "../utils/aiProviders";
 import { resolveProvider, checkCostCap, recordAiUsage } from "../../src/aiOrchestrator";
 import { estimateCostUsd } from "../utils/aiPricing";
 import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
@@ -145,7 +145,7 @@ reusable (e.g. a one-off administrative note), respond with reusable: false inst
 
 Respond with ONLY a JSON object: { "reusable": true, "trigger": "...", "knowledge": "..." }`;
 
-    const { text, inputTokens, outputTokens, billedCostUsd } = await generateTextWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);
+    const { text, inputTokens, outputTokens, billedCostUsd } = await generateTextWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt, { taskKey: "spec_copilot", actorRef: buildActorRef("user", requireUserId(req)), triggerType: "user_action" });
     await recordAiUsage({
       tenantId,
       taskType: "kb_suggest",
@@ -169,7 +169,8 @@ Respond with ONLY a JSON object: { "reusable": true, "trigger": "...", "knowledg
       { entry_id: "", category: validated.category, trigger: parsed.trigger, knowledge: parsed.knowledge },
       platformSettings,
       tenantId,
-      requireUserId(req)
+      requireUserId(req),
+      "user_action"
     );
     if (reconciliation.action === "skip") {
       return res.json({ success: true, entry: null, skipped_reason: "duplicate" });
@@ -360,7 +361,7 @@ Respond with ONLY a JSON array (no markdown, no extra text):
 [{ "category": "bom_part_number" | "engineering_note", "trigger": "...", "knowledge": "..." }]`;
 
         try {
-          const { text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt, files);
+          const { text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt, { taskKey: "document_analysis", actorRef: buildActorRef("user", task.user_id), triggerType: "background_task" }, files);
           await recordAiUsage({
             tenantId,
             taskType: "knowledge_base_analysis",
@@ -387,7 +388,8 @@ Respond with ONLY a JSON array (no markdown, no extra text):
               { entry_id: "", category, trigger: p.trigger, knowledge: p.knowledge },
               platformSettings,
               tenantId,
-              task.user_id
+              task.user_id,
+              "background_task"
             );
             if (reconciliation.action === "skip") {
               continue;
