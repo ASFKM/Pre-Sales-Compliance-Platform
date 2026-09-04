@@ -1600,7 +1600,6 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
       <footer className="h-8 bg-slate-900 border-t border-slate-800 px-3 lg:px-6 flex items-center justify-between gap-4 text-[10px] font-mono text-slate-400 shrink-0 shadow-lg overflow-hidden whitespace-nowrap">
         <div className="flex gap-6 items-center min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <span>{tx("Session", "Sessão")}: <span className="text-brand-400">{currentSessionUser.name || "-"}</span> <span className="text-slate-400">({currentSessionUser.role || "-"})</span></span>
-          <span>{tx("Database", "Banco de Dados")}: <span className="text-brand-400">PostgreSQL</span></span>
           <span>{tx("Workspace Storage", "Armazenamento do Workspace")}: <span className="text-brand-400 uppercase">
             {platformSettings?.storage_mode === "s3"
               ? `S3: ${platformSettings?.s3_bucket || "not configured"}`
@@ -1608,13 +1607,6 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                 ? `GCS: ${platformSettings?.gcs_bucket || "not configured"}`
                 : `LOCAL: ${platformSettings?.local_storage_path || "./uploads"}`}
           </span></span>
-          <span className="flex items-center gap-1.5 border-l border-slate-700 pl-6">
-            <span className="w-2 h-2 rounded-full bg-success-500 animate-pulse"></span>
-            LLM Análise: <span className="text-brand-400 font-bold uppercase">{PROVIDER_DISPLAY_NAME[effectiveTaskProvider("document_analysis", platformSettings?.document_analysis_provider)] || effectiveTaskProvider("document_analysis", platformSettings?.document_analysis_provider)}</span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            LLM Propostas: <span className="text-brand-400 font-bold uppercase">{PROVIDER_DISPLAY_NAME[effectiveTaskProvider("proposal_generation", platformSettings?.proposal_generation_provider)] || effectiveTaskProvider("proposal_generation", platformSettings?.proposal_generation_provider)}</span>
-          </span>
           {(() => {
             // Single fixed-width slot for ALL active job types (was two separate shrink-0
             // w-[220px] blocks, one per task type, added independently over time - with 2+ types
@@ -1622,8 +1614,16 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
             // scrollbar on the whole page, confirmed against a real production report. Generic
             // over task type now (not a hardcoded .find() per type) so a future new AI task type
             // (e.g. the Fase 5 proposal-opinion tasks) never needs this file touched again to stay
-            // bounded - only the newest/first active task's detail is shown, any others collapse
-            // into a "+N" badge with the rest listed in its title tooltip.
+            // bounded.
+            //
+            // F2 (04/09/2026): sairam do rodape "Banco de Dados", "LLM Analise" e "LLM Propostas",
+            // e o espaco liberado foi para ca. A REGRA DE OURO NAO MUDOU: este continua sendo UM
+            // bloco unico de largura FIXA (w-[260px], lg:w-[460px]) - o teto e da largura total do
+            // slot, nunca do numero de tarefas. O que mudou e quantas cabem em detalhe dentro
+            // desse teto: DUAS a partir de lg, UMA abaixo dele (a segunda e `hidden lg:flex`).
+            // Por isso existem dois badges "+N", um por faixa de viewport: o contador tem de bater
+            // com quantas estao realmente visiveis. Medido com 4 tarefas ativas em 390/768/1440px:
+            // document.documentElement.scrollWidth === clientWidth nas tres.
             if (activeTasks.length === 0) return null;
             const footerTaskLabel = (type: string) => {
               switch (type) {
@@ -1659,29 +1659,49 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
                     ...otherTasks,
                   ]
                 : activeTasks;
-            const primary = displayTasks[0];
-            const extra = displayTasks.slice(1);
+            // Quantas tarefas aparecem em DETALHE antes de colapsar no "+N". A segunda so
+            // aparece a partir de lg; abaixo disso o rodape tem px-3 e nao ha respiro para duas.
+            const MAX_DETALHADAS = 2;
+            const detalhadas = displayTasks.slice(0, MAX_DETALHADAS);
+            const resumoDe = (t: (typeof displayTasks)[number]) => `${footerTaskLabel(t.type)}: ${t.current_step}`;
+            const extrasCompacto = displayTasks.slice(1);
+            const extrasAmplo = displayTasks.slice(MAX_DETALHADAS);
             return (
-              <span className="flex items-center gap-2 border-l border-slate-700 pl-6 w-[260px] shrink-0">
-                <span className="w-2 h-2 rounded-full bg-brand-400 animate-pulse shrink-0"></span>
-                <span className="flex-1 min-w-0 overflow-hidden">
-                  <span className="inline-block whitespace-nowrap animate-footer-task-ticker">
-                    {footerTaskLabel(primary.type)}: {primary.current_step}
-                    {typeof primary.progress_pct === "number" && ` (${primary.progress_pct}%)`}
-                  </span>
-                </span>
-                <span className="w-16 h-1.5 bg-slate-700 rounded-full overflow-hidden shrink-0">
+              <span className="flex items-center gap-3 border-l border-slate-700 pl-6 w-[260px] lg:w-[460px] shrink-0">
+                {detalhadas.map((tarefa, indice) => (
                   <span
-                    className="block h-full bg-brand-400 transition-all duration-500"
-                    style={{ width: `${typeof primary.progress_pct === "number" ? primary.progress_pct : 5}%` }}
-                  />
-                </span>
-                {extra.length > 0 && (
-                  <span
-                    className="shrink-0 text-brand-300 font-bold"
-                    title={extra.map((t) => `${footerTaskLabel(t.type)}: ${t.current_step}`).join(", ")}
+                    key={tarefa.id}
+                    className={`items-center gap-2 min-w-0 flex-1 ${indice === 0 ? "flex" : "hidden lg:flex"}`}
                   >
-                    +{extra.length}
+                    <span className="w-2 h-2 rounded-full bg-brand-400 animate-pulse shrink-0"></span>
+                    <span className="flex-1 min-w-0 overflow-hidden">
+                      <span className="inline-block whitespace-nowrap animate-footer-task-ticker">
+                        {footerTaskLabel(tarefa.type)}: {tarefa.current_step}
+                        {typeof tarefa.progress_pct === "number" && ` (${tarefa.progress_pct}%)`}
+                      </span>
+                    </span>
+                    <span className="w-16 h-1.5 bg-slate-700 rounded-full overflow-hidden shrink-0">
+                      <span
+                        className="block h-full bg-brand-400 transition-all duration-500"
+                        style={{ width: `${typeof tarefa.progress_pct === "number" ? tarefa.progress_pct : 5}%` }}
+                      />
+                    </span>
+                  </span>
+                ))}
+                {extrasCompacto.length > 0 && (
+                  <span
+                    className="shrink-0 text-brand-300 font-bold lg:hidden"
+                    title={extrasCompacto.map(resumoDe).join(", ")}
+                  >
+                    +{extrasCompacto.length}
+                  </span>
+                )}
+                {extrasAmplo.length > 0 && (
+                  <span
+                    className="shrink-0 text-brand-300 font-bold hidden lg:inline"
+                    title={extrasAmplo.map(resumoDe).join(", ")}
+                  >
+                    +{extrasAmplo.length}
                   </span>
                 )}
               </span>
