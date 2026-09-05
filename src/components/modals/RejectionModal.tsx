@@ -18,6 +18,7 @@
 import { useState } from "react";
 import { X, Plus, Trash2, TriangleAlert } from "lucide-react";
 import { DossieSecao } from "../../lib/approvalDossier";
+import { useModalDialog } from "../../hooks/useModalDialog";
 
 export interface ItemDeRejeicaoNaTela {
   target_kind: "proposal_field" | "template_field" | "geral";
@@ -43,6 +44,7 @@ export default function RejectionModal({
   locale, proposalLabel, stageName, secoes, comments, onCommentsChange, submitting, onCancel, onConfirm,
 }: RejectionModalProps) {
   const [itens, setItens] = useState<ItemDeRejeicaoNaTela[]>([]);
+  const refModal = useModalDialog<HTMLDivElement>(onCancel);
 
   const chaveDaSecao = (s: DossieSecao) => `${s.target_kind}:${s.target_key}`;
   const secaoPorChave = (chave: string) => secoes.find((s) => chaveDaSecao(s) === chave) ?? null;
@@ -78,17 +80,29 @@ export default function RejectionModal({
 
   return (
     <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[92vh] flex flex-col">
+      <div
+        ref={refModal}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="rejeicao-titulo"
+        tabIndex={-1}
+        className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[92vh] flex flex-col focus:outline-none"
+      >
         <div className="flex items-start justify-between p-4 border-b border-slate-100">
           <div>
-            <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-danger-700">
+            <h3 id="rejeicao-titulo" className="text-sm font-bold uppercase tracking-wider font-mono text-danger-700">
               {locale === "pt" ? "Rejeitar proposta" : "Reject proposal"}
             </h3>
             <p className="text-[11px] text-slate-500 mt-0.5">
               {proposalLabel} · {stageName}
             </p>
           </div>
-          <button onClick={onCancel} className="text-slate-400 hover:text-slate-700 cursor-pointer" title={locale === "pt" ? "Cancelar" : "Cancel"}>
+          <button
+            onClick={onCancel}
+            aria-label={locale === "pt" ? "Cancelar a rejeição" : "Cancel the rejection"}
+            title={locale === "pt" ? "Cancelar" : "Cancel"}
+            className="-m-1.5 p-1.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer focus:outline-none focus:ring-1 focus:ring-brand-500"
+          >
             <X size={18} />
           </button>
         </div>
@@ -106,7 +120,7 @@ export default function RejectionModal({
               rows={3}
               disabled={submitting}
               placeholder={locale === "pt" ? "Em uma frase: por que esta proposta volta." : "In one sentence: why this proposal is going back."}
-              className="w-full text-[12px] leading-snug p-2 rounded border border-slate-200 bg-white text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-danger-500 focus:border-danger-500 disabled:bg-slate-100"
+              className="w-full text-xs leading-snug p-2 rounded border border-slate-200 bg-white text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 disabled:bg-slate-100"
             />
             {!resumoPreenchido && (
               <p className="text-[10px] text-slate-500 mt-1 leading-snug">
@@ -163,6 +177,7 @@ export default function RejectionModal({
                             }
                           }}
                           disabled={submitting}
+                          aria-label={locale === "pt" ? `Seção apontada no item ${i + 1}` : `Flagged section in item ${i + 1}`}
                           className="flex-1 text-[11px] p-1.5 rounded border border-slate-200 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500"
                         >
                           {secoes.map((s) => (
@@ -175,8 +190,9 @@ export default function RejectionModal({
                         <button
                           onClick={() => removerItem(i)}
                           disabled={submitting}
+                          aria-label={locale === "pt" ? `Remover o item ${i + 1}` : `Remove item ${i + 1}`}
                           title={locale === "pt" ? "Remover item" : "Remove item"}
-                          className="text-slate-400 hover:text-danger-600 cursor-pointer disabled:opacity-50"
+                          className="-m-1.5 p-1.5 rounded text-slate-400 hover:text-danger-600 hover:bg-slate-100 cursor-pointer disabled:opacity-50 focus:outline-none focus:ring-1 focus:ring-brand-500"
                         >
                           <Trash2 size={14} />
                         </button>
@@ -207,7 +223,8 @@ export default function RejectionModal({
                             rows={5}
                             disabled={submitting}
                             placeholder={locale === "pt" ? "Descreva o problema desta seção." : "Describe the problem with this section."}
-                            className="w-full text-[11px] leading-snug p-2 rounded border border-slate-200 bg-white text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-danger-500 disabled:bg-slate-100"
+                            aria-label={locale === "pt" ? `O que precisa mudar no item ${i + 1}` : `What has to change in item ${i + 1}`}
+                            className="w-full text-[11px] leading-snug p-2 rounded border border-slate-200 bg-white text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-slate-100"
                           />
                         </div>
                       </div>

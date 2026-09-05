@@ -209,7 +209,7 @@ export default function Approval({
                             <button
                               onClick={() => abrirDossie(prop.id)}
                               disabled={carregandoDossieId === prop.id}
-                              className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-mono text-[10px] font-bold px-2.5 py-1.5 rounded cursor-pointer disabled:opacity-50"
+                              className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-mono text-[10px] font-bold px-2.5 py-1.5 rounded cursor-pointer disabled:opacity-50 focus:outline-none focus:ring-1 focus:ring-brand-500"
                             >
                               <FolderOpen size={12} />
                               {carregandoDossieId === prop.id
@@ -294,7 +294,7 @@ export default function Approval({
                                               : "Describe what was verified, or what has to be fixed in this proposal."}
                                             className="w-full text-[11px] leading-snug p-2 rounded border border-slate-200 bg-white text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 disabled:bg-slate-100 disabled:text-slate-400"
                                           />
-                                          <div className="flex gap-1">
+                                          <div className="flex gap-2">
                                             {/* F8: os dois botões passaram a ABRIR UM POPUP, e não a
                                                 gravar direto. Aprovar mostra o que está sendo
                                                 aprovado; rejeitar abre a rejeição por seção. O
@@ -304,14 +304,14 @@ export default function Approval({
                                             <button
                                               onClick={() => abrirAprovacao(prop.id, stage)}
                                               disabled={busy}
-                                              className="bg-success-700 hover:bg-success-800 text-white font-mono text-[9px] font-bold py-1 px-2 rounded cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                              className="bg-success-700 hover:bg-success-800 text-white font-mono text-[10px] font-bold py-2 px-3.5 rounded cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-1 focus:ring-brand-500"
                                             >
                                               {locale === "pt" ? "Aprovar" : "Approve"}
                                             </button>
                                             <button
                                               onClick={() => abrirRejeicao(prop.id, stage)}
                                               disabled={busy}
-                                              className="bg-danger-700 hover:bg-danger-800 text-white font-mono text-[9px] font-bold py-1 px-2 rounded cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                              className="bg-danger-700 hover:bg-danger-800 text-white font-mono text-[10px] font-bold py-2 px-3.5 rounded cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-1 focus:ring-brand-500"
                                             >
                                               {locale === "pt" ? "Rejeitar" : "Reject"}
                                             </button>

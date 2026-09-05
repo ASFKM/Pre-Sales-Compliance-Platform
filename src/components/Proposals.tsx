@@ -8,6 +8,7 @@ import { Proposal, SlaRiskFlag, PricingRow } from "../types";
 // divergiria na primeira mudanca e o bug apareceria como texto salvo errado.
 import { aplicarCorrecao, reposicionarAposAplicar, type CorrecaoLocalizada } from "../../server/utils/proposalGrammar";
 import { useProposals } from "../hooks/useProposals";
+import { useModalDialog } from "../hooks/useModalDialog";
 import { BackgroundTask } from "../hooks/useBackgroundTasks";
 import {
   ProposalEditableField,
@@ -146,6 +147,33 @@ interface ProposalsProps {
   fetchGlobalConfigs: () => Promise<void> | void;
   fetchProjectDetails: (projectId: string) => Promise<void> | void;
   handleReleaseProposal: (propId: string) => void;
+}
+
+/**
+ * F10: a CASCA DE DIALOGO dos dois modais deste arquivo.
+ *
+ * Medido antes: nenhum dos dois tinha `role="dialog"`, `aria-modal`, foco inicial
+ * nem armadilha de Tab — com o modal aberto o Tab caminhava para a tela de fundo.
+ * O hook nao podia ser chamado onde os modais moram (o do editor esta dentro de
+ * uma IIFE, e hook nao roda ali), entao a casca e um componente de verdade.
+ *
+ * Nao muda o que os modais fazem: nao grava, nao valida, nao decide.
+ */
+function CascaDeDialogo({
+  onClose, fecharNoEscape, rotuladoPor, className, children,
+}: {
+  onClose: () => void;
+  fecharNoEscape?: boolean;
+  rotuladoPor: string;
+  className: string;
+  children: React.ReactNode;
+}) {
+  const ref = useModalDialog<HTMLDivElement>(onClose, { fecharNoEscape });
+  return (
+    <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={rotuladoPor} tabIndex={-1} className={`${className} focus:outline-none`}>
+      {children}
+    </div>
+  );
 }
 
 export default function Proposals({
@@ -804,7 +832,9 @@ export default function Proposals({
                         </div>
 
                         {/* Export Action Buttons */}
-                        <div className="flex gap-2">
+                        {/* F10: `flex-wrap` porque em 390px a linha sangrava para fora da
+                            viewport — o ultimo botao aparecia cortado no limite direito. */}
+                        <div className="flex flex-wrap gap-2">
                           {prop.status === "draft" && hasPermission("proposal:edit") && (
                             <button
                               onClick={() => openEditor(prop)}
@@ -967,7 +997,7 @@ export default function Proposals({
                                 onChange={(e) => setMotivoRecusa(e.target.value)}
                                 rows={2}
                                 placeholder={locale === "pt" ? "O que o cliente disse?" : "What did the client say?"}
-                                className="w-full max-w-lg border border-slate-300 rounded px-2 py-1.5 text-[12px] font-sans"
+                                className="w-full max-w-lg border border-slate-300 rounded px-2 py-1.5 text-xs"
                               />
                               <div className="flex gap-2">
                                 <button
@@ -1018,7 +1048,7 @@ export default function Proposals({
                       {PROPOSAL_TYPE_EDITABLE_FIELDS[prop.proposal_type].includes("manual_pricing_table") && prop.manual_pricing_table && (
                         <div className="space-y-2">
                           <h4 className="text-xs uppercase font-bold text-slate-500 tracking-wider font-mono">{locale === "pt" ? "Grade de Planilha de Preço de Licitação" : "Commercial Bid Pricing Sheet Grid"}</h4>
-                          <div className="border border-slate-200 rounded-lg overflow-hidden bg-slate-50/50">
+                          <div className="border border-slate-200 rounded-lg overflow-x-auto bg-slate-50/50">
                             <table className="w-full text-left text-xs border-collapse">
                               <thead className="bg-slate-100 border-b border-slate-200 font-mono text-[10px] uppercase text-slate-500">
                                 <tr>
@@ -1093,7 +1123,7 @@ export default function Proposals({
                         );
                         if (allowedTextFields.length === 0) return null;
                         return (
-                          <div className="grid grid-cols-2 gap-6 text-xs text-slate-600 bg-slate-50/50 p-4 rounded-lg border border-slate-200">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs text-slate-600 bg-slate-50/50 p-4 rounded-lg border border-slate-200">
                             {allowedTextFields.map((field) => (
                               <div key={field}>
                                 <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block">{PROPOSAL_FIELD_LABEL[field][locale]}</span>
@@ -1137,7 +1167,7 @@ export default function Proposals({
                             {locale === "pt" ? "Revisão do documento" : "Document review"}
                           </p>
                           {revisao[prop.id]!.total === 0 ? (
-                            <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded p-2">
+                            <p className="text-xs text-success-800 bg-success-50 border border-success-200 rounded p-2">
                               {locale === "pt"
                                 ? "Documento conferido: nenhum marcador de variável sobrou, a soma da precificação bate com o total e os itens do BOM estão no documento."
                                 : "Document checked: no placeholder left behind, pricing adds up to the stated total, and BOM items are present."}
@@ -1147,7 +1177,7 @@ export default function Proposals({
                               {revisao[prop.id]!.achados.map((achado, i) => (
                                 <li
                                   key={i}
-                                  className={`text-xs rounded p-2 border ${achado.severidade === "alta" ? "bg-red-50 border-red-200 text-red-800" : "bg-amber-50 border-amber-200 text-amber-800"}`}
+                                  className={`text-xs rounded p-2 border ${achado.severidade === "alta" ? "bg-danger-50 border-danger-200 text-danger-800" : "bg-warning-50 border-warning-200 text-warning-800"}`}
                                 >
                                   {achado.descricao}
                                 </li>
@@ -1282,7 +1312,7 @@ export default function Proposals({
                             )
                           )}
 
-                          <div className="grid grid-cols-2 gap-2">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                             {OPINION_PERSPECTIVES.map((perspective) => {
                               const item = opinionRuns[prop.id]!.opinions.find((o) => o.perspective === perspective);
                               const label = OPINION_PERSPECTIVE_LABEL[perspective][locale];
@@ -1380,7 +1410,7 @@ export default function Proposals({
                                             </div>
                                           )}
                                           {finding.previous_finding_id && (
-                                            <p className="mt-1 text-[9px] text-slate-400 font-mono uppercase tracking-wider">
+                                            <p className="mt-1 text-[10px] text-slate-500 italic">
                                               {locale === "pt" ? "continua um apontamento da revisão anterior" : "continues a finding from the previous review"}
                                             </p>
                                           )}
@@ -1407,22 +1437,23 @@ export default function Proposals({
                                           {prop.status === "draft" && hasPermission("proposal:edit") && (
                                             findingEmJustificativa?.id === finding.id ? (
                                               <div className="mt-2 p-2 rounded border border-warning-200 bg-warning-50/60">
-                                                <label className="text-[9px] uppercase font-bold text-warning-800 tracking-wider font-mono block mb-1">
+                                                <label htmlFor={`justificativa-${finding.id}`} className="text-[9px] uppercase font-bold text-warning-800 tracking-wider font-mono block mb-1">
                                                   {findingEmJustificativa.status === "aceito_com_risco"
                                                     ? (locale === "pt" ? "Por que seguir assim mesmo? (obrigatório)" : "Why proceed anyway? (required)")
                                                     : (locale === "pt" ? "Por que este apontamento não procede? (obrigatório)" : "Why doesn't this finding apply? (required)")}
                                                 </label>
                                                 <textarea
+                                                  id={`justificativa-${finding.id}`}
                                                   value={justificativa}
                                                   onChange={(e) => setJustificativa(e.target.value)}
                                                   rows={2}
-                                                  className="w-full p-1.5 rounded border border-warning-200 text-[11px] focus:outline-none focus:ring-1 focus:ring-warning-500 resize-none"
+                                                  className="w-full p-1.5 rounded border border-warning-200 text-[11px] focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none"
                                                 />
                                                 <div className="flex gap-1.5 mt-1.5">
                                                   <button
                                                     onClick={(e) => { e.preventDefault(); void mudarStatusDoApontamento(prop.id, finding.id, findingEmJustificativa.status, justificativa); }}
                                                     disabled={salvandoFinding === finding.id}
-                                                    className="bg-warning-600 hover:bg-warning-700 text-white font-mono text-[10px] font-bold px-2.5 py-1 rounded disabled:opacity-50 cursor-pointer"
+                                                    className="bg-warning-700 hover:bg-warning-800 text-white font-mono text-[10px] font-bold px-2.5 py-1 rounded disabled:opacity-50 cursor-pointer focus:outline-none focus:ring-1 focus:ring-brand-500"
                                                   >
                                                     {salvandoFinding === finding.id ? (locale === "pt" ? "Salvando..." : "Saving...") : (locale === "pt" ? "Confirmar" : "Confirm")}
                                                   </button>
@@ -1449,7 +1480,7 @@ export default function Proposals({
                                                     title={locale === "pt"
                                                       ? "A IA lê o texto anterior e o novo desta seção e diz se a edição endereçou este apontamento. O veredito é consultivo: fechar o apontamento continua sendo seu."
                                                       : "The AI reads this section's previous and new text and says whether the edit addressed this finding. The verdict is advisory: closing the finding is still yours."}
-                                                    className="text-[9px] font-mono font-bold px-2 py-0.5 rounded border border-brand-200 bg-brand-50 text-brand-700 hover:brightness-95 transition-colors disabled:opacity-50 cursor-pointer flex items-center gap-1"
+                                                    className="text-[9px] font-mono font-bold px-2 py-1 rounded border border-brand-200 bg-brand-50 text-brand-700 hover:bg-brand-100 transition-colors disabled:opacity-50 cursor-pointer flex items-center gap-1 focus:outline-none focus:ring-1 focus:ring-brand-500"
                                                   >
                                                     <Sparkles size={9} />
                                                     {verificandoSanacao === finding.id
@@ -1464,7 +1495,7 @@ export default function Proposals({
                                                       key={alvo}
                                                       onClick={(e) => { e.preventDefault(); pedirMudanca(prop.id, finding, alvo); }}
                                                       disabled={salvandoFinding === finding.id}
-                                                      className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded border transition-colors disabled:opacity-50 cursor-pointer hover:brightness-95 ${FINDING_STATUS_STYLE[alvo]}`}
+                                                      className={`text-[9px] font-mono font-bold px-2 py-1 rounded border transition-colors disabled:opacity-50 cursor-pointer hover:opacity-80 focus:outline-none focus:ring-1 focus:ring-brand-500 ${FINDING_STATUS_STYLE[alvo]}`}
                                                     >
                                                       {FINDING_STATUS_LABEL[alvo][locale]}
                                                     </button>
@@ -1512,12 +1543,17 @@ export default function Proposals({
                 );
                 return (
                   <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+                    <CascaDeDialogo
+                      onClose={() => setEditingProposal(null)}
+                      fecharNoEscape={false}
+                      rotuladoPor="editor-de-secoes-titulo"
+                      className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col"
+                    >
                       <div className="flex items-center justify-between p-4 border-b border-slate-100">
-                        <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">
+                        <h3 id="editor-de-secoes-titulo" className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">
                           {locale === "pt" ? "Revisar e Editar Proposta" : "Review & Edit Proposal"}
                         </h3>
-                        <button onClick={() => setEditingProposal(null)} className="text-slate-400 hover:text-slate-700 cursor-pointer">
+                        <button onClick={() => setEditingProposal(null)} aria-label={locale === "pt" ? "Fechar o editor de seções" : "Close the section editor"} title={locale === "pt" ? "Fechar" : "Close"} className="-m-1.5 p-1.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer focus:outline-none focus:ring-1 focus:ring-brand-500">
                           <X size={18} />
                         </button>
                       </div>
@@ -1618,7 +1654,8 @@ export default function Proposals({
                                     <td className="p-1.5">
                                       <button
                                         onClick={() => setLinhasDePreco((atual) => atual.filter((_, j) => j !== i))}
-                                        className="text-slate-300 hover:text-danger-600 cursor-pointer"
+                                        className="-m-1.5 p-1.5 rounded text-slate-500 hover:text-danger-600 hover:bg-slate-100 cursor-pointer focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                        aria-label={locale === "pt" ? `Remover a linha ${i + 1} da tabela de preços` : `Remove price row ${i + 1}`}
                                         title={locale === "pt" ? "Remover linha" : "Remove row"}
                                       >
                                         <X size={13} />
@@ -1664,11 +1701,12 @@ export default function Proposals({
                                   </p>
                                   {allowed.map((field) => (
                                     <div key={field}>
-                                      <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider font-mono block mb-1">
+                                      <label htmlFor={`campo-comercial-${field}`} className="text-[10px] uppercase font-bold text-slate-500 tracking-wider font-mono block mb-1">
                                         {PROPOSAL_FIELD_LABEL[field][locale]}
                                       </label>
                                       {field === "proposal_validity" ? (
                                         <input
+                                          id={`campo-comercial-${field}`}
                                           type="text"
                                           value={editedFields[field] || ""}
                                           onChange={(e) => setEditedFields((prev) => ({ ...prev, [field]: e.target.value }))}
@@ -1676,6 +1714,7 @@ export default function Proposals({
                                         />
                                       ) : (
                                         <textarea
+                                          id={`campo-comercial-${field}`}
                                           value={editedFields[field] || ""}
                                           onChange={(e) => setEditedFields((prev) => ({ ...prev, [field]: e.target.value }))}
                                           rows={3}
@@ -1808,18 +1847,18 @@ export default function Proposals({
                                                       <span className="flex-1">
                                                         <span className="bg-danger-50 text-danger-700 line-through px-1 rounded">{c.trecho_original}</span>
                                                         {" → "}
-                                                        <span className="bg-success-50 text-success-700 px-1 rounded font-medium">{c.trecho_corrigido}</span>
+                                                        <span className="bg-success-50 text-success-700 px-1 rounded">{c.trecho_corrigido}</span>
                                                         {c.motivo && <span className="text-slate-400 italic"> — {c.motivo}</span>}
                                                       </span>
                                                       <button
                                                         onClick={() => decidirCorrecao(secao.nome, c, true)}
-                                                        className="shrink-0 text-[9px] font-mono font-bold uppercase bg-success-600 hover:bg-success-700 text-white px-2 py-0.5 rounded cursor-pointer"
+                                                        className="shrink-0 text-[9px] font-mono font-bold uppercase bg-success-700 hover:bg-success-800 text-white px-2 py-1 rounded cursor-pointer focus:outline-none focus:ring-1 focus:ring-brand-500"
                                                       >
                                                         {locale === "pt" ? "Aceitar" : "Accept"}
                                                       </button>
                                                       <button
                                                         onClick={() => decidirCorrecao(secao.nome, c, false)}
-                                                        className="shrink-0 text-[9px] font-mono font-bold uppercase text-slate-500 hover:bg-slate-100 border border-slate-200 px-2 py-0.5 rounded cursor-pointer"
+                                                        className="shrink-0 text-[9px] font-mono font-bold uppercase text-slate-500 hover:bg-slate-100 border border-slate-200 px-2 py-1 rounded cursor-pointer focus:outline-none focus:ring-1 focus:ring-brand-500"
                                                       >
                                                         {locale === "pt" ? "Recusar" : "Reject"}
                                                       </button>
@@ -1837,6 +1876,7 @@ export default function Proposals({
                                         )}
 
                                         <textarea
+                                          aria-label={locale === "pt" ? `Texto da seção ${secao.nome}` : `Text of section ${secao.nome}`}
                                           value={textoDaSecao[secao.nome] ?? ""}
                                           onChange={(e) => setTextoDaSecao((atual) => ({ ...atual, [secao.nome]: e.target.value }))}
                                           rows={4}
@@ -1846,7 +1886,7 @@ export default function Proposals({
                                         <button
                                           onClick={() => void salvarSecao(editingProposal.id, secao.nome)}
                                           disabled={salvandoSecao === secao.nome}
-                                          className="mt-1.5 text-[10px] font-mono font-bold uppercase bg-slate-700 hover:bg-slate-800 text-white px-2.5 py-1 rounded cursor-pointer disabled:opacity-50"
+                                          className="mt-1.5 text-[10px] font-mono font-bold uppercase bg-slate-700 hover:bg-slate-800 text-white px-2.5 py-1.5 rounded cursor-pointer disabled:opacity-50 focus:outline-none focus:ring-1 focus:ring-brand-500"
                                         >
                                           {salvandoSecao === secao.nome
                                             ? (locale === "pt" ? "Salvando..." : "Saving...")
@@ -1928,7 +1968,7 @@ export default function Proposals({
                                       <li key={h.id} className="text-[10px] text-slate-500 border-l-2 border-slate-200 pl-2">
                                         <span className="font-mono font-bold text-slate-600">{h.target_key}</span>
                                         {" · "}
-                                        <span className={h.origin === "humano" ? "text-slate-600" : h.origin === "ia" ? "text-brand-700" : "text-brand-600"}>
+                                        <span className={h.origin === "humano" ? "text-slate-600" : "text-brand-700"}>
                                           {h.origin === "humano" ? (locale === "pt" ? "humano" : "human") : h.origin === "ia" ? "IA" : (locale === "pt" ? "IA editada" : "AI edited")}
                                         </span>
                                         {" · "}
@@ -1967,24 +2007,28 @@ export default function Proposals({
                           </button>
                         )}
                       </div>
-                    </div>
+                    </CascaDeDialogo>
                   </div>
                 );
               })()}
 
               {previewingProposalId && (
                 <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
-                  <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+                  <CascaDeDialogo
+                    onClose={closePreview}
+                    rotuladoPor="previa-do-documento-titulo"
+                    className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col"
+                  >
                     <div className="flex items-center justify-between p-4 border-b border-slate-100">
                       <div className="flex items-center gap-2">
-                        <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">
+                        <h3 id="previa-do-documento-titulo" className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">
                           {locale === "pt" ? "Pré-visualização do Documento" : "Document Preview"}
                         </h3>
                         <div className="ml-2">
                           <DocumentFormatSwitch format={previewFormat} onChange={(fmt) => openPreview(previewingProposalId, fmt)} />
                         </div>
                       </div>
-                      <button onClick={closePreview} className="text-slate-400 hover:text-slate-700 cursor-pointer">
+                      <button onClick={closePreview} aria-label={locale === "pt" ? "Fechar a pré-visualização" : "Close the preview"} title={locale === "pt" ? "Fechar" : "Close"} className="-m-1.5 p-1.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer focus:outline-none focus:ring-1 focus:ring-brand-500">
                         <X size={18} />
                       </button>
                     </div>
@@ -1998,7 +2042,7 @@ export default function Proposals({
                         error={previewError}
                       />
                     </div>
-                  </div>
+                  </CascaDeDialogo>
                 </div>
               )}
             </div>

@@ -16,6 +16,7 @@
  * como apontamento aberto na v2 e barra o reenvio até ser tratado.
  */
 import { X, TriangleAlert, CircleCheck } from "lucide-react";
+import { useModalDialog } from "../../hooks/useModalDialog";
 
 export interface ResumoDaAprovacao {
   proposalLabel: string;
@@ -47,25 +48,38 @@ function Linha({ rotulo, valor, alerta }: { rotulo: string; valor: string; alert
 }
 
 export default function ApprovalConfirmModal({ locale, resumo, comments, submitting, onCancel, onConfirm }: ApprovalConfirmModalProps) {
+  const refModal = useModalDialog<HTMLDivElement>(onCancel);
   const temAlerta = resumo.apontamentosAbertos > 0 || resumo.apontamentosAceitosComRisco > 0 || resumo.verificacoesBloqueantes > 0;
 
   return (
     <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg flex flex-col">
+      <div
+        ref={refModal}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirmar-aprovacao-titulo"
+        tabIndex={-1}
+        className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto flex flex-col focus:outline-none"
+      >
         <div className="flex items-start justify-between p-4 border-b border-slate-100">
           <div>
-            <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-success-800">
+            <h3 id="confirmar-aprovacao-titulo" className="text-sm font-bold uppercase tracking-wider font-mono text-success-800">
               {locale === "pt" ? "Confirmar aprovação" : "Confirm approval"}
             </h3>
             <p className="text-[11px] text-slate-500 mt-0.5">{resumo.proposalLabel}</p>
           </div>
-          <button onClick={onCancel} className="text-slate-400 hover:text-slate-700 cursor-pointer" title={locale === "pt" ? "Cancelar" : "Cancel"}>
+          <button
+            onClick={onCancel}
+            aria-label={locale === "pt" ? "Cancelar a aprovação" : "Cancel the approval"}
+            title={locale === "pt" ? "Cancelar" : "Cancel"}
+            className="-m-1.5 p-1.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer focus:outline-none focus:ring-1 focus:ring-brand-500"
+          >
             <X size={18} />
           </button>
         </div>
 
         <div className="p-4 space-y-2">
-          <p className="text-[12px] text-slate-700 leading-snug mb-2">
+          <p className="text-xs text-slate-700 leading-snug mb-2">
             {locale === "pt" ? "Você está aprovando:" : "You are approving:"}
           </p>
 

@@ -41,6 +41,7 @@ import {
   gerarAssistenteDoAprovador,
 } from "../../lib/approvalDossier";
 import { useDocumentPreview, DocumentFormatSwitch, DocumentPreviewBody } from "../ui/DocumentPreview";
+import { useModalDialog } from "../../hooks/useModalDialog";
 
 type AbaDoDossie = "documento" | "pareceres" | "verificacoes" | "versoes" | "assistente";
 
@@ -72,7 +73,7 @@ function CartaoDeApontamento({ locale, finding }: { locale: "en" | "pt"; finding
   return (
     <div className="border border-slate-200 rounded-lg p-3 bg-white">
       <div className="flex items-start justify-between gap-2 mb-1.5">
-        <h6 className="text-[12px] font-semibold text-slate-800 leading-snug">{finding.title}</h6>
+        <h6 className="text-xs font-semibold text-slate-800 leading-snug">{finding.title}</h6>
         <div className="flex items-center gap-1 shrink-0">
           <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase ${ESTILO_DE_SEVERIDADE[finding.severity] || ESTILO_DE_SEVERIDADE.info}`}>
             {finding.severity}
@@ -107,6 +108,7 @@ function CartaoDeApontamento({ locale, finding }: { locale: "en" | "pt"; finding
 export default function ApprovalDossierModal({ locale, dossie, onClose }: ApprovalDossierModalProps) {
   const [aba, setAba] = useState<AbaDoDossie>("documento");
   const preview = useDocumentPreview(locale);
+  const refModal = useModalDialog<HTMLDivElement>(onClose);
 
   /*
    * F9: o assistente. `briefing` é o resultado GUARDADO desta versão - o GET abaixo nunca chama o
@@ -181,10 +183,17 @@ export default function ApprovalDossierModal({ locale, dossie, onClose }: Approv
 
   return (
     <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col">
+      <div
+        ref={refModal}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="dossie-do-aprovador-titulo"
+        tabIndex={-1}
+        className="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col focus:outline-none"
+      >
         <div className="flex items-start justify-between p-4 border-b border-slate-100">
           <div>
-            <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">
+            <h3 id="dossie-do-aprovador-titulo" className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">
               {locale === "pt" ? "Dossiê da Proposta" : "Proposal Dossier"}
             </h3>
             <p className="text-[11px] text-slate-500 mt-0.5">
@@ -192,33 +201,87 @@ export default function ApprovalDossierModal({ locale, dossie, onClose }: Approv
               <span className="font-mono">{dossie.proposal.id}</span>
             </p>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 cursor-pointer" title={locale === "pt" ? "Fechar" : "Close"}>
+          <button
+            onClick={onClose}
+            aria-label={locale === "pt" ? "Fechar o dossiê" : "Close the dossier"}
+            title={locale === "pt" ? "Fechar" : "Close"}
+            className="-m-1.5 p-1.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer focus:outline-none focus:ring-1 focus:ring-brand-500"
+          >
             <X size={18} />
           </button>
         </div>
 
-        <div className="flex items-center gap-1 px-4 pt-3 border-b border-slate-100 overflow-x-auto">
-          {abas.map((a) => {
-            const Icone = a.icone;
-            return (
-              <button
-                key={a.id}
-                onClick={() => setAba(a.id)}
-                className={`flex items-center gap-1.5 px-3 py-2 text-[11px] font-semibold border-b-2 whitespace-nowrap cursor-pointer transition-all ${
-                  aba === a.id ? "text-brand-700 border-brand-600" : "text-slate-500 border-transparent hover:text-slate-700"
-                }`}
-              >
-                <Icone size={13} />
-                {a.rotulo}
-                {typeof a.contagem === "number" && (
-                  <span className="text-[9px] font-mono bg-slate-100 text-slate-600 rounded px-1 py-0.5">{a.contagem}</span>
-                )}
-              </button>
-            );
-          })}
+        {/* F10: a barra de abas passou a ser um `tablist` de verdade. Antes desta fase os cinco
+            botoes nao tinham `role`, `aria-selected` nem `aria-controls` (medido: todos `null`),
+            de modo que quem usa leitor de tela ouvia cinco botoes soltos e nada dizia qual
+            estava aberto - a unica pista era a cor da borda inferior.
+
+            A CAIXA `relative` COM O DEGRADE existe por uma medida de 390px: a barra tem
+            scrollWidth 819px contra clientWidth 358px, ou seja 56% das abas ficam fora da vista
+            e nada na tela dizia que havia mais. O degrade e so pintura (`pointer-events-none`),
+            aparece somente onde a barra rola de fato (`md:hidden`) e nao altera a rolagem. */}
+        <div className="relative border-b border-slate-100">
+          <div
+            role="tablist"
+            aria-label={locale === "pt" ? "Seções do dossiê" : "Dossier sections"}
+            className="flex items-center gap-1 px-4 pt-3 overflow-x-auto"
+          >
+            {abas.map((a, indice) => {
+              const Icone = a.icone;
+              const selecionada = aba === a.id;
+              return (
+                <button
+                  key={a.id}
+                  id={`aba-do-dossie-${a.id}`}
+                  role="tab"
+                  aria-selected={selecionada}
+                  aria-controls={`painel-do-dossie-${a.id}`}
+                  tabIndex={selecionada ? 0 : -1}
+                  onClick={() => setAba(a.id)}
+                  onKeyDown={(e) => {
+                    // Seta/Home/End: e como o padrao de abas se navega no teclado. Sem isto o
+                    // Tab precisa passar por cada uma das cinco antes de chegar ao conteudo.
+                    const passo = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+                    let destino = -1;
+                    if (passo !== 0) destino = (indice + passo + abas.length) % abas.length;
+                    else if (e.key === "Home") destino = 0;
+                    else if (e.key === "End") destino = abas.length - 1;
+                    if (destino < 0) return;
+                    e.preventDefault();
+                    setAba(abas[destino].id);
+                    const alvo = document.getElementById(`aba-do-dossie-${abas[destino].id}`);
+                    alvo?.focus();
+                    // Medido em 390px: a barra tem scrollWidth 819 contra clientWidth 358.
+                    // Sem isto, a seta do teclado seleciona uma aba que fica FORA da vista.
+                    alvo?.scrollIntoView({ block: "nearest", inline: "nearest" });
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-2 text-[11px] font-semibold border-b-2 whitespace-nowrap cursor-pointer transition-all focus:outline-none focus:ring-1 focus:ring-brand-500 ${
+                    selecionada ? "text-brand-700 border-brand-600" : "text-slate-500 border-transparent hover:text-slate-700"
+                  }`}
+                >
+                  <Icone size={13} />
+                  {a.rotulo}
+                  {typeof a.contagem === "number" && (
+                    <span className="text-[9px] font-mono bg-slate-100 text-slate-600 rounded px-1 py-0.5">{a.contagem}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-white to-transparent md:hidden" />
         </div>
 
-        <div className="flex-1 overflow-y-auto bg-slate-50 min-h-[55vh]">
+        <div
+          role="tabpanel"
+          id={`painel-do-dossie-${aba}`}
+          aria-labelledby={`aba-do-dossie-${aba}`}
+          tabIndex={0}
+          /* F10: o painel e focavel (tabIndex 0) porque rola; sem anel proprio o foco ficava
+             INVISIVEL - medido depois da primeira correcao desta fase: `outlineStyle: "none"`
+             e `boxShadow: "none"` no elemento focado. O anel por dentro (`ring-inset`) porque
+             o painel encosta na borda do modal e um anel por fora seria cortado. */
+          className="flex-1 overflow-y-auto bg-slate-50 min-h-[55vh] focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-500"
+        >
           {/* ─────────── ABA DOCUMENTO ─────────── */}
           {aba === "documento" && (
             <div className="h-full flex flex-col">
@@ -294,7 +357,7 @@ export default function ApprovalDossierModal({ locale, dossie, onClose }: Approv
                       {o.provider_used}/{o.model_used}
                     </span>
                   </div>
-                  <p className="text-[12px] text-slate-700 leading-snug mb-2">{o.summary}</p>
+                  <p className="text-xs text-slate-700 leading-snug mb-2">{o.summary}</p>
                   {o.findings.length > 0 && (
                     <div className="space-y-2 mt-2 pt-2 border-t border-slate-100">
                       {o.findings.map((f) => (
@@ -339,7 +402,7 @@ export default function ApprovalDossierModal({ locale, dossie, onClose }: Approv
               {dossie.verificacoes.achados.map((a, i) => (
                 <div key={i} className="bg-white border border-slate-200 rounded-lg p-3">
                   <div className="flex items-start justify-between gap-2">
-                    <p className="text-[12px] text-slate-700 leading-snug">{a.descricao}</p>
+                    <p className="text-xs text-slate-700 leading-snug">{a.descricao}</p>
                     <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase shrink-0 ${ESTILO_DE_SEVERIDADE[a.severidade] || ESTILO_DE_SEVERIDADE.info}`}>
                       {a.severidade}
                     </span>
@@ -534,7 +597,7 @@ export default function ApprovalDossierModal({ locale, dossie, onClose }: Approv
                     <h5 className="text-[10px] font-bold uppercase font-mono text-slate-400 mb-1">
                       {locale === "pt" ? "O conjunto" : "The picture"}
                     </h5>
-                    <p className="text-[12px] text-slate-700 leading-snug">{briefing.panorama}</p>
+                    <p className="text-xs text-slate-700 leading-snug">{briefing.panorama}</p>
                   </div>
 
                   {briefing.pontos.length === 0 ? (
@@ -548,7 +611,7 @@ export default function ApprovalDossierModal({ locale, dossie, onClose }: Approv
                       {briefing.pontos.map((p, i) => (
                         <div key={i} className="bg-white border border-slate-200 rounded-lg p-3">
                           <div className="flex items-start justify-between gap-2 mb-1">
-                            <p className="text-[12px] font-semibold text-slate-800 leading-snug">{p.pergunta}</p>
+                            <p className="text-xs font-semibold text-slate-800 leading-snug">{p.pergunta}</p>
                             <span className="text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase text-slate-600 bg-slate-100 border-slate-200 shrink-0">
                               {ROTULO_DE_CATEGORIA[p.categoria]?.[locale] ?? p.categoria}
                             </span>

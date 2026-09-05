@@ -86,12 +86,13 @@ interface DocumentFormatSwitchProps {
 
 export function DocumentFormatSwitch({ format, onChange }: DocumentFormatSwitchProps) {
   return (
-    <div className="flex rounded border border-slate-200 overflow-hidden">
+    <div role="group" aria-label="Formato do documento" className="flex rounded border border-slate-200 overflow-hidden">
       {(["docx", "pdf"] as const).map((fmt) => (
         <button
           key={fmt}
           onClick={() => onChange(fmt)}
-          className={`px-2.5 py-1 text-[10px] font-bold uppercase font-mono cursor-pointer ${format === fmt ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}
+          aria-pressed={format === fmt}
+          className={`px-2.5 py-1 text-[10px] font-bold uppercase font-mono cursor-pointer focus:outline-none focus:ring-1 focus:ring-inset focus:ring-brand-500 ${format === fmt ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}
         >
           {fmt}
         </button>
@@ -114,16 +115,22 @@ export function DocumentPreviewBody({ locale, format, docxHtml, pdfUrl, loading,
   return (
     <div className="h-full w-full bg-slate-100">
       {loading && (
-        <div className="h-full flex items-center justify-center text-xs text-slate-400 font-mono py-16">
+        <div role="status" aria-live="polite" className="h-full flex items-center justify-center text-xs text-slate-400 font-mono py-16">
           {locale === "pt" ? "Carregando documento..." : "Loading document..."}
         </div>
       )}
       {!loading && error && (
-        <div className="h-full flex items-center justify-center text-xs text-danger-600 font-mono p-4 text-center py-16">{error}</div>
+        <div role="alert" className="h-full flex items-center justify-center text-xs text-danger-600 font-mono p-4 text-center py-16">{error}</div>
       )}
       {!loading && !error && format === "docx" && docxHtml && (
         <div
-          className="bg-white max-w-3xl mx-auto my-6 p-10 shadow-sm text-sm leading-relaxed prose prose-sm"
+          /* F10: `prose prose-sm` NAO EXISTIA. O plugin @tailwindcss/typography nao esta
+             instalado e nada o importa - medido no CSS servido, `grep -c "\.prose"` deu 0.
+             As duas classes eram silenciosamente nada, e o Preflight zera peso e margem de
+             h1..h6/p/ul: o <h1> do documento vinha com font-size 14px, weight 400 e margin 0,
+             identico ao <p> vizinho. `documento-renderizado` (src/index.css) faz o trabalho
+             que se supunha feito, com a escala e os tokens deste produto. */
+          className="bg-white max-w-3xl mx-auto my-6 p-10 shadow-sm text-sm leading-relaxed documento-renderizado"
           dangerouslySetInnerHTML={{ __html: docxHtml }}
         />
       )}
