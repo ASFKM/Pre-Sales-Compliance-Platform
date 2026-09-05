@@ -22,7 +22,33 @@ jobs:
       - name: Gerando relatório de achados (painel Infra Ops)
         run: python3 scripts/ci/infraops_findings.py semgrep .semgrep.json || true
       - name: semgrep (gate)
-        run: semgrep scan --config auto --error .
+        # O gate le o JSON que o passo de relatorio ja gerou, em vez de rodar o semgrep de novo em
+        # modo texto. Dois motivos, os dois medidos por revisao de seguranca:
+        #   1. o modo texto imprime as LINHAS DE CODIGO casadas — e uma regra de credencial casa
+        #      exatamente na linha que contem a credencial. O log de CI e legivel por qualquer um
+        #      com acesso ao repositorio, e e a fonte que o painel Infra Ops le;
+        #   2. esse mesmo eco permitia FORJAR a linha `::infraops-findings::` a partir de um
+        #      arquivo do repositorio, publicando achado falso no painel.
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          try:
+              d = json.load(open(".semgrep.json"))
+          except Exception as e:
+              print(f"nao foi possivel ler .semgrep.json: {e}")
+              sys.exit(1)
+          erros = [r for r in (d.get("errors") or []) if r.get("level") == "error"]
+          achados = d.get("results") or []
+          for a in achados[:50]:
+              print(f"{a.get('check_id')}  {a.get('path')}:{(a.get('start') or {}).get('line')}")
+          if erros:
+              print(f"semgrep reportou {len(erros)} erro(s) de execucao")
+              sys.exit(1)
+          if achados:
+              print(f"{len(achados)} achado(s) de semgrep — gate reprovado")
+              sys.exit(1)
+          print("semgrep sem achados")
+          PY
 
   trivy:
     runs-on: trivy

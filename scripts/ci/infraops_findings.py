@@ -103,14 +103,19 @@ def de_semgrep(doc):
         line = (r.get("start") or {}).get("line")
         extra = r.get("extra") or {}
         sev = (extra.get("severity") or "WARNING").upper()
-        msg = (extra.get("message") or rule).strip().splitlines()[0]
+        # O TITULO VEM DA REGRA, NAO DA MENSAGEM. `extra.message` e um template escrito pelo autor
+        # da regra e o semgrep INTERPOLA as metavariaveis antes de emitir: uma regra cujo texto
+        # seja "Hardcoded secret $VALUE" publicaria o valor casado no log, no JSON, no banco, na
+        # issue e na tela. Para gitleaks o titulo sempre veio da regra; aqui faltava a mesma
+        # disciplina. A ultima parte do check_id ja e legivel ("detect-non-literal-regexp").
+        legivel = rule.rsplit(".", 1)[-1].replace("-", " ").replace("_", " ").strip()
         achados.append({
             "key": chave("semgrep", rule, path, line),
             "rule_id": rule,
             "severity": sev,
             "path": corta(path, MAX_PATH),
             "line": line if isinstance(line, int) else None,
-            "title": corta(msg, MAX_TITLE),
+            "title": corta(f"Padrao inseguro: {legivel or rule}", MAX_TITLE),
             "package": None,
         })
     return achados
