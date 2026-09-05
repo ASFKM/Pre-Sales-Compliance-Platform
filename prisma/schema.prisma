@@ -254,8 +254,6 @@ model Tenant {
   approvalDecisions       ApprovalDecision[]
   proposalOpinionRuns     ProposalOpinionRun[]
   proposalAiOpinionItems  ProposalAiOpinionItem[]
-  brandingSettings        BrandingSettings?
-  brandStyles             BrandStyle[]
   teamMemberships         TeamMembership[]
   integrationConnectors   IntegrationConnector[]
   knowledgeBaseDocuments  KnowledgeBaseDocument[]
@@ -404,10 +402,6 @@ model Project {
   aiOrientationMode          String        @map("ai_orientation_mode")
   aiOrientationText          String        @map("ai_orientation_text") @db.Text
   selectedApprovalWorkflowId String?       @map("selected_approval_workflow_id")
-  // Roadmap item (customer_request): "Identidade Visual em DOCX" Fase 4b - a project/client can
-  // override the tenant-wide BrandingSettings (logo + primary color) with a reusable named
-  // BrandStyle for co-branded proposals. Null = use the tenant default, unchanged from before.
-  brandStyleId               String?       @map("brand_style_id")
   procurementModality        String?       @map("procurement_modality")
   procurementSubtype         String?       @map("procurement_subtype")
   customModality             String?       @map("custom_modality")
@@ -1451,69 +1445,6 @@ model ApprovalDecision {
 
   @@index([tenantId])
   @@map("approval_decisions")
-}
-
-// Roadmap item (customer_request): "Identidade Visual em DOCX" Fase 4b - a reusable, named brand
-// style (logo + primary color) a project can opt into instead of the tenant-wide BrandingSettings
-// default, so the same client's branding can be set up once and reused across every one of their
-// projects rather than re-entered per project. Deliberately a small subset of BrandingSettings'
-// fields (only what buildDocxBuffer's branding header actually consumes today - see
-// server/utils/docx.ts's BrandingHeader) - not a full theme/UI branding system, just DOCX output.
-model BrandStyle {
-  id           String   @id
-  tenantId     String   @map("tenant_id")
-  tenant       Tenant   @relation(fields: [tenantId], references: [id])
-  name         String
-  companyName  String?  @map("company_name")
-  // Inline base64 data URL, same convention as BrandingSettings' own logo fields (see
-  // useAdminConsole.ts's upload handler) - not a storage-adapter path.
-  logoDataUrl  String?  @map("logo_data_url") @db.Text
-  primaryColor String?  @map("primary_color")
-  createdBy    String   @map("created_by")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-
-  @@unique([tenantId, name])
-  @@index([tenantId])
-  @@map("brand_styles")
-}
-
-model BrandingSettings {
-  id                 String   @id
-  tenantId           String   @map("tenant_id")
-  tenant             Tenant   @relation(fields: [tenantId], references: [id])
-  companyName        String   @map("company_name")
-  companyLogoPath    String   @map("company_logo_path")
-  loginLogoPath      String   @map("login_logo_path")
-  sidebarLogoPath    String   @map("sidebar_logo_path")
-  reportLogoPath     String   @map("report_logo_path")
-  faviconPath        String   @map("favicon_path")
-  primaryColor       String   @map("primary_color")
-  secondaryColor     String   @map("secondary_color")
-  accentColor        String   @map("accent_color")
-  backgroundColor    String   @map("background_color")
-  textColor          String   @map("text_color")
-  fontFamily         String   @map("font_family")
-  borderRadius       String   @map("border_radius")
-  buttonStyle        String   @map("button_style")
-  defaultTheme       Theme    @default(light) @map("default_theme")
-  // Fase 8 do programa de identidade visual (docs/roadmap/IDENTIDADE_VISUAL_2026-08.md):
-  // quando ligado, `primary_color` deixa de valer só para o cabeçalho do DOCX gerado e passa a
-  // pintar a INTERFACE, sobrescrevendo em runtime os 11 tokens `--color-brand-*` que
-  // `@theme static` publica em `:root` (a rampa é derivada da cor por src/brandTheme.ts).
-  // Nasce DESLIGADO em toda linha que já existia: elas gravaram a cor sob a semântica antiga
-  // ("essa cor sai no documento"), e ligar em massa mudaria a aparência do produto para quem
-  // nunca pediu isso - ver a migration 20260825030000_brand_color_official_palette.
-  applyToUi          Boolean  @default(false) @map("apply_to_ui")
-  customCssVariables String   @map("custom_css_variables") @db.Text
-  footerText         String   @map("footer_text")
-  supportContact     String   @map("support_contact")
-  legalText          String   @map("legal_text") @db.Text
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
-
-  @@unique([tenantId])
-  @@map("branding_settings")
 }
 
 model IntegrationConnector {

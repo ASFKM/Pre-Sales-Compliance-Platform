@@ -388,15 +388,6 @@ export const SCREENS: Screen[] = [
     },
   },
   {
-    id: "admin-branding",
-    label: "Configurações - Identidade Visual (alvo da Fase 8)",
-    authenticated: true,
-    async open(page) {
-      await openTab(page, "Configurações");
-      await openAdminSection(page, "Identidade Visual");
-    },
-  },
-  {
     id: "admin-audit",
     label: "Configurações - Auditoria e Diagnóstico",
     authenticated: true,

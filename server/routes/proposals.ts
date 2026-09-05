@@ -28,27 +28,22 @@ import { consolidarSugestoes, identificarVariaveisParaSugerir, montarPromptDeSug
 import { revisarDocumentoGerado, AchadoDeRevisao } from "../utils/proposalQa";
 
 const router = express.Router();
-// Exportada (Fase 8) para que a precedência de branding possa ser provada por teste e por uma
-// geração real de DOCX, em vez de reimplementada num script - reescrever a regra de fora é
-// justamente o que faz uma prova concordar com o código errado.
+// F5: o template .docx passou a ser OBRIGATORIO para gerar proposta.
 //
-// A precedência: `project.brand_style_id` -> o BrandStyle vence (proposta co-marcada com a
-// identidade do próprio cliente); sem ele, cai no BrandingSettings do tenant. Nada aqui alcança
-// markup, preço de lista ou desconto: o cabeçalho leva nome, cor e logo, e o resolvedor de
-// template (server/utils/docxTemplateEngine.ts) segue recebendo apenas o `templateData` montado
-// mais abaixo, que nunca carregou esses campos.
-
-export async function resolveBrandingHeader(projectId: string): Promise<{ companyName?: string; primaryColorHex?: string; logoDataUrl?: string }> {
-  const project = await dbStore.getProject(projectId);
-  if (project?.brand_style_id) {
-    const style = await dbStore.getBrandStyle(project.brand_style_id);
-    if (style) {
-      return { companyName: style.company_name, primaryColorHex: style.primary_color, logoDataUrl: style.logo_data_url };
-    }
-  }
-  const branding = await dbStore.getBranding();
-  return { companyName: branding.company_name, primaryColorHex: branding.primary_color, logoDataUrl: branding.report_logo_path };
-}
+// O achado que motivou a fase: quando um template REAL existe, o documento sai inteiro dele - o
+// cabecalho de marca do gerador generico nunca chegava a aparecer. O gerador generico produzia um
+// texto plano sem timbre nenhum e era o unico lugar onde a identidade visual configuravel valia,
+// ou seja, a tela de branding pintava um documento que quase ninguem gerava. Removida a tela,
+// gerar uma proposta a partir do texto plano deixou de fazer sentido: o que o cliente recebe tem
+// que sair do modelo cadastrado.
+//
+// Antes disto, a ausencia do arquivo fisico caia em silencio no gerador generico e a proposta saia
+// com a formatacao padrao - o mesmo defeito que a F6 ja tinha fechado para template de formato
+// errado, agora fechado tambem para template sem arquivo.
+export const MENSAGEM_TEMPLATE_SEM_ARQUIVO =
+  "O modelo .docx desta proposta nao esta disponivel: o template selecionado nao tem arquivo cadastrado no armazenamento. " +
+  "Cadastre o modelo em Configuracoes > Templates de Propostas (envie o arquivo .docx) e gere a proposta novamente. " +
+  "A proposta nao e mais gerada sem o modelo.";
 
 async function resolveRegisteredTemplate(
   templateId: string,
@@ -199,8 +194,7 @@ async function renderAndWriteProposalDocuments(
   physicalFileFound: boolean,
   platformSettings: PlatformSettings,
   projectId: string,
-  proposalType: string,
-  branding: { companyName?: string; primaryColorHex?: string; logoDataUrl?: string }
+  proposalType: string
 ): Promise<{ docx_file_path: string; pdf_file_path: string; proposalContent: string }> {
   const proposalContent = buildProposalText(templateData);
 
@@ -216,25 +210,29 @@ async function renderAndWriteProposalDocuments(
    * então isto só alcança template legado, registrado antes desta fase, e o caminho certo para ele
    * é reenviar o arquivo - não gerar uma proposta errada em silêncio.
    *
-   * A ausência do arquivo físico (physicalFileFound === false) continua caindo no gerador genérico
-   * como antes: isso já é sinalizado ao usuário por outro caminho (template.physical_file_found
-   * viaja no DocxTemplateData e a UI avisa), e não é o defeito desta fase.
+   * F5: a ausencia do arquivo fisico deixou de cair no gerador generico e passou a ser recusa.
+   * As rotas ja barram isso antes de gastar IA (ver MENSAGEM_TEMPLATE_SEM_ARQUIVO); a guarda
+   * abaixo e a ultima linha, no funil unico por onde os tres caminhos de geracao passam - um
+   * chamador novo que esqueca a checagem falha alto em vez de gerar o documento errado calado.
    */
+  if (!physicalFileFound) {
+    throw new TemplateNaoMesclavelError(MENSAGEM_TEMPLATE_SEM_ARQUIVO);
+  }
+
   if (physicalFileFound && template.file_type !== "docx") {
     throw new TemplateNaoMesclavelError(
       `O template desta proposta está registrado como .${template.file_type}, formato que não pode ter as variáveis {{...}} mescladas. Reenvie o modelo em .docx (ou .doc, que é convertido automaticamente) no cadastro de templates e gere a proposta novamente.`
     );
   }
 
-  let docxBufferOverride: Buffer | undefined;
-  if (physicalFileFound && template.file_type === "docx") {
-    const templateAdapter = createStorageAdapter({ ...platformSettings, storage_mode: template.storage_provider });
-    const templateBuffer = await templateAdapter.readFile(templateData.template!.file_path);
-    docxBufferOverride = renderDocxFromTemplate(templateBuffer, templateData);
-  }
+  // Chegou aqui, o arquivo existe e e .docx (as duas guardas acima) - o merge no template real e
+  // o unico caminho, nao mais um override opcional sobre o gerador generico.
+  const templateAdapter = createStorageAdapter({ ...platformSettings, storage_mode: template.storage_provider });
+  const templateBuffer = await templateAdapter.readFile(templateData.template!.file_path);
+  const docxBuffer = renderDocxFromTemplate(templateBuffer, templateData);
 
   const outputAdapter = createStorageAdapter(platformSettings);
-  const { docx_file_path, pdf_file_path } = await writeProposalFiles(outputAdapter, projectId, proposalType, proposalContent, docxBufferOverride, branding);
+  const { docx_file_path, pdf_file_path } = await writeProposalFiles(outputAdapter, projectId, proposalType, proposalContent, docxBuffer);
   return { docx_file_path, pdf_file_path, proposalContent };
 }
 
@@ -358,6 +356,16 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
     const template = templateResolution.template;
     const platformSettings = await dbStore.getSettings();
     const physicalFileFound = await checkTemplatePhysicalFile(template, platformSettings);
+    // F5: recusa ANTES de responder 202 e disparar a geracao em background. Descobrir a ausencia
+    // do arquivo la dentro custaria as chamadas de IA da montagem do documento e chegaria ao
+    // usuario como task falhada, nao como resposta ao clique dele.
+    if (!physicalFileFound) {
+      return res.status(422).json({
+        success: false,
+        code: "TEMPLATE_SEM_ARQUIVO",
+        message: MENSAGEM_TEMPLATE_SEM_ARQUIVO,
+      });
+    }
 
     const userId = requireUserId(req);
     const tenantId = req.headers["x-tenant-id"] as string;
@@ -404,9 +412,8 @@ router.post("/projects/:projectId/proposals/:type", requirePermission("proposal:
       // letterhead it produces. Regenerating on a later structured-field edit (PUT /proposals/:id)
       // goes through this exact same helper, so the letterhead never gets lost on save.
       await updateTaskProgress(task.id, { status: "running", currentStep: "Preenchendo e gerando documento", progressPct: 50 });
-      const brandingHeader = await resolveBrandingHeader(projectId);
       const { docx_file_path, pdf_file_path, proposalContent } = await renderAndWriteProposalDocuments(
-        templateData, template, physicalFileFound, platformSettings, projectId, proposalType, brandingHeader
+        templateData, template, physicalFileFound, platformSettings, projectId, proposalType
       );
 
       // 5. Save proposal to database
@@ -962,6 +969,16 @@ router.put("/proposals/:id", requirePermission("proposal:edit"), async (req: Req
       const templates = await dbStore.getProposalTemplates();
       const template = templates.find(t => t.id === existingProposal.template_id);
       const physicalFileFound = template ? await checkTemplatePhysicalFile(template, platformSettings) : false;
+      // F5: sem o arquivo do modelo nao ha o que regerar. Recusar aqui preserva o documento que a
+      // proposta ja tem - o caminho antigo sobrescrevia um DOCX vindo de template por um texto
+      // plano do gerador generico assim que o arquivo sumisse do armazenamento.
+      if (!physicalFileFound) {
+        return res.status(422).json({
+          success: false,
+          code: "TEMPLATE_SEM_ARQUIVO",
+          message: MENSAGEM_TEMPLATE_SEM_ARQUIVO,
+        });
+      }
       const owner = await dbStore.getUserById(project.owner_user_id);
       const tenantId = req.headers["x-tenant-id"] as string;
       const { pricingLines } = await resolvePricingLines(tenantId, existingProposal.project_id);
@@ -985,15 +1002,13 @@ router.put("/proposals/:id", requirePermission("proposal:edit"), async (req: Req
         existingProposal.template_field_values
       );
 
-      const brandingHeader = await resolveBrandingHeader(existingProposal.project_id);
       const { docx_file_path, pdf_file_path, proposalContent } = await renderAndWriteProposalDocuments(
         templateData,
         template ?? { file_type: "docx" as const, storage_provider: existingProposal.storage_provider },
         physicalFileFound,
         platformSettings,
         existingProposal.project_id,
-        existingProposal.proposal_type,
-        brandingHeader
+        existingProposal.proposal_type
       );
 
       const oldAdapter = createStorageAdapter({ ...platformSettings, storage_mode: existingProposal.storage_provider });
@@ -1105,6 +1120,15 @@ router.post("/proposals/:id/reopen", requirePermission("proposal:generate"), asy
     const templates = await dbStore.getProposalTemplates();
     const template = templates.find(t => t.id === rejected.template_id);
     const physicalFileFound = template ? await checkTemplatePhysicalFile(template, platformSettings) : false;
+    // F5: mesma recusa da geracao e da regeneracao - reabrir uma proposta sem o arquivo do modelo
+    // produziria um documento que nao veio do template escolhido.
+    if (!physicalFileFound) {
+      return res.status(422).json({
+        success: false,
+        code: "TEMPLATE_SEM_ARQUIVO",
+        message: MENSAGEM_TEMPLATE_SEM_ARQUIVO,
+      });
+    }
     const owner = await dbStore.getUserById(project.owner_user_id);
     const tenantId = req.headers["x-tenant-id"] as string;
     const userId = requireUserId(req);
@@ -1222,15 +1246,13 @@ router.post("/proposals/:id/reopen", requirePermission("proposal:generate"), asy
       rejected.template_field_values
     );
 
-    const brandingHeader = await resolveBrandingHeader(rejected.project_id);
     const { docx_file_path, pdf_file_path, proposalContent } = await renderAndWriteProposalDocuments(
       templateData,
       template ?? { file_type: "docx" as const, storage_provider: rejected.storage_provider },
       physicalFileFound,
       platformSettings,
       rejected.project_id,
-      rejected.proposal_type,
-      brandingHeader
+      rejected.proposal_type
     );
 
     const user = await dbStore.getUserById(userId);

@@ -39,7 +39,6 @@ function projectToFormValues(p: Project): ProjectFieldsValues {
     procurement_modality: p.procurement_modality || "",
     procurement_subtype: p.procurement_subtype || "",
     custom_modality: p.custom_modality || "",
-    brand_style_id: p.brand_style_id ?? null,
   };
 }
 

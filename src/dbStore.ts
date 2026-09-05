@@ -7,7 +7,6 @@ import {
   UserStatus,
   Role,
   Project,
-  BrandStyle,
   Poc,
   PocSuccessCriterion,
   PocEquipmentItem,
@@ -28,7 +27,6 @@ import {
   Proposal,
   ApprovalWorkflow,
   ApprovalDecision,
-  BrandingSettings,
   IntegrationConnector,
   TeamMembership,
   KnowledgeBaseEntry,
@@ -94,7 +92,6 @@ function mapProject(p: any): Project {
     ai_orientation_mode: p.aiOrientationMode,
     ai_orientation_text: p.aiOrientationText,
     selected_approval_workflow_id: p.selectedApprovalWorkflowId,
-    brand_style_id: p.brandStyleId ?? null,
     procurement_modality: p.procurementModality ?? undefined,
     procurement_subtype: p.procurementSubtype ?? undefined,
     custom_modality: p.customModality ?? undefined,
@@ -106,19 +103,6 @@ function mapProject(p: any): Project {
     created_at: p.createdAt.toISOString(),
     updated_at: p.updatedAt.toISOString(),
   } as Project;
-}
-
-function mapBrandStyle(b: any): BrandStyle {
-  return {
-    id: b.id,
-    name: b.name,
-    company_name: b.companyName ?? undefined,
-    logo_data_url: b.logoDataUrl ?? undefined,
-    primary_color: b.primaryColor ?? undefined,
-    created_by: b.createdBy,
-    created_at: b.createdAt.toISOString(),
-    updated_at: b.updatedAt.toISOString(),
-  } as BrandStyle;
 }
 
 function mapPoc(p: any): Poc {
@@ -472,34 +456,6 @@ function mapSettings(s: any): PlatformSettings {
   } as PlatformSettings;
 }
 
-function mapBranding(b: any): BrandingSettings {
-  return {
-    id: b.id,
-    company_name: b.companyName,
-    company_logo_path: b.companyLogoPath,
-    login_logo_path: b.loginLogoPath,
-    sidebar_logo_path: b.sidebarLogoPath,
-    report_logo_path: b.reportLogoPath,
-    favicon_path: b.faviconPath,
-    primary_color: b.primaryColor,
-    secondary_color: b.secondaryColor,
-    accent_color: b.accentColor,
-    background_color: b.backgroundColor,
-    text_color: b.textColor,
-    font_family: b.fontFamily,
-    border_radius: b.borderRadius,
-    button_style: b.buttonStyle,
-    default_theme: b.defaultTheme,
-    custom_css_variables: b.customCssVariables,
-    footer_text: b.footerText,
-    support_contact: b.supportContact,
-    legal_text: b.legalText,
-    apply_to_ui: b.applyToUi,
-    created_at: b.createdAt.toISOString(),
-    updated_at: b.updatedAt.toISOString(),
-  } as BrandingSettings;
-}
-
 function mapPrompt(p: any): PromptTemplate {
   return {
     id: p.id,
@@ -846,7 +802,6 @@ class DBStore {
         aiOrientationMode: project.ai_orientation_mode,
         aiOrientationText: project.ai_orientation_text,
         selectedApprovalWorkflowId: project.selected_approval_workflow_id,
-        brandStyleId: project.brand_style_id,
         procurementModality: project.procurement_modality,
         procurementSubtype: project.procurement_subtype,
         customModality: project.custom_modality,
@@ -876,7 +831,6 @@ class DBStore {
         aiOrientationMode: updates.ai_orientation_mode,
         aiOrientationText: updates.ai_orientation_text,
         selectedApprovalWorkflowId: updates.selected_approval_workflow_id,
-        brandStyleId: updates.brand_style_id,
         procurementModality: updates.procurement_modality,
         procurementSubtype: updates.procurement_subtype,
         customModality: updates.custom_modality,
@@ -895,58 +849,6 @@ class DBStore {
     }
 
     return mapProject(p);
-  }
-
-  // Roadmap item (customer_request): "Identidade Visual em DOCX" Fase 4b - reusable named brand
-  // styles a project can opt into (see Project.brandStyleId above). Simple tenant-scoped CRUD,
-  // same shape as other small reusable-config entities in this file (e.g. ProposalTemplate).
-  public async getBrandStyles(): Promise<BrandStyle[]> {
-    const rows = await prisma.brandStyle.findMany({ orderBy: { name: "asc" } });
-    return rows.map(mapBrandStyle);
-  }
-
-  public async getBrandStyle(id: string): Promise<BrandStyle | undefined> {
-    const row = await prisma.brandStyle.findUnique({ where: { id } });
-    return row ? mapBrandStyle(row) : undefined;
-  }
-
-  public async createBrandStyle(style: Omit<BrandStyle, "id" | "created_at" | "updated_at">): Promise<BrandStyle> {
-    const row = await prisma.brandStyle.create({
-      data: {
-        id: randomId("bs"),
-        tenantId: requireTenantId(),
-        name: style.name,
-        companyName: style.company_name,
-        logoDataUrl: style.logo_data_url,
-        primaryColor: style.primary_color,
-        createdBy: style.created_by,
-      },
-    });
-    return mapBrandStyle(row);
-  }
-
-  public async updateBrandStyle(id: string, updates: Partial<BrandStyle>): Promise<BrandStyle | undefined> {
-    const exists = await prisma.brandStyle.findUnique({ where: { id } });
-    if (!exists) return undefined;
-    const row = await prisma.brandStyle.update({
-      where: { id },
-      data: {
-        name: updates.name,
-        companyName: updates.company_name,
-        logoDataUrl: updates.logo_data_url,
-        primaryColor: updates.primary_color,
-      },
-    });
-    return mapBrandStyle(row);
-  }
-
-  public async deleteBrandStyle(id: string): Promise<void> {
-    // Projects referencing this style keep their brandStyleId pointing at a now-deleted row -
-    // same tolerated pattern already established for selectedApprovalWorkflowId elsewhere in this
-    // file (no ON DELETE cascade/restrict wired for it either) - the DOCX branding lookup already
-    // falls back to the tenant default when a BrandStyle lookup comes back empty, so a project
-    // just silently reverts to the tenant default rather than erroring.
-    await prisma.brandStyle.delete({ where: { id } });
   }
 
   public async deleteProject(id: string): Promise<boolean> {
@@ -2128,44 +2030,6 @@ class DBStore {
     ]);
   }
 
-  // Branding settings (singleton row)
-  public async getBranding(): Promise<BrandingSettings> {
-    const b = await prisma.brandingSettings.findFirst();
-    if (!b) throw new Error("Branding settings row missing - seed data was not migrated correctly.");
-    return mapBranding(b);
-  }
-
-  public async updateBranding(updates: Partial<BrandingSettings>): Promise<BrandingSettings> {
-    const current = await prisma.brandingSettings.findFirst();
-    if (!current) throw new Error("Branding settings row missing - seed data was not migrated correctly.");
-    const b = await prisma.brandingSettings.update({
-      where: { id: current.id },
-      data: {
-        companyName: updates.company_name,
-        companyLogoPath: updates.company_logo_path,
-        loginLogoPath: updates.login_logo_path,
-        sidebarLogoPath: updates.sidebar_logo_path,
-        reportLogoPath: updates.report_logo_path,
-        faviconPath: updates.favicon_path,
-        primaryColor: updates.primary_color,
-        secondaryColor: updates.secondary_color,
-        accentColor: updates.accent_color,
-        backgroundColor: updates.background_color,
-        textColor: updates.text_color,
-        fontFamily: updates.font_family,
-        borderRadius: updates.border_radius,
-        buttonStyle: updates.button_style,
-        defaultTheme: updates.default_theme,
-        customCssVariables: updates.custom_css_variables,
-        footerText: updates.footer_text,
-        supportContact: updates.support_contact,
-        legalText: updates.legal_text,
-        applyToUi: updates.apply_to_ui,
-      },
-    });
-    return mapBranding(b);
-  }
-
   // Lazily bootstraps an active prompt row for a task type the very first time it's needed
   // (e.g. poc_test_generation, the moment a tenant's "poc" module entitlement is confirmed) -
   // seed.ts only ever runs once at initial install, so an add-on module enabled on an
@@ -2892,7 +2756,7 @@ class DBStore {
   // bounded last-100 query (not the full up-to-1000 getAuditLogs()/getDebugLogs() sliced down
   // afterward) for the two logs the report actually lists in full. Previously fetched every table
   // in the schema - including several (roles, analysisResults, conversationHistory,
-  // promptTemplates, approvalWorkflows/decisions, tasks, brandingSettings) the report never even
+  // promptTemplates, approvalWorkflows/decisions, tasks, the report never even
   // read.
   public async getDiagnosticSummary() {
     const [

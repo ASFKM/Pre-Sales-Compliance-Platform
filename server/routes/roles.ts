@@ -21,7 +21,6 @@ const ALLOWED_PERMISSIONS = new Set<string>([
   // the others above, not paired with a requireModule check the way poc:read/poc:manage are.
   "admin:system_updates",
   "ai:settings",
-  "branding:manage",
   "storage:manage",
   "integrations:manage",
   // Add-on (Fase 6) - only actually usable when the tenant also has the "poc" module

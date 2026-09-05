@@ -366,40 +366,6 @@ async function main() {
     });
   }
 
-  if (raw.brandingSettings) {
-    console.log("Migrating branding settings...");
-    const b = raw.brandingSettings;
-    await prisma.brandingSettings.upsert({
-      where: { id: b.id },
-      create: {
-        id: b.id,
-        tenantId: DEFAULT_TENANT_ID,
-        companyName: b.company_name,
-        companyLogoPath: b.company_logo_path,
-        loginLogoPath: b.login_logo_path,
-        sidebarLogoPath: b.sidebar_logo_path,
-        reportLogoPath: b.report_logo_path,
-        faviconPath: b.favicon_path,
-        primaryColor: b.primary_color,
-        secondaryColor: b.secondary_color,
-        accentColor: b.accent_color,
-        backgroundColor: b.background_color,
-        textColor: b.text_color,
-        fontFamily: b.font_family,
-        borderRadius: b.border_radius,
-        buttonStyle: b.button_style,
-        defaultTheme: b.default_theme,
-        customCssVariables: b.custom_css_variables,
-        footerText: b.footer_text,
-        supportContact: b.support_contact,
-        legalText: b.legal_text,
-        createdAt: dReq(b.created_at),
-        updatedAt: dReq(b.updated_at),
-      },
-      update: {},
-    });
-  }
-
   console.log("Migrating integration connectors...");
   const VALID_INTEGRATION_STATUS = ["connected", "disconnected", "error"];
   for (const i of raw.integrationConnectors || []) {

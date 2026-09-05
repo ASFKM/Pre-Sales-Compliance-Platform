@@ -16,7 +16,6 @@ import DemandQueue from "./components/DemandQueue";
 import NewProjectWizard from "./components/modals/NewProjectWizard";
 import { useBackgroundTasks } from "./hooks/useBackgroundTasks";
 import { useSilentRefresh } from "./hooks/useSilentRefresh";
-import { BRAND_DEFAULT_PRIMARY, BRAND_DEFAULT_ACCENT, applyBrandThemeToRoot } from "./brandTheme";
 import { PROPOSAL_TYPES } from "../server/utils/proposalTypes";
 import ClassifyDocumentModal from "./components/modals/ClassifyDocumentModal";
 import AuditLogsModal from "./components/modals/AuditLogsModal";
@@ -38,7 +37,6 @@ import {
   Proposal,
   AuditLog,
   DebugLog,
-  BrandingSettings,
   PromptTemplate,
   PlatformSettings,
   IntegrationConnector,
@@ -229,7 +227,6 @@ export default function App() {
       "ai:settings",
       "template:manage",
       "approval:manage",
-      "branding:manage",
       "integrations:manage",
       "storage:manage"
     ],
@@ -246,7 +243,6 @@ export default function App() {
     demands: ["admin:settings", "demand:manage"],
     subscription: ["admin:settings"],
     system_updates: ["admin:system_updates"],
-    branding: ["branding:manage"],
     integrations: ["integrations:manage"],
     storage: ["storage:manage"],
     audit: ["admin:audit", "admin:debug", "admin:diagnostics"]
@@ -347,13 +343,12 @@ export default function App() {
   // demandas esperam, e a decisão de mostrar a aba. Ver o comentário na aba.
   const [demandSummary, setDemandSummary] = useState<DemandQueueSummary | null>(null);
   // Left sidebar (bid/project metadata) can retract to free width for the project content itself
-  // on the Workspace tab - persisted so a user's preference survives reloads, same pattern as the
-  // brand customization below.
+  // on the Workspace tab - persisted so a user's preference survives reloads.
   const [leftPanelCollapsed, setLeftPanelCollapsed] = useState<boolean>(() => localStorage.getItem("ca_left_panel_collapsed") === "1");
   useEffect(() => {
     localStorage.setItem("ca_left_panel_collapsed", leftPanelCollapsed ? "1" : "0");
   }, [leftPanelCollapsed]);
-  const [activeAdminSection, setActiveAdminSection] = useState<"overview" | "users" | "ai" | "templates" | "approval_flow" | "demands" | "subscription" | "system_updates" | "branding" | "integrations" | "storage" | "audit">("overview");
+  const [activeAdminSection, setActiveAdminSection] = useState<"overview" | "users" | "ai" | "templates" | "approval_flow" | "demands" | "subscription" | "system_updates" | "integrations" | "storage" | "audit">("overview");
 
   // Shared with fetchGlobalConfigs (auto-selects defaults) and Workspace's proposal builder -
   // one entry per proposal type (see server/utils/proposalTypes.ts) rather than a separate
@@ -361,55 +356,6 @@ export default function App() {
   const [selectedTemplateIdByType, setSelectedTemplateIdByType] = useState<Record<string, string>>({});
   // Shared with fetchProjectDetails (loads history on project switch) and Workspace's chat panel
   const [chatHistory, setChatHistory] = useState<{role: string, message: string}[]>([]);
-
-  // Branding (shared across the whole app chrome, not just the Admin Console's own settings screen)
-  const [brandLogoDataUrl, setBrandLogoDataUrl] = useState<string>(() => localStorage.getItem("ca_brand_logo") || "");
-  const [brandPrimaryColor, setBrandPrimaryColor] = useState<string>(() => localStorage.getItem("ca_brand_primary_color") || BRAND_DEFAULT_PRIMARY);
-  const [brandAccentColor, setBrandAccentColor] = useState<string>(() => localStorage.getItem("ca_brand_accent_color") || BRAND_DEFAULT_ACCENT);
-
-  useEffect(() => {
-    localStorage.setItem("ca_brand_logo", brandLogoDataUrl);
-    localStorage.setItem("ca_brand_primary_color", brandPrimaryColor);
-    localStorage.setItem("ca_brand_accent_color", brandAccentColor);
-  }, [brandLogoDataUrl, brandPrimaryColor, brandAccentColor]);
-
-  // ── Cor da marca do tenant aplicada à INTERFACE (Fase 8) ──────────────────────
-  // Até aqui `primary_color` só alimentava o cabeçalho do DOCX gerado: a tela "Identidade
-  // Visual" prometia uma cor configurável que a interface ignorava. Como a Fase 0 declarou os
-  // tokens em `@theme static`, as 11 variáveis `--color-brand-*` existem em `:root` mesmo sem
-  // uso e podem ser sobrescritas em runtime — a rampa inteira é derivada da cor do tenant em
-  // src/brandTheme.ts, com guarda de contraste.
-  const [brandApplyToUi, setBrandApplyToUi] = useState<boolean>(() => localStorage.getItem("ca_brand_apply_to_ui") === "1");
-
-  useEffect(() => {
-    // `GET /api/branding` exige `branding:manage`; este endpoint devolve só a cor e o
-    // interruptor, para QUALQUER usuário autenticado - sem ele a personalização valeria apenas
-    // para administradores, e a mesma aplicação teria duas aparências conforme a permissão.
-    if (!isAuthenticated) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/branding/theme");
-        if (!res.ok) return;
-        const data = await res.json();
-        if (cancelled) return;
-        if (data.primary_color) setBrandPrimaryColor(data.primary_color);
-        setBrandApplyToUi(Boolean(data.apply_to_ui));
-      } catch {
-        // Sem tema do servidor a interface segue na paleta da marca - nunca sem cor.
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [isAuthenticated]);
-
-  useEffect(() => {
-    localStorage.setItem("ca_brand_apply_to_ui", brandApplyToUi ? "1" : "0");
-    // Só depois da autenticação: a tela de login é a vitrine da marca do PRODUTO (fundo
-    // `brand-950`, logo oficial) e não deve herdar a cor do último tenant que usou este
-    // navegador. Deslogado, `applyBrandThemeToRoot` remove as variáveis e a paleta volta a vir
-    // inteira de `@theme static`.
-    applyBrandThemeToRoot(document.documentElement, brandPrimaryColor, isAuthenticated && brandApplyToUi);
-  }, [brandPrimaryColor, brandApplyToUi, isAuthenticated]);
 
   // Core Data State
   const [projects, setProjects] = useState<Project[]>([]);
@@ -437,16 +383,6 @@ export default function App() {
   // captions below kept reading platformSettings directly even with the add-on active, always
   // showing the stale/default value instead of what's actually configured via the CMSaaS.
   const [iaKbTaskConfig, setIaKbTaskConfig] = useState<Record<string, { provider: string; model: string }>>({});
-  const [brandingSettings, setBrandingSettings] = useState<BrandingSettings | null>(null);
-
-  // Quando o administrador salva na tela de Identidade Visual, a resposta do PUT já traz o
-  // registro inteiro: reagir a ela é o que faz a interface mudar na hora, sem recarregar.
-  useEffect(() => {
-    if (!brandingSettings) return;
-    if (brandingSettings.primary_color) setBrandPrimaryColor(brandingSettings.primary_color);
-    setBrandApplyToUi(Boolean(brandingSettings.apply_to_ui));
-  }, [brandingSettings]);
-
   const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>([]);
   const [aiProviderConfigs, setAiProviderConfigs] = useState<any[]>([]);
   const [proposalTemplates, setProposalTemplates] = useState<any[]>([]);
@@ -485,8 +421,8 @@ export default function App() {
   // updating.
   const fetchGlobalConfigs = async () => {
     const tasks = [
-      // /api/settings, /api/branding and /api/settings/prompts now require the same permission
-      // as their write counterpart (admin:settings / branding:manage / ai:settings - Fase 0 of
+      // /api/settings and /api/settings/prompts now require the same permission
+      // as their write counterpart (admin:settings / ai:settings - Fase 0 of
       // the Zero Trust rollout) - skip the call entirely for roles that don't have it instead of
       // firing a request that will 403. Built-in roles like "Pre-Sales Engineer" have none of
       // these by default, so this is the normal path for a lot of real users, not an edge case.
@@ -511,20 +447,6 @@ export default function App() {
                 const map: Record<string, { provider: string; model: string }> = {};
                 for (const row of data) map[row.task_type] = { provider: row.provider, model: row.model };
                 setIaKbTaskConfig(map);
-              }
-            })()
-          ]
-        : []),
-      ...(hasPermission("branding:manage")
-        ? [
-            (async () => {
-              const res = await fetch("/api/branding");
-              const data = await res.json();
-              if (res.ok && data) {
-                setBrandingSettings(data);
-                setBrandLogoDataUrl(data.company_logo_path || "");
-                setBrandPrimaryColor(data.primary_color || BRAND_DEFAULT_PRIMARY);
-                setBrandAccentColor(data.accent_color || BRAND_DEFAULT_ACCENT);
               }
             })()
           ]
@@ -1008,15 +930,12 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
       {/* 1. TOP NAV BAR */}
       <nav className="h-auto min-h-14 bg-slate-900 text-white flex items-center justify-between px-3 lg:px-6 shrink-0 z-10 shadow-md flex-wrap lg:flex-nowrap gap-2">
         <div className="flex items-center gap-3 min-w-0 shrink-0">
-          {brandLogoDataUrl ? (
-            <div className="h-10 max-w-[190px] rounded bg-white/5 border border-white/10 px-2 py-1 flex items-center justify-center">
-              <img src={brandLogoDataUrl} alt="Company logo" className="max-h-8 max-w-[170px] object-contain" />
-            </div>
-          ) : (
-            <div className="h-10 max-w-[210px] flex items-center justify-center">
-              <img src="/brand/logo-on-dark.svg" alt="Pre-Sales Compliance Platform" className="max-h-9 max-w-[210px] object-contain" />
-            </div>
-          )}
+          {/* F5: a logo do PRODUTO, sempre. A troca por uma logo de tenant saiu junto com a
+              identidade visual configuravel - ela vinha de `ca_brand_logo` no localStorage, uma
+              chave que sobrevivia no navegador de quem ja tinha usado o produto. */}
+          <div className="h-10 max-w-[210px] flex items-center justify-center">
+            <img src="/brand/logo-on-dark.svg" alt="Pre-Sales Compliance Platform" className="max-h-9 max-w-[210px] object-contain" />
+          </div>
         </div>
 
         {/* Global Nav Targets */}
@@ -1570,8 +1489,6 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               roles={roles}
               platformSettings={platformSettings}
               setPlatformSettings={setPlatformSettings}
-              brandingSettings={brandingSettings}
-              setBrandingSettings={setBrandingSettings}
               promptTemplates={promptTemplates}
               aiProviderConfigs={aiProviderConfigs}
               proposalTemplates={proposalTemplates}
@@ -1581,12 +1498,6 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               setIntegrations={setIntegrations}
               setShowAuditModal={setShowAuditModal}
               setShowDebugConsole={setShowDebugConsole}
-              brandLogoDataUrl={brandLogoDataUrl}
-              setBrandLogoDataUrl={setBrandLogoDataUrl}
-              brandPrimaryColor={brandPrimaryColor}
-              setBrandPrimaryColor={setBrandPrimaryColor}
-              brandAccentColor={brandAccentColor}
-              setBrandAccentColor={setBrandAccentColor}
             />
           )}
 
