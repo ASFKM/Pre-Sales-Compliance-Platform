@@ -10,7 +10,7 @@ import { redis } from "./redis";
 // document_analysis call, not separate steps. document_classification was hardcoded to Gemini in
 // server/utils/documentClassification.ts before this - now routed through here like the other
 // real task types.
-export type AiTaskType = "document_analysis" | "web_grounding" | "spec_copilot" | "document_classification" | "poc_test_generation" | "poc_schedule_generation" | "poc_final_report_generation" | "proposal_opinion_panel" | "pricing_budget_optimization" | "pricing_catalog_extraction" | "proposal_generation";
+export type AiTaskType = "document_analysis" | "web_grounding" | "spec_copilot" | "document_classification" | "poc_test_generation" | "poc_schedule_generation" | "poc_final_report_generation" | "proposal_opinion_panel" | "pricing_budget_optimization" | "pricing_catalog_extraction" | "proposal_generation" | "proposal_section_rewrite";
 
 export interface ProviderResolution {
   provider: string;
@@ -41,6 +41,8 @@ interface TaskProviderSettings {
   pricing_budget_optimization_provider: string;
   pricing_catalog_extraction_model: string;
   pricing_catalog_extraction_provider: string;
+  proposal_section_rewrite_model: string;
+  proposal_section_rewrite_provider: string;
   openai_api_key_encrypted?: string;
   anthropic_api_key_encrypted?: string;
 }
@@ -121,6 +123,11 @@ export const AI_SPENDING_TASK_TYPES = [
   // de texto corrido). platform_settings ja tinha proposal_generation_provider/_model, e a tela de
   // Admin ja mostrava "LLM Propostas" - so nao havia chamada de IA nenhuma nesse fluxo para usar.
   "proposal_generation",
+  // F6 (rodada 09/2026): reescrita de UMA secao de texto a partir dos apontamentos abertos dela.
+  // Gasta token de verdade e por isso entra aqui - e a lista que o teto mensal enxerga; ficar de
+  // fora seria dinheiro gasto sem aparecer no rateio nem contar contra o cap, exatamente o buraco
+  // que o comentario acima descreve.
+  "proposal_section_rewrite",
 ] as const;
 export type AiSpendingTaskType = (typeof AI_SPENDING_TASK_TYPES)[number];
 

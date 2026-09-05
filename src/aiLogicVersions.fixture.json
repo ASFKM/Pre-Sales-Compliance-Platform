@@ -2,5 +2,9 @@
   "bom_enrichment": {
     "version": 10,
     "hash": "ae14d277687b11826ddb2905a03254ef267880566e0d9082ba070b1b4d415629"
+  },
+  "proposal_opinion_panel": {
+    "version": 2,
+    "hash": "8b6c2f1f21628c65a85b350951ac047dc448bc5bd3e34234eb6b26030f9e4c59"
   }
 }

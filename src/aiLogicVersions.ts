@@ -33,7 +33,15 @@ export const LOGIC_VERSIONS = {
   // server/routes/proposals.ts - the 4 opinion-panel perspective prompt builders (technical/
   // commercial/legal/financial) and their shared cost-cap/sequential-execution worker. Stored on
   // ProposalOpinionRun.logicVersion directly (not AnalysisResult.logicVersions), same pattern.
-  proposal_opinion_panel: 1,
+  //
+  // v2 (F6 da rodada 09/2026): os quatro prompts passaram a pedir APONTAMENTOS estruturados
+  // (`findings[]`), cada um com titulo, detalhe, severidade e a secao que afeta. Diferente dos
+  // bumps de `bom_enrichment` v9/v10, este NAO e so atribuicao de chamada: muda o que a IA e
+  // solicitada a produzir e, portanto, o que fica gravado numa rodada. Uma rodada salva com
+  // logicVersion 1 e legitimamente diferente de uma com 2 - a de antes nao tem apontamento nenhum,
+  // e a tela precisa saber disso para nao apresentar "zero apontamentos" como se fosse um parecer
+  // limpo. E exatamente para isso que este numero existe.
+  proposal_opinion_panel: 2,
 } as const;
 
 export type LogicVersionKey = keyof typeof LOGIC_VERSIONS;

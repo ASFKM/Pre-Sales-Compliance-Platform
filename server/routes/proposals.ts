@@ -24,7 +24,9 @@ import { logger } from "../utils/logger";
 import { empurrarProposta, empurrarEventoDaProposta } from "../utils/crmOutbox";
 import { canReopenProposal, buildReopenedProposalFields } from "../utils/proposalVersioning";
 import { buildTemplateVariables, extractTemplatePlaceholders } from "../utils/docxTemplateEngine";
-import { consolidarSugestoes, identificarVariaveisParaSugerir, montarPromptDeSugestao, podeSerSugeridaPelaIa } from "../utils/proposalAiAssist";
+import { consolidarSugestoes, identificarVariaveisParaSugerir, montarPromptDeSugestao, podeSerSugeridaPelaIa, podeSerSubstituidaPorTextoAprovado } from "../utils/proposalAiAssist";
+import { TEMPLATE_VARIABLE_CATALOG } from "../utils/templateVariableCatalog";
+import { STATUS_DE_APONTAMENTO, exigeJustificativa, ehStatusFechado, recortarApontamento } from "../utils/proposalFindings";
 import { revisarDocumentoGerado, AchadoDeRevisao } from "../utils/proposalQa";
 
 const router = express.Router();
@@ -640,6 +642,28 @@ const OPINION_PERSPECTIVE_LABEL: Record<OpinionPerspective, string> = {
 // type doesn't own, and the server re-validates that below regardless of what the model returns.
 const TEXT_SUGGESTIBLE_FIELDS = ["payment_terms", "delivery_terms", "proposal_validity", "commercial_assumptions", "exclusions"] as const satisfies readonly ProposalEditableField[];
 
+/*
+ * F6 (rodada 09/2026): as SEÇÕES DE TEXTO que um apontamento pode endereçar do lado do template.
+ *
+ * São as variáveis de valor do catálogo que sobrevivem à allowlist - na prática, as seções
+ * redigidas (resumo executivo, contexto, riscos, estratégia, premissas técnicas, próximos passos).
+ * Fato de cadastro, laço, preço e campo com edição estruturada própria já saíram pela allowlist,
+ * então esta lista nunca oferece à IA uma seção que ninguém poderia gravar depois.
+ *
+ * Derivada, e não escrita à mão, por um motivo prático: uma lista literal aqui envelheceria em
+ * silêncio na primeira variável nova do catálogo, que é a mesma classe de defasagem que o
+ * ai_task_catalog da F4 acabou de corrigir do outro lado.
+ */
+const SECOES_DE_TEXTO_DO_TEMPLATE = TEMPLATE_VARIABLE_CATALOG
+  .filter((v) => v.kind === "value" && podeSerSubstituidaPorTextoAprovado(v.name))
+  .map((v) => ({ nome: v.name, descricao: v.description }));
+
+// O apontamento pode não ter seção: nem toda observação de um revisor cabe num campo. "geral"
+// existe para que a IA não seja empurrada a inventar um alvo só para preencher o formato - um
+// apontamento transversal ("a proposta não diz quem opera o sistema depois da entrega") é
+// legítimo e continua acionável na tela, só não tem botão de aplicar.
+const FINDING_TARGET_KINDS = ["proposal_field", "template_field", "geral"] as const;
+
 async function buildOpinionPrompt(
   perspective: OpinionPerspective,
   proposal: Proposal,
@@ -648,7 +672,8 @@ async function buildOpinionPrompt(
   tenantId: string,
   platformSettings: PlatformSettings,
   userId: string,
-  suggestibleFields: readonly ProposalEditableField[]
+  suggestibleFields: readonly ProposalEditableField[],
+  secoesDeTexto: readonly { nome: string; descricao: string }[]
 ): Promise<string> {
   const header = `PROJECT: ${project.name} | Customer: ${project.customer_name} | Vertical: ${project.vertical}\n`;
   // The AI never edits the proposal itself - suggested_field/suggested_value is only ever a
@@ -658,7 +683,32 @@ async function buildOpinionPrompt(
   const suggestionInstruction = suggestibleFields.length > 0
     ? ` If (and only if) you have ONE concrete, specific change to recommend to one of this proposal's own fields, also include "suggested_field" (exactly one of: ${suggestibleFields.map((f) => `"${f}"`).join(", ")}) and "suggested_value" (the full exact replacement text for that field, in ${proposal.language}). Leave both out if you have no single concrete field-level change to propose - most reviews won't have one, and a vague/general suggestion doesn't count.`
     : "";
-  const responseShape = `\n\nRespond with ONLY a JSON object (no markdown, no extra text), in this exact shape:\n{ "severity": "info"|"warning"|"critical", "summary": "one sentence in ${proposal.language}", "content": "2-4 short paragraphs in ${proposal.language}", "suggested_field": string|null, "suggested_value": string|null }.${suggestionInstruction}`;
+
+  /*
+   * F6: a mudança de forma do parecer. Ele deixa de ser 2-4 parágrafos em modo leitura e passa a
+   * carregar APONTAMENTOS - cada um com título, detalhe, severidade e a seção que afeta.
+   *
+   * A razão é operacional, não estética: não se dirime um parágrafo. Um apontamento tem ciclo
+   * (aberto -> em tratativa -> resolvido / aceito com risco / descartado), e sem identidade própria
+   * não há o que marcar como resolvido, o que aceitar com risco, nem o que a F7 vai comparar entre
+   * duas rodadas para separar progresso de "a IA inventa apontamento toda vez".
+   *
+   * `summary`/`content` continuam: o parecer narrativo é o que dá contexto aos apontamentos, e as
+   * 8 rodadas geradas antes desta fase seguem legíveis exatamente como estão.
+   */
+  const alvosProposta = suggestibleFields.length > 0
+    ? `\n  - "proposal_field": target_key must be exactly one of ${suggestibleFields.map((f) => `"${f}"`).join(", ")}`
+    : "";
+  const alvosTemplate = secoesDeTexto.length > 0
+    ? `\n  - "template_field": target_key must be exactly one of ${secoesDeTexto.map((v) => `"${v.nome}"`).join(", ")}`
+    : "";
+  const findingsInstruction = `\n\nEach finding is ONE specific, self-contained point a human reviewer can act on and then close - not a paragraph of prose split in pieces. Give 0 to 6 of them; zero is a valid and honest answer when the proposal is sound from your perspective. NEVER pad the list to look thorough: a vague finding costs a reviewer the same time as a real one.
+"target_kind" says which section the finding is about:${alvosProposta}${alvosTemplate}
+  - "geral": use when the point is transversal or you cannot tie it to one of the sections above. Then target_key must be null.
+Set "suggested_value" ONLY when target_kind is not "geral" AND you can write the full exact replacement text for that section, in ${proposal.language}. Otherwise leave it null - a suggestion that just restates the problem is worse than none.
+Never propose changing a price, a quantity, a BOM item or the customer's name: those are facts the system owns and the server will reject them.`;
+
+  const responseShape = `\n\nRespond with ONLY a JSON object (no markdown, no extra text), in this exact shape:\n{ "severity": "info"|"warning"|"critical", "summary": "one sentence in ${proposal.language}", "content": "2-4 short paragraphs in ${proposal.language}", "suggested_field": string|null, "suggested_value": string|null, "findings": [{ "title": "short title in ${proposal.language}", "detail": "1-2 sentences in ${proposal.language}", "severity": "info"|"warning"|"critical", "target_kind": "proposal_field"|"template_field"|"geral", "target_key": string|null, "suggested_value": string|null }] }.${suggestionInstruction}${findingsInstruction}`;
 
   if (perspective === "technical") {
     const bom = (analysisResult?.bom || []) as any[];
@@ -808,7 +858,7 @@ router.post("/proposals/:id/opinion-panel", requirePermission("proposal:edit"), 
           }
 
           try {
-            const prompt = await buildOpinionPrompt(perspective, proposal, project, analysisResult, tenantId, platformSettings, userId, suggestibleFields);
+            const prompt = await buildOpinionPrompt(perspective, proposal, project, analysisResult, tenantId, platformSettings, userId, suggestibleFields, SECOES_DE_TEXTO_DO_TEMPLATE);
             let rawText = "", inputTokens = 0, outputTokens = 0, billedCostUsd: number | undefined;
             for (let attempt = 0; attempt < 2; attempt++) {
               try {
@@ -828,6 +878,18 @@ router.post("/proposals/:id/opinion-panel", requirePermission("proposal:edit"), 
               content: z.string(),
               suggested_field: z.string().nullish(),
               suggested_value: z.string().nullish(),
+              // F6: `.catch([])` e nao `.optional()` - um modelo que devolva "findings" malformado
+              // nao pode derrubar o parecer inteiro, que continua util em modo narrativo. O que
+              // NAO se faz aqui e aceitar o conteudo sem validar: cada apontamento passa pelo
+              // recorte abaixo, contra as listas do servidor.
+              findings: z.array(z.object({
+                title: z.string(),
+                detail: z.string(),
+                severity: z.enum(["info", "warning", "critical"]),
+                target_kind: z.string(),
+                target_key: z.string().nullish(),
+                suggested_value: z.string().nullish(),
+              })).catch([]),
             }).parse(parsed);
 
             // Re-validate against the server's own allowlist rather than trusting the model - a
@@ -838,9 +900,10 @@ router.post("/proposals/:id/opinion-panel", requirePermission("proposal:edit"), 
               && !!opinion.suggested_value
               && (suggestibleFields as readonly string[]).includes(opinion.suggested_field);
 
+            const opinionId = randomId("poi");
             await prisma.proposalAiOpinionItem.create({
               data: {
-                id: randomId("poi"),
+                id: opinionId,
                 tenantId,
                 runId,
                 perspective,
@@ -855,6 +918,30 @@ router.post("/proposals/:id/opinion-panel", requirePermission("proposal:edit"), 
                 modelUsed: providerResolution.model,
               },
             });
+
+            /*
+             * F6: os apontamentos, recortados contra as listas do SERVIDOR antes de virarem linha.
+             *
+             * Mesma disciplina do `isValidSuggestion` acima, e pela mesma razao: o modelo pode
+             * inventar um nome de campo, apontar para um campo que este tipo de proposta nao tem,
+             * ou tentar `preco_total` apesar da instrucao. Nada disso vira erro - o apontamento
+             * DESCE para "geral", perdendo o botao de aplicar mas mantendo o texto, que continua
+             * sendo uma observacao legitima de um revisor. Descartar o apontamento inteiro por
+             * causa de um alvo errado jogaria fora a parte que valia.
+             */
+            const alvosDeProposta = new Set<string>(suggestibleFields as readonly string[]);
+            const alvosDeTemplate = new Set(SECOES_DE_TEXTO_DO_TEMPLATE.map((v) => v.nome));
+            const apontamentos = opinion.findings.map((f, indice) => ({
+              id: randomId("pof"),
+              tenantId,
+              opinionId,
+              ordinal: indice,
+              ...recortarApontamento(f, alvosDeProposta, alvosDeTemplate),
+              status: "aberto",
+            }));
+            if (apontamentos.length > 0) {
+              await prisma.proposalOpinionFinding.createMany({ data: apontamentos });
+            }
             await recordAiUsage({
               tenantId,
               taskType: "proposal_opinion_panel",
@@ -910,9 +997,62 @@ router.get("/proposals/:id/opinion-panel", requirePermission("proposal:edit"), a
     }
     const run = await prisma.proposalOpinionRun.findUnique({
       where: { id: proposal.latest_opinion_run_id },
-      include: { opinions: true },
+      // F6: `findings` sai ordenado pelo ordinal com que a IA os devolveu - a ordem em que um
+      // revisor escreveria os pontos e informacao, e reordenar por severidade misturaria a
+      // leitura. Rodadas com logicVersion < 2 simplesmente vem com a lista vazia: elas foram
+      // geradas antes de existirem apontamentos, e o parecer narrativo delas continua inteiro.
+      include: { opinions: { include: { findings: { orderBy: { ordinal: "asc" } } } } },
     });
-    res.json({ success: true, run });
+
+    /*
+     * F6: serializa em snake_case, que e a convencao de TODA a API deste produto (src/types.ts).
+     *
+     * Isto conserta um bug que esta fase encontrou, e que e anterior a ela: este endpoint devolvia
+     * o objeto do Prisma cru, em camelCase, enquanto o cliente sempre leu `suggested_field` /
+     * `suggested_value`. Ou seja, o botao "Aplicar" do parecer acionavel (a PARTE B) NUNCA apareceu
+     * na tela - as duas pontas foram escritas com convencoes diferentes e nada as confrontou,
+     * porque so 2 das 32 opinioes gravadas ate hoje tinham sugestao, e nenhuma delas foi olhada na
+     * tela depois. Os apontamentos da F6 cairiam no mesmo buraco: foi assim que ele apareceu.
+     */
+    if (!run) {
+      return res.json({ success: true, run: null });
+    }
+    res.json({
+      success: true,
+      run: {
+        id: run.id,
+        status: run.status,
+        logic_version: run.logicVersion,
+        created_at: run.createdAt,
+        completed_at: run.completedAt,
+        opinions: run.opinions.map((o) => ({
+          id: o.id,
+          perspective: o.perspective,
+          status: o.status,
+          severity: o.severity,
+          summary: o.summary,
+          content: o.content,
+          suggested_field: o.suggestedField,
+          suggested_value: o.suggestedValue,
+          provider_used: o.providerUsed,
+          model_used: o.modelUsed,
+          findings: o.findings.map((f) => ({
+            id: f.id,
+            ordinal: f.ordinal,
+            title: f.title,
+            detail: f.detail,
+            severity: f.severity,
+            target_kind: f.targetKind,
+            target_key: f.targetKey,
+            suggested_value: f.suggestedValue,
+            status: f.status,
+            resolution_note: f.resolutionNote,
+            resolved_by_user_id: f.resolvedByUserId,
+            resolved_at: f.resolvedAt,
+          })),
+        })),
+      },
+    });
   } catch (err) {
     next(err);
   }
@@ -1574,9 +1714,17 @@ router.put("/proposals/:id/campos-do-template", requirePermission("proposal:edit
 
     const corpo = z.object({
       campos: z.record(z.string(), z.string()),
+      // F6: quem esta gravando e por que. Opcionais para nao quebrar nenhum chamador anterior -
+      // sem eles a edicao entra como "humano" sem apontamento, que e a verdade de quem chamou
+      // esta rota antes desta fase existir.
+      origem: z.enum(["humano", "ia", "ia_editada"]).optional(),
+      apontamento_id: z.string().optional(),
     }).parse(req.body);
 
-    const recusados = Object.keys(corpo.campos).filter((nome) => !podeSerSugeridaPelaIa(nome));
+    // F6: a barreira agora e `podeSerSubstituidaPorTextoAprovado` - a mesma allowlist de antes,
+    // ampliada com os fatos de cadastro que perderam a protecao da regra do vazio. Ver o
+    // comentario grande em server/utils/proposalAiAssist.ts.
+    const recusados = Object.keys(corpo.campos).filter((nome) => !podeSerSubstituidaPorTextoAprovado(nome));
     if (recusados.length > 0) {
       return res.status(400).json({
         success: false,
@@ -1599,6 +1747,39 @@ router.put("/proposals/:id/campos-do-template", requirePermission("proposal:edit
     });
 
     const userId = requireUserId(req);
+
+    /*
+     * F6: o historico por secao. Escrito AQUI, no unico ponto onde um valor de template vira dado
+     * - nao no motor que mescla, que tambem roda em pre-visualizacao e em regeracao e inventaria
+     * "edicoes" que ninguem fez.
+     *
+     * Ele existe por causa da regra nova: com substituicao explicita, um texto aprovado passa a
+     * poder COBRIR o que a analise havia escrito. `previousValue` e o que estava la, e sem ele a
+     * troca seria perda silenciosa. `origin` distingue o que a pessoa escreveu do que a IA sugeriu
+     * e do que a pessoa editou por cima da sugestao - o AuditLog generico nao carrega isso, e e
+     * exatamente a distincao que a revisao da proxima fase vai precisar ler.
+     *
+     * O valor anterior sai de `atuais`, e nao do documento renderizado, de proposito: e o valor
+     * que ESTA rota escreveu da ultima vez. Quando nao ha (primeira vez que a secao e tocada),
+     * fica null - "estava como a analise deixou".
+     */
+    const historico = Object.entries(corpo.campos)
+      .filter(([, valor]) => valor.trim().length > 0)
+      .map(([nome, valor]) => ({
+        id: randomId("pse"),
+        tenantId: req.headers["x-tenant-id"] as string,
+        proposalId: proposal.id,
+        targetKind: "template_field",
+        targetKey: nome,
+        previousValue: (atuais as Record<string, string>)[nome] ?? null,
+        newValue: valor,
+        origin: corpo.origem ?? "humano",
+        findingId: corpo.apontamento_id ?? null,
+        authorUserId: userId,
+      }));
+    if (historico.length > 0) {
+      await prisma.proposalSectionEdit.createMany({ data: historico });
+    }
     await dbStore.addAuditLog({
       user_id: userId,
       action: "Update Proposal Template Fields",
@@ -1619,6 +1800,336 @@ router.put("/proposals/:id/campos-do-template", requirePermission("proposal:edit
     if (err instanceof z.ZodError) {
       return res.status(400).json({ success: false, message: err.issues[0].message });
     }
+    next(err);
+  }
+});
+
+/*
+ * F6 (rodada 09/2026): o CICLO DE UM APONTAMENTO.
+ *
+ * aberto -> em_tratativa -> resolvido | aceito_com_risco | descartado.
+ *
+ * Os dois ultimos EXIGEM justificativa, e a exigencia mora AQUI, no servidor, nao no formulario.
+ * Nao e preciosismo: "aceito com risco" e a unica saida que a F7 vai oferecer para submeter uma
+ * proposta com apontamento critico em aberto, e um gate cuja unica trava e a validacao do
+ * formulario nao e um gate - basta uma chamada direta a rota para atravessa-lo. A justificativa e
+ * a peca que sobra depois, para quem tiver de explicar por que a proposta foi assim mesmo.
+ *
+ * `descartado` exige justificativa pela mesma razao invertida: dizer que o apontamento nao
+ * procedia e uma afirmacao sobre o parecer, e ela precisa de autor e motivo registrados.
+ * `resolvido` NAO exige: o que sustenta um "resolvido" e a mudanca na secao, que o historico
+ * (ProposalSectionEdit) ja registra com autor, instante e apontamento que a motivou.
+ */
+router.patch("/proposals/:id/apontamentos/:findingId", requirePermission("proposal:edit"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const proposal = await dbStore.getProposal(req.params.id);
+    if (!proposal) {
+      return res.status(404).json({ success: false, message: "Proposal not found." });
+    }
+
+    const corpo = z.object({
+      status: z.enum(STATUS_DE_APONTAMENTO),
+      justificativa: z.string().optional(),
+    }).parse(req.body);
+
+    // O apontamento tem de ser DESTA proposta. Sem esta checagem o id na URL seria decorativo e
+    // qualquer apontamento do tenant poderia ser movido pela rota de outra proposta.
+    const apontamento = await prisma.proposalOpinionFinding.findUnique({
+      where: { id: req.params.findingId },
+      include: { opinion: { include: { run: true } } },
+    });
+    if (!apontamento || apontamento.opinion.run.proposalId !== proposal.id) {
+      return res.status(404).json({ success: false, message: "Apontamento não encontrado nesta proposta." });
+    }
+
+    const justificativa = corpo.justificativa?.trim() || "";
+    if (exigeJustificativa(corpo.status) && justificativa.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: corpo.status === "aceito_com_risco"
+          ? "Aceitar um apontamento com risco exige justificativa: registre quem decidiu seguir assim e por quê."
+          : "Descartar um apontamento exige justificativa: registre por que ele não procede.",
+      });
+    }
+
+    const fechado = ehStatusFechado(corpo.status);
+    const userId = requireUserId(req);
+    const atualizado = await prisma.proposalOpinionFinding.update({
+      where: { id: apontamento.id },
+      data: {
+        status: corpo.status,
+        // Reabrir limpa a justificativa e o carimbo: manter o "resolvido por fulano" de um
+        // apontamento que voltou a estar aberto seria afirmar algo falso na tela.
+        resolutionNote: fechado ? justificativa : null,
+        resolvedByUserId: fechado ? userId : null,
+        resolvedAt: fechado ? new Date() : null,
+      },
+    });
+
+    await dbStore.addAuditLog({
+      user_id: userId,
+      action: "Update Proposal Finding Status",
+      entity_type: "Proposal",
+      entity_id: proposal.id,
+      ip_address: req.ip || "127.0.0.1",
+      user_agent: req.headers["user-agent"] || "unknown",
+      metadata: JSON.stringify({ apontamento_id: apontamento.id, de: apontamento.status, para: corpo.status, tem_justificativa: justificativa.length > 0 }),
+    });
+
+    res.json({ success: true, apontamento: atualizado });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ success: false, message: err.issues[0].message });
+    }
+    next(err);
+  }
+});
+
+/*
+ * F6: quais SECOES DE TEXTO esta proposta tem, para a aba TEXTO do modal.
+ *
+ * Lidas do template REAL (os placeholders do .docx), e nao do catalogo inteiro: oferecer para
+ * edicao uma secao que o template desta proposta nao usa produziria um campo cujo texto nunca
+ * apareceria no documento - a versao de tela do bug que a F5 fechou no servidor. Uma variavel
+ * livre (placeholder que o autor do template inventou, sem entrada no catalogo) entra tambem, com
+ * descricao vazia: ela e justamente o caso em que ninguem alem do autor sabe o que se espera ali.
+ */
+router.get("/proposals/:id/secoes-de-texto", requirePermission("proposal:edit"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const proposal = await dbStore.getProposal(req.params.id);
+    if (!proposal) {
+      return res.status(404).json({ success: false, message: "Proposal not found." });
+    }
+    const platformSettings = await dbStore.getSettings();
+    const templates = await dbStore.getProposalTemplates();
+    const template = templates.find((t) => t.id === proposal.template_id);
+    const placeholders = await lerPlaceholdersDoTemplateDaProposta(template, platformSettings);
+
+    const doCatalogo = new Map(TEMPLATE_VARIABLE_CATALOG.map((v) => [v.name, v]));
+    const secoes = [...new Set(placeholders)]
+      .filter((nome) => podeSerSubstituidaPorTextoAprovado(nome))
+      .map((nome) => ({
+        nome,
+        descricao: doCatalogo.get(nome)?.description ?? "",
+        // Uma variavel livre nao tem fonte nenhuma no sistema; uma do catalogo e uma secao que a
+        // analise tenta preencher. A tela usa isso para dizer de onde veio o texto que esta la.
+        origem: doCatalogo.has(nome) ? "secao_de_texto" : "variavel_livre",
+        valor_aprovado: (proposal.template_field_values ?? {})[nome] ?? null,
+      }));
+
+    res.json({ success: true, secoes });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/*
+ * F6: "pedir sugestao a IA" para UMA secao, com os apontamentos daquela secao como contexto.
+ *
+ * Tarefa de IA propria (`proposal_section_rewrite`), e nao reuso de `proposal_generation`, porque
+ * as duas fazem coisas diferentes com risco diferente: proposal_generation preenche o que saiu EM
+ * BRANCO; esta reescreve o que ja esta escrito. Ela e a unica chamada de IA do produto cujo texto
+ * pode cobrir conteudo existente - e sob a bilhetagem que a F4 entregou: task_key tipado,
+ * actor_ref do usuario que clicou e trigger_type "user_action", porque e um clique, nao um job.
+ *
+ * A IA continua sem escrever nada: a rota devolve texto. Gravar e o PUT campos-do-template acima,
+ * com um clique humano, e e la que o historico registra se o texto salvo foi o da IA ou uma versao
+ * editada por cima dele.
+ */
+router.post("/proposals/:id/secoes/:targetKey/sugerir-texto", requirePermission("proposal:edit"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const proposal = await dbStore.getProposal(req.params.id);
+    if (!proposal) {
+      return res.status(404).json({ success: false, message: "Proposal not found." });
+    }
+    if (proposal.status !== "draft") {
+      return res.status(409).json({ success: false, message: "Só uma proposta em rascunho pode ter seções reescritas." });
+    }
+
+    const secao = req.params.targetKey;
+    if (!podeSerSubstituidaPorTextoAprovado(secao)) {
+      return res.status(400).json({
+        success: false,
+        message: `"${secao}" tem fonte de dado própria no sistema e não pode ser reescrita por texto.`,
+      });
+    }
+
+    const project = await dbStore.getProject(proposal.project_id);
+    if (!project) {
+      return res.status(404).json({ success: false, message: "Project not found." });
+    }
+
+    const tenantId = req.headers["x-tenant-id"] as string;
+    const platformSettings = await dbStore.getSettings();
+    const costCap = await checkCostCap(tenantId, platformSettings.monthly_cost_cap_usd ?? null);
+    if (costCap.blocked) {
+      return res.status(402).json({
+        success: false,
+        message: `Monthly AI cost cap reached ($${costCap.currentSpendUsd.toFixed(2)} of $${costCap.capUsd?.toFixed(2)}). Reescrita de seção bloqueada até o próximo mês ou até o teto ser elevado em Admin > IA, Prompts e Custos.`,
+      });
+    }
+
+    // Os apontamentos ABERTOS desta secao sao o pedido. Um apontamento ja resolvido ou descartado
+    // nao volta a pauta: reabri-lo no prompt faria a IA "corrigir" de novo o que alguem ja fechou.
+    const apontamentos = proposal.latest_opinion_run_id
+      ? await prisma.proposalOpinionFinding.findMany({
+          where: {
+            opinion: { runId: proposal.latest_opinion_run_id },
+            targetKind: "template_field",
+            targetKey: secao,
+            status: { in: ["aberto", "em_tratativa"] },
+          },
+          include: { opinion: true },
+          orderBy: { ordinal: "asc" },
+        })
+      : [];
+
+    const analysis = await dbStore.getAnalysisResult(proposal.project_id);
+    const { pricingLines } = await resolvePricingLines(tenantId, proposal.project_id);
+    const templates = await dbStore.getProposalTemplates();
+    const template = templates.find((t) => t.id === proposal.template_id);
+    const owner = await dbStore.getUserById(project.owner_user_id);
+    const templateData = buildProposalTemplateData(
+      template ?? { id: "", name: "", version: "", template_type: proposal.proposal_type, file_path: "" },
+      false,
+      project,
+      owner ? owner.name : undefined,
+      analysis,
+      {
+        manual_pricing_table: proposal.manual_pricing_table as any,
+        payment_terms: proposal.payment_terms ?? undefined,
+        delivery_terms: proposal.delivery_terms ?? undefined,
+        proposal_validity: proposal.proposal_validity ?? undefined,
+        commercial_assumptions: proposal.commercial_assumptions ?? undefined,
+        exclusions: proposal.exclusions ?? undefined,
+      },
+      pricingLines
+    );
+    const variaveis = buildTemplateVariables(templateData) as Record<string, unknown>;
+    const textoAtual = typeof variaveis[secao] === "string" ? (variaveis[secao] as string) : "";
+    const descricao = TEMPLATE_VARIABLE_CATALOG.find((v) => v.name === secao)?.description
+      || "Variável livre do template, sem descrição no catálogo.";
+
+    const apontamentosTexto = apontamentos.length > 0
+      ? apontamentos.map((a) => `- [${a.severity}] ${a.title}: ${a.detail}`).join("\n")
+      : "Nenhum apontamento aberto para esta seção - o pedido é apenas melhorar a redação sem mudar os fatos.";
+
+    const prompt = `Você reescreve UMA seção de uma proposta comercial, em ${proposal.language}.
+
+PROJETO: ${project.name} | Cliente: ${project.customer_name} | Vertical: ${project.vertical}
+ESCOPO: ${project.description}
+
+SEÇÃO A REESCREVER: "${secao}" — ${descricao}
+
+TEXTO ATUAL DA SEÇÃO:
+${textoAtual.trim().length > 0 ? textoAtual : "(a seção está vazia)"}
+
+APONTAMENTOS ABERTOS SOBRE ESTA SEÇÃO (é isto que o texto novo precisa endereçar):
+${apontamentosTexto}
+
+Regras:
+- Reescreva APENAS esta seção. Não escreva título, não escreva preâmbulo, não comente o que mudou.
+- Endereça cada apontamento acima. Se um deles pedir um dado que você não tem, escreva o texto de
+  forma que a lacuna fique explícita para quem revisa, e não invente o dado.
+- NUNCA invente preço, quantidade, prazo, item de BOM, nome de fabricante ou nome de cliente.
+- Mantenha o tom e o nível de detalhe do texto atual, quando houver um.
+
+Responda com ONLY um objeto JSON, sem markdown:
+{ "texto": "o texto novo da seção, em ${proposal.language}", "o_que_mudou": "uma frase em ${proposal.language} dizendo o que você endereçou" }`;
+
+    const userId = requireUserId(req);
+    const providerResolution = await resolveProvider("proposal_section_rewrite", platformSettings);
+    if (providerResolution.isFallback) {
+      await recordProviderFallback({ tenantId, taskType: "proposal_section_rewrite", intendedProvider: providerResolution.intendedProvider, userId });
+    }
+
+    const { text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(
+      providerResolution.provider as ConnectedProvider,
+      providerResolution.model,
+      prompt,
+      { taskKey: "proposal_section_rewrite", actorRef: buildActorRef("user", userId), triggerType: "user_action" }
+    );
+
+    const sugestao = z.object({
+      texto: z.string(),
+      o_que_mudou: z.string().optional(),
+    }).parse(parseAiJson(text));
+
+    await recordAiUsage({
+      tenantId,
+      taskType: "proposal_section_rewrite",
+      provider: providerResolution.provider,
+      model: providerResolution.model,
+      estimatedCostUsd: billedCostUsd ?? estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
+      userId,
+    });
+
+    await dbStore.addAuditLog({
+      user_id: userId,
+      action: "Suggest Proposal Section Rewrite",
+      entity_type: "Proposal",
+      entity_id: proposal.id,
+      ip_address: req.ip || "127.0.0.1",
+      user_agent: req.headers["user-agent"] || "unknown",
+      metadata: JSON.stringify({ secao, apontamentos: apontamentos.map((a) => a.id) }),
+    });
+
+    res.json({
+      success: true,
+      secao,
+      texto_atual: textoAtual,
+      texto_sugerido: sugestao.texto,
+      o_que_mudou: sugestao.o_que_mudou ?? null,
+      apontamentos_considerados: apontamentos.map((a) => ({ id: a.id, title: a.title, severity: a.severity })),
+      // A IA nunca grava: aplicar e um PUT /proposals/:id/campos-do-template com o clique humano.
+      aplicar_exige_confirmacao: true,
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(502).json({ success: false, message: "A resposta do provedor de IA não veio no formato esperado." });
+    }
+    next(err);
+  }
+});
+
+// F6: o historico por secao, do mais recente para o mais antigo. Quem escreveu, quando, se veio da
+// IA e qual apontamento motivou - o `finding` vem junto para a tela poder nomear o apontamento em
+// vez de mostrar um id.
+router.get("/proposals/:id/historico-de-secoes", requirePermission("proposal:edit"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const proposal = await dbStore.getProposal(req.params.id);
+    if (!proposal) {
+      return res.status(404).json({ success: false, message: "Proposal not found." });
+    }
+    const historico = await prisma.proposalSectionEdit.findMany({
+      where: { proposalId: proposal.id },
+      include: { finding: { select: { id: true, title: true, severity: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+    });
+    const autores = await Promise.all([...new Set(historico.map((h) => h.authorUserId))].map(async (id) => {
+      const u = await dbStore.getUserById(id);
+      return [id, u?.name ?? id] as const;
+    }));
+    const nomePorAutor = Object.fromEntries(autores);
+    res.json({
+      success: true,
+      // Mesma convencao snake_case do resto da API - ver o comentario no GET opinion-panel acima
+      // sobre o bug que a divergencia de convencao causou.
+      historico: historico.map((h) => ({
+        id: h.id,
+        target_kind: h.targetKind,
+        target_key: h.targetKey,
+        previous_value: h.previousValue,
+        new_value: h.newValue,
+        origin: h.origin,
+        created_at: h.createdAt,
+        author_user_id: h.authorUserId,
+        author_name: nomePorAutor[h.authorUserId],
+        finding: h.finding ? { id: h.finding.id, title: h.finding.title, severity: h.finding.severity } : null,
+      })),
+    });
+  } catch (err) {
     next(err);
   }
 });

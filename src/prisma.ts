@@ -53,7 +53,8 @@ export const TENANT_SCOPED_MODELS = new Set([
   "priceCatalogExtractionDraft", "priceCatalogItem", "priceHistoryEntry", "priceListUpload",
   "project", "projectPricingLine", "projectPricingSheet",
   "promptTemplate", "proposal", "proposalTemplate", "proposalOpinionRun",
-  "proposalAiOpinionItem", "role", "systemMessage", "systemUpdateState", "systemUpdateHistory",
+  "proposalAiOpinionItem", "proposalOpinionFinding", "proposalSectionEdit",
+  "role", "systemMessage", "systemUpdateState", "systemUpdateHistory",
   "tenantPricingSettings", "tenantTaxProfile", "user", "teamMembership", "vertical",
 ]);
 

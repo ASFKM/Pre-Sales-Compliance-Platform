@@ -254,6 +254,8 @@ model Tenant {
   approvalDecisions       ApprovalDecision[]
   proposalOpinionRuns     ProposalOpinionRun[]
   proposalAiOpinionItems  ProposalAiOpinionItem[]
+  proposalOpinionFindings ProposalOpinionFinding[]
+  proposalSectionEdits    ProposalSectionEdit[]
   teamMemberships         TeamMembership[]
   integrationConnectors   IntegrationConnector[]
   knowledgeBaseDocuments  KnowledgeBaseDocument[]
@@ -333,16 +335,16 @@ model User {
   passwordChangedAt  DateTime?  @map("password_changed_at")
 
   passwordHistory      PasswordHistory[]
-  ownedProjects        Project[]        @relation("ProjectOwner")
-  managedEngineers     TeamMembership[] @relation("TeamManager")
-  teamMemberships      TeamMembership[] @relation("TeamEngineer")
-  ownedPocs            Poc[]            @relation("PocOwner")
-  assignedDemands      Demand[]         @relation("DemandAssignee")
-  directedDemands      Demand[]         @relation("DemandDirectedBy")
-  returnRequests       Demand[]         @relation("DemandReturnRequester")
-  returnDecisions      Demand[]         @relation("DemandReturnDecider")
-  closedCancellations  Demand[]         @relation("DemandCancellationCloser")
-  decidedDemandUpdates DemandUpdate[]   @relation("DemandUpdateDecider")
+  ownedProjects        Project[]         @relation("ProjectOwner")
+  managedEngineers     TeamMembership[]  @relation("TeamManager")
+  teamMemberships      TeamMembership[]  @relation("TeamEngineer")
+  ownedPocs            Poc[]             @relation("PocOwner")
+  assignedDemands      Demand[]          @relation("DemandAssignee")
+  directedDemands      Demand[]          @relation("DemandDirectedBy")
+  returnRequests       Demand[]          @relation("DemandReturnRequester")
+  returnDecisions      Demand[]          @relation("DemandReturnDecider")
+  closedCancellations  Demand[]          @relation("DemandCancellationCloser")
+  decidedDemandUpdates DemandUpdate[]    @relation("DemandUpdateDecider")
 
   // Módulo de Precificação (add-on)
   priceListUploads       PriceListUpload[]
@@ -1024,6 +1026,15 @@ model PlatformSettings {
   // visão (mesma categoria de document_analysis/spec_copilot), não só texto.
   pricingCatalogExtractionModel     String          @default("gemini-3.5-flash") @map("pricing_catalog_extraction_model")
   pricingCatalogExtractionProvider  String          @default("gemini") @map("pricing_catalog_extraction_provider")
+  // F6 (rodada 09/2026): reescrita de UMA seção de texto da proposta a partir dos apontamentos
+  // abertos daquela seção. Slot próprio, e não reuso de proposal_generation, porque as duas fazem
+  // coisas diferentes com risco diferente: proposal_generation preenche o que saiu EM BRANCO;
+  // esta reescreve o que já está escrito, sob a regra de substituição explícita que esta fase
+  // introduziu - é a única tarefa de IA do produto cujo texto pode cobrir conteúdo existente, e
+  // separar o slot é o que permite ao operador dar a ela um modelo diferente (ou desligá-la
+  // apontando para outro provedor) sem mexer na outra.
+  proposalSectionRewriteModel       String          @default("gemini-3.5-flash") @map("proposal_section_rewrite_model")
+  proposalSectionRewriteProvider    String          @default("gemini") @map("proposal_section_rewrite_provider")
   // Per-tenant monthly AI spend cap - null means uncapped. Enforced (hard block once reached,
   // not just tracked), with an 80%-of-cap warning logged before that point.
   monthlyCostCapUsd                 Float?          @map("monthly_cost_cap_usd")
@@ -1323,8 +1334,9 @@ model Proposal {
   clientDecisionByUserId String?         @map("client_decision_by_user_id")
   clientDecisionNote     String?         @map("client_decision_note") @db.Text
 
-  decisions   ApprovalDecision[]
-  opinionRuns ProposalOpinionRun[]
+  decisions    ApprovalDecision[]
+  opinionRuns  ProposalOpinionRun[]
+  sectionEdits ProposalSectionEdit[]
 
   @@index([tenantId])
   @@index([proposalGroupId])
@@ -1385,9 +1397,97 @@ model ProposalAiOpinionItem {
   modelUsed      String?            @map("model_used")
   createdAt      DateTime           @default(now()) @map("created_at")
 
+  findings ProposalOpinionFinding[]
+
   @@unique([runId, perspective])
   @@index([tenantId])
   @@map("proposal_ai_opinion_items")
+}
+
+// F6 (rodada 09/2026): o APONTAMENTO, unidade que se dirime.
+//
+// Por que uma tabela nova em vez de derrubar @@unique([runId, perspective]): o Item continua
+// sendo "o parecer daquela perspectiva naquela rodada" - ele é quem tem status/severity próprios,
+// quem falha isoladamente (status "failed" com o resto da rodada ainda útil) e quem carrega o
+// provedor/modelo que o produziu. Derrubar a unicidade transformaria o Item NO apontamento e
+// apagaria os três: não haveria mais onde registrar "a perspectiva Jurídica falhou", o worker
+// perderia a chave natural com que grava cada perspectiva uma vez, e a F7 perderia o eixo pelo
+// qual vai comparar duas rodadas (quantos apontamentos desta perspectiva foram sanados). O
+// apontamento tem ciclo, justificativa e seção-alvo, que não são atributos do parecer inteiro.
+// Então: Run 1-N Item (um por perspectiva, unicidade preservada) 1-N Finding.
+//
+// `targetKind`/`targetKey` é a generalização da PARTE B do Item (suggestedField/suggestedValue,
+// que continuam lá para as 8 rodadas geradas antes desta fase): em vez de UMA sugestão por
+// parecer, restrita a campo comercial da proposta, cada apontamento aponta para a seção que
+// afeta - um campo da própria Proposal ("proposal_field") ou uma variável de texto do template
+// ("template_field") - e pode trazer o texto de substituição sugerido. A trava não muda: a IA
+// nunca escreve; quem aplica é um clique humano pela rota normal.
+model ProposalOpinionFinding {
+  id               String                @id
+  tenantId         String                @map("tenant_id")
+  tenant           Tenant                @relation(fields: [tenantId], references: [id])
+  opinionId        String                @map("opinion_id")
+  opinion          ProposalAiOpinionItem @relation(fields: [opinionId], references: [id], onDelete: Cascade)
+  // Ordem em que a IA devolveu o apontamento dentro do parecer - só para exibir na mesma ordem.
+  ordinal          Int
+  title            String                @db.Text
+  detail           String                @db.Text
+  severity         String // "info" | "warning" | "critical"
+  // Seção que o apontamento afeta. "proposal_field": um campo de PROPOSAL_TYPE_EDITABLE_FIELDS.
+  // "template_field": uma variável de texto do template (server/utils/templateVariableCatalog.ts).
+  // "geral": o apontamento não se prende a uma seção (a IA não soube dizer qual, ou é transversal).
+  targetKind       String                @map("target_kind")
+  targetKey        String?               @map("target_key")
+  // Texto de substituição que a IA propõe para a seção-alvo, quando ela tem um. Nunca aplicado
+  // sozinho: é o valor que o botão "Aplicar" manda pela rota normal, com o mesmo gate de rascunho
+  // e permissão de qualquer edição manual.
+  suggestedValue   String?               @map("suggested_value") @db.Text
+  // Ciclo: "aberto" | "em_tratativa" | "resolvido" | "aceito_com_risco" | "descartado".
+  // Os dois últimos EXIGEM `resolutionNote` - regra de servidor (a rota recusa com 400), não
+  // validação de formulário, porque é ela que sustenta o gate de envio da F7.
+  status           String                @default("aberto")
+  resolutionNote   String?               @map("resolution_note") @db.Text
+  resolvedByUserId String?               @map("resolved_by_user_id")
+  resolvedAt       DateTime?             @map("resolved_at")
+  createdAt        DateTime              @default(now()) @map("created_at")
+  updatedAt        DateTime              @updatedAt @map("updated_at")
+  sectionEdits     ProposalSectionEdit[]
+
+  @@index([tenantId])
+  @@index([opinionId])
+  @@map("proposal_opinion_findings")
+}
+
+// F6: histórico por seção. Uma linha por alteração de uma seção de texto da proposta, com autor,
+// instante, origem e QUAL apontamento a motivou.
+//
+// Existe porque a fase troca "preencher o vazio" por substituição explícita: a partir de agora um
+// texto aprovado PODE cobrir o que a análise havia produzido, e a única forma de isso não virar
+// perda silenciosa é guardar o valor anterior. `previousValue` é o que estava lá (null quando a
+// seção estava vazia); `origin` distingue o que a pessoa escreveu do que a IA sugeriu e do que a
+// pessoa editou por cima da sugestão da IA - distinção que o AuditLog genérico não carrega.
+model ProposalSectionEdit {
+  id            String                  @id
+  tenantId      String                  @map("tenant_id")
+  tenant        Tenant                  @relation(fields: [tenantId], references: [id])
+  proposalId    String                  @map("proposal_id")
+  proposal      Proposal                @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  // Mesma dupla do apontamento: "proposal_field" | "template_field".
+  targetKind    String                  @map("target_kind")
+  targetKey     String                  @map("target_key")
+  previousValue String?                 @map("previous_value") @db.Text
+  newValue      String                  @map("new_value") @db.Text
+  // "humano" | "ia" | "ia_editada" - "ia" só quando o texto salvo é byte a byte o que a IA
+  // devolveu; qualquer toque humano por cima vira "ia_editada".
+  origin        String
+  findingId     String?                 @map("finding_id")
+  finding       ProposalOpinionFinding? @relation(fields: [findingId], references: [id], onDelete: SetNull)
+  authorUserId  String                  @map("author_user_id")
+  createdAt     DateTime                @default(now()) @map("created_at")
+
+  @@index([tenantId])
+  @@index([proposalId])
+  @@map("proposal_section_edits")
 }
 
 model ApprovalWorkflow {
@@ -2547,21 +2647,21 @@ model CrmPurgeExecution {
 /// validade). Os defaults abaixo repetem esse padrao para que uma gravacao parcial nao invente
 /// outro.
 model PasswordPolicy {
-  id                   String   @id
-  tenantId             String   @unique @map("tenant_id")
-  tenant               Tenant   @relation(fields: [tenantId], references: [id])
-  comprimentoMinimo    Int      @default(12) @map("comprimento_minimo")
-  exigirMaiuscula      Boolean  @default(false) @map("exigir_maiuscula")
-  exigirMinuscula      Boolean  @default(false) @map("exigir_minuscula")
-  exigirNumero         Boolean  @default(true) @map("exigir_numero")
-  exigirEspecial       Boolean  @default(true) @map("exigir_especial")
+  id                String   @id
+  tenantId          String   @unique @map("tenant_id")
+  tenant            Tenant   @relation(fields: [tenantId], references: [id])
+  comprimentoMinimo Int      @default(12) @map("comprimento_minimo")
+  exigirMaiuscula   Boolean  @default(false) @map("exigir_maiuscula")
+  exigirMinuscula   Boolean  @default(false) @map("exigir_minuscula")
+  exigirNumero      Boolean  @default(true) @map("exigir_numero")
+  exigirEspecial    Boolean  @default(true) @map("exigir_especial")
   /// Quantas senhas anteriores nao podem ser reusadas. 0 desliga a verificacao E apaga o
   /// historico guardado.
-  historicoDeReuso     Int      @default(5) @map("historico_de_reuso")
+  historicoDeReuso  Int      @default(5) @map("historico_de_reuso")
   /// Dias ate a senha vencer. 0 = sem validade.
-  validadeEmDias       Int      @default(0) @map("validade_em_dias")
-  updatedAt            DateTime @updatedAt @map("updated_at")
-  updatedByUserId      String?  @map("updated_by_user_id")
+  validadeEmDias    Int      @default(0) @map("validade_em_dias")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  updatedByUserId   String?  @map("updated_by_user_id")
 
   @@map("password_policies")
 }
@@ -2590,7 +2690,6 @@ model PasswordHistory {
   @@index([tenantId])
   @@map("password_history")
 }
-
 
 /// F11 (01/09/2026) - historico persistente de hardware/servicos DESTA instalacao, para o popup
 /// de periodo/granularidade na Visao Geral. Sem tenant_id de proposito: CPU/memoria/disco/status

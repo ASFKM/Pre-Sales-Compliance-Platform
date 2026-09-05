@@ -538,6 +538,10 @@ export interface PlatformSettings {
   pricing_budget_optimization_provider: string;
   pricing_catalog_extraction_model: string;
   pricing_catalog_extraction_provider: string;
+  // F6 (rodada 09/2026): slot proprio da reescrita de secao - ver o comentario da coluna em
+  // prisma/schema.prisma para por que ela nao reusa proposal_generation.
+  proposal_section_rewrite_model: string;
+  proposal_section_rewrite_provider: string;
   monthly_cost_cap_usd?: number | null;
   // Phase 7 (fleet/license management): this tenant's registration with the vendor's fleet
   // manager (a separate server). See src/fleetLicense.ts.

@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { TriangleAlert, Download, PenLine, ShieldAlert, Sparkles, X, Wrench, Handshake, CircleDollarSign, Eye, CheckCircle2, RotateCcw, type LucideIcon } from "lucide-react";
+import { TriangleAlert, Download, PenLine, ShieldAlert, Sparkles, X, Wrench, Handshake, CircleDollarSign, Eye, CheckCircle2, RotateCcw, ListChecks, History, Table2, FileText, type LucideIcon } from "lucide-react";
 import * as mammoth from "mammoth";
 import DOMPurify from "dompurify";
-import { Proposal, SlaRiskFlag } from "../types";
+import { Proposal, SlaRiskFlag, PricingRow } from "../types";
 import { useProposals } from "../hooks/useProposals";
 import { BackgroundTask } from "../hooks/useBackgroundTasks";
 import {
@@ -39,12 +39,60 @@ const OPINION_SEVERITY_BORDER: Record<"critical" | "warning" | "none", string> =
   warning: "border-l-4 border-l-warning-500",
   none: "border-l-4 border-l-transparent",
 };
+/*
+ * F6 (rodada 09/2026): o APONTAMENTO, unidade que se dirime.
+ *
+ * O parecer deixou de ser um bloco em modo leitura porque não se dirime um parágrafo. Cada
+ * apontamento tem identidade, severidade, a seção que afeta e um ciclo próprio - e é o ciclo que
+ * a tela precisa oferecer: "resolvido" depois de mudar a seção, "aceito com risco" quando se
+ * decide seguir assim mesmo, "descartado" quando o apontamento não procedia. Os dois últimos o
+ * SERVIDOR recusa sem justificativa (server/utils/proposalFindings.ts), então o formulário abaixo
+ * pede o texto antes de chamar - mas quem garante não é ele.
+ */
+type FindingStatus = "aberto" | "em_tratativa" | "resolvido" | "aceito_com_risco" | "descartado";
+
+interface FindingItem {
+  id: string;
+  ordinal: number;
+  title: string;
+  detail: string;
+  severity: "info" | "warning" | "critical";
+  target_kind: "proposal_field" | "template_field" | "geral";
+  target_key?: string | null;
+  suggested_value?: string | null;
+  status: FindingStatus;
+  resolution_note?: string | null;
+}
+
+const FINDING_STATUS_LABEL: Record<FindingStatus, { pt: string; en: string }> = {
+  aberto: { pt: "Aberto", en: "Open" },
+  em_tratativa: { pt: "Em tratativa", en: "In progress" },
+  resolvido: { pt: "Resolvido", en: "Resolved" },
+  aceito_com_risco: { pt: "Aceito com risco", en: "Accepted with risk" },
+  descartado: { pt: "Descartado", en: "Dismissed" },
+};
+
+const FINDING_STATUS_STYLE: Record<FindingStatus, string> = {
+  aberto: "bg-slate-100 text-slate-600 border-slate-200",
+  em_tratativa: "bg-brand-50 text-brand-700 border-brand-200",
+  resolvido: "bg-success-50 text-success-700 border-success-200",
+  aceito_com_risco: "bg-warning-50 text-warning-700 border-warning-200",
+  descartado: "bg-slate-100 text-slate-400 border-slate-200",
+};
+
+// Os dois que o servidor recusa sem justificativa. Espelhado aqui só para o formulário pedir o
+// texto ANTES de chamar - a garantia é de lá, não daqui.
+const FINDING_STATUS_COM_JUSTIFICATIVA: FindingStatus[] = ["aceito_com_risco", "descartado"];
+
 interface OpinionItem {
   perspective: OpinionPerspective;
   status: "completed" | "failed";
   severity?: "info" | "warning" | "critical" | null;
   summary: string;
   content: string;
+  // Vazio nas 8 rodadas geradas antes da F6 (logicVersion 1): elas não têm apontamento nenhum, e
+  // isso não é "parecer limpo" - a tela diz a diferença.
+  findings?: FindingItem[];
   // PARTE B (parecer acionável): presente só quando a IA tinha UMA mudança concreta a sugerir a um
   // campo que este tipo de proposta realmente possui (ver server/routes/proposals.ts's
   // TEXT_SUGGESTIBLE_FIELDS) - nunca aplicado sozinho, só via o botão "Aplicar" abaixo.
@@ -54,6 +102,8 @@ interface OpinionItem {
 interface OpinionRun {
   id: string;
   status: "pending" | "running" | "completed" | "partial" | "failed";
+  // F6: 1 = rodada sem apontamentos (anterior a esta fase); 2 = com apontamentos.
+  logic_version?: number;
   opinions: OpinionItem[];
 }
 
@@ -146,6 +196,28 @@ export default function Proposals({
   const [editedFields, setEditedFields] = useState<Partial<Record<Exclude<ProposalEditableField, "manual_pricing_table">, string>>>({});
   const [savingEdit, setSavingEdit] = useState(false);
 
+  /*
+   * F6: o modal ganhou DUAS ABAS, e a separação não é cosmética.
+   *
+   * TEXTO edita prosa - campos comerciais de texto e seções do template - e é a única aba com IA:
+   * "pedir sugestão" recebe os apontamentos abertos daquela seção como contexto e devolve texto
+   * para a pessoa revisar antes de salvar.
+   *
+   * TABELAS edita a tabela de precificação, à mão, SEM IA - e sem ela de propósito. Uma tabela é
+   * item, quantidade e preço: número que vira compromisso. É a mesma linha que
+   * TEXT_SUGGESTIBLE_FIELDS já traça no servidor ao excluir manual_pricing_table do que um parecer
+   * pode sugerir, e que a allowlist traça ao barrar laço e preço. A aba existe porque a tabela
+   * precisava de edição estruturada; a ausência de IA nela é a regra do produto, não uma pendência.
+   */
+  const [abaDoEditor, setAbaDoEditor] = useState<"texto" | "tabelas">("texto");
+  const [secoesDeTexto, setSecoesDeTexto] = useState<Array<{ nome: string; descricao: string; origem: string; valor_aprovado: string | null }>>([]);
+  const [textoDaSecao, setTextoDaSecao] = useState<Record<string, string>>({});
+  const [sugerindoSecao, setSugerindoSecao] = useState<string | null>(null);
+  const [sugestaoDaSecao, setSugestaoDaSecao] = useState<Record<string, { texto_sugerido: string; o_que_mudou: string | null; apontamentos: Array<{ id: string; title: string }> }>>({});
+  const [salvandoSecao, setSalvandoSecao] = useState<string | null>(null);
+  const [linhasDePreco, setLinhasDePreco] = useState<PricingRow[]>([]);
+  const [historicoDeSecoes, setHistoricoDeSecoes] = useState<Array<any>>([]);
+
   const openEditor = (prop: Proposal) => {
     const allowed = PROPOSAL_TYPE_EDITABLE_FIELDS[prop.proposal_type];
     const initial: typeof editedFields = {};
@@ -155,6 +227,78 @@ export default function Proposals({
     }
     setEditingProposal(prop);
     setEditedFields(initial);
+    setAbaDoEditor("texto");
+    setLinhasDePreco((prop.manual_pricing_table as PricingRow[] | undefined) ?? []);
+    setSugestaoDaSecao({});
+
+    void fetch(`/api/proposals/${prop.id}/secoes-de-texto`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!data.success) return;
+        setSecoesDeTexto(data.secoes);
+        // O textarea nasce com o que JÁ foi aprovado para aquela seção; vazio significa "a seção
+        // sai como a análise a deixou", que é diferente de "está em branco no documento".
+        setTextoDaSecao(Object.fromEntries(data.secoes.map((sc: any) => [sc.nome, sc.valor_aprovado ?? ""])));
+      })
+      .catch(() => {});
+
+    void fetch(`/api/proposals/${prop.id}/historico-de-secoes`)
+      .then((r) => r.json())
+      .then((data) => { if (data.success) setHistoricoDeSecoes(data.historico); })
+      .catch(() => {});
+  };
+
+  const recarregarHistorico = async (propId: string) => {
+    const res = await fetch(`/api/proposals/${propId}/historico-de-secoes`);
+    const data = await res.json().catch(() => ({}));
+    if (data.success) setHistoricoDeSecoes(data.historico);
+  };
+
+  const pedirSugestaoDaSecao = async (propId: string, secao: string) => {
+    setSugerindoSecao(secao);
+    try {
+      const res = await fetch(`/api/proposals/${propId}/secoes/${secao}/sugerir-texto`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível pedir a sugestão." : "Could not request the suggestion."));
+        return;
+      }
+      setSugestaoDaSecao((atual) => ({
+        ...atual,
+        [secao]: { texto_sugerido: data.texto_sugerido, o_que_mudou: data.o_que_mudou, apontamentos: data.apontamentos_considerados },
+      }));
+    } finally {
+      setSugerindoSecao(null);
+    }
+  };
+
+  /*
+   * Salvar uma seção. `origem` é a distinção que o histórico precisa: "ia" só quando o texto salvo
+   * é byte a byte o que a IA devolveu; qualquer toque humano por cima vira "ia_editada"; sem
+   * sugestão em tela, "humano". Deduzir isso aqui, comparando com a sugestão que ainda está na
+   * memória da tela, é o único ponto onde essa informação existe.
+   */
+  const salvarSecao = async (propId: string, secao: string) => {
+    setSalvandoSecao(secao);
+    try {
+      const texto = textoDaSecao[secao] ?? "";
+      const sugerido = sugestaoDaSecao[secao]?.texto_sugerido;
+      const origem = !sugerido ? "humano" : (texto.trim() === sugerido.trim() ? "ia" : "ia_editada");
+      const res = await fetch(`/api/proposals/${propId}/campos-do-template`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ campos: { [secao]: texto }, origem }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível salvar a seção." : "Could not save the section."));
+        return;
+      }
+      await recarregarHistorico(propId);
+      await fetchProjectDetails(selectedProjectId);
+    } finally {
+      setSalvandoSecao(null);
+    }
   };
 
   /*
@@ -201,11 +345,63 @@ export default function Proposals({
     if (!editingProposal) return;
     setSavingEdit(true);
     try {
-      const ok = await handleUpdateProposalFields(editingProposal.id, editedFields);
+      // A tabela só entra no patch quando este tipo de proposta a possui - mandá-la para um tipo
+      // que não a tem faria o servidor recusar o PUT inteiro (getRejectedEditableFields), levando
+      // junto os campos de texto que estavam certos.
+      const temTabela = (PROPOSAL_TYPE_EDITABLE_FIELDS[editingProposal.proposal_type] as readonly string[]).includes("manual_pricing_table");
+      const patch: Record<string, any> = { ...editedFields };
+      if (temTabela) patch.manual_pricing_table = linhasDePreco;
+      const ok = await handleUpdateProposalFields(editingProposal.id, patch);
       if (ok) setEditingProposal(null);
     } finally {
       setSavingEdit(false);
     }
+  };
+
+  /*
+   * F6: o ciclo do apontamento, e o modal de duas abas.
+   *
+   * `findingEmJustificativa` é o id do apontamento cujo formulário de justificativa está aberto,
+   * junto do status que ele vai receber. O servidor recusa "aceito com risco" e "descartado" sem
+   * justificativa, então a tela pede o texto antes - mas se alguém chamar a rota direto, a recusa
+   * vem de lá, com mensagem própria, que é o que esta tela exibe.
+   */
+  const [findingEmJustificativa, setFindingEmJustificativa] = useState<{ id: string; status: FindingStatus } | null>(null);
+  const [justificativa, setJustificativa] = useState("");
+  const [salvandoFinding, setSalvandoFinding] = useState<string | null>(null);
+
+  const mudarStatusDoApontamento = async (propId: string, findingId: string, status: FindingStatus, texto?: string) => {
+    setSalvandoFinding(findingId);
+    try {
+      const res = await fetch(`/api/proposals/${propId}/apontamentos/${findingId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status, justificativa: texto }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível mudar o apontamento." : "Could not update the finding."));
+        return;
+      }
+      // Recarrega a rodada inteira: o estado do apontamento é a coisa que a tela precisa mostrar
+      // certa, e reconciliar à mão abriria a porta para a tela discordar do banco.
+      const res2 = await fetch(`/api/proposals/${propId}/opinion-panel`);
+      const data2 = await res2.json().catch(() => ({}));
+      if (data2.success) setOpinionRuns((prev) => ({ ...prev, [propId]: data2.run }));
+      setFindingEmJustificativa(null);
+      setJustificativa("");
+    } finally {
+      setSalvandoFinding(null);
+    }
+  };
+
+  const pedirMudanca = (propId: string, finding: FindingItem, status: FindingStatus) => {
+    if (FINDING_STATUS_COM_JUSTIFICATIVA.includes(status)) {
+      setFindingEmJustificativa({ id: finding.id, status });
+      setJustificativa("");
+      return;
+    }
+    void mudarStatusDoApontamento(propId, finding.id, status);
   };
 
   // PARTE B (parecer acionável): aplica UMA sugestão estruturada de um parecer de IA - o usuário
@@ -219,6 +415,38 @@ export default function Proposals({
       await handleUpdateProposalFields(propId, { [field]: value });
     } finally {
       setApplyingSuggestionKey(null);
+    }
+  };
+
+  /*
+   * F6: aplicar o texto de um apontamento na seção que ele aponta.
+   *
+   * Dois destinos diferentes com a mesma cara para quem clica: um campo da própria proposta vai
+   * pelo PUT /proposals/:id (que regenera o documento); uma seção de texto do template vai pelo
+   * PUT campos-do-template, levando junto a ORIGEM e o apontamento que motivou - é isso que faz o
+   * histórico saber que aquele texto veio da IA e por quê.
+   */
+  const [aplicandoApontamento, setAplicandoApontamento] = useState<string | null>(null);
+  const aplicarTextoDoApontamento = async (propId: string, finding: FindingItem, texto: string, origem: "ia" | "ia_editada") => {
+    setAplicandoApontamento(finding.id);
+    try {
+      if (finding.target_kind === "proposal_field" && finding.target_key) {
+        await handleUpdateProposalFields(propId, { [finding.target_key]: texto });
+      } else if (finding.target_kind === "template_field" && finding.target_key) {
+        const res = await fetch(`/api/proposals/${propId}/campos-do-template`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ campos: { [finding.target_key]: texto }, origem, apontamento_id: finding.id }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          alert(data.message || (locale === "pt" ? "Não foi possível aplicar o texto." : "Could not apply the text."));
+          return;
+        }
+      }
+      await fetchProjectDetails(selectedProjectId);
+    } finally {
+      setAplicandoApontamento(null);
     }
   };
 
@@ -914,6 +1142,114 @@ export default function Proposals({
                                     </span>
                                   </summary>
                                   <p className="mt-2 whitespace-pre-wrap pl-8">{item.content}</p>
+
+                                  {/*
+                                    * F6: os apontamentos deste parecer. Cada um se dirime sozinho.
+                                    *
+                                    * Uma rodada gerada antes desta fase (logicVersion 1) chega com
+                                    * a lista vazia, e a tela diz isso com todas as letras: "esta
+                                    * rodada é anterior aos apontamentos" não é a mesma informação
+                                    * que "este parecer não achou nada", e confundir as duas faria
+                                    * um parecer velho parecer aprovado.
+                                    */}
+                                  {(item.findings || []).length === 0 ? (
+                                    <p className="mt-2 pl-8 text-[10px] text-slate-400 italic">
+                                      {(opinionRuns[prop.id]!.logic_version ?? 1) < 2
+                                        ? (locale === "pt" ? "Rodada anterior aos apontamentos estruturados — gere os pareceres de novo para obtê-los." : "Run predates structured findings — regenerate the opinions to get them.")
+                                        : (locale === "pt" ? "Nenhum apontamento nesta perspectiva." : "No findings from this perspective.")}
+                                    </p>
+                                  ) : (
+                                    <ul className="mt-2 pl-8 space-y-2">
+                                      {(item.findings || []).map((finding) => (
+                                        <li key={finding.id} className={`rounded border p-2 ${finding.status === "descartado" ? "opacity-60" : ""} ${finding.severity === "critical" ? "border-danger-200 bg-danger-50/40" : finding.severity === "warning" ? "border-warning-200 bg-warning-50/40" : "border-slate-200 bg-slate-50/60"}`}>
+                                          <div className="flex items-start justify-between gap-2">
+                                            <p className="font-bold text-[11px] text-slate-700 flex-1">{finding.title}</p>
+                                            <span className={`shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${FINDING_STATUS_STYLE[finding.status]}`}>
+                                              {FINDING_STATUS_LABEL[finding.status][locale]}
+                                            </span>
+                                          </div>
+                                          <p className="mt-1 text-[11px] text-slate-600">{finding.detail}</p>
+                                          {finding.target_key && (
+                                            <p className="mt-1 text-[9px] font-mono uppercase tracking-wider text-slate-400">
+                                              {locale === "pt" ? "Seção" : "Section"}: {finding.target_key}
+                                            </p>
+                                          )}
+                                          {finding.resolution_note && (
+                                            <p className="mt-1 text-[10px] text-slate-500 italic border-l-2 border-slate-300 pl-2">
+                                              {locale === "pt" ? "Justificativa" : "Rationale"}: {finding.resolution_note}
+                                            </p>
+                                          )}
+
+                                          {finding.suggested_value && finding.target_key && prop.status === "draft" && hasPermission("proposal:edit") && (
+                                            <div className="mt-2 p-2 rounded border border-brand-200 bg-brand-50/50">
+                                              <p className="text-[9px] uppercase font-bold text-brand-700 tracking-wider font-mono mb-1">
+                                                {locale === "pt" ? "Texto sugerido para esta seção" : "Suggested text for this section"}
+                                              </p>
+                                              <p className="italic text-slate-600 mb-2 text-[11px] whitespace-pre-wrap">{finding.suggested_value}</p>
+                                              <button
+                                                onClick={(e) => { e.preventDefault(); void aplicarTextoDoApontamento(prop.id, finding, finding.suggested_value!, "ia"); }}
+                                                disabled={aplicandoApontamento === finding.id}
+                                                className="flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 text-white font-mono text-[10px] font-bold px-2.5 py-1 rounded transition-all disabled:opacity-50 cursor-pointer"
+                                              >
+                                                <CheckCircle2 size={11} />
+                                                {aplicandoApontamento === finding.id
+                                                  ? (locale === "pt" ? "Aplicando..." : "Applying...")
+                                                  : (locale === "pt" ? "Aplicar na seção" : "Apply to section")}
+                                              </button>
+                                            </div>
+                                          )}
+
+                                          {prop.status === "draft" && hasPermission("proposal:edit") && (
+                                            findingEmJustificativa?.id === finding.id ? (
+                                              <div className="mt-2 p-2 rounded border border-warning-200 bg-warning-50/60">
+                                                <label className="text-[9px] uppercase font-bold text-warning-800 tracking-wider font-mono block mb-1">
+                                                  {findingEmJustificativa.status === "aceito_com_risco"
+                                                    ? (locale === "pt" ? "Por que seguir assim mesmo? (obrigatório)" : "Why proceed anyway? (required)")
+                                                    : (locale === "pt" ? "Por que este apontamento não procede? (obrigatório)" : "Why doesn't this finding apply? (required)")}
+                                                </label>
+                                                <textarea
+                                                  value={justificativa}
+                                                  onChange={(e) => setJustificativa(e.target.value)}
+                                                  rows={2}
+                                                  className="w-full p-1.5 rounded border border-warning-200 text-[11px] focus:outline-none focus:ring-1 focus:ring-warning-500 resize-none"
+                                                />
+                                                <div className="flex gap-1.5 mt-1.5">
+                                                  <button
+                                                    onClick={(e) => { e.preventDefault(); void mudarStatusDoApontamento(prop.id, finding.id, findingEmJustificativa.status, justificativa); }}
+                                                    disabled={salvandoFinding === finding.id}
+                                                    className="bg-warning-600 hover:bg-warning-700 text-white font-mono text-[10px] font-bold px-2.5 py-1 rounded disabled:opacity-50 cursor-pointer"
+                                                  >
+                                                    {salvandoFinding === finding.id ? (locale === "pt" ? "Salvando..." : "Saving...") : (locale === "pt" ? "Confirmar" : "Confirm")}
+                                                  </button>
+                                                  <button
+                                                    onClick={(e) => { e.preventDefault(); setFindingEmJustificativa(null); setJustificativa(""); }}
+                                                    className="text-slate-500 hover:bg-slate-100 font-mono text-[10px] font-bold px-2.5 py-1 rounded cursor-pointer"
+                                                  >
+                                                    {locale === "pt" ? "Cancelar" : "Cancel"}
+                                                  </button>
+                                                </div>
+                                              </div>
+                                            ) : (
+                                              <div className="flex flex-wrap gap-1.5 mt-2">
+                                                {(["em_tratativa", "resolvido", "aceito_com_risco", "descartado", "aberto"] as FindingStatus[])
+                                                  .filter((alvo) => alvo !== finding.status)
+                                                  .map((alvo) => (
+                                                    <button
+                                                      key={alvo}
+                                                      onClick={(e) => { e.preventDefault(); pedirMudanca(prop.id, finding, alvo); }}
+                                                      disabled={salvandoFinding === finding.id}
+                                                      className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded border transition-colors disabled:opacity-50 cursor-pointer hover:brightness-95 ${FINDING_STATUS_STYLE[alvo]}`}
+                                                    >
+                                                      {FINDING_STATUS_LABEL[alvo][locale]}
+                                                    </button>
+                                                  ))}
+                                              </div>
+                                            )
+                                          )}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  )}
                                   {item.suggested_field && item.suggested_value && prop.status === "draft" && hasPermission("proposal:edit") && (
                                     <div className="mt-2 ml-8 p-2 rounded border border-brand-200 bg-brand-50/50">
                                       <p className="text-[10px] uppercase font-bold text-brand-700 tracking-wider font-mono mb-1">
@@ -959,44 +1295,276 @@ export default function Proposals({
                           <X size={18} />
                         </button>
                       </div>
-                      {allowed.length === 0 ? (
-                        <p className="p-4 text-xs text-slate-500">
-                          {locale === "pt"
-                            ? `Documentos do tipo "${PROPOSAL_TYPE_LABEL[editingProposal.proposal_type].pt}" não têm campos comerciais editáveis - todo o conteúdo vem da análise de IA do projeto. Use "Pré-visualizar" para conferir o documento gerado.`
-                            : `"${PROPOSAL_TYPE_LABEL[editingProposal.proposal_type].en}" documents have no editable commercial fields - all their content comes from the project's AI analysis. Use "Preview" to check the generated document.`}
-                        </p>
-                      ) : (
-                        <>
-                          <p className="text-xs text-slate-500 px-4 pt-3">
-                            {locale === "pt"
-                              ? "Edite os campos abaixo. Ao salvar, o DOCX e o PDF exportados são regenerados a partir do template real desta proposta."
-                              : "Edit the fields below. Saving regenerates the exported DOCX and PDF from this proposal's real template."}
-                          </p>
-                          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                            {allowed.map((field) => (
-                              <div key={field}>
-                                <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider font-mono block mb-1">
-                                  {PROPOSAL_FIELD_LABEL[field][locale]}
-                                </label>
-                                {field === "proposal_validity" ? (
-                                  <input
-                                    type="text"
-                                    value={editedFields[field] || ""}
-                                    onChange={(e) => setEditedFields((prev) => ({ ...prev, [field]: e.target.value }))}
-                                    className="w-full p-2 rounded border border-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500"
-                                  />
-                                ) : (
-                                  <textarea
-                                    value={editedFields[field] || ""}
-                                    onChange={(e) => setEditedFields((prev) => ({ ...prev, [field]: e.target.value }))}
-                                    rows={3}
-                                    className="w-full p-2 rounded border border-slate-200 text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none"
-                                  />
-                                )}
-                              </div>
-                            ))}
+                      {/*
+                        * F6: as duas abas. TEXTO tem IA, TABELAS não - ver o comentário em
+                        * `abaDoEditor` para por que a ausência ali é regra, não pendência.
+                        */}
+                      {(() => {
+                        const temTabela = (PROPOSAL_TYPE_EDITABLE_FIELDS[editingProposal.proposal_type] as readonly string[]).includes("manual_pricing_table");
+                        return (
+                          <div className="flex border-b border-slate-100 px-4">
+                            {([["texto", FileText], ["tabelas", Table2]] as const)
+                              .filter(([aba]) => aba === "texto" || temTabela)
+                              .map(([aba, Icone]) => (
+                                <button
+                                  key={aba}
+                                  onClick={() => setAbaDoEditor(aba)}
+                                  className={`flex items-center gap-1.5 px-3 py-2 text-[10px] font-bold uppercase font-mono border-b-2 -mb-px transition-colors cursor-pointer ${abaDoEditor === aba ? "border-brand-600 text-brand-700" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+                                >
+                                  <Icone size={12} />
+                                  {aba === "texto" ? (locale === "pt" ? "Texto" : "Text") : (locale === "pt" ? "Tabelas" : "Tables")}
+                                </button>
+                              ))}
                           </div>
-                        </>
+                        );
+                      })()}
+
+                      {abaDoEditor === "tabelas" ? (
+                        <div className="flex-1 overflow-y-auto p-4">
+                          <p className="text-xs text-slate-500 mb-3">
+                            {locale === "pt"
+                              ? "Edição manual da tabela de precificação. Esta aba não tem apoio de IA: item, quantidade e preço são compromisso comercial, e o produto nunca deixa um modelo escrevê-los."
+                              : "Manual pricing-table editing. This tab has no AI support: item, quantity and price are commercial commitments, and the product never lets a model write them."}
+                          </p>
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-[11px]">
+                              <thead>
+                                <tr className="text-left text-slate-400 font-mono uppercase text-[9px] tracking-wider">
+                                  <th className="p-1.5">{locale === "pt" ? "Item" : "Item"}</th>
+                                  <th className="p-1.5 w-20">{locale === "pt" ? "Qtd" : "Qty"}</th>
+                                  <th className="p-1.5 w-28">{locale === "pt" ? "Unitário" : "Unit"}</th>
+                                  <th className="p-1.5 w-20">{locale === "pt" ? "Desc. %" : "Disc. %"}</th>
+                                  <th className="p-1.5 w-28">{locale === "pt" ? "Total" : "Total"}</th>
+                                  <th className="p-1.5 w-8"></th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {linhasDePreco.map((linha, i) => (
+                                  <tr key={linha.item_id || i} className="border-t border-slate-100">
+                                    <td className="p-1.5">
+                                      <input
+                                        value={linha.product_or_service}
+                                        onChange={(e) => setLinhasDePreco((atual) => atual.map((l, j) => j === i ? { ...l, product_or_service: e.target.value } : l))}
+                                        className="w-full p-1 rounded border border-slate-200 text-[11px] focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                      />
+                                    </td>
+                                    <td className="p-1.5">
+                                      <input
+                                        type="number"
+                                        value={linha.quantity}
+                                        onChange={(e) => setLinhasDePreco((atual) => atual.map((l, j) => {
+                                          if (j !== i) return l;
+                                          const quantity = Number(e.target.value);
+                                          // O total é derivado, sempre: deixar a pessoa digitar um
+                                          // total que não bate com qtd x preço criaria duas verdades
+                                          // no mesmo documento.
+                                          return { ...l, quantity, total_price: quantity * l.unit_price * (1 - (l.discount || 0) / 100) };
+                                        }))}
+                                        className="w-full p-1 rounded border border-slate-200 text-[11px] focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                      />
+                                    </td>
+                                    <td className="p-1.5">
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        value={linha.unit_price}
+                                        onChange={(e) => setLinhasDePreco((atual) => atual.map((l, j) => {
+                                          if (j !== i) return l;
+                                          const unit_price = Number(e.target.value);
+                                          return { ...l, unit_price, total_price: l.quantity * unit_price * (1 - (l.discount || 0) / 100) };
+                                        }))}
+                                        className="w-full p-1 rounded border border-slate-200 text-[11px] focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                      />
+                                    </td>
+                                    <td className="p-1.5">
+                                      <input
+                                        type="number"
+                                        value={linha.discount ?? 0}
+                                        onChange={(e) => setLinhasDePreco((atual) => atual.map((l, j) => {
+                                          if (j !== i) return l;
+                                          const discount = Number(e.target.value);
+                                          return { ...l, discount, total_price: l.quantity * l.unit_price * (1 - discount / 100) };
+                                        }))}
+                                        className="w-full p-1 rounded border border-slate-200 text-[11px] focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                      />
+                                    </td>
+                                    <td className="p-1.5 font-mono text-slate-600">{(linha.total_price ?? 0).toFixed(2)}</td>
+                                    <td className="p-1.5">
+                                      <button
+                                        onClick={() => setLinhasDePreco((atual) => atual.filter((_, j) => j !== i))}
+                                        className="text-slate-300 hover:text-danger-600 cursor-pointer"
+                                        title={locale === "pt" ? "Remover linha" : "Remove row"}
+                                      >
+                                        <X size={13} />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                                {linhasDePreco.length === 0 && (
+                                  <tr><td colSpan={6} className="p-3 text-center text-slate-400 italic text-[11px]">
+                                    {locale === "pt" ? "Nenhuma linha. A tabela sai vazia do documento." : "No rows. The table renders empty in the document."}
+                                  </td></tr>
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                          <button
+                            onClick={() => setLinhasDePreco((atual) => [...atual, {
+                              item_id: `linha-${Date.now()}`, product_or_service: "", specification: "",
+                              quantity: 1, unit: "un", unit_price: 0, total_price: 0, currency: "BRL",
+                              is_optional: false, discount: 0,
+                            }])}
+                            className="mt-3 text-[10px] font-mono font-bold uppercase text-brand-700 hover:bg-brand-50 border border-brand-200 px-2.5 py-1 rounded cursor-pointer"
+                          >
+                            {locale === "pt" ? "+ Adicionar linha" : "+ Add row"}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex-1 overflow-y-auto p-4 space-y-5">
+                          {allowed.length === 0 && secoesDeTexto.length === 0 ? (
+                            <p className="text-xs text-slate-500">
+                              {locale === "pt"
+                                ? `Documentos do tipo "${PROPOSAL_TYPE_LABEL[editingProposal.proposal_type].pt}" não têm campos comerciais editáveis, e o template desta proposta não usa nenhuma seção de texto livre.`
+                                : `"${PROPOSAL_TYPE_LABEL[editingProposal.proposal_type].en}" documents have no editable commercial fields, and this proposal's template uses no free text section.`}
+                            </p>
+                          ) : (
+                            <>
+                              {allowed.length > 0 && (
+                                <div className="space-y-4">
+                                  <p className="text-xs text-slate-500">
+                                    {locale === "pt"
+                                      ? "Campos comerciais desta proposta. Ao salvar, o DOCX e o PDF são regenerados a partir do template real."
+                                      : "This proposal's commercial fields. Saving regenerates the DOCX and PDF from the real template."}
+                                  </p>
+                                  {allowed.map((field) => (
+                                    <div key={field}>
+                                      <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider font-mono block mb-1">
+                                        {PROPOSAL_FIELD_LABEL[field][locale]}
+                                      </label>
+                                      {field === "proposal_validity" ? (
+                                        <input
+                                          type="text"
+                                          value={editedFields[field] || ""}
+                                          onChange={(e) => setEditedFields((prev) => ({ ...prev, [field]: e.target.value }))}
+                                          className="w-full p-2 rounded border border-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                        />
+                                      ) : (
+                                        <textarea
+                                          value={editedFields[field] || ""}
+                                          onChange={(e) => setEditedFields((prev) => ({ ...prev, [field]: e.target.value }))}
+                                          rows={3}
+                                          className="w-full p-2 rounded border border-slate-200 text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none"
+                                        />
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              {secoesDeTexto.length > 0 && (
+                                <div className="space-y-4 pt-2 border-t border-slate-100">
+                                  <p className="text-xs text-slate-500 pt-2">
+                                    {locale === "pt"
+                                      ? "Seções de texto do template. Salvar uma seção grava o texto e registra no histórico quem escreveu, quando e de onde veio."
+                                      : "Template text sections. Saving a section records who wrote it, when, and where it came from."}
+                                  </p>
+                                  {secoesDeTexto.map((secao) => {
+                                    const sugestao = sugestaoDaSecao[secao.nome];
+                                    return (
+                                      <div key={secao.nome} className="rounded-lg border border-slate-200 p-3">
+                                        <div className="flex items-start justify-between gap-2 mb-1">
+                                          <div className="flex-1">
+                                            <p className="text-[10px] uppercase font-bold text-slate-600 tracking-wider font-mono">{secao.nome}</p>
+                                            {secao.descricao && <p className="text-[10px] text-slate-400 mt-0.5">{secao.descricao}</p>}
+                                          </div>
+                                          <button
+                                            onClick={() => void pedirSugestaoDaSecao(editingProposal.id, secao.nome)}
+                                            disabled={sugerindoSecao === secao.nome}
+                                            title={locale === "pt" ? "A IA recebe os apontamentos abertos desta seção como contexto e devolve um texto para você revisar - nada é gravado sem o seu clique." : "The AI receives this section's open findings as context and returns text for you to review - nothing is saved without your click."}
+                                            className="shrink-0 flex items-center gap-1 text-[10px] font-mono font-bold uppercase text-brand-700 hover:bg-brand-50 border border-brand-200 px-2 py-1 rounded cursor-pointer disabled:opacity-50"
+                                          >
+                                            <Sparkles size={11} />
+                                            {sugerindoSecao === secao.nome
+                                              ? (locale === "pt" ? "Pedindo..." : "Asking...")
+                                              : (locale === "pt" ? "Pedir sugestão à IA" : "Ask AI")}
+                                          </button>
+                                        </div>
+
+                                        {sugestao && (
+                                          <div className="mb-2 p-2 rounded border border-brand-200 bg-brand-50/50">
+                                            <p className="text-[9px] uppercase font-bold text-brand-700 tracking-wider font-mono mb-1">
+                                              {locale === "pt" ? "Sugestão da IA" : "AI suggestion"}
+                                              {sugestao.apontamentos.length > 0 && (
+                                                <span className="normal-case tracking-normal font-normal text-slate-500">
+                                                  {" "}({locale === "pt" ? "considerou" : "considered"} {sugestao.apontamentos.length} {locale === "pt" ? "apontamento(s)" : "finding(s)"})
+                                                </span>
+                                              )}
+                                            </p>
+                                            {sugestao.o_que_mudou && <p className="text-[10px] text-slate-600 italic mb-1">{sugestao.o_que_mudou}</p>}
+                                            <button
+                                              onClick={() => setTextoDaSecao((atual) => ({ ...atual, [secao.nome]: sugestao.texto_sugerido }))}
+                                              className="text-[10px] font-mono font-bold uppercase bg-brand-600 hover:bg-brand-700 text-white px-2 py-0.5 rounded cursor-pointer"
+                                            >
+                                              {locale === "pt" ? "Usar este texto" : "Use this text"}
+                                            </button>
+                                          </div>
+                                        )}
+
+                                        <textarea
+                                          value={textoDaSecao[secao.nome] ?? ""}
+                                          onChange={(e) => setTextoDaSecao((atual) => ({ ...atual, [secao.nome]: e.target.value }))}
+                                          rows={4}
+                                          placeholder={locale === "pt" ? "Vazio: a seção sai como a análise a deixou." : "Empty: the section renders as the analysis left it."}
+                                          className="w-full p-2 rounded border border-slate-200 text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-brand-500 resize-y"
+                                        />
+                                        <button
+                                          onClick={() => void salvarSecao(editingProposal.id, secao.nome)}
+                                          disabled={salvandoSecao === secao.nome}
+                                          className="mt-1.5 text-[10px] font-mono font-bold uppercase bg-slate-700 hover:bg-slate-800 text-white px-2.5 py-1 rounded cursor-pointer disabled:opacity-50"
+                                        >
+                                          {salvandoSecao === secao.nome
+                                            ? (locale === "pt" ? "Salvando..." : "Saving...")
+                                            : (locale === "pt" ? "Salvar seção" : "Save section")}
+                                        </button>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+
+                              {/* F6: o histórico por seção - autor, instante, origem e apontamento. */}
+                              {historicoDeSecoes.length > 0 && (
+                                <div className="pt-2 border-t border-slate-100">
+                                  <h4 className="text-[10px] uppercase font-bold text-slate-500 tracking-wider font-mono flex items-center gap-1.5 pt-2 mb-2">
+                                    <History size={11} />
+                                    {locale === "pt" ? "Histórico por seção" : "Section history"}
+                                  </h4>
+                                  <ul className="space-y-1.5">
+                                    {historicoDeSecoes.map((h) => (
+                                      <li key={h.id} className="text-[10px] text-slate-500 border-l-2 border-slate-200 pl-2">
+                                        <span className="font-mono font-bold text-slate-600">{h.target_key}</span>
+                                        {" · "}
+                                        <span className={h.origin === "humano" ? "text-slate-600" : h.origin === "ia" ? "text-brand-700" : "text-brand-600"}>
+                                          {h.origin === "humano" ? (locale === "pt" ? "humano" : "human") : h.origin === "ia" ? "IA" : (locale === "pt" ? "IA editada" : "AI edited")}
+                                        </span>
+                                        {" · "}
+                                        {h.author_name}
+                                        {" · "}
+                                        {new Date(h.created_at).toLocaleString(locale === "pt" ? "pt-BR" : "en-US")}
+                                        {h.finding && (
+                                          <span className="block text-slate-400 italic">
+                                            <ListChecks size={9} className="inline mr-1" />
+                                            {locale === "pt" ? "motivado por" : "motivated by"}: {h.finding.title}
+                                          </span>
+                                        )}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
                       )}
                       <div className="flex justify-end gap-2 p-4 border-t border-slate-100">
                         <button
