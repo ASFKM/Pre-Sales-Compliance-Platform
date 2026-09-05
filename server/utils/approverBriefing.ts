@@ -72,20 +72,36 @@ export interface PontoDoAssistente {
  * que o assistente deve fazer.
  */
 const RECOMENDACOES_DE_DECISAO: readonly RegExp[] = [
-  /\brecomend\w*\s+(?:a\s+)?(?:aprova|reprova|rejeit|recus)/i,
-  /\bsugir\w*\s+(?:a\s+)?(?:aprova|reprova|rejeit|recus)/i,
-  /\bsugest\w*\s+de\s+(?:aprova|reprova|rejeit|recus)/i,
-  /\b(?:deve|deveria|devia|precisa)\s+ser\s+(?:aprovad|reprovad|rejeitad|recusad)/i,
-  /\b(?:deve|deveria|devia)\s+(?:aprovar|reprovar|rejeitar|recusar)/i,
-  /\b(?:pode|poderia)\s+ser\s+(?:aprovad|reprovad|rejeitad|recusad)/i,
-  /\best\w*\s+(?:pronta|apta|madura)\s+para\s+(?:ser\s+)?aprova/i,
-  /\bn[aa~]o\s+(?:seria\s+)?(?:o\s+)?caso\s+de\s+(?:aprova|reprova|rejeit|recus)/i,
-  /\b(?:aprove|rejeite|reprove|recuse)\b/i,
-  /\b(?:apta|apto|pronta|pronto)\s+para\s+aprova/i,
-  /\bn[aa~]o\s+h[aa]\s+(?:motivo|razao|impedimento)\s+para\s+(?:n[aa~]o\s+)?aprova/i,
-  /\bsem\s+(?:impedimento|ressalva|obice)s?\s+para\s+aprova/i,
-  /\b(?:should|must)\s+(?:be\s+)?(?:approv|reject)/i,
-  /\brecommend\w*\s+(?:approv|reject)/i,
+  // Aconselhar diretamente
+  /\brecomend\w*\s+(?:a\s+|o\s+|que\s+(?:a\s+|o\s+)?)?(?:proposta\s+)?(?:seja\s+)?(?:aprova|reprova|rejeit|recus)/,
+  /\brecomendacao\s*[:,]?\s*(?:e\s+)?(?:a\s+)?(?:aprova|reprova|rejeit|recus)/,
+  /\bsug(?:ir|est)\w*\s+(?:a\s+|o\s+|que\s+(?:a\s+|o\s+)?)?(?:proposta\s+)?(?:seja\s+)?(?:aprova|reprova|rejeit|recus)/,
+  /\bsugest\w*\s+de\s+(?:aprova|reprova|rejeit|recus)/,
+  // Declarar obrigacao ou permissao de decidir
+  /\b(?:deve|deveria|devia|precisa|pode|poderia)\s+ser\s+(?:aprovad|reprovad|rejeitad|recusad)/,
+  /\b(?:deve|deveria|devia)\s+(?:aprovar|reprovar|rejeitar|recusar)/,
+  /\bseja\s+(?:aprovad|reprovad|rejeitad|recusad)/,
+  /\b(?:aprove|rejeite|reprove|recuse)\b/,
+  // Declarar suficiencia — a forma mais comum, e a que a lista antiga nao pegava
+  /\best\w*\s+(?:pronta|apta|apto|madura|adequada|em\s+condicoes)\s+(?:para|de)\s+(?:ser\s+)?(?:aprova|segui|avanc)/,
+  /\b(?:apta|apto|pronta|pronto|madura)\s+para\s+(?:a\s+)?aprova/,
+  /\bn[ao]\w*\s+(?:ha|existe|vejo|resta)\s+(?:nenhum\s+|nenhuma\s+)?(?:motivo|razao|impedimento|obice|ressalva|bloqueio)\s+para\s+(?:n[ao]\w*\s+)?(?:aprova|segui)/,
+  /\bsem\s+(?:impedimento|ressalva|obice|bloqueio|pendencia)s?\s+para\s+(?:a\s+)?(?:aprova|segui)/,
+  /\bn[ao]\w*\s+(?:seria\s+)?(?:o\s+)?caso\s+de\s+(?:aprova|reprova|rejeit|recus)/,
+  /\bnada\s+a\s+(?:verificar|apontar|observar|questionar|ressalvar)/,
+  /\btudo\s+(?:em\s+ordem|certo|correto|adequado)\b/,
+  /\b(?:todos|todas)\b[^.?!]{0,60}\b(?:foram|estao)\s+(?:devidamente\s+|integralmente\s+)?(?:tratad|sanad|resolvid|enderecad|atendid)/,
+  /\batende\s+(?:plenamente|integralmente|completamente)/,
+  // Ingles
+  /\b(?:should|must|can|may)\s+(?:be\s+)?(?:approv|reject)/,
+  /\brecommend\w*\s+(?:approv|reject)/,
+  /\bready\s+for\s+approval/,
+  /\bno\s+(?:blockers?|reasons?|objections?)\s+(?:to|not\s+to)\s+approv/,
+  // Espanhol
+  /\brecom(?:iend|end)\w*\s+(?:la\s+|el\s+|que\s+)?(?:aprob|rechaz)/,
+  /\b(?:debe|deberia|puede)\s+ser\s+(?:aprobad|rechazad)/,
+  /\b(?:apruebe|rechace)\b/,
+  /\blista\s+para\s+(?:ser\s+)?aprob/,
 ];
 
 /*
@@ -94,17 +110,44 @@ const RECOMENDACOES_DE_DECISAO: readonly RegExp[] = [
  * que outra assume, e isso e leitura de texto, nao aritmetica.
  */
 const PEDIDOS_DE_CONFERENCIA_NUMERICA: readonly RegExp[] = [
-  /\b(?:conf[ei]r|verif|valid|revis|recalcul|check)\w*\s+(?:se\s+)?(?:o\s+|a\s+|os\s+|as\s+)?(?:valor|valores|total|totais|soma|somatori|preco|quantidade|percentual|desconto|calculo)/i,
-  /\b(?:a\s+)?soma\s+(?:dos|das|de)\b.*\b(?:confere|bate|fecha)/i,
-  /\bo\s+total\s+(?:confere|bate|fecha|esta\s+correto)/i,
+  /\b(?:conf[ei]r|verif|valid|revis|recalcul|chec|refa|som)\w*\s+(?:se\s+)?(?:o\s+|a\s+|os\s+|as\s+)?(?:valor|total|soma|somatori|preco|quantidade|percentual|desconto|calculo|montante|subtotal)/,
+  /\b(?:a\s+)?soma\s+(?:dos|das|de)\b.*\b(?:confere|bate|fecha|corresponde)/,
+  /\bo\s+total\s+(?:confere|bate|fecha|corresponde|esta\s+correto)/,
+  /\b(?:check|verify|validate|recalculat)\w*\s+(?:the\s+)?(?:total|sum|amount|price|quantity|discount)/,
 ];
 
+/*
+ * DOBRA o texto antes de compara-lo: NFD separa a letra do acento, o range de combining marks os
+ * remove, e o `toLowerCase` fecha a caixa.
+ *
+ * Isto NAO e detalhe de implementacao — e o que faz as listas acima existirem de verdade. Elas sao
+ * escritas em ASCII, e sem esta funcao `est\w*` nunca casaria "esta" com acento: em JavaScript,
+ * `\w` sem a flag `u` e [A-Za-z0-9_], entao `\w*` para no primeiro caractere acentuado e o `\s+`
+ * seguinte falha contra a propria letra. Como o prompt manda o modelo responder em portugues, a
+ * saida REAL vem sempre acentuada, e a regra so alcancava as frases cujo ponto critico por acaso
+ * nao tinha acento.
+ *
+ * Medido na revisao de seguranca da F9, depois da fase ter sido dada por pronta: "A proposta esta
+ * pronta para ser aprovada" (com acento em `esta`) e "Nao ha motivo para nao aprovar" (com til e
+ * acento) PASSAVAM. Os testes da fase nao pegaram porque foram escritos sem acento nenhum - a mesma
+ * cegueira do codigo, replicada na prova. Por isso `approverBriefing.test.ts` agora tem um caso que
+ * falha se algum exemplo da suite existir apenas na forma sem acento.
+ */
+function dobrar(texto: string): string {
+  return (texto ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
 export function contemRecomendacaoDeDecisao(texto: string): boolean {
-  return RECOMENDACOES_DE_DECISAO.some((r) => r.test(texto));
+  const dobrado = dobrar(texto);
+  return RECOMENDACOES_DE_DECISAO.some((r) => r.test(dobrado));
 }
 
 export function pedeConferenciaNumerica(texto: string): boolean {
-  return PEDIDOS_DE_CONFERENCIA_NUMERICA.some((r) => r.test(texto));
+  const dobrado = dobrar(texto);
+  return PEDIDOS_DE_CONFERENCIA_NUMERICA.some((r) => r.test(dobrado));
 }
 
 export interface ResultadoDoRecorte {
@@ -235,6 +278,22 @@ export function percentualDeMudanca(anterior: string, novo: string): number {
   const b = (novo ?? "").trim();
   if (a === b) return 0;
   if (a.length === 0 || b.length === 0) return 100;
+
+  /*
+   * Levenshtein e O(n*m) SINCRONO, e este processo e um so para todos os tenants: dois textos de
+   * 20 mil caracteres seriam 400 milhoes de operacoes bloqueando o event loop. Nenhum campo de
+   * texto de proposta tem `.max()`, entao o tamanho e escolhido por quem escreve a proposta - e
+   * quem escreve nao e quem espera na tela do aprovador.
+   *
+   * Acima do teto a resposta vem da diferenca de tamanho, que e O(1) e continua sendo um FATO
+   * medido (nunca uma estimativa mandada ao modelo): para textos desse porte ela responde a mesma
+   * pergunta que interessa - "mudou pouco ou mudou muito?".
+   */
+  const TETO_DE_CARACTERES_PARA_LEVENSHTEIN = 4000;
+  if (a.length > TETO_DE_CARACTERES_PARA_LEVENSHTEIN || b.length > TETO_DE_CARACTERES_PARA_LEVENSHTEIN) {
+    const maior = Math.max(a.length, b.length);
+    return Math.min(100, Math.round((Math.abs(a.length - b.length) / maior) * 100));
+  }
 
   // Levenshtein com duas linhas: os textos de secao chegam a alguns milhares de caracteres, e a
   // matriz cheia seria memoria desperdicada num calculo que roda por edicao.

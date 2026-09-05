@@ -157,6 +157,26 @@ function buildVisibilityFilter(model: string, context: TenantContext): Record<st
     };
   }
 
+  // F9 (rodada 09/2026): o resultado guardado do assistente do aprovador, pela MESMA regra
+  // herdada - ProposalApproverBriefing -> Proposal -> Project. Ele nao tem posse propria, e o
+  // conteudo dele e a leitura preparada de quem julga aquela proposta: quem nao pode ver a
+  // proposta nao pode ver a preparacao sobre ela.
+  //
+  // Hoje as duas unicas consultas ao modelo rodam DEPOIS do gate da rota, entao isto e defesa em
+  // profundidade e nao correcao de falha. Existe pelo proximo call site: uma consulta futura por
+  // `proposalId` cru devolveria briefing de proposta invisivel dentro do mesmo tenant - que e
+  // exatamente a classe AUD-002 ja fechada para os quatro modelos acima.
+  if (model === "ProposalApproverBriefing") {
+    return {
+      OR: [
+        { proposal: { project: { ownerUserId: userId } } },
+        { proposal: { project: { owner: { teamMemberships: { some: { managerId: userId } } } } } },
+        { proposal: { decisions: { some: { approverUserId: userId } } } },
+        { proposal: { approvalWorkflow: { stages: { some: approverOr } } } },
+      ],
+    };
+  }
+
   return null;
 }
 

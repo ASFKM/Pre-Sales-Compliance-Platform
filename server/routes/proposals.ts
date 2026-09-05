@@ -19,6 +19,7 @@ import { estimateCostUsd } from "../utils/aiPricing";
 import { extractKnowledgeBaseKeywords, parseAiJson, regenerateAnalysisSection } from "./analysis";
 import { prisma } from "../../src/prisma";
 import { randomId } from "../../src/idGenerator";
+import crypto from "crypto";
 import { LOGIC_VERSIONS } from "../../src/aiLogicVersions";
 import { logger } from "../utils/logger";
 import { empurrarProposta, empurrarEventoDaProposta } from "../utils/crmOutbox";
@@ -3891,12 +3892,20 @@ async function montarMaterialDoAssistente(proposal: Proposal): Promise<MaterialD
     )
   );
 
+  /*
+   * `take` alinhado ao do dossie (linha ~1299): sem ele, quem ESCREVE a proposta escolhe quantas
+   * edicoes o assistente processa, e cada uma custa um Levenshtein sincrono mais um bloco no
+   * prompt. Quem paga o tempo seria quem ABRE o dossie - o aprovador -, num processo unico para
+   * todos os tenants. As 100 mais RECENTES, porque a pergunta do assistente e sobre o que foi
+   * feito agora, nao sobre a arqueologia da versao.
+   */
   const edicoesBrutas = await prisma.proposalSectionEdit.findMany({
     where: { proposalId: proposal.id },
     include: { finding: { select: { title: true } } },
-    orderBy: { createdAt: "asc" },
+    orderBy: { createdAt: "desc" },
+    take: 100,
   });
-  const edicoes = edicoesBrutas.map((e) => ({
+  const edicoes = [...edicoesBrutas].reverse().map((e) => ({
     secao: e.targetKey ?? "geral",
     texto_anterior: e.previousValue ?? "",
     texto_novo: e.newValue ?? "",
@@ -4167,12 +4176,45 @@ router.post("/proposals/:id/assistente-do-aprovador", requireAuth, async (req: R
      * deixaria a tela sem cabecalho. Trocado por uma frase neutra montada aqui a partir de
      * contagens que ja sao verdade - nenhuma delas e juizo sobre decidir.
      */
+    /*
+     * O PANORAMA e sempre PRECEDIDO por uma frase de contagens montada AQUI, e nao pelo modelo.
+     *
+     * A revisao de seguranca desta fase mostrou por que isso importa: o material do prompt inclui
+     * texto que quem e JULGADO escreveu (justificativas, comentarios de rejeicao, secoes). Nao ha
+     * como impedir que alguem tente instruir o modelo ali - e o ataque util nao e faze-lo
+     * recomendar aprovacao (o recorte barra isso), e faze-lo CALAR sobre o proprio apontamento
+     * aceito com risco. Uma lista vazia e indistinguivel de uma leitura genuinamente limpa.
+     *
+     * A frase de contagens e imune a isso: ela vem do banco, nao do modelo. Com ela na frente, o
+     * aprovador ve "3 aceito(s) com risco" mesmo que o assistente nao tenha dito nada sobre eles.
+     *
+     * E o texto do modelo AINDA passa pela proibicao de veredito: se soar como recomendacao, e
+     * descartado inteiro e sobra so a frase determinística.
+     */
     const panoramaSoaComoVeredito = contemRecomendacaoDeDecisao(resposta.panorama);
     const abertos = material.apontamentos.filter((a) => a.status === "aberto" || a.status === "em_tratativa").length;
     const aceitosComRisco = material.apontamentos.filter((a) => a.status === "aceito_com_risco").length;
-    const panorama = panoramaSoaComoVeredito
-      ? `v${material.versao}: ${material.apontamentos.length} apontamento(s) no total, ${abertos} ainda em aberto ou em tratativa e ${aceitosComRisco} aceito(s) com risco, com ${material.edicoes.length} edicao(oes) de secao registrada(s) nesta versao.`
-      : resposta.panorama.trim();
+    const contagens = `v${material.versao}: ${material.apontamentos.length} apontamento(s) no total, ${abertos} em aberto ou em tratativa e ${aceitosComRisco} aceito(s) com risco, com ${material.edicoes.length} edicao(oes) de secao nesta versao.`;
+    const doModelo = panoramaSoaComoVeredito ? "" : resposta.panorama.trim();
+    const panorama = doModelo ? `${contagens} ${doModelo}` : contagens;
+
+    /*
+     * SINAL DE COBERTURA. Havia material de uma categoria e o modelo nao disse nada sobre ela?
+     * Isso nao e erro - uma leitura pode legitimamente nao ter o que perguntar -, mas e a unica
+     * forma de distinguir "nada a apontar" de "o modelo foi calado", seja por queda de qualidade
+     * seja por instrucao enfiada no texto que quem e julgado escreveu. Vai na resposta e no audit
+     * log; sem isso, a lista vazia nao tem como ser auditada depois.
+     */
+    const categoriasDosPontos = new Set(recorte.pontos.map((pt) => pt.categoria));
+    const coberturaNaoAtendida = [
+      aceitosComRisco > 0 && !categoriasDosPontos.has("risco_aceito") ? "risco_aceito" : null,
+      material.edicoes.some((e) => e.percentual_de_mudanca > 0 && e.percentual_de_mudanca < 10 && e.motivada_por) &&
+      !categoriasDosPontos.has("edicao")
+        ? "edicao"
+        : null,
+      material.decisoes.length > 0 && !categoriasDosPontos.has("entre_versoes") ? "entre_versoes" : null,
+    ].filter((c): c is string => c !== null);
+
 
     /*
      * `upsert` NAO serve aqui, e a recusa e do proprio produto: a extensao de tenant-scoping
@@ -4214,7 +4256,12 @@ router.post("/proposals/:id/assistente-do-aprovador", requireAuth, async (req: R
         versao: proposal.version,
         pontos: recorte.pontos.length,
         descartados: recorte.descartados,
-        panorama_substituido: panoramaSoaComoVeredito,
+        panorama_do_modelo_descartado: panoramaSoaComoVeredito,
+        cobertura_nao_atendida: coberturaNaoAtendida,
+        // Hash da saida BRUTA do modelo. O texto em si nao e guardado (ele contem o material da
+        // proposta), mas sem o hash nao ha como periciar depois se duas leituras identicas vieram
+        // da mesma resposta - nem provar que uma saida suspeita foi a que chegou.
+        hash_da_resposta_bruta: crypto.createHash("sha256").update(text).digest("hex"),
       }),
     });
 
@@ -4223,11 +4270,12 @@ router.post("/proposals/:id/assistente-do-aprovador", requireAuth, async (req: R
       origem: "gerado",
       desatualizado: false,
       briefing: serializarBriefing(briefing),
+      cobertura_nao_atendida: coberturaNaoAtendida,
       // Quantos pontos o modelo devolveu e as regras da casa barraram, por motivo. Fica na resposta
       // para que uma queda de qualidade do modelo apareca em vez de virar uma lista mais curta sem
       // explicacao - ver o cabecalho de server/utils/approverBriefing.ts.
       descartados: recorte.descartados,
-      panorama_substituido: panoramaSoaComoVeredito,
+      panorama_do_modelo_descartado: panoramaSoaComoVeredito,
       nao_recomenda_decisao: true,
       // Dito aqui pelo mesmo motivo que na coerencia da F7: para que nenhuma tela futura apresente
       // este resultado como conferencia de conta.
