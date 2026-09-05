@@ -54,6 +54,11 @@ export const TENANT_SCOPED_MODELS = new Set([
   "project", "projectPricingLine", "projectPricingSheet",
   "promptTemplate", "proposal", "proposalTemplate", "proposalOpinionRun",
   "proposalAiOpinionItem", "proposalOpinionFinding", "proposalSectionEdit",
+  // F9 (rodada 09/2026): o resultado guardado do assistente do aprovador. Carrega tenant_id e
+  // por isso entra aqui - a linha guarda a leitura do conjunto de uma proposta (perguntas que
+  // citam secao e apontamento pelo nome), e le-la de outro tenant seria ler o dossie alheio pela
+  // porta dos fundos.
+  "proposalApproverBriefing",
   "role", "systemMessage", "systemUpdateState", "systemUpdateHistory",
   "tenantPricingSettings", "tenantTaxProfile", "user", "teamMembership", "vertical",
 ]);

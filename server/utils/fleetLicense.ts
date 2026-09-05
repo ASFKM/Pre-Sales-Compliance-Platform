@@ -577,6 +577,16 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
         { key: "proposal_finding_remediation", label: "Sanacao de Apontamento (Propostas)", capability: "text" },
         { key: "proposal_grammar_check", label: "Revisao Gramatical (Propostas)", capability: "text" },
         { key: "proposal_section_coherence", label: "Coerencia entre Secoes (Propostas)", capability: "text" },
+        // F9 (rodada 09/2026): a dezesseis - o assistente do aprovador. `text`: recebe so
+        // prompt, montado a partir do dossie que a F8 ja carrega, sem arquivo nenhum. Sem
+        // `requires_module` pela mesma razao das outras de proposta: aprovar e nucleo do
+        // produto, nao add-on, e a rota nao chama `requireModule`.
+        //
+        // Declarar aqui e o que faz o operador do CMSaaS poder escolher provedor e modelo para
+        // ela - o Admin do PreSales nao expoe nem um nem outro desde a F11, e o override do
+        // heartbeat sobrescreve os dois em resolveProvider(). O catalogo e adotado ANTES de
+        // recortar `ai_task_config` contra ele, entao a tarefa vale ja neste mesmo heartbeat.
+        { key: "proposal_approver_briefing", label: "Assistente do Aprovador (Propostas)", capability: "text" },
       ] as const;
       const aiTaskCatalog = AI_TASK_CATALOG.map((t) => ({
         key: t.key,

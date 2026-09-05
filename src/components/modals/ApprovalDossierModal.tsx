@@ -18,21 +18,31 @@
  *   - VERSÕES ......... "como chegamos até aqui?" - a cadeia inteira do grupo, as decisões de cada
  *                       versão com os itens que cada rejeição apontou, e as edições de seção desta
  *                       versão com o apontamento que motivou cada uma.
+ *   - ASSISTENTE ...... (F9) "onde vale a pena olhar?" - perguntas, nunca um veredito. A aba tem
+ *                       aba própria, e não um bloco dentro de "Pareceres", justamente para que a
+ *                       leitura do assistente NÃO se confunda com o que a IA apontou sobre o
+ *                       documento: aqueles são achados sobre o texto, estes são perguntas sobre o
+ *                       conjunto e sobre o que foi feito com os achados. Misturá-los faria a
+ *                       pergunta parecer mais um apontamento a fechar.
  *
  * Tudo vem de UMA chamada (GET /proposals/:id/dossie-de-aprovacao), que tem gate próprio no
  * servidor - esconder o botão do menu é conveniência de tela, o gate é lá.
  */
 import { useEffect, useState } from "react";
-import { X, FileText, MessagesSquare, ListChecks, History, TriangleAlert, CircleCheck } from "lucide-react";
+import { X, FileText, MessagesSquare, ListChecks, History, TriangleAlert, CircleCheck, Compass, RefreshCw, HelpCircle } from "lucide-react";
 import {
   DossieDeAprovacao,
   DossieFinding,
   ROTULO_DE_STATUS,
   ROTULO_DE_PERSPECTIVA,
+  ROTULO_DE_CATEGORIA,
+  BriefingDoAprovador,
+  carregarAssistenteDoAprovador,
+  gerarAssistenteDoAprovador,
 } from "../../lib/approvalDossier";
 import { useDocumentPreview, DocumentFormatSwitch, DocumentPreviewBody } from "../ui/DocumentPreview";
 
-type AbaDoDossie = "documento" | "pareceres" | "verificacoes" | "versoes";
+type AbaDoDossie = "documento" | "pareceres" | "verificacoes" | "versoes" | "assistente";
 
 interface ApprovalDossierModalProps {
   locale: "en" | "pt";
@@ -98,6 +108,47 @@ export default function ApprovalDossierModal({ locale, dossie, onClose }: Approv
   const [aba, setAba] = useState<AbaDoDossie>("documento");
   const preview = useDocumentPreview(locale);
 
+  /*
+   * F9: o assistente. `briefing` é o resultado GUARDADO desta versão - o GET abaixo nunca chama o
+   * modelo, então carregá-lo junto com o dossiê não custa nada. Gerar é o botão, e só ele gasta.
+   */
+  const [briefing, setBriefing] = useState<BriefingDoAprovador | null>(null);
+  const [briefingDesatualizado, setBriefingDesatualizado] = useState(false);
+  const [assistenteCarregando, setAssistenteCarregando] = useState(true);
+  const [assistenteGerando, setAssistenteGerando] = useState(false);
+  const [assistenteErro, setAssistenteErro] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelado = false;
+    setAssistenteCarregando(true);
+    carregarAssistenteDoAprovador(dossie.proposal.id)
+      .then((r) => {
+        if (cancelado) return;
+        setBriefing(r.briefing);
+        setBriefingDesatualizado(r.desatualizado);
+        setAssistenteErro(null);
+      })
+      .catch((e: Error) => !cancelado && setAssistenteErro(e.message))
+      .finally(() => !cancelado && setAssistenteCarregando(false));
+    return () => {
+      cancelado = true;
+    };
+  }, [dossie.proposal.id]);
+
+  const acionarAssistente = async (regenerar: boolean) => {
+    setAssistenteGerando(true);
+    setAssistenteErro(null);
+    try {
+      const r = await gerarAssistenteDoAprovador(dossie.proposal.id, regenerar);
+      setBriefing(r.briefing);
+      setBriefingDesatualizado(r.desatualizado);
+    } catch (e) {
+      setAssistenteErro((e as Error).message);
+    } finally {
+      setAssistenteGerando(false);
+    }
+  };
+
   // O documento carrega assim que o dossiê abre, e não ao clicar na aba: ele é a primeira coisa que
   // o aprovador quer ver, e um clique a mais entre ele e o texto é exatamente o atrito que fazia a
   // decisão ser tomada sem olhar.
@@ -120,6 +171,12 @@ export default function ApprovalDossierModal({ locale, dossie, onClose }: Approv
     },
     { id: "verificacoes", rotulo: locale === "pt" ? "Verificações" : "Checks", icone: ListChecks, contagem: dossie.verificacoes.total },
     { id: "versoes", rotulo: locale === "pt" ? "Histórico de versões" : "Version history", icone: History, contagem: dossie.versoes.cadeia.length },
+    {
+      id: "assistente",
+      rotulo: locale === "pt" ? "Onde olhar" : "Where to look",
+      icone: Compass,
+      contagem: briefing?.pontos?.length,
+    },
   ];
 
   return (
@@ -389,6 +446,125 @@ export default function ApprovalDossierModal({ locale, dossie, onClose }: Approv
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* ─────────── ABA ASSISTENTE (F9) ─────────── */}
+          {aba === "assistente" && (
+            <div className="p-4 space-y-4">
+              {/*
+                O aviso NÃO é decoração nem disclaimer defensivo: ele é a primeira coisa lida na
+                aba porque o risco desta tela é exatamente o de ser lida como recomendação. O
+                servidor sustenta a frase (o prompt proíbe, e o recorte descarta o que passar) -
+                aqui ela só fica dita para quem vai decidir.
+              */}
+              <div className="flex items-start gap-2 border border-brand-200 bg-brand-50/60 rounded-lg p-3">
+                <HelpCircle size={15} className="text-brand-700 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-[11px] font-semibold text-brand-800">
+                    {locale === "pt"
+                      ? "Este assistente não recomenda aprovar nem rejeitar."
+                      : "This assistant never recommends approving or rejecting."}
+                  </p>
+                  <p className="text-[11px] text-brand-700/90 leading-snug mt-0.5">
+                    {locale === "pt"
+                      ? "Ele lê o conjunto - o texto, as tratativas dos apontamentos, as edições e as versões anteriores - e devolve perguntas sobre onde vale a pena olhar. A decisão é sua. Conferência de valores, somas e placeholders está na aba Verificações, e é feita sem IA."
+                      : "It reads the whole picture - text, finding handling, edits and previous versions - and returns questions about where to look. The decision is yours. Number checking lives in the Checks tab and uses no AI."}
+                  </p>
+                </div>
+              </div>
+
+              {assistenteErro && (
+                <div className="flex items-start gap-2 border border-danger-200 bg-danger-50 rounded-lg p-3">
+                  <TriangleAlert size={15} className="text-danger-700 shrink-0 mt-0.5" />
+                  <p className="text-[11px] text-danger-800">{assistenteErro}</p>
+                </div>
+              )}
+
+              {briefingDesatualizado && briefing && (
+                <div className="flex items-start gap-2 border border-warning-300 bg-warning-50 rounded-lg p-3">
+                  <TriangleAlert size={15} className="text-warning-800 shrink-0 mt-0.5" />
+                  <p className="text-[11px] text-warning-800">
+                    {locale === "pt"
+                      ? "O documento ou a tratativa de algum apontamento mudaram depois desta leitura. Ela continua abaixo, como foi feita - gere de novo se quiser que ela considere o estado atual."
+                      : "The document or a finding's handling changed after this reading. It is kept below as it was - generate again to consider the current state."}
+                  </p>
+                </div>
+              )}
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => acionarAssistente(Boolean(briefing))}
+                  disabled={assistenteGerando || assistenteCarregando}
+                  className="flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-mono text-[11px] font-bold py-1.5 px-3 rounded shadow cursor-pointer transition-all"
+                >
+                  <RefreshCw size={12} className={assistenteGerando ? "animate-spin" : ""} />
+                  {assistenteGerando
+                    ? locale === "pt"
+                      ? "Lendo o conjunto..."
+                      : "Reading..."
+                    : briefing
+                      ? locale === "pt"
+                        ? "Ler de novo"
+                        : "Read again"
+                      : locale === "pt"
+                        ? "Preparar minha leitura"
+                        : "Prepare my reading"}
+                </button>
+                {briefing && (
+                  <span className="text-[10px] font-mono text-slate-400">
+                    v{briefing.proposal_version} ·{" "}
+                    {new Date(briefing.created_at).toLocaleString(locale === "pt" ? "pt-BR" : "en-US")} ·{" "}
+                    {briefing.provider_used}/{briefing.model_used}
+                  </span>
+                )}
+              </div>
+
+              {assistenteCarregando ? (
+                <p className="text-[11px] text-slate-400 italic">{locale === "pt" ? "Carregando..." : "Loading..."}</p>
+              ) : !briefing ? (
+                <p className="text-[11px] text-slate-500">
+                  {locale === "pt"
+                    ? "Ainda não há leitura preparada para esta versão. O resultado fica guardado por versão do documento: reabrir o dossiê não gasta IA de novo."
+                    : "No reading prepared for this version yet. The result is stored per document version: reopening the dossier does not spend AI again."}
+                </p>
+              ) : (
+                <>
+                  <div className="bg-white border border-slate-200 rounded-lg p-3">
+                    <h5 className="text-[10px] font-bold uppercase font-mono text-slate-400 mb-1">
+                      {locale === "pt" ? "O conjunto" : "The picture"}
+                    </h5>
+                    <p className="text-[12px] text-slate-700 leading-snug">{briefing.panorama}</p>
+                  </div>
+
+                  {briefing.pontos.length === 0 ? (
+                    <p className="text-[11px] text-slate-500">
+                      {locale === "pt"
+                        ? "Nenhum ponto a destacar nesta leitura. Isso não quer dizer que a proposta esteja pronta - quer dizer que o assistente não encontrou nada a perguntar."
+                        : "No points to raise in this reading. That does not mean the proposal is ready - it means the assistant found nothing to ask."}
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {briefing.pontos.map((p, i) => (
+                        <div key={i} className="bg-white border border-slate-200 rounded-lg p-3">
+                          <div className="flex items-start justify-between gap-2 mb-1">
+                            <p className="text-[12px] font-semibold text-slate-800 leading-snug">{p.pergunta}</p>
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase text-slate-600 bg-slate-100 border-slate-200 shrink-0">
+                              {ROTULO_DE_CATEGORIA[p.categoria]?.[locale] ?? p.categoria}
+                            </span>
+                          </div>
+                          {p.por_que && <p className="text-[11px] text-slate-600 leading-snug">{p.por_que}</p>}
+                          {p.secao && (
+                            <p className="text-[10px] font-mono text-brand-700 mt-1.5">
+                              {locale === "pt" ? "Seção" : "Section"}: {p.secao}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
         </div>

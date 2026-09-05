@@ -127,3 +127,82 @@ export const ROTULO_DE_PERSPECTIVA: Record<string, { pt: string; en: string }> =
   financial: { pt: "Financeiro", en: "Financial" },
   aprovador: { pt: "Aprovador", en: "Approver" },
 };
+
+/*
+ * F9: O ASSISTENTE DO APROVADOR, no cliente.
+ *
+ * Duas chamadas, e a separação é o ponto: `carregarAssistenteDoAprovador` (GET) nunca gasta IA e
+ * por isso pode rodar quando a aba abre; `gerarAssistenteDoAprovador` (POST) é o botão. Fossem a
+ * mesma, abrir uma tela viraria um evento de custo - exatamente o que o resultado guardado por
+ * versão existe para evitar.
+ */
+export type CategoriaDoPonto = "tratativa" | "edicao" | "risco_aceito" | "concentracao" | "entre_versoes";
+
+export interface PontoDoAssistente {
+  pergunta: string;
+  por_que: string;
+  categoria: CategoriaDoPonto;
+  secao: string | null;
+  apontamento_id: string | null;
+}
+
+export interface BriefingDoAprovador {
+  id: string;
+  proposal_version: number;
+  panorama: string;
+  pontos: PontoDoAssistente[];
+  logic_version: number;
+  provider_used: string;
+  model_used: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RespostaDoAssistente {
+  success: true;
+  briefing: BriefingDoAprovador | null;
+  /** O documento ou a tratativa mudaram desde a geração. O resultado continua servido, marcado. */
+  desatualizado: boolean;
+  origem?: "guardado" | "gerado";
+  descartados?: {
+    nao_era_pergunta: number;
+    recomendava_decisao: number;
+    pedia_conferencia_numerica: number;
+    citava_alvo_inexistente: number;
+  };
+  panorama_substituido?: boolean;
+}
+
+async function chamarAssistente(proposalId: string, init?: RequestInit): Promise<RespostaDoAssistente> {
+  const res = await fetch(`/api/proposals/${proposalId}/assistente-do-aprovador`, init);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data?.message || "Não foi possível falar com o assistente do aprovador.");
+  }
+  return data as RespostaDoAssistente;
+}
+
+/** Lê o resultado guardado desta versão. Nunca chama o modelo. */
+export function carregarAssistenteDoAprovador(proposalId: string): Promise<RespostaDoAssistente> {
+  return chamarAssistente(proposalId);
+}
+
+/**
+ * Aciona o assistente. Sem `regenerar`, uma segunda chamada sobre a MESMA versão devolve o
+ * resultado guardado sem nova chamada de IA - é o servidor que decide isso, não a tela.
+ */
+export function gerarAssistenteDoAprovador(proposalId: string, regenerar = false): Promise<RespostaDoAssistente> {
+  return chamarAssistente(proposalId, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ regenerar }),
+  });
+}
+
+export const ROTULO_DE_CATEGORIA: Record<CategoriaDoPonto, { pt: string; en: string }> = {
+  tratativa: { pt: "Tratativa", en: "Handling" },
+  edicao: { pt: "Edição", en: "Edit" },
+  risco_aceito: { pt: "Risco aceito", en: "Accepted risk" },
+  concentracao: { pt: "Concentração", en: "Concentration" },
+  entre_versoes: { pt: "Entre versões", en: "Across versions" },
+};

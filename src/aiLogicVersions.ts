@@ -66,6 +66,19 @@ export const LOGIC_VERSIONS = {
   // prazo e item de material. A coerencia numerica e deterministica (server/utils/proposalQa.ts), e
   // relaxar essa frase levaria o produto de volta a mandar conta para modelo conferir.
   proposal_section_coherence: 1,
+  // F9: o ASSISTENTE DO APROVADOR (buildApproverBriefingPrompt). O que este hash protege e a
+  // PROIBICAO DE VEREDITO, e ela e o requisito da fase, nao o acabamento dela: um assistente
+  // que recomende aprovar transforma o aprovador em carimbo e desfaz, no ultimo metro, a
+  // governanca que as oito fases anteriores construiram. Junto com ela vai a proibicao de
+  // conferir numero - a mesma fronteira que proposal_section_coherence defende - e o formato
+  // dos pontos, que ficam GRAVADOS por versao do documento (ProposalApproverBriefing): um
+  // prompt que mude sem bump deixaria resultados de formatos diferentes indistinguiveis no
+  // banco, exatamente como o veredito de sanacao da F7.
+  //
+  // A proibicao tem uma segunda camada, em codigo, em server/utils/approverBriefing.ts - o
+  // hash guarda a instrucao, o recorte guarda o resultado. Mudar uma sem a outra e o tipo de
+  // afrouxamento silencioso que este guard existe para tornar barulhento.
+  proposal_approver_briefing: 1,
 } as const;
 
 export type LogicVersionKey = keyof typeof LOGIC_VERSIONS;

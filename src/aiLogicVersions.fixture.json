@@ -18,5 +18,9 @@
   "proposal_section_coherence": {
     "version": 1,
     "hash": "1a3444e5f5214cb764642f9f252ed2a004ebda423fd6f8e8914824b30f34d95f"
+  },
+  "proposal_approver_briefing": {
+    "version": 1,
+    "hash": "e9cbe2446a5d25d77fb19b004a881708839d278ee4d920d9bcd1747d5b2e73b8"
   }
 }

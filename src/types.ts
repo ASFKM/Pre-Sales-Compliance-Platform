@@ -551,6 +551,8 @@ export interface PlatformSettings {
   proposal_grammar_check_provider: string;
   proposal_section_coherence_model: string;
   proposal_section_coherence_provider: string;
+  proposal_approver_briefing_model: string;
+  proposal_approver_briefing_provider: string;
   monthly_cost_cap_usd?: number | null;
   // Phase 7 (fleet/license management): this tenant's registration with the vendor's fleet
   // manager (a separate server). See src/fleetLicense.ts.

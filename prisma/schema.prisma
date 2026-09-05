@@ -257,6 +257,7 @@ model Tenant {
   proposalAiOpinionItems  ProposalAiOpinionItem[]
   proposalOpinionFindings ProposalOpinionFinding[]
   proposalSectionEdits    ProposalSectionEdit[]
+  approverBriefings       ProposalApproverBriefing[]
   teamMemberships         TeamMembership[]
   integrationConnectors   IntegrationConnector[]
   knowledgeBaseDocuments  KnowledgeBaseDocument[]
@@ -1053,6 +1054,18 @@ model PlatformSettings {
   // modelo nenhum.
   proposalSectionCoherenceModel      String          @default("gemini-3.5-flash") @map("proposal_section_coherence_model")
   proposalSectionCoherenceProvider   String          @default("gemini") @map("proposal_section_coherence_provider")
+  // F9 (rodada 09/2026): o ASSISTENTE DO APROVADOR. Slot proprio pela mesma razao das anteriores,
+  // com um agravante desta tarefa: ela le o CONJUNTO (documento, apontamentos com tratativa,
+  // cadeia de versoes e decisoes) numa chamada so, entao e a mais cara do produto por execucao.
+  // Poder dar a ela um modelo diferente - ou apontar para outro provedor - sem tocar nas outras e
+  // exatamente o que evita que o custo dela dite o das quinze restantes.
+  //
+  // Estes dois campos sao FALLBACK, nao configuracao de tela: quem escolhe provedor e modelo por
+  // tarefa e o CMSaaS (installation_ai_task_configs), e a escolha desce a cada heartbeat e
+  // sobrescreve estes valores em resolveProvider(). O Admin do PreSales nao expoe provedor nem
+  // modelo desde a F11 - ver o comentario de AI_TASK_CATALOG em server/utils/fleetLicense.ts.
+  proposalApproverBriefingModel      String          @default("gemini-3.5-flash") @map("proposal_approver_briefing_model")
+  proposalApproverBriefingProvider   String          @default("gemini") @map("proposal_approver_briefing_provider")
   // Per-tenant monthly AI spend cap - null means uncapped. Enforced (hard block once reached,
   // not just tracked), with an 80%-of-cap warning logged before that point.
   monthlyCostCapUsd                  Float?          @map("monthly_cost_cap_usd")
@@ -1352,9 +1365,10 @@ model Proposal {
   clientDecisionByUserId String?         @map("client_decision_by_user_id")
   clientDecisionNote     String?         @map("client_decision_note") @db.Text
 
-  decisions    ApprovalDecision[]
-  opinionRuns  ProposalOpinionRun[]
-  sectionEdits ProposalSectionEdit[]
+  decisions        ApprovalDecision[]
+  opinionRuns      ProposalOpinionRun[]
+  sectionEdits     ProposalSectionEdit[]
+  approverBriefing ProposalApproverBriefing?
 
   @@index([tenantId])
   @@index([proposalGroupId])
@@ -1523,6 +1537,70 @@ model ProposalOpinionFinding {
 // perda silenciosa é guardar o valor anterior. `previousValue` é o que estava lá (null quando a
 // seção estava vazia); `origin` distingue o que a pessoa escreveu do que a IA sugeriu e do que a
 // pessoa editou por cima da sugestão da IA - distinção que o AuditLog genérico não carrega.
+/**
+ * F9 (rodada 09/2026): O RESULTADO GUARDADO DO ASSISTENTE DO APROVADOR.
+ * ─── POR QUE UMA TABELA PROPRIA, PENDURADA NA PROPOSTA ──────────────────────────────────────
+ * A chave deste resultado e a VERSAO DO DOCUMENTO, nao a rodada de pareceres. O assistente le o
+ * conjunto - o texto das secoes AGORA, os apontamentos de TODAS as origens (IA e aprovador) com a
+ * tratativa de cada um, a cadeia de versoes e as decisoes - e uma rodada de IA (`ProposalOpinionRun`)
+ * responde por apenas um desses pedacos. Pendurar o resultado numa rodada faria a chave mentir
+ * sobre o que ele cobre, e deixaria sem lugar o caso em que nao ha rodada de IA nenhuma (uma v2
+ * reaberta cujos apontamentos sao todos do aprovador, que e justamente o cenario mais interessante
+ * para o assistente).
+ * `@unique` em `proposalId`: uma versao, um resultado. Como cada versao e uma linha propria de
+ * `Proposal` (a v2 nasce em POST /proposals/:id/reopen com id novo), "guardado por versao do
+ * documento" cai exatamente sobre esta unicidade - sem coluna de versao, sem consulta por
+ * `orderBy desc`, sem duas linhas concorrentes para a mesma versao. Reabrir a proposta NAO herda o
+ * resultado: a v2 e outra linha, sem briefing, e portanto oferece rodada nova.
+ * ─── O QUE INVALIDA O RESULTADO GUARDADO, E POR QUE NAO E APAGA-LO ──────────────────────────
+ * `inputFingerprint` e o SHA-256 do que o assistente REALMENTE LEU: o texto de cada secao, o
+ * status/justificativa/veredito de cada apontamento e as decisoes da cadeia. Se qualquer um desses
+ * mudar, o hash muda e o resultado passa a ser servido com `desatualizado: true`.
+ * DESATUALIZADO NAO E INVALIDO, e a diferenca e deliberada: o resultado velho continua sendo
+ * mostrado, marcado, e uma nova chamada de IA so acontece se alguem pedir explicitamente
+ * (`regenerar: true`). O motivo e o custo: mudar o status de um apontamento e o ato mais comum de
+ * toda a tratativa, e invalidar de verdade faria o assistente ser re-executado a cada visita ao
+ * dossie durante a revisao - a conta subiria sozinha, sem que ninguem tivesse pedido analise nova.
+ * As duas alternativas, e o que custariam:
+ * (a) NAO guardar impressao nenhuma. Custaria apresentar como atual uma analise feita sobre um
+ * texto que ja mudou - pior que gastar, porque o aprovador nao teria como saber.
+ * (b) Invalidar de verdade (apagar e re-executar). Custaria dinheiro a cada PATCH de status de
+ * apontamento, que e o evento mais frequente do ciclo da F6, e transformaria o cache num
+ * contador de visitas ao dossie.
+ * ─── O QUE ESTA LINHA NUNCA CONTEM ──────────────────────────────────────────────────────────
+ * Veredito. O assistente devolve PERGUNTAS a verificar e nao recomenda aprovar nem rejeitar - a
+ * proibicao esta escrita dentro do proprio prompt (buildApproverBriefingPrompt, hasheada sob
+ * `proposal_approver_briefing`) pela mesma razao que a sanacao da F7 e "consultiva": um assistente
+ * que soe como recomendacao transforma o aprovador em carimbo, e a governanca das oito fases
+ * anteriores se perde no ultimo metro.
+ */
+model ProposalApproverBriefing {
+  id                String   @id
+  tenantId          String   @map("tenant_id")
+  tenant            Tenant   @relation(fields: [tenantId], references: [id])
+  proposalId        String   @unique @map("proposal_id")
+  proposal          Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  // A versao da proposta no instante da geracao. Redundante com `proposal.version` de proposito:
+  // e o que permite ler a linha e saber sobre que versao ela fala sem uma segunda consulta.
+  proposalVersion   Int      @map("proposal_version")
+  // Perguntas a verificar, no formato { pergunta, por_que, secao?, apontamento_id?, categoria }.
+  // JSON e nao tabela filha: nada consulta ponto a ponto - a lista inteira e lida junto, sempre.
+  pontos            Json
+  // A leitura de conjunto, em uma frase. Nunca uma recomendacao.
+  panorama          String   @db.Text
+  // SHA-256 do estado lido - ver o bloco sobre invalidacao acima.
+  inputFingerprint  String   @map("input_fingerprint")
+  logicVersion      Int      @map("logic_version")
+  providerUsed      String   @map("provider_used")
+  modelUsed         String   @map("model_used")
+  generatedByUserId String   @map("generated_by_user_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@map("proposal_approver_briefings")
+}
+
 model ProposalSectionEdit {
   id            String                  @id
   tenantId      String                  @map("tenant_id")

@@ -107,4 +107,14 @@ describe("AI logic version golden-hash guard", () => {
       "function buildCoherencePrompt("
     );
   });
+
+  // F9 da rodada 09/2026: o assistente do aprovador. O hash guarda a proibicao de veredito -
+  // ver o comentario da chave em aiLogicVersions.ts para por que ela e o requisito da fase.
+  it("proposal_approver_briefing version matches the fixture hash of buildApproverBriefingPrompt's source", () => {
+    checkLogicVersion(
+      "proposal_approver_briefing",
+      path.join(__dirname, "..", "server", "routes", "proposals.ts"),
+      "function buildApproverBriefingPrompt("
+    );
+  });
 });

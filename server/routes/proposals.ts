@@ -37,6 +37,14 @@ import {
   ORIGEM_IA,
 } from "../utils/approverFindings";
 import { podeVerDossieDaProposta } from "../utils/approvalScope";
+import {
+  CATEGORIAS_DO_ASSISTENTE,
+  calcularImpressaoDoEstado,
+  contemRecomendacaoDeDecisao,
+  percentualDeMudanca,
+  recortarPontosDoAssistente,
+  type EstadoLidoPeloAssistente,
+} from "../utils/approverBriefing";
 
 const router = express.Router();
 // F5: o template .docx passou a ser OBRIGATORIO para gerar proposta.
@@ -1099,6 +1107,55 @@ router.post("/proposals/:id/opinion-panel", requirePermission("proposal:edit"), 
  * apontamento de IA: a tela de tratativa é a mesma, e um payload com forma diferente obrigaria a
  * escrever um segundo componente de tratativa - que divergiria do primeiro.
  */
+/*
+ * As SECOES APONTAVEIS de uma proposta, com o texto que cada uma tem AGORA.
+ *
+ * Extraida do handler do dossie na F9 porque o assistente do aprovador precisa exatamente da
+ * mesma lista, e por uma razao que vai alem de nao repetir codigo: se as duas divergissem, o
+ * assistente poderia citar uma secao que o dossie nao mostra (ou deixar de citar uma que ele
+ * mostra), e o recorte contra alucinacao de server/utils/approverBriefing.ts passaria a barrar
+ * pontos legitimos. Uma lista so, para as duas telas.
+ *
+ * O recorte e o do resto do produto - os campos que ESTE tipo de proposta possui
+ * (PROPOSAL_TYPE_EDITABLE_FIELDS) mais os placeholders do template REAL desta proposta, e nao o
+ * catalogo inteiro: oferecer uma secao que o template nao usa produziria um apontamento
+ * pendurado num texto que nunca aparece no documento.
+ */
+async function montarSecoesDaProposta(
+  proposal: Proposal
+): Promise<{ target_kind: string; target_key: string; label: string; texto_atual: string | null }[]> {
+  const secoes: { target_kind: string; target_key: string; label: string; texto_atual: string | null }[] = [];
+  for (const campo of PROPOSAL_TYPE_EDITABLE_FIELDS[proposal.proposal_type] ?? []) {
+    if (campo === "manual_pricing_table") continue; // tabela, não texto: não cabe num comentário de seção
+    secoes.push({
+      target_kind: "proposal_field",
+      target_key: campo,
+      label: campo,
+      texto_atual: ((proposal as any)[campo] as string | null) ?? null,
+    });
+  }
+  try {
+    const settingsParaSecoes = await dbStore.getSettings();
+    const templatesParaSecoes = await dbStore.getProposalTemplates();
+    const templateDaProposta = templatesParaSecoes.find((t) => t.id === proposal.template_id);
+    const placeholders = await lerPlaceholdersDoTemplateDaProposta(templateDaProposta, settingsParaSecoes);
+    const catalogo = new Map(TEMPLATE_VARIABLE_CATALOG.map((v) => [v.name, v]));
+    for (const nome of [...new Set(placeholders)]) {
+      if (!podeSerSubstituidaPorTextoAprovado(nome)) continue;
+      secoes.push({
+        target_kind: "template_field",
+        target_key: nome,
+        label: catalogo.get(nome)?.description || nome,
+        texto_atual: ((proposal.template_field_values ?? {}) as Record<string, string>)[nome] ?? null,
+      });
+    }
+  } catch {
+    // Template ausente no storage não pode impedir o aprovador de ver o dossiê: ele fica com os
+    // campos da proposta e o alvo "geral", que é o suficiente para rejeitar apontando.
+  }
+  return secoes;
+}
+
 async function carregarRodadaDoAprovador(proposalId: string) {
   const run = await prisma.proposalOpinionRun.findFirst({
     where: { proposalId, origem: ORIGEM_APROVADOR },
@@ -1237,35 +1294,7 @@ router.get("/proposals/:id/dossie-de-aprovacao", requireAuth, async (req: Reques
      * catálogo inteiro: oferecer uma seção que o template não usa produziria um apontamento
      * pendurado num texto que nunca aparece no documento.
      */
-    const secoesApontaveis: { target_kind: string; target_key: string; label: string; texto_atual: string | null }[] = [];
-    for (const campo of PROPOSAL_TYPE_EDITABLE_FIELDS[proposal.proposal_type] ?? []) {
-      if (campo === "manual_pricing_table") continue; // tabela, não texto: não cabe num comentário de seção
-      secoesApontaveis.push({
-        target_kind: "proposal_field",
-        target_key: campo,
-        label: campo,
-        texto_atual: ((proposal as any)[campo] as string | null) ?? null,
-      });
-    }
-    try {
-      const settingsParaSecoes = await dbStore.getSettings();
-      const templatesParaSecoes = await dbStore.getProposalTemplates();
-      const templateDaProposta = templatesParaSecoes.find((t) => t.id === proposal.template_id);
-      const placeholders = await lerPlaceholdersDoTemplateDaProposta(templateDaProposta, settingsParaSecoes);
-      const catalogo = new Map(TEMPLATE_VARIABLE_CATALOG.map((v) => [v.name, v]));
-      for (const nome of [...new Set(placeholders)]) {
-        if (!podeSerSubstituidaPorTextoAprovado(nome)) continue;
-        secoesApontaveis.push({
-          target_kind: "template_field",
-          target_key: nome,
-          label: catalogo.get(nome)?.description || nome,
-          texto_atual: ((proposal.template_field_values ?? {}) as Record<string, string>)[nome] ?? null,
-        });
-      }
-    } catch {
-      // Template ausente no storage não pode impedir o aprovador de ver o dossiê: ele fica com os
-      // campos da proposta e o alvo "geral", que é o suficiente para rejeitar apontando.
-    }
+    const secoesApontaveis = await montarSecoesDaProposta(proposal);
 
     const edicoesDeSecao = await prisma.proposalSectionEdit.findMany({
       where: { proposalId: proposal.id },
@@ -3643,6 +3672,571 @@ router.get("/proposals/:id/export/pdf", requirePermission("proposal:export"), as
     res.setHeader("Content-Disposition", `attachment; filename="${proposal.proposal_type}_proposal_${proposal.id}.pdf"`);
     res.send(buffer);
   } catch (err) {
+    next(err);
+  }
+});
+
+/*
+ * =============================================================================================
+ * F9 (rodada 09/2026): O ASSISTENTE DO APROVADOR
+ * =============================================================================================
+ *
+ * O que ele responde, e o que ele deliberadamente NAO responde.
+ *
+ * A F8 deu ao aprovador o dossie: o documento, os pareceres com as tratativas, as verificacoes
+ * deterministicas e o historico de versoes. Tudo verdadeiro, tudo relevante - e muito. Um dossie
+ * de uma v2 reaberta traz facilmente quinze apontamentos com quinze justificativas, oito edicoes
+ * de secao e duas decisoes anteriores com seus itens. Ler isso inteiro, a cada aprovacao, e o que
+ * ninguem faz; e o que se faz no lugar - olhar o resumo e assinar - e exatamente o risco que as
+ * oito fases anteriores existiram para eliminar.
+ *
+ * Este assistente le o CONJUNTO e devolve PERGUNTAS. Nao um resumo (que substituiria a leitura),
+ * nao um veredito (que substituiria a decisao): perguntas sobre onde vale a pena olhar.
+ *
+ * ---------------------------------------------------------------------------------------------
+ * POR QUE NUNCA UM VEREDITO - e por que isso e requisito, nao estilo
+ * ---------------------------------------------------------------------------------------------
+ *
+ * O risco tem nome: vies de automacao. Uma ferramenta que diga "esta proposta parece pronta" nao
+ * ajuda o aprovador a decidir - ela decide, e transfere a ele so a assinatura. O aprovador que
+ * discorda passa a ter de justificar a discordancia contra a maquina, e o que discorda menos
+ * simplesmente concorda. A autoridade formal continuaria no lugar certo no organograma e teria
+ * saido do lugar certo na pratica.
+ *
+ * A proibicao esta escrita DENTRO do prompt, como a F7 fez com o veredito de sanacao
+ * ("consultivo"), e e verificada DEPOIS em codigo (server/utils/approverBriefing.ts), porque uma
+ * instrucao e cumprida quase sempre e "quase" nao serve aqui. Ver o cabecalho daquele arquivo para
+ * as tres amarras e por que a palavra "aprovar" sozinha nao e barrada.
+ *
+ * ---------------------------------------------------------------------------------------------
+ * O QUE E CONTA, E POR ISSO NAO VAI AO MODELO
+ * ---------------------------------------------------------------------------------------------
+ *
+ * Duas coisas ficam de fora do prompt por politica, nao por esquecimento:
+ *
+ *   - A COERENCIA NUMERICA. Total, preco, quantidade, soma de tabela: tudo isso e conferido
+ *     exatamente por server/utils/proposalQa.ts, e o resultado ja esta na aba "Verificacoes" do
+ *     mesmo dossie. Mandar o mesmo trabalho ao modelo trocaria uma prova por uma opiniao.
+ *   - O TAMANHO DA MUDANCA de uma secao editada. `percentualDeMudanca` calcula por Levenshtein e
+ *     manda o numero pronto como FATO. O modelo nao recebe os dois textos para "avaliar se mudou
+ *     pouco" - ele recebe "mudou 3%" e a pergunta que sobra, a interessante, e a que nao tem
+ *     resposta exata: uma mudanca desse tamanho enderecou o que o apontamento dizia?
+ */
+function buildApproverBriefingPrompt(material: MaterialDoAssistente, idioma: string): string {
+  const secoes = material.secoes.length
+    ? material.secoes.map((s) => `### ${s.nome}\n${s.texto}`).join("\n\n")
+    : "(nenhuma secao de texto preenchida)";
+
+  const apontamentos = material.apontamentos.length
+    ? material.apontamentos
+        .map(
+          (a) =>
+            `- id=${a.id} | origem=${a.origem} | severidade=${a.severidade} | secao=${a.secao ?? "geral"} | status=${a.status}\n` +
+            `  APONTOU: ${a.titulo} - ${a.detalhe}\n` +
+            `  TRATATIVA REGISTRADA: ${a.justificativa ? `"${a.justificativa}"` : "(nenhuma justificativa foi escrita)"}` +
+            (a.veredito_de_sanacao ? `\n  VEREDITO CONSULTIVO DE SANACAO: ${a.veredito_de_sanacao}` : "")
+        )
+        .join("\n")
+    : "(nenhum apontamento)";
+
+  const edicoes = material.edicoes.length
+    ? material.edicoes
+        .map(
+          (e) =>
+            `- secao=${e.secao} | MUDOU ${e.percentual_de_mudanca}% DO TEXTO (medido, nao estimado) | motivada por: ${e.motivada_por ?? "nenhum apontamento"}\n` +
+            `  ANTES: ${e.texto_anterior}\n  DEPOIS: ${e.texto_novo}`
+        )
+        .join("\n")
+    : "(nenhuma edicao de secao registrada nesta versao)";
+
+  const decisoes = material.decisoes.length
+    ? material.decisoes
+        .map(
+          (d) =>
+            `- v${d.versao} | etapa=${d.etapa} | ${d.decisao} | comentario: ${d.comentarios || "(vazio)"}\n` +
+            (d.itens.length
+              ? d.itens.map((i) => `    apontou "${i.secao ?? "geral"}": ${i.comentario}`).join("\n")
+              : "    (rejeicao sem itens por secao)")
+        )
+        .join("\n")
+    : "(nenhuma decisao anterior)";
+
+  const cadeia = material.versoes.map((v) => `v${v.versao} (${v.status})`).join(" -> ") || "(versao unica)";
+
+  return `Voce prepara um APROVADOR para ler uma proposta comercial, em ${idioma}. Ele tem autoridade
+formal para aprovar ou rejeitar, e essa decisao e dele - nao sua.
+
+Seu unico trabalho e apontar ONDE VALE A PENA OLHAR, em forma de PERGUNTA.
+
+== PROIBICAO ABSOLUTA ==
+Voce NAO recomenda aprovar. Voce NAO recomenda rejeitar. Voce NAO diz que a proposta esta pronta,
+apta, madura, adequada, satisfatoria ou sem impedimentos, nem que "nao ha motivo para nao aprovar".
+Nao ha excecao, nem de passagem, nem no panorama, nem como conclusao de um ponto. Uma unica frase
+sua que soe como recomendacao transforma o aprovador em carimbo - e e por isso que este produto
+tem aprovador humano. Cada ponto seu TEM de terminar em "?": se voce nao consegue formula-lo como
+pergunta, ele nao pertence a esta lista.
+
+== TAMBEM PROIBIDO: CONTA ==
+NAO confira valor, total, soma, preco, quantidade, percentual nem desconto. Isso e conferido
+exatamente por outra parte do sistema, ja esta na tela ao lado do seu resultado, e um palpite seu
+sobre numero seria pior que o silencio.
+
+== A PROPOSTA (v${material.versao}) ==
+Cadeia de versoes: ${cadeia}
+
+--- SECOES DE TEXTO, COMO ESTAO AGORA ---
+${secoes}
+
+--- APONTAMENTOS E O QUE FIZERAM COM CADA UM ---
+${apontamentos}
+
+--- EDICOES DE SECAO NESTA VERSAO ---
+${edicoes}
+
+--- DECISOES ANTERIORES DA CADEIA ---
+${decisoes}
+
+== O QUE PROCURAR ==
+1. TRATATIVA QUE RESPONDE DE LADO: a justificativa registrada para "resolvido" ou "aceito com
+   risco" fala de outra coisa que nao o que o apontamento dizia, ou responde so parte dele.
+2. EDICAO PEQUENA DEMAIS PARA O QUE SE PEDIU: o percentual de mudanca acima e medido; pergunte se
+   uma mudanca daquele tamanho da conta do que o apontamento pedia.
+3. RISCO ACEITO: o que ficou "aceito com risco", com que justificativa, e o que exatamente o
+   aprovador estaria assumindo ao seguir adiante com aquilo em aberto.
+4. CONCENTRACAO: uma secao que acumula apontamentos - o que ela tem que as outras nao tem.
+5. ENTRE VERSOES: o que a rejeicao anterior apontou e como a versao atual respondeu a cada item.
+
+Regras dos pontos:
+- Cite SEMPRE o nome exato de uma secao da lista acima em "secao", ou deixe null. Nunca invente.
+- Cite o id exato de um apontamento da lista acima em "apontamento_id", ou deixe null.
+- Nenhum ponto deve ser generico ("verifique se esta tudo certo?"). Um ponto que nao nomeie o que
+  o motivou nao ajuda ninguem a olhar para lugar nenhum.
+- Lista vazia e resposta legitima. Nao invente pauta para preencher espaco.
+- No maximo 8 pontos: uma lista que nao se le de uma vez volta a ser o dossie inteiro.
+
+Responda com ONLY um objeto JSON, sem markdown:
+{ "panorama": "1-2 frases em ${idioma} descrevendo o estado do conjunto, SEM juizo sobre aprovar ou rejeitar",
+  "pontos": [{ "pergunta": "uma pergunta em ${idioma}, terminando em ?", "por_que": "1-2 frases em ${idioma} dizendo o que no material acima motivou a pergunta", "categoria": "tratativa"|"edicao"|"risco_aceito"|"concentracao"|"entre_versoes", "secao": "nome exato de uma secao acima ou null", "apontamento_id": "id exato de um apontamento acima ou null" }] }`;
+}
+
+interface MaterialDoAssistente {
+  versao: number;
+  secoes: { nome: string; texto: string }[];
+  apontamentos: {
+    id: string;
+    origem: string;
+    titulo: string;
+    detalhe: string;
+    severidade: string;
+    secao: string | null;
+    status: string;
+    justificativa: string | null;
+    veredito_de_sanacao: string | null;
+  }[];
+  edicoes: {
+    secao: string;
+    texto_anterior: string;
+    texto_novo: string;
+    percentual_de_mudanca: number;
+    motivada_por: string | null;
+  }[];
+  versoes: { versao: number; status: string }[];
+  decisoes: {
+    id: string;
+    versao: number;
+    etapa: string;
+    decisao: string;
+    comentarios: string;
+    itens: { secao: string | null; comentario: string }[];
+  }[];
+}
+
+/*
+ * Junta, numa estrutura so, tudo o que o assistente le - e e a MESMA estrutura que alimenta a
+ * impressao do estado. Duas fontes separadas (uma para o prompt, outra para o hash) divergiriam na
+ * primeira manutencao, e a tela passaria a dizer "desatualizado" para sempre ou nunca.
+ */
+async function montarMaterialDoAssistente(proposal: Proposal): Promise<MaterialDoAssistente> {
+  const secoesDaProposta = await montarSecoesDaProposta(proposal);
+  const secoes = secoesDaProposta
+    .filter((s) => (s.texto_atual ?? "").trim().length > 0)
+    .map((s) => ({ nome: s.target_key, texto: (s.texto_atual as string).trim() }));
+
+  /*
+   * TODOS os apontamentos desta proposta, de TODAS as rodadas e das DUAS origens. O painel de
+   * pareceres recorta pela ultima rodada de IA (`latest_opinion_run_id`) porque a pergunta dele e
+   * "o que a IA apontou agora"; a pergunta do aprovador e outra - "o que ficou pendente sobre este
+   * documento" -, e um apontamento do aprovador, que vive numa rodada sintetica e NUNCA e a
+   * `latest_opinion_run_id` (primeira amarra de server/utils/approverFindings.ts), ficaria de fora
+   * exatamente no cenario para o qual este assistente foi feito.
+   */
+  const rodadas = await prisma.proposalOpinionRun.findMany({
+    where: { proposalId: proposal.id },
+    include: { opinions: { include: { findings: { orderBy: { ordinal: "asc" } } } } },
+    orderBy: { createdAt: "asc" },
+  });
+  const apontamentos = rodadas.flatMap((r) =>
+    r.opinions.flatMap((o) =>
+      o.findings.map((f) => ({
+        id: f.id,
+        origem: f.origem,
+        titulo: f.title,
+        detalhe: f.detail,
+        severidade: f.severity,
+        secao: f.targetKey,
+        status: f.status,
+        justificativa: f.resolutionNote,
+        veredito_de_sanacao: f.remediationVerdict,
+      }))
+    )
+  );
+
+  const edicoesBrutas = await prisma.proposalSectionEdit.findMany({
+    where: { proposalId: proposal.id },
+    include: { finding: { select: { title: true } } },
+    orderBy: { createdAt: "asc" },
+  });
+  const edicoes = edicoesBrutas.map((e) => ({
+    secao: e.targetKey ?? "geral",
+    texto_anterior: e.previousValue ?? "",
+    texto_novo: e.newValue ?? "",
+    percentual_de_mudanca: percentualDeMudanca(e.previousValue ?? "", e.newValue ?? ""),
+    motivada_por: e.finding?.title ?? null,
+  }));
+
+  const doGrupo = await prisma.proposal.findMany({
+    where: { proposalGroupId: proposal.proposal_group_id },
+    orderBy: { version: "asc" },
+    select: { id: true, version: true, status: true },
+  });
+  const decisoesBrutas = await prisma.approvalDecision.findMany({
+    where: { proposalId: { in: doGrupo.map((p) => p.id) } },
+    orderBy: { createdAt: "asc" },
+    include: { items: { orderBy: { ordinal: "asc" } } },
+  });
+  const versaoPorProposta = new Map(doGrupo.map((p) => [p.id, p.version]));
+  const workflows = await dbStore.getApprovalWorkflows();
+  const stagePorId = new Map(
+    (workflows as any[]).flatMap((w: any) => (w.stages || []).map((st: any) => [st.id, st] as const))
+  );
+
+  return {
+    versao: proposal.version,
+    secoes,
+    apontamentos,
+    edicoes,
+    versoes: doGrupo.map((p) => ({ versao: p.version, status: p.status as string })),
+    decisoes: decisoesBrutas.map((d) => ({
+      id: d.id,
+      versao: versaoPorProposta.get(d.proposalId) ?? 0,
+      etapa: (stagePorId.get(d.stageId) as any)?.name ?? d.stageId,
+      decisao: d.decision as string,
+      comentarios: d.comments ?? "",
+      itens: d.items.map((i) => ({ secao: i.targetKey, comentario: i.comment })),
+    })),
+  };
+}
+
+/** O estado que a impressao hasheia, derivado do MESMO material que vai ao modelo. */
+function estadoLidoDoMaterial(material: MaterialDoAssistente): EstadoLidoPeloAssistente {
+  return {
+    secoes: material.secoes,
+    apontamentos: material.apontamentos.map((a) => ({
+      id: a.id,
+      status: a.status,
+      justificativa: a.justificativa,
+      veredito: a.veredito_de_sanacao,
+    })),
+    edicoes: material.edicoes.map((e) => ({
+      secao: e.secao,
+      texto_anterior: e.texto_anterior,
+      texto_novo: e.texto_novo,
+    })),
+    decisoes: material.decisoes.map((d) => ({
+      id: d.id,
+      decisao: d.decisao,
+      comentarios: d.comentarios,
+      itens: d.itens,
+    })),
+  };
+}
+
+function serializarBriefing(b: {
+  id: string;
+  proposalVersion: number;
+  pontos: unknown;
+  panorama: string;
+  logicVersion: number;
+  providerUsed: string;
+  modelUsed: string;
+  createdAt: Date;
+  updatedAt: Date;
+}) {
+  return {
+    id: b.id,
+    proposal_version: b.proposalVersion,
+    panorama: b.panorama,
+    pontos: b.pontos,
+    logic_version: b.logicVersion,
+    provider_used: b.providerUsed,
+    model_used: b.modelUsed,
+    created_at: b.createdAt,
+    updated_at: b.updatedAt,
+  };
+}
+
+/*
+ * O GATE do assistente e o MESMO do dossie - `proposal:approve` OU ser aprovador designado no
+ * workflow DESTA proposta. Nao e `proposal:edit`, como as tarefas de IA da F6 e da F7, e a
+ * diferenca importa: aquelas ajudam quem ESCREVE a proposta, esta prepara quem a JULGA. Um autor
+ * que pudesse executa-la estaria lendo a preparacao de quem vai avalia-lo.
+ */
+type AutorizacaoDoAssistente =
+  | { erro: { status: number; message: string }; proposal?: undefined; userId?: undefined }
+  | { erro?: undefined; proposal: Proposal; userId: string };
+
+async function autorizarAssistenteDoAprovador(req: Request, proposalId: string): Promise<AutorizacaoDoAssistente> {
+  const proposal = await dbStore.getProposal(proposalId);
+  if (!proposal) return { erro: { status: 404, message: "Proposal not found." } };
+
+  const userId = requireUserId(req);
+  const roleId = (req.headers["x-role-id"] as string) || "";
+  const workflows = await dbStore.getApprovalWorkflows();
+  const designado = podeVerDossieDaProposta(workflows as any, proposal.approval_workflow_id, { userId, roleId });
+  const role = roleId ? await dbStore.getRoleById(roleId) : null;
+  const podeAprovar = Boolean(role?.permissions?.includes("proposal:approve"));
+  if (!designado && !podeAprovar) {
+    return {
+      erro: {
+        status: 403,
+        message: "Forbidden: you are not a designated approver for this proposal's workflow.",
+      },
+    };
+  }
+  return { proposal, userId };
+}
+
+/*
+ * GET /proposals/:id/assistente-do-aprovador
+ *
+ * LE o resultado guardado desta versao. NUNCA chama o modelo - e por isso que a aba pode abrir
+ * junto com o dossie sem gastar nada. Devolve `briefing: null` quando ainda nao foi gerado (a tela
+ * mostra o botao) e `desatualizado: true` quando o documento ou a tratativa mudaram desde a
+ * geracao (a tela mostra o resultado com o aviso, e o botao de gerar de novo).
+ *
+ * Separado do POST de proposito: fossem a mesma rota, abrir a aba geraria - e "abrir uma tela"
+ * viraria um evento de custo, que e exatamente o que o resultado guardado existe para evitar.
+ */
+router.get("/proposals/:id/assistente-do-aprovador", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const auth = await autorizarAssistenteDoAprovador(req, req.params.id);
+    if (auth.erro) return res.status(auth.erro.status).json({ success: false, message: auth.erro.message });
+    const { proposal } = auth;
+
+    const guardado = await prisma.proposalApproverBriefing.findUnique({ where: { proposalId: proposal.id } });
+    if (!guardado) {
+      return res.json({ success: true, briefing: null, desatualizado: false, nao_recomenda_decisao: true });
+    }
+
+    const material = await montarMaterialDoAssistente(proposal);
+    const impressao = calcularImpressaoDoEstado(estadoLidoDoMaterial(material));
+
+    res.json({
+      success: true,
+      briefing: serializarBriefing(guardado),
+      desatualizado: guardado.inputFingerprint !== impressao,
+      nao_recomenda_decisao: true,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/*
+ * POST /proposals/:id/assistente-do-aprovador
+ *
+ * GERA o resultado - e so ele gasta IA.
+ *
+ * RESULTADO GUARDADO POR VERSAO: acionar de novo sobre a MESMA versao devolve o que esta gravado,
+ * com `origem: "guardado"` e sem uma unica chamada ao provedor. Uma versao nova (a v2, criada por
+ * POST /reopen com id proprio) nao tem linha guardada e portanto oferece rodada nova - e a
+ * unicidade por `proposalId` que faz isso, sem nenhum "if" de versao no caminho. Ver o comentario
+ * do modelo ProposalApproverBriefing em prisma/schema.prisma.
+ *
+ * DESATUALIZADO NAO E INVALIDO: se a impressao nao casa, a resposta AINDA vem do guardado, so que
+ * marcada. Regerar exige `regenerar: true` no corpo. O motivo esta no schema: mudar o status de um
+ * apontamento e o ato mais comum de toda a tratativa, e re-executar a cada mudanca faria a conta
+ * subir sozinha, sem que ninguem tivesse pedido analise nova.
+ */
+router.post("/proposals/:id/assistente-do-aprovador", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const auth = await autorizarAssistenteDoAprovador(req, req.params.id);
+    if (auth.erro) return res.status(auth.erro.status).json({ success: false, message: auth.erro.message });
+    const { proposal, userId } = auth;
+
+    const tenantId = req.headers["x-tenant-id"] as string;
+    const material = await montarMaterialDoAssistente(proposal);
+    const impressao = calcularImpressaoDoEstado(estadoLidoDoMaterial(material));
+
+    const guardado = await prisma.proposalApproverBriefing.findUnique({ where: { proposalId: proposal.id } });
+    const regenerar = req.body?.regenerar === true;
+
+    if (guardado && !regenerar) {
+      return res.json({
+        success: true,
+        origem: "guardado",
+        desatualizado: guardado.inputFingerprint !== impressao,
+        briefing: serializarBriefing(guardado),
+        nao_recomenda_decisao: true,
+      });
+    }
+
+    /*
+     * Sem material, nao ha o que ler. Chamar o modelo aqui devolveria pontos inventados sobre um
+     * documento vazio - e custaria dinheiro para faze-lo.
+     */
+    if (material.secoes.length === 0 && material.apontamentos.length === 0) {
+      return res.status(409).json({
+        success: false,
+        message: "Esta proposta ainda nao tem secao de texto preenchida nem apontamento registrado: nao ha conjunto para o assistente ler.",
+      });
+    }
+
+    const platformSettings = await dbStore.getSettings();
+    const costCap = await checkCostCap(tenantId, platformSettings.monthly_cost_cap_usd ?? null);
+    if (costCap.blocked) {
+      return res.status(402).json({
+        success: false,
+        message: `Monthly AI cost cap reached ($${costCap.currentSpendUsd.toFixed(2)} of $${costCap.capUsd?.toFixed(2)}). Assistente do aprovador bloqueado ate o proximo mes ou ate o teto ser elevado em Admin > IA, Prompts e Custos.`,
+      });
+    }
+
+    const providerResolution = await resolveProvider("proposal_approver_briefing", platformSettings);
+    if (providerResolution.isFallback) {
+      await recordProviderFallback({ tenantId, taskType: "proposal_approver_briefing", intendedProvider: providerResolution.intendedProvider, userId });
+    }
+
+    const { text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(
+      providerResolution.provider as ConnectedProvider,
+      providerResolution.model,
+      buildApproverBriefingPrompt(material, proposal.language),
+      { taskKey: "proposal_approver_briefing", actorRef: buildActorRef("user", userId), triggerType: "user_action" }
+    );
+
+    const resposta = z
+      .object({
+        panorama: z.string().catch(""),
+        pontos: z
+          .array(
+            z.object({
+              pergunta: z.string(),
+              por_que: z.string().nullable().optional().default(""),
+              categoria: z.enum(CATEGORIAS_DO_ASSISTENTE).catch("tratativa"),
+              secao: z.string().nullable().optional().default(null),
+              apontamento_id: z.string().nullable().optional().default(null),
+            })
+          )
+          .catch([]),
+      })
+      .parse(parseAiJson(text));
+
+    await recordAiUsage({
+      tenantId,
+      taskType: "proposal_approver_briefing",
+      provider: providerResolution.provider,
+      model: providerResolution.model,
+      estimatedCostUsd: billedCostUsd ?? estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
+      userId,
+    });
+
+    const recorte = recortarPontosDoAssistente(
+      resposta.pontos.map((p) => ({
+        pergunta: p.pergunta,
+        por_que: p.por_que ?? "",
+        categoria: p.categoria,
+        secao: p.secao ?? null,
+        apontamento_id: p.apontamento_id ?? null,
+      })),
+      new Set(material.secoes.map((s) => s.nome)),
+      new Set(material.apontamentos.map((a) => a.id))
+    );
+
+    /*
+     * O PANORAMA passa pela mesma proibicao dos pontos, e e o unico campo que pode ser SUBSTITUIDO
+     * em vez de descartado: ele nao e uma lista de onde tirar um item, e devolver string vazia
+     * deixaria a tela sem cabecalho. Trocado por uma frase neutra montada aqui a partir de
+     * contagens que ja sao verdade - nenhuma delas e juizo sobre decidir.
+     */
+    const panoramaSoaComoVeredito = contemRecomendacaoDeDecisao(resposta.panorama);
+    const abertos = material.apontamentos.filter((a) => a.status === "aberto" || a.status === "em_tratativa").length;
+    const aceitosComRisco = material.apontamentos.filter((a) => a.status === "aceito_com_risco").length;
+    const panorama = panoramaSoaComoVeredito
+      ? `v${material.versao}: ${material.apontamentos.length} apontamento(s) no total, ${abertos} ainda em aberto ou em tratativa e ${aceitosComRisco} aceito(s) com risco, com ${material.edicoes.length} edicao(oes) de secao registrada(s) nesta versao.`
+      : resposta.panorama.trim();
+
+    /*
+     * `upsert` NAO serve aqui, e a recusa e do proprio produto: a extensao de tenant-scoping
+     * (src/prisma.ts) bloqueia upsert em modelo com tenant_id, porque nao consegue injetar o
+     * tenant no `where` de um upsert cuja unicidade nao inclui o tenant - e a nossa e por
+     * `proposalId` sozinho. Sem esse bloqueio, um upsert conseguiria alcancar a linha de outro
+     * tenant pelo id da proposta. Entao o caminho e o que a mensagem manda: o findUnique ja foi
+     * feito acima, e daqui sai um create ou um update, ambos com o tenant no escopo.
+     */
+    const dadosDaLeitura = {
+      pontos: recorte.pontos as any,
+      panorama,
+      inputFingerprint: impressao,
+      logicVersion: LOGIC_VERSIONS.proposal_approver_briefing,
+      providerUsed: providerResolution.provider,
+      modelUsed: providerResolution.model,
+      generatedByUserId: userId,
+    };
+    const briefing = guardado
+      ? await prisma.proposalApproverBriefing.update({ where: { proposalId: proposal.id }, data: dadosDaLeitura })
+      : await prisma.proposalApproverBriefing.create({
+          data: {
+            id: randomId("pab"),
+            tenantId,
+            proposalId: proposal.id,
+            proposalVersion: proposal.version,
+            ...dadosDaLeitura,
+          },
+        });
+
+    await dbStore.addAuditLog({
+      user_id: userId,
+      action: "Generate Approver Briefing",
+      entity_type: "Proposal",
+      entity_id: proposal.id,
+      ip_address: req.ip || "127.0.0.1",
+      user_agent: req.headers["user-agent"] || "unknown",
+      metadata: JSON.stringify({
+        versao: proposal.version,
+        pontos: recorte.pontos.length,
+        descartados: recorte.descartados,
+        panorama_substituido: panoramaSoaComoVeredito,
+      }),
+    });
+
+    res.json({
+      success: true,
+      origem: "gerado",
+      desatualizado: false,
+      briefing: serializarBriefing(briefing),
+      // Quantos pontos o modelo devolveu e as regras da casa barraram, por motivo. Fica na resposta
+      // para que uma queda de qualidade do modelo apareca em vez de virar uma lista mais curta sem
+      // explicacao - ver o cabecalho de server/utils/approverBriefing.ts.
+      descartados: recorte.descartados,
+      panorama_substituido: panoramaSoaComoVeredito,
+      nao_recomenda_decisao: true,
+      // Dito aqui pelo mesmo motivo que na coerencia da F7: para que nenhuma tela futura apresente
+      // este resultado como conferencia de conta.
+      coerencia_numerica_e_deterministica: "GET /api/proposals/:id/revisao",
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(502).json({ success: false, message: "A resposta do provedor de IA nao veio no formato esperado." });
+    }
     next(err);
   }
 });

@@ -10,7 +10,7 @@ import { redis } from "./redis";
 // document_analysis call, not separate steps. document_classification was hardcoded to Gemini in
 // server/utils/documentClassification.ts before this - now routed through here like the other
 // real task types.
-export type AiTaskType = "document_analysis" | "web_grounding" | "spec_copilot" | "document_classification" | "poc_test_generation" | "poc_schedule_generation" | "poc_final_report_generation" | "proposal_opinion_panel" | "pricing_budget_optimization" | "pricing_catalog_extraction" | "proposal_generation" | "proposal_section_rewrite" | "proposal_finding_remediation" | "proposal_grammar_check" | "proposal_section_coherence";
+export type AiTaskType = "document_analysis" | "web_grounding" | "spec_copilot" | "document_classification" | "poc_test_generation" | "poc_schedule_generation" | "poc_final_report_generation" | "proposal_opinion_panel" | "pricing_budget_optimization" | "pricing_catalog_extraction" | "proposal_generation" | "proposal_section_rewrite" | "proposal_finding_remediation" | "proposal_grammar_check" | "proposal_section_coherence" | "proposal_approver_briefing";
 
 export interface ProviderResolution {
   provider: string;
@@ -49,6 +49,8 @@ interface TaskProviderSettings {
   proposal_grammar_check_provider: string;
   proposal_section_coherence_model: string;
   proposal_section_coherence_provider: string;
+  proposal_approver_briefing_model: string;
+  proposal_approver_briefing_provider: string;
   openai_api_key_encrypted?: string;
   anthropic_api_key_encrypted?: string;
 }
@@ -142,6 +144,14 @@ export const AI_SPENDING_TASK_TYPES = [
   "proposal_finding_remediation",
   "proposal_grammar_check",
   "proposal_section_coherence",
+  // F9 (rodada 09/2026): o assistente do aprovador. Ele le o CONJUNTO numa chamada so - o
+  // documento, os apontamentos com tratativa, a cadeia de versoes e as decisoes -, entao e a
+  // tarefa com o maior prompt do produto e a que mais pesa por execucao. E justamente por isso
+  // que ficar de fora desta lista seria o pior caso do buraco descrito no topo: a chamada mais
+  // cara sendo a unica invisivel ao teto mensal. O resultado guardado por versao
+  // (ProposalApproverBriefing) limita a frequencia, nao o custo unitario - reabrir o dossie nao
+  // chama o modelo de novo, mas a primeira chamada de cada versao chama, e conta aqui.
+  "proposal_approver_briefing",
 ] as const;
 export type AiSpendingTaskType = (typeof AI_SPENDING_TASK_TYPES)[number];
 
