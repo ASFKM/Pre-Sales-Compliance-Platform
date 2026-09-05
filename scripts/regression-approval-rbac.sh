@@ -33,6 +33,7 @@ cleanup() {
     /tmp/regression_approval_final.pdf \
     /tmp/regression_approval_projects.json \
     /tmp/regression_approval_templates.json \
+    /tmp/regression_approval_template_novo.json \
     /tmp/regression_approval_workflows.json \
     /tmp/regression_approval_users.json \
     /tmp/regression_approval_roles.json \
@@ -74,18 +75,13 @@ const proposalTemplates = JSON.parse(fs.readFileSync("/tmp/regression_approval_t
 const approvalWorkflows = JSON.parse(fs.readFileSync("/tmp/regression_approval_workflows.json", "utf8"));
 
 const project = projects[0];
-const technicalTemplate =
-  proposalTemplates.find(t => t.template_type === "technical" && t.default_template && t.active) ||
-  proposalTemplates.find(t => t.template_type === "technical" && t.active);
 const workflow = approvalWorkflows.find(w => w.id === "w1");
 
 if (!project) throw new Error("NO_PROJECT_FOUND");
-if (!technicalTemplate) throw new Error("NO_ACTIVE_TECHNICAL_TEMPLATE_FOUND");
 if (!workflow) throw new Error("NO_W1_WORKFLOW_FOUND");
 
 console.log(JSON.stringify({
   project_id: project.id,
-  template_id: technicalTemplate.id,
   workflow_id: workflow.id,
   stage_r3: workflow.stages.find(s => s.approver_role_id === "r3")?.id,
   stage_r2: workflow.stages.find(s => s.approver_role_id === "r2")?.id,
@@ -94,7 +90,31 @@ console.log(JSON.stringify({
 NODE
 
 PROJECT_ID="$(node -e 'const fs=require("fs"); const c=JSON.parse(fs.readFileSync("/tmp/regression_approval_context.json","utf8")); console.log(c.project_id)')"
-TEMPLATE_ID="$(node -e 'const fs=require("fs"); const c=JSON.parse(fs.readFileSync("/tmp/regression_approval_context.json","utf8")); console.log(c.template_id)')"
+
+# O TEMPLATE E CRIADO AQUI, por upload real do fixture — nao mais reaproveitado do seed.
+#
+# A F5 da rodada 09/2026 tornou o modelo .docx OBRIGATORIO para gerar proposta: sem arquivo no
+# armazenamento a rota devolve 422 TEMPLATE_SEM_ARQUIVO antes de qualquer trabalho. Os templates
+# que `prisma/seed.ts` cria tem `filePath` apontando para caminhos que NUNCA existiram no
+# armazenamento do CI (`/templates/technical_swiss_v1.docx` e companhia), entao este script parou
+# de conseguir gerar a proposta que ele precisa aprovar — e a falha so apareceu na F9, porque
+# nenhuma fase da rodada abriu PR antes dela.
+#
+# Corrigido criando o template aqui, com o MESMO fixture que regression-admin-console.sh ja usa: um
+# .docx OOXML minimo de verdade, versionado. Isso mantem o script independente do seed e exercita o
+# caminho que o produto agora exige — template com arquivo real. Corrigir o seed em vez disto
+# tambem funcionaria, mas colocaria um binario no seed de producao para servir a um script de CI.
+TEMPLATE_FIXTURE="$BASE_DIR/scripts/fixtures/regression-template.docx"
+curl -s -X POST "$REG_BASE/api/templates/proposals" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -F "name=Regression Approval RBAC $$" \
+  -F "template_type=technical" \
+  -F "language=Portuguese" \
+  -F "variables_schema=[\"{{project.name}}\"]" \
+  -F "file=@$TEMPLATE_FIXTURE;type=application/vnd.openxmlformats-officedocument.wordprocessingml.document" \
+  > /tmp/regression_approval_template_novo.json
+
+TEMPLATE_ID="$(node -e 'const fs=require("fs"); const j=JSON.parse(fs.readFileSync("/tmp/regression_approval_template_novo.json","utf8")); if(!j.id){console.error(JSON.stringify(j)); process.exit(1)} console.log(j.id)')"
 WORKFLOW_ID="$(node -e 'const fs=require("fs"); const c=JSON.parse(fs.readFileSync("/tmp/regression_approval_context.json","utf8")); console.log(c.workflow_id)')"
 STAGE_R3="$(node -e 'const fs=require("fs"); const c=JSON.parse(fs.readFileSync("/tmp/regression_approval_context.json","utf8")); console.log(c.stage_r3)')"
 STAGE_R2="$(node -e 'const fs=require("fs"); const c=JSON.parse(fs.readFileSync("/tmp/regression_approval_context.json","utf8")); console.log(c.stage_r2)')"
