@@ -388,6 +388,36 @@ export default function App() {
   const [proposalTemplates, setProposalTemplates] = useState<any[]>([]);
   const [approvalWorkflows, setApprovalWorkflows] = useState<ApprovalWorkflow[]>([]);
   const [approvalDecisions, setApprovalDecisions] = useState<any[]>([]);
+  /*
+   * F8: o ESCOPO DE APROVAÇÃO desta sessão, vindo do servidor (GET /api/me/approval-scope).
+   *
+   * Até esta fase o botão "Centro de Aprovação" era um `setActiveTab("approval")` puro - sem
+   * `hasPermission`, sem condição nenhuma - e aparecia para todo usuário logado, inclusive para
+   * quem não é aprovador de estágio nenhum em fluxo nenhum. Este estado é o que fecha isso.
+   *
+   * `null` enquanto carrega: o menu não pisca o botão para depois escondê-lo. E esconder o botão é
+   * conveniência - o gate de verdade é o 403 do servidor (a rota de decisão e o dossiê), porque um
+   * gate cuja única trava é a tela se atravessa com uma chamada direta.
+   */
+  const [approvalScope, setApprovalScope] = useState<{ is_approver: boolean; stage_ids: string[]; stages: any[] } | null>(null);
+
+  useEffect(() => {
+    if (!currentSessionUser?.id) return;
+    let cancelado = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/me/approval-scope");
+        if (!res.ok) throw new Error(String(res.status));
+        const data = await res.json();
+        if (!cancelado) setApprovalScope({ is_approver: Boolean(data.is_approver), stage_ids: data.stage_ids || [], stages: data.stages || [] });
+      } catch {
+        // Falha de rede não pode ABRIR o menu: sem resposta, o escopo fica vazio e o botão some.
+        // O caminho oposto (assumir que é aprovador) transformaria uma falha em vazamento de tela.
+        if (!cancelado) setApprovalScope({ is_approver: false, stage_ids: [], stages: [] });
+      }
+    })();
+    return () => { cancelado = true; };
+  }, [currentSessionUser?.id, currentSessionUser?.role_id]);
   const [integrations, setIntegrations] = useState<IntegrationConnector[]>([]);
   const [, setSystemStatus] = useState<any>(null);
 
@@ -976,14 +1006,19 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
             </button>
           </div>
 
-          <div className="flex items-center">
-            <button
-              onClick={() => setActiveTab("approval")}
-              className={`py-4 px-1 border-b-2 transition-all ${activeTab === "approval" ? "text-white border-brand-500 font-semibold" : "border-transparent hover:text-white"}`}
-            >
-              {t("approvalCenter")}
-            </button>
-          </div>
+          {/* F8: o Centro de Aprovação só aparece para quem é APROVADOR DESIGNADO em algum
+              estágio de algum workflow ativo (GET /api/me/approval-scope). Antes desta fase o botão
+              não tinha condição nenhuma e aparecia para todo usuário logado. */}
+          {approvalScope?.is_approver && (
+            <div className="flex items-center">
+              <button
+                onClick={() => setActiveTab("approval")}
+                className={`py-4 px-1 border-b-2 transition-all ${activeTab === "approval" ? "text-white border-brand-500 font-semibold" : "border-transparent hover:text-white"}`}
+              >
+                {t("approvalCenter")}
+              </button>
+            </div>
+          )}
 
           <div className="flex items-center">
             <button
@@ -1401,7 +1436,10 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
           )}
 
           {/* TAB 4: APPROVAL CENTER */}
-          {activeTab === "approval" && (
+          {/* A ABA também é gateada, e não só o botão: `activeTab` sobrevive a uma troca de
+              usuário na mesma aba do navegador, e sem esta condição um logout/login para uma conta
+              sem alçada continuaria mostrando a tela que o menu já não oferece. */}
+          {activeTab === "approval" && approvalScope?.is_approver && (
             <Approval
               locale={locale}
               tx={tx}
@@ -1413,6 +1451,7 @@ Pergunta: confirmar disponibilidade de energia e fibra no ponto de instalação.
               users={users}
               roles={roles}
               selectedProjectId={selectedProjectId}
+              approvalScope={approvalScope}
               fetchGlobalConfigs={fetchGlobalConfigs}
               fetchProjectDetails={fetchProjectDetails}
               handleReleaseProposal={handleReleaseProposal}

@@ -22,7 +22,7 @@ import { getTenantContext, TenantContext } from "./tenantContext";
 // being added to this set - the exact gap that let 5 models (including this file's own upsert()
 // bug) go unscoped for most of this project's history.
 export const TENANT_SCOPED_MODELS = new Set([
-  "aIAnalysisJob", "aiProviderConfig", "aiUsageLog", "analysisResult", "approvalDecision",
+  "aIAnalysisJob", "aiProviderConfig", "aiUsageLog", "analysisResult", "approvalDecision", "approvalDecisionItem",
   "approvalWorkflow", "approvalStage", "auditLog", "backgroundTask",   "budgetOptimizationRun",
   "conversationMessage", "crmPairKey", "debugLog", "demand", "demandDocument",
   // CDC 16 F3: a fila de saída para o CRM. Recortada por tenant como tudo o mais — o drenador

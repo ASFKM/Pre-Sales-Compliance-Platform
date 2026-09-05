@@ -15,7 +15,15 @@ export function useApprovalCenter(params: UseApprovalCenterParams) {
   // código de Approval.tsx. Passou a devolver `true`/`false` para que quem chama saiba se pode
   // limpar a caixa de texto: numa recusa do servidor (rejeição sem motivo dá 400, ver
   // server/utils/approvalDecision.ts) apagar o rascunho do aprovador seria perder o texto dele.
-  const handleApprovalDecision = async (propId: string, stage: any, decision: "approved" | "rejected", comments: string): Promise<boolean> => {
+  const handleApprovalDecision = async (
+    propId: string,
+    stage: any,
+    decision: "approved" | "rejected",
+    comments: string,
+    // F8: os itens da rejeição estruturada. Ausentes numa aprovação, e ausentes numa rejeição feita
+    // só com texto livre - os dois casos continuam válidos.
+    items?: { target_kind: string; target_key: string; comment: string; section_snapshot: string | null }[]
+  ): Promise<boolean> => {
     if (!canReviewApprovalStage(stage)) {
       alert(locale === "pt" ? "Você não é o aprovador configurado para esta etapa." : "You are not the configured approver for this stage.");
       return false;
@@ -27,7 +35,14 @@ export function useApprovalCenter(params: UseApprovalCenterParams) {
       const res = await fetch(`/api/proposals/${propId}/approval/decision`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stage_id: stageId, decision, comments })
+        body: JSON.stringify({
+          stage_id: stageId,
+          decision,
+          comments,
+          // `undefined` não vira campo no JSON: um cliente que não mande itens continua produzindo
+          // exatamente o corpo de antes desta fase.
+          items: items && items.length > 0 ? items : undefined,
+        })
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));

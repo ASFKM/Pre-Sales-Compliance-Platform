@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { TriangleAlert, Download, PenLine, ShieldAlert, Sparkles, X, Wrench, Handshake, CircleDollarSign, Eye, CheckCircle2, RotateCcw, ListChecks, History, Table2, FileText, type LucideIcon } from "lucide-react";
-import * as mammoth from "mammoth";
-import DOMPurify from "dompurify";
+import { useDocumentPreview, DocumentFormatSwitch, DocumentPreviewBody } from "./ui/DocumentPreview";
 import { Proposal, SlaRiskFlag, PricingRow } from "../types";
 // F7: as mesmas funcoes que o servidor usa para localizar e aplicar uma correcao pontual. Modulo
 // puro, sem dependencia de node - importado em vez de espelhado porque a regra de "aceitar UMA
@@ -666,55 +665,22 @@ export default function Proposals({
     }
   };
 
-  // PARTE A (preview do documento real): busca o DOCX/PDF já exportado (as mesmas rotas de
-  // download, /export/docx e /export/pdf) e renderiza inline - DOCX via mammoth (já é dependência
-  // do produto, usada no server para extração de upload; o mesmo pacote roda no browser),
-  // PDF nativamente pelo próprio navegador via <iframe> numa blob URL. Nada de reimplementar
-  // renderização de documento no client - é sempre o binário real, não uma reconstrução do texto.
-  const [previewingProposalId, setPreviewingProposalId] = useState<string | null>(null);
-  const [previewFormat, setPreviewFormat] = useState<"docx" | "pdf">("docx");
-  const [previewDocxHtml, setPreviewDocxHtml] = useState<string | null>(null);
-  const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewError, setPreviewError] = useState<string | null>(null);
-
-  const openPreview = async (proposalId: string, format: "docx" | "pdf") => {
-    setPreviewingProposalId(proposalId);
-    setPreviewFormat(format);
-    setPreviewError(null);
-    setPreviewLoading(true);
-    try {
-      const res = await fetch(`/api/proposals/${proposalId}/export/${format}`);
-      if (!res.ok) {
-        throw new Error(locale === "pt" ? "Não foi possível carregar o documento." : "Could not load the document.");
-      }
-      if (format === "docx") {
-        const arrayBuffer = await res.arrayBuffer();
-        const result = await mammoth.convertToHtml({ arrayBuffer });
-        // mammoth passes through whatever href/src the source .docx's XML declares (e.g. a
-        // hyperlink relationship) - sanitize before ever injecting into the DOM, same as any other
-        // HTML string built from data that isn't 100% attacker-proof (an uploaded proposal
-        // template is admin-controlled, not attacker-controlled, but this is the actual document
-        // that gets shown, so it gets the same treatment as untrusted HTML would).
-        setPreviewDocxHtml(DOMPurify.sanitize(result.value));
-      } else {
-        const blob = await res.blob();
-        setPreviewPdfUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(blob); });
-      }
-    } catch (err) {
-      console.error(err);
-      setPreviewError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setPreviewLoading(false);
-    }
-  };
-
-  const closePreview = () => {
-    setPreviewingProposalId(null);
-    setPreviewDocxHtml(null);
-    setPreviewPdfUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
-    setPreviewError(null);
-  };
+  /*
+   * F8: a pré-visualização inline saiu daqui para src/components/ui/DocumentPreview.tsx, sem mudar
+   * de comportamento - ela passou a ser usada TAMBÉM pelo dossiê do aprovador (Centro de
+   * Aprovação), e duas implementações da mesma tela acabariam mostrando coisas diferentes sobre o
+   * mesmo documento. O que era estado local virou o hook; o que era JSX virou <DocumentPreviewBody>.
+   */
+  const {
+    previewingProposalId,
+    previewFormat,
+    previewDocxHtml,
+    previewPdfUrl,
+    previewLoading,
+    previewError,
+    openPreview,
+    closePreview,
+  } = useDocumentPreview(locale);
 
   // Roadmap item (customer_request): "Alerta de Risco de SLA via Base de Conhecimento" - flags
   // proposed commercial/SLA/penalty terms against the approved Knowledge Base's own recorded
@@ -2014,16 +1980,8 @@ export default function Proposals({
                         <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">
                           {locale === "pt" ? "Pré-visualização do Documento" : "Document Preview"}
                         </h3>
-                        <div className="flex rounded border border-slate-200 overflow-hidden ml-2">
-                          {(["docx", "pdf"] as const).map((fmt) => (
-                            <button
-                              key={fmt}
-                              onClick={() => openPreview(previewingProposalId, fmt)}
-                              className={`px-2.5 py-1 text-[10px] font-bold uppercase font-mono cursor-pointer ${previewFormat === fmt ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}
-                            >
-                              {fmt}
-                            </button>
-                          ))}
+                        <div className="ml-2">
+                          <DocumentFormatSwitch format={previewFormat} onChange={(fmt) => openPreview(previewingProposalId, fmt)} />
                         </div>
                       </div>
                       <button onClick={closePreview} className="text-slate-400 hover:text-slate-700 cursor-pointer">
@@ -2031,23 +1989,14 @@ export default function Proposals({
                       </button>
                     </div>
                     <div className="flex-1 min-h-[60vh] overflow-y-auto bg-slate-100">
-                      {previewLoading && (
-                        <div className="h-full flex items-center justify-center text-xs text-slate-400 font-mono">
-                          {locale === "pt" ? "Carregando documento..." : "Loading document..."}
-                        </div>
-                      )}
-                      {previewError && (
-                        <div className="h-full flex items-center justify-center text-xs text-danger-600 font-mono p-4 text-center">{previewError}</div>
-                      )}
-                      {!previewLoading && !previewError && previewFormat === "docx" && previewDocxHtml && (
-                        <div
-                          className="bg-white max-w-3xl mx-auto my-6 p-10 shadow-sm text-sm leading-relaxed prose prose-sm"
-                          dangerouslySetInnerHTML={{ __html: previewDocxHtml }}
-                        />
-                      )}
-                      {!previewLoading && !previewError && previewFormat === "pdf" && previewPdfUrl && (
-                        <iframe title="pdf-preview" src={previewPdfUrl} className="w-full h-full min-h-[70vh] border-0" />
-                      )}
+                      <DocumentPreviewBody
+                        locale={locale}
+                        format={previewFormat}
+                        docxHtml={previewDocxHtml}
+                        pdfUrl={previewPdfUrl}
+                        loading={previewLoading}
+                        error={previewError}
+                      />
                     </div>
                   </div>
                 </div>

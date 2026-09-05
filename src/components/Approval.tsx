@@ -1,7 +1,17 @@
 import { useState } from "react";
-import { TriangleAlert } from "lucide-react";
+import { TriangleAlert, FolderOpen } from "lucide-react";
 import { ApprovalWorkflow, Proposal } from "../types";
 import { useApprovalCenter } from "../hooks/useApprovalCenter";
+import { carregarDossieDeAprovacao, DossieDeAprovacao } from "../lib/approvalDossier";
+import ApprovalDossierModal from "./modals/ApprovalDossierModal";
+import RejectionModal, { ItemDeRejeicaoNaTela } from "./modals/RejectionModal";
+import ApprovalConfirmModal, { ResumoDaAprovacao } from "./modals/ApprovalConfirmModal";
+
+export interface ApprovalScope {
+  is_approver: boolean;
+  stage_ids: string[];
+  stages: { workflow_id: string; stage_id: string; stage_name: string; order: number }[];
+}
 
 interface ApprovalProps {
   locale: "en" | "pt";
@@ -14,6 +24,10 @@ interface ApprovalProps {
   users: any[];
   roles: any[];
   selectedProjectId: string;
+  // F8: o escopo de aprovação vem do SERVIDOR (GET /api/me/approval-scope) e é o mesmo que gateia o
+  // menu em App.tsx. `null` = ainda carregando; enquanto isso os botões ficam desabilitados, porque
+  // habilitar por otimismo e desabilitar depois é pior do que esperar um instante.
+  approvalScope: ApprovalScope | null;
   fetchGlobalConfigs: () => Promise<void> | void;
   fetchProjectDetails: (projectId: string) => Promise<void> | void;
   handleReleaseProposal: (propId: string) => void;
@@ -21,7 +35,7 @@ interface ApprovalProps {
 
 export default function Approval({
   locale, tx, hasPermission, currentSessionUser, proposals, approvalWorkflows, approvalDecisions,
-  users, roles, selectedProjectId, fetchGlobalConfigs, fetchProjectDetails, handleReleaseProposal,
+  users, roles, selectedProjectId, approvalScope, fetchGlobalConfigs, fetchProjectDetails, handleReleaseProposal,
 }: ApprovalProps) {
   const getApprovalStageTargetLabel = (stage: any) => {
     if (!stage) return locale === "pt" ? "Não configurado" : "Not configured";
@@ -35,14 +49,21 @@ export default function Approval({
     return role?.name || stage.approver_role_id || (locale === "pt" ? "Perfil não configurado" : "Role not configured");
   };
 
+  /*
+   * F8: a regra de "sou o aprovador desta etapa" saiu daqui e virou endpoint.
+   *
+   * Ela continua idêntica (o servidor a implementa em server/utils/approvalScope.ts, com o mesmo
+   * critério letra por letra), mas o CLIENTE não a recalcula mais: ele consome a lista de estágios
+   * designados que o servidor devolveu. Duas cópias da mesma regra, uma em cada ponta, é como um
+   * gate de tela costuma morrer - basta alguém corrigir um lado.
+   *
+   * O fallback local existe só para o intervalo em que o escopo ainda não chegou, e ele é
+   * RESTRITIVO: sem escopo, ninguém aprova nada nesta tela. A trava real, de qualquer forma, é o
+   * 403 da rota de decisão.
+   */
   const canReviewApprovalStage = (stage: any) => {
-    if (!stage || !currentSessionUser.id || !currentSessionUser.role_id) return false;
-
-    if (stage.approver_type === "user") {
-      return stage.approver_user_id === currentSessionUser.id;
-    }
-
-    return stage.approver_role_id === currentSessionUser.role_id;
+    if (!stage || !approvalScope) return false;
+    return approvalScope.stage_ids.includes(stage.id);
   };
 
   const { handleApprovalDecision } = useApprovalCenter({
@@ -52,11 +73,9 @@ export default function Approval({
   /*
    * PreSales F8 (PARTE A): o parecer do aprovador é DIGITADO, não mais uma constante.
    *
-   * Antes desta fase, os dois botões mandavam uma frase fixa escrita no código ("Pre-Sales specs
-   * verified and margins approved." / "Requires compliance revision."), idêntica em toda decisão de
-   * toda proposta - o que fazia o campo `comments` da decisão parecer preenchido e não dizer
-   * absolutamente nada sobre aquela proposta. Pior no caso da recusa: o vendedor recebia a proposta
-   * de volta sem nenhuma informação real do que corrigir na versão seguinte.
+   * Antes daquela fase, os dois botões mandavam uma frase fixa escrita no código, idêntica em toda
+   * decisão de toda proposta - o que fazia o campo `comments` da decisão parecer preenchido e não
+   * dizer absolutamente nada sobre aquela proposta.
    *
    * Uma caixa por ETAPA por PROPOSTA (a chave é o par), porque o mesmo aprovador pode ter mais de
    * uma etapa aberta na mesma tela e um rascunho não pode vazar de uma para a outra.
@@ -65,21 +84,89 @@ export default function Approval({
   const [submittingDecisionKey, setSubmittingDecisionKey] = useState<string | null>(null);
   const decisionKey = (propId: string, stageId: string) => `${propId}::${stageId}`;
 
-  const submitDecision = async (propId: string, stage: any, decision: "approved" | "rejected") => {
+  // ── F8: o dossiê, e os dois popups de decisão. ────────────────────────────────────────────────
+  // O dossiê é carregado UMA vez por proposta e reusado: ele é a fonte tanto do modal de quatro
+  // abas quanto do resumo do popup de aprovação e da lista de seções do de rejeição. Buscá-lo três
+  // vezes mostraria três retratos possivelmente diferentes da mesma proposta.
+  const [dossies, setDossies] = useState<Record<string, DossieDeAprovacao>>({});
+  const [carregandoDossieId, setCarregandoDossieId] = useState<string | null>(null);
+  const [dossieAberto, setDossieAberto] = useState<string | null>(null);
+  const [rejeitando, setRejeitando] = useState<{ propId: string; stage: any } | null>(null);
+  const [aprovando, setAprovando] = useState<{ propId: string; stage: any } | null>(null);
+
+  const obterDossie = async (propId: string): Promise<DossieDeAprovacao | null> => {
+    if (dossies[propId]) return dossies[propId];
+    setCarregandoDossieId(propId);
+    try {
+      const dossie = await carregarDossieDeAprovacao(propId);
+      setDossies((atual) => ({ ...atual, [propId]: dossie }));
+      return dossie;
+    } catch (err) {
+      // O servidor responde 403 aqui para quem não é aprovador designado - a mensagem dele é a
+      // prova de que o gate não é só de tela, então ela é mostrada como veio.
+      alert(err instanceof Error ? err.message : String(err));
+      return null;
+    } finally {
+      setCarregandoDossieId(null);
+    }
+  };
+
+  const abrirDossie = async (propId: string) => {
+    const dossie = await obterDossie(propId);
+    if (dossie) setDossieAberto(propId);
+  };
+
+  const abrirAprovacao = async (propId: string, stage: any) => {
+    const dossie = await obterDossie(propId);
+    if (dossie) setAprovando({ propId, stage });
+  };
+
+  const abrirRejeicao = async (propId: string, stage: any) => {
+    const dossie = await obterDossie(propId);
+    if (dossie) setRejeitando({ propId, stage });
+  };
+
+  const registrarDecisao = async (
+    propId: string,
+    stage: any,
+    decision: "approved" | "rejected",
+    items?: (ItemDeRejeicaoNaTela & { section_snapshot: string | null })[]
+  ) => {
     const key = decisionKey(propId, stage.id);
-    // O servidor recusa uma rejeição sem motivo com 400 (server/utils/approvalDecision.ts) - esta
-    // guarda é só para não deixar o usuário chegar até lá; a validação REAL é a de lá.
     const comments = (decisionComments[key] || "").trim();
-    if (decision === "rejected" && comments.length === 0) return;
     setSubmittingDecisionKey(key);
     try {
-      const ok = await handleApprovalDecision(propId, stage, decision, comments);
-      // Só limpa se o servidor ACEITOU - numa recusa (400 por motivo vazio, 403 por aprovador
-      // errado, 409 por decisão duplicada) o texto que o aprovador escreveu fica onde estava.
-      if (ok) setDecisionComments((prev) => { const next = { ...prev }; delete next[key]; return next; });
+      const ok = await handleApprovalDecision(propId, stage, decision, comments, items);
+      if (ok) {
+        // Só limpa se o servidor ACEITOU - numa recusa (400 por motivo vazio, 403 por aprovador
+        // errado, 409 por decisão duplicada) o texto que o aprovador escreveu fica onde estava.
+        setDecisionComments((prev) => { const next = { ...prev }; delete next[key]; return next; });
+        setDossies((atual) => { const next = { ...atual }; delete next[propId]; return next; });
+        setRejeitando(null);
+        setAprovando(null);
+      }
     } finally {
       setSubmittingDecisionKey(null);
     }
+  };
+
+  const resumoDaAprovacao = (propId: string, stage: any): ResumoDaAprovacao | null => {
+    const dossie = dossies[propId];
+    if (!dossie) return null;
+    const todosOsApontamentos = [
+      ...(dossie.pareceres.run?.opinions.flatMap((o) => o.findings) ?? []),
+      ...(dossie.pareceres.rodada_do_aprovador?.findings ?? []),
+    ];
+    return {
+      proposalLabel: `${dossie.proposal.project_name} · ${dossie.proposal.id}`,
+      version: dossie.proposal.version,
+      stageName: stage?.name || stage?.id || "",
+      apontamentosAbertos: todosOsApontamentos.filter((f) => f.status === "aberto" || f.status === "em_tratativa").length,
+      apontamentosAceitosComRisco: todosOsApontamentos.filter((f) => f.status === "aceito_com_risco").length,
+      verificacoesBloqueantes: dossie.verificacoes.bloqueantes,
+      verificacoesTotal: dossie.verificacoes.total,
+      verificacoesDisponiveis: dossie.verificacoes.disponivel,
+    };
   };
 
   return (
@@ -116,20 +203,34 @@ export default function Approval({
                               </p>
                             )}
                           </div>
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${
-                            prop.status === "released" ? "text-brand-700 bg-brand-50 border-brand-200" :
-                            prop.status === "approved" ? "text-success-700 bg-success-50 border-success-200" :
-                            prop.status === "submitted" ? "text-warning-700 bg-warning-50 border-warning-200" :
-                            prop.status === "rejected" ? "text-danger-700 bg-danger-50 border-danger-200" :
-                            "text-slate-700 bg-slate-100 border-slate-200"
-                          }`}>
-                            {locale === "pt" ? (
-                              prop.status === "released" ? "LIBERADA" :
-                              prop.status === "approved" ? "APROVADA" :
-                              prop.status === "submitted" ? "ENVIADA" :
-                              prop.status === "rejected" ? "REJEITADA" : "RASCUNHO"
-                            ) : prop.status}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            {/* F8: o DOSSIÊ. Antes desta fase o aprovador decidia sobre um id: a tela
+                                não mostrava o documento, nem os pareceres, nem as verificações. */}
+                            <button
+                              onClick={() => abrirDossie(prop.id)}
+                              disabled={carregandoDossieId === prop.id}
+                              className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-mono text-[10px] font-bold px-2.5 py-1.5 rounded cursor-pointer disabled:opacity-50"
+                            >
+                              <FolderOpen size={12} />
+                              {carregandoDossieId === prop.id
+                                ? (locale === "pt" ? "Abrindo..." : "Opening...")
+                                : (locale === "pt" ? "Abrir dossiê" : "Open dossier")}
+                            </button>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${
+                              prop.status === "released" ? "text-brand-700 bg-brand-50 border-brand-200" :
+                              prop.status === "approved" ? "text-success-700 bg-success-50 border-success-200" :
+                              prop.status === "submitted" ? "text-warning-700 bg-warning-50 border-warning-200" :
+                              prop.status === "rejected" ? "text-danger-700 bg-danger-50 border-danger-200" :
+                              "text-slate-700 bg-slate-100 border-slate-200"
+                            }`}>
+                              {locale === "pt" ? (
+                                prop.status === "released" ? "LIBERADA" :
+                                prop.status === "approved" ? "APROVADA" :
+                                prop.status === "submitted" ? "ENVIADA" :
+                                prop.status === "rejected" ? "REJEITADA" : "RASCUNHO"
+                              ) : prop.status}
+                            </span>
+                          </div>
                         </div>
 
                         {prop.status === "approved" && hasPermission("proposal:approve") && (
@@ -172,8 +273,7 @@ export default function Approval({
                                     {!matchedDecision && prop.status === "submitted" && canReviewApprovalStage(stage) && (() => {
                                       const key = decisionKey(prop.id, stage.id);
                                       const draft = decisionComments[key] || "";
-                                      const hasReason = draft.trim().length > 0;
-                                      const busy = submittingDecisionKey === key;
+                                      const busy = submittingDecisionKey === key || carregandoDossieId === prop.id;
                                       const textareaId = `approval-comment-${key.replace("::", "-")}`;
                                       return (
                                         <div className="mt-3 pt-3 border-t border-slate-200 space-y-2">
@@ -195,31 +295,32 @@ export default function Approval({
                                             className="w-full text-[11px] leading-snug p-2 rounded border border-slate-200 bg-white text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 disabled:bg-slate-100 disabled:text-slate-400"
                                           />
                                           <div className="flex gap-1">
+                                            {/* F8: os dois botões passaram a ABRIR UM POPUP, e não a
+                                                gravar direto. Aprovar mostra o que está sendo
+                                                aprovado; rejeitar abre a rejeição por seção. O
+                                                "Rejeitar" não é mais desabilitado por falta de
+                                                motivo - o motivo agora se escreve no popup, e é lá
+                                                (e no servidor) que ele é exigido. */}
                                             <button
-                                              onClick={() => submitDecision(prop.id, stage, "approved")}
+                                              onClick={() => abrirAprovacao(prop.id, stage)}
                                               disabled={busy}
                                               className="bg-success-700 hover:bg-success-800 text-white font-mono text-[9px] font-bold py-1 px-2 rounded cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                                             >
                                               {locale === "pt" ? "Aprovar" : "Approve"}
                                             </button>
                                             <button
-                                              onClick={() => submitDecision(prop.id, stage, "rejected")}
-                                              disabled={busy || !hasReason}
-                                              title={!hasReason
-                                                ? (locale === "pt" ? "Escreva o motivo da rejeição para habilitar" : "Write the rejection reason to enable")
-                                                : undefined}
+                                              onClick={() => abrirRejeicao(prop.id, stage)}
+                                              disabled={busy}
                                               className="bg-danger-700 hover:bg-danger-800 text-white font-mono text-[9px] font-bold py-1 px-2 rounded cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                                             >
                                               {locale === "pt" ? "Rejeitar" : "Reject"}
                                             </button>
                                           </div>
-                                          {!hasReason && (
-                                            <p className="text-[10px] text-slate-500 leading-snug">
-                                              {locale === "pt"
-                                                ? "Sem motivo escrito, a rejeição não é aceita: é ele que o vendedor vai ler para corrigir a próxima versão."
-                                                : "Without a written reason a rejection is not accepted: it is what the seller reads to fix the next version."}
-                                            </p>
-                                          )}
+                                          <p className="text-[10px] text-slate-500 leading-snug">
+                                            {locale === "pt"
+                                              ? "Rejeitar abre a tela de apontamento por seção: cada seção apontada vira um apontamento aberto na próxima versão."
+                                              : "Rejecting opens the per-section flagging screen: each flagged section becomes an open finding in the next version."}
+                                          </p>
                                         </div>
                                       );
                                     })()}
@@ -241,6 +342,42 @@ export default function Approval({
                   })}
                 </div>
               )}
+
+              {dossieAberto && dossies[dossieAberto] && (
+                <ApprovalDossierModal locale={locale} dossie={dossies[dossieAberto]} onClose={() => setDossieAberto(null)} />
+              )}
+
+              {rejeitando && dossies[rejeitando.propId] && (
+                <RejectionModal
+                  locale={locale}
+                  proposalLabel={`${dossies[rejeitando.propId].proposal.project_name} · v${dossies[rejeitando.propId].proposal.version}`}
+                  stageName={rejeitando.stage?.name || ""}
+                  secoes={dossies[rejeitando.propId].secoes}
+                  comments={decisionComments[decisionKey(rejeitando.propId, rejeitando.stage.id)] || ""}
+                  onCommentsChange={(value) =>
+                    setDecisionComments((prev) => ({ ...prev, [decisionKey(rejeitando.propId, rejeitando.stage.id)]: value }))
+                  }
+                  submitting={submittingDecisionKey === decisionKey(rejeitando.propId, rejeitando.stage.id)}
+                  onCancel={() => setRejeitando(null)}
+                  onConfirm={(items) => registrarDecisao(rejeitando.propId, rejeitando.stage, "rejected", items)}
+                />
+              )}
+
+              {aprovando && resumoDaAprovacao(aprovando.propId, aprovando.stage) && (
+                <ApprovalConfirmModal
+                  locale={locale}
+                  resumo={resumoDaAprovacao(aprovando.propId, aprovando.stage)!}
+                  comments={decisionComments[decisionKey(aprovando.propId, aprovando.stage.id)] || ""}
+                  submitting={submittingDecisionKey === decisionKey(aprovando.propId, aprovando.stage.id)}
+                  onCancel={() => setAprovando(null)}
+                  onConfirm={() => registrarDecisao(aprovando.propId, aprovando.stage, "approved")}
+                />
+              )}
+
+              {/* `currentSessionUser` continua chegando por prop e é a identidade que o servidor usa
+                  nos cabeçalhos da chamada - mantida aqui para o contrato do componente não mudar
+                  silenciosamente enquanto a regra migrava para o endpoint. */}
+              <span className="hidden" data-current-user={currentSessionUser.id} data-current-role={currentSessionUser.role_id} />
             </div>
   );
 }

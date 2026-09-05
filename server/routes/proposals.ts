@@ -30,6 +30,13 @@ import { STATUS_DE_APONTAMENTO, exigeJustificativa, ehStatusFechado, recortarApo
 import { revisarDocumentoGerado, AchadoDeRevisao } from "../utils/proposalQa";
 import { casarApontamentos, compararRodadas, type ApontamentoParaCasar } from "../utils/proposalRoundMatching";
 import { localizarCorrecoes, type CorrecaoBruta } from "../utils/proposalGrammar";
+import {
+  apontamentosDoAprovador,
+  PERSPECTIVA_DO_APROVADOR,
+  ORIGEM_APROVADOR,
+  ORIGEM_IA,
+} from "../utils/approverFindings";
+import { podeVerDossieDaProposta } from "../utils/approvalScope";
 
 const router = express.Router();
 // F5: o template .docx passou a ser OBRIGATORIO para gerar proposta.
@@ -1084,11 +1091,327 @@ router.post("/proposals/:id/opinion-panel", requirePermission("proposal:edit"), 
   }
 });
 
+/*
+ * F8: a RODADA DO APROVADOR de uma proposta - os itens que o aprovador escreveu ao rejeitar a
+ * versão anterior, já convertidos em apontamentos tratáveis (ver server/utils/approverFindings.ts).
+ *
+ * Serializada em snake_case, como toda a API deste produto, e com os MESMOS campos de um
+ * apontamento de IA: a tela de tratativa é a mesma, e um payload com forma diferente obrigaria a
+ * escrever um segundo componente de tratativa - que divergiria do primeiro.
+ */
+async function carregarRodadaDoAprovador(proposalId: string) {
+  const run = await prisma.proposalOpinionRun.findFirst({
+    where: { proposalId, origem: ORIGEM_APROVADOR },
+    orderBy: { createdAt: "desc" },
+    include: { opinions: { include: { findings: { orderBy: { ordinal: "asc" } } } } },
+  });
+  if (!run) return null;
+
+  const findings = run.opinions.flatMap((o) => o.findings);
+  return {
+    id: run.id,
+    origem: run.origem,
+    created_at: run.createdAt,
+    // De qual versão rejeitada estes itens vieram. Vem do item da decisão, e não de um campo na
+    // rodada, porque é a decisão que carrega o vínculo real - a rodada é só o continente.
+    total: findings.length,
+    abertos: findings.filter((f) => f.status === "aberto" || f.status === "em_tratativa").length,
+    findings: findings.map((f) => ({
+      id: f.id,
+      ordinal: f.ordinal,
+      title: f.title,
+      detail: f.detail,
+      severity: f.severity,
+      target_kind: f.targetKind,
+      target_key: f.targetKey,
+      suggested_value: f.suggestedValue,
+      status: f.status,
+      resolution_note: f.resolutionNote,
+      resolved_by_user_id: f.resolvedByUserId,
+      resolved_at: f.resolvedAt,
+      origem: f.origem,
+      approval_decision_item_id: f.approvalDecisionItemId,
+      previous_finding_id: f.previousFindingId,
+      remediation_verdict: f.remediationVerdict,
+      remediation_note: f.remediationNote,
+      remediation_checked_at: f.remediationCheckedAt,
+    })),
+  };
+}
+
+/*
+ * ═════════════════════════════════════════════════════════════════════════════════════════════
+ * F8: O DOSSIÊ DO APROVADOR - tudo o que decide uma aprovação, numa resposta só.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════
+ *
+ * Até esta fase, o Centro de Aprovação mostrava ao aprovador o cabeçalho da proposta, os estágios
+ * do workflow e uma caixa de texto. Não mostrava o DOCUMENTO, nem os pareceres, nem os
+ * apontamentos e suas tratativas, nem as verificações determinísticas, nem o histórico de versões.
+ * Ele decidia sobre um id.
+ *
+ * Uma resposta só, e não quatro chamadas: as quatro abas do modal abrem juntas e sobre a MESMA
+ * proposta, e quatro requisições concorrentes com quatro gates diferentes produziriam abas que
+ * carregam em ordens diferentes e falham em separado.
+ *
+ * O GATE, que é a outra metade da fase: `requireAuth` + `proposal:approve` OU ser aprovador
+ * designado em algum estágio do workflow DESTA proposta (server/utils/approvalScope.ts, a mesma
+ * função que responde ao menu). Esconder o botão do menu é conveniência de tela; ESTA é a
+ * autorização. Sem ela, o dossiê inteiro - documento, pareceres, tratativas - estaria a uma
+ * chamada de distância de qualquer sessão autenticada.
+ */
+router.get("/proposals/:id/dossie-de-aprovacao", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const proposal = await dbStore.getProposal(req.params.id);
+    if (!proposal) {
+      return res.status(404).json({ success: false, message: "Proposal not found." });
+    }
+
+    const userId = (req.headers["x-user-id"] as string) || "";
+    const roleId = (req.headers["x-role-id"] as string) || "";
+    const workflows = await dbStore.getApprovalWorkflows();
+    const designado = podeVerDossieDaProposta(workflows as any, proposal.approval_workflow_id, { userId, roleId });
+    const role = roleId ? await dbStore.getRoleById(roleId) : null;
+    const podeAprovar = Boolean(role?.permissions?.includes("proposal:approve"));
+
+    if (!designado && !podeAprovar) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden: you are not a designated approver for this proposal's workflow.",
+      });
+    }
+
+    const project = await dbStore.getProject(proposal.project_id);
+    if (!project) {
+      return res.status(404).json({ success: false, message: "Project not found." });
+    }
+
+    // ── ABA "verificações": a conferência determinística, a MESMA de GET /revisao. Nunca IA.
+    let achados: AchadoDeRevisao[] | null = null;
+    let erroDaRevisao: string | null = null;
+    try {
+      achados = await montarAchadosDeRevisao(proposal, project, req.headers["x-tenant-id"] as string);
+    } catch (revisaoErr: any) {
+      // Um documento ilegível no storage não pode derrubar as outras três abas: a aba diz que a
+      // conferência falhou, com o motivo, em vez de o modal inteiro não abrir.
+      erroDaRevisao = revisaoErr?.message || "Não foi possível conferir o documento.";
+    }
+
+    // ── ABA "pareceres": a última rodada de IA com seus apontamentos, e a rodada do aprovador.
+    const runDeIa = proposal.latest_opinion_run_id
+      ? await prisma.proposalOpinionRun.findUnique({
+          where: { id: proposal.latest_opinion_run_id },
+          include: { opinions: { include: { findings: { orderBy: { ordinal: "asc" } } } } },
+        })
+      : null;
+    const rodadaDoAprovador = await carregarRodadaDoAprovador(proposal.id);
+
+    // ── ABA "histórico de versões": a cadeia inteira do grupo, com as decisões de cada versão e as
+    // edições de seção desta. `proposal_group_id` é o elo que a F8 (PARTE B) criou; sem ele, "v2"
+    // seria só um número maior numa linha solta.
+    const doGrupo = await prisma.proposal.findMany({
+      where: { proposalGroupId: proposal.proposal_group_id },
+      orderBy: { version: "asc" },
+      select: { id: true, version: true, status: true, generatedAt: true, generatedBy: true, previousVersionId: true, proposalType: true },
+    });
+    const decisoes = await prisma.approvalDecision.findMany({
+      where: { proposalId: { in: doGrupo.map((p) => p.id) } },
+      orderBy: { createdAt: "asc" },
+      include: { items: { orderBy: { ordinal: "asc" } } },
+    });
+    const nomePorUsuario: Record<string, string> = {};
+    for (const id of [...new Set(decisoes.map((d) => d.approverUserId))]) {
+      const u = await dbStore.getUserById(id);
+      nomePorUsuario[id] = u?.name ?? id;
+    }
+    const stagePorId = new Map(
+      (workflows as any[]).flatMap((w: any) => (w.stages || []).map((st: any) => [st.id, st] as const))
+    );
+
+    /*
+     * F8: as SEÇÕES apontáveis desta proposta, com o texto que cada uma tem AGORA.
+     *
+     * É o que a rejeição estruturada precisa para funcionar: o aprovador escolhe a seção e o texto
+     * atual aparece ao lado, para ele escrever o comentário olhando o que vai ser corrigido. E é o
+     * mesmo recorte que o resto do produto usa - os campos que ESTE tipo de proposta possui
+     * (PROPOSAL_TYPE_EDITABLE_FIELDS) mais os placeholders do template REAL desta proposta, e não o
+     * catálogo inteiro: oferecer uma seção que o template não usa produziria um apontamento
+     * pendurado num texto que nunca aparece no documento.
+     */
+    const secoesApontaveis: { target_kind: string; target_key: string; label: string; texto_atual: string | null }[] = [];
+    for (const campo of PROPOSAL_TYPE_EDITABLE_FIELDS[proposal.proposal_type] ?? []) {
+      if (campo === "manual_pricing_table") continue; // tabela, não texto: não cabe num comentário de seção
+      secoesApontaveis.push({
+        target_kind: "proposal_field",
+        target_key: campo,
+        label: campo,
+        texto_atual: ((proposal as any)[campo] as string | null) ?? null,
+      });
+    }
+    try {
+      const settingsParaSecoes = await dbStore.getSettings();
+      const templatesParaSecoes = await dbStore.getProposalTemplates();
+      const templateDaProposta = templatesParaSecoes.find((t) => t.id === proposal.template_id);
+      const placeholders = await lerPlaceholdersDoTemplateDaProposta(templateDaProposta, settingsParaSecoes);
+      const catalogo = new Map(TEMPLATE_VARIABLE_CATALOG.map((v) => [v.name, v]));
+      for (const nome of [...new Set(placeholders)]) {
+        if (!podeSerSubstituidaPorTextoAprovado(nome)) continue;
+        secoesApontaveis.push({
+          target_kind: "template_field",
+          target_key: nome,
+          label: catalogo.get(nome)?.description || nome,
+          texto_atual: ((proposal.template_field_values ?? {}) as Record<string, string>)[nome] ?? null,
+        });
+      }
+    } catch {
+      // Template ausente no storage não pode impedir o aprovador de ver o dossiê: ele fica com os
+      // campos da proposta e o alvo "geral", que é o suficiente para rejeitar apontando.
+    }
+
+    const edicoesDeSecao = await prisma.proposalSectionEdit.findMany({
+      where: { proposalId: proposal.id },
+      include: { finding: { select: { id: true, title: true, severity: true, origem: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+    for (const e of edicoesDeSecao) {
+      if (!nomePorUsuario[e.authorUserId]) {
+        const u = await dbStore.getUserById(e.authorUserId);
+        nomePorUsuario[e.authorUserId] = u?.name ?? e.authorUserId;
+      }
+    }
+
+    res.json({
+      success: true,
+      proposal: {
+        id: proposal.id,
+        version: proposal.version,
+        status: proposal.status,
+        proposal_type: proposal.proposal_type,
+        project_id: proposal.project_id,
+        project_name: project.name,
+        previous_version_id: proposal.previous_version_id,
+        proposal_group_id: proposal.proposal_group_id,
+        approval_workflow_id: proposal.approval_workflow_id,
+        generated_at: proposal.generated_at,
+        generated_by: proposal.generated_by,
+        has_docx: Boolean(proposal.docx_file_path),
+        has_pdf: Boolean(proposal.pdf_file_path),
+      },
+      // Quem está lendo, e por quê pôde. A tela usa isto para dizer "você é aprovador da etapa X".
+      acesso: { designado, pode_aprovar: podeAprovar },
+      verificacoes: {
+        disponivel: achados !== null,
+        erro: erroDaRevisao,
+        achados: achados ?? [],
+        total: achados?.length ?? 0,
+        bloqueantes: (achados ?? []).filter((a) => a.severidade === "alta").length,
+      },
+      pareceres: {
+        run: runDeIa
+          ? {
+              id: runDeIa.id,
+              status: runDeIa.status,
+              logic_version: runDeIa.logicVersion,
+              created_at: runDeIa.createdAt,
+              completed_at: runDeIa.completedAt,
+              opinions: runDeIa.opinions.map((o) => ({
+                id: o.id,
+                perspective: o.perspective,
+                status: o.status,
+                severity: o.severity,
+                summary: o.summary,
+                content: o.content,
+                provider_used: o.providerUsed,
+                model_used: o.modelUsed,
+                findings: o.findings.map((f) => ({
+                  id: f.id,
+                  ordinal: f.ordinal,
+                  title: f.title,
+                  detail: f.detail,
+                  severity: f.severity,
+                  target_kind: f.targetKind,
+                  target_key: f.targetKey,
+                  status: f.status,
+                  resolution_note: f.resolutionNote,
+                  resolved_at: f.resolvedAt,
+                  origem: f.origem,
+                  remediation_verdict: f.remediationVerdict,
+                  remediation_note: f.remediationNote,
+                })),
+              })),
+            }
+          : null,
+        rodada_do_aprovador: rodadaDoAprovador,
+      },
+      secoes: secoesApontaveis,
+      versoes: {
+        cadeia: doGrupo.map((p) => ({
+          id: p.id,
+          version: p.version,
+          status: p.status,
+          proposal_type: p.proposalType,
+          generated_at: p.generatedAt,
+          generated_by: p.generatedBy,
+          previous_version_id: p.previousVersionId,
+          e_a_atual: p.id === proposal.id,
+        })),
+        decisoes: decisoes.map((d) => ({
+          id: d.id,
+          proposal_id: d.proposalId,
+          stage_id: d.stageId,
+          stage_name: (stagePorId.get(d.stageId) as any)?.name ?? d.stageId,
+          decision: d.decision,
+          comments: d.comments,
+          created_at: d.createdAt,
+          approver_user_id: d.approverUserId,
+          approver_name: nomePorUsuario[d.approverUserId],
+          // F8: os itens por seção daquela rejeição, na ordem em que o aprovador os escreveu.
+          items: d.items.map((i) => ({
+            id: i.id,
+            ordinal: i.ordinal,
+            target_kind: i.targetKind,
+            target_key: i.targetKey,
+            comment: i.comment,
+            section_snapshot: i.sectionSnapshot,
+          })),
+        })),
+        edicoes_de_secao: edicoesDeSecao.map((e) => ({
+          id: e.id,
+          target_kind: e.targetKind,
+          target_key: e.targetKey,
+          previous_value: e.previousValue,
+          new_value: e.newValue,
+          origin: e.origin,
+          created_at: e.createdAt,
+          author_name: nomePorUsuario[e.authorUserId],
+          finding: e.finding ? { id: e.finding.id, title: e.finding.title, severity: e.finding.severity, origem: e.finding.origem } : null,
+        })),
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get("/proposals/:id/opinion-panel", requirePermission("proposal:edit"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const proposal = await dbStore.getProposal(req.params.id);
-    if (!proposal || !proposal.latest_opinion_run_id) {
-      return res.json({ success: true, run: null });
+    if (!proposal) {
+      return res.json({ success: true, run: null, rodada_do_aprovador: null });
+    }
+
+    /*
+     * F8: os itens do aprovador viajam JUNTO, numa chave própria, e nunca dentro de `run`.
+     *
+     * Eles têm de aparecer no mesmo painel para serem tratados pelo mesmo ciclo - é esse o pedido
+     * da fase. Mas misturá-los às perspectivas da IA faria a tela contá-los como parecer de modelo,
+     * e é justamente o que `origem` existe para impedir. Chave separada: o cliente mostra os dois
+     * blocos, cada um com o seu rótulo, e nenhum número se confunde com o outro.
+     */
+    const rodadaDoAprovador = await carregarRodadaDoAprovador(proposal.id);
+
+    if (!proposal.latest_opinion_run_id) {
+      return res.json({ success: true, run: null, rodada_do_aprovador: rodadaDoAprovador });
     }
     const run = await prisma.proposalOpinionRun.findUnique({
       where: { id: proposal.latest_opinion_run_id },
@@ -1110,10 +1433,11 @@ router.get("/proposals/:id/opinion-panel", requirePermission("proposal:edit"), a
      * tela depois. Os apontamentos da F6 cairiam no mesmo buraco: foi assim que ele apareceu.
      */
     if (!run) {
-      return res.json({ success: true, run: null });
+      return res.json({ success: true, run: null, rodada_do_aprovador: rodadaDoAprovador });
     }
     res.json({
       success: true,
+      rodada_do_aprovador: rodadaDoAprovador,
       run: {
         id: run.id,
         status: run.status,
@@ -1555,6 +1879,107 @@ router.post("/proposals/:id/reopen", requirePermission("proposal:generate"), asy
       )
     );
 
+    /*
+     * F8: OS ITENS DO APROVADOR VIRAM APONTAMENTOS DA v2.
+     *
+     * Este é o ponto em que a rejeição estruturada deixa de ser registro histórico e volta a ser
+     * trabalho: cada item que o aprovador escreveu ao rejeitar a v1 nasce na v2 como
+     * ProposalOpinionFinding "aberto", crítico, com a seção-alvo preservada - tratável pelo MESMO
+     * ciclo da F6 (PATCH de status com justificativa obrigatória em "aceito com risco" e
+     * "descartado", botão de sugestão por seção, histórico por seção) e visível para o gate de
+     * envio da F7.
+     *
+     * A modelagem inteira, com o porquê e o custo de cada alternativa descartada, está no cabeçalho
+     * de server/utils/approverFindings.ts. Em uma frase: rodada SINTÉTICA de `origem: "aprovador"`
+     * com uma única perspectiva "aprovador", que NÃO vira `latest_opinion_run_id` (esse campo
+     * continua significando "a última rodada de IA") e que a comparação entre rodadas da F7 filtra
+     * fora - os três números dela contam apontamento de IA, e um item humano lá dentro responderia
+     * outra pergunta com o mesmo número.
+     *
+     * Falhar aqui não desfaz a reabertura: a v2 já existe e é uma proposta válida. Por isso este
+     * bloco não derruba a resposta - o que ele produz é conveniência de tratativa, e a rejeição
+     * continua legível pelas decisões da v1 mesmo se ele não rodar.
+     */
+    let apontamentosDoAprovadorCriados = 0;
+    try {
+      const itensDaRejeicao = await prisma.approvalDecisionItem.findMany({
+        where: { decision: { proposalId: rejected.id, decision: "rejected" } },
+        orderBy: [{ decision: { createdAt: "asc" } }, { ordinal: "asc" }],
+      });
+
+      const convertidos = apontamentosDoAprovador(
+        itensDaRejeicao.map((i) => ({
+          id: i.id,
+          ordinal: i.ordinal,
+          targetKind: i.targetKind,
+          targetKey: i.targetKey,
+          comment: i.comment,
+          sectionSnapshot: i.sectionSnapshot,
+        }))
+      );
+
+      if (convertidos.length > 0) {
+        const runId = randomId("por");
+        const opinionId = randomId("poi");
+        await prisma.proposalOpinionRun.create({
+          data: {
+            id: runId,
+            tenantId,
+            proposalId: reopened.id,
+            origem: ORIGEM_APROVADOR,
+            // "completed" porque não há nada a executar: os itens já existem, escritos por uma
+            // pessoa. Deixá-la "pending" faria a tela esperar por um trabalho que ninguém vai fazer.
+            status: "completed",
+            requestedByUserId: userId,
+            // Rodada humana não tem versão de lógica de prompt. Zero é o valor que a diz "isto não
+            // saiu de prompt nenhum" - e a comparação entre rodadas, que exige logicVersion >= 2
+            // para se declarar comparável, nunca chega a ver esta rodada de qualquer forma.
+            logicVersion: 0,
+            completedAt: new Date(),
+          },
+        });
+        await prisma.proposalAiOpinionItem.create({
+          data: {
+            id: opinionId,
+            tenantId,
+            runId,
+            perspective: PERSPECTIVA_DO_APROVADOR,
+            status: "completed",
+            severity: "critical",
+            summary: `Itens apontados pelo aprovador ao rejeitar a versão ${rejected.version}.`,
+            content: `Esta rodada não é um parecer de IA: são ${convertidos.length} item(ns) escrito(s) por quem rejeitou a versão anterior desta proposta. Cada um vira um apontamento com o mesmo ciclo de tratativa dos demais.`,
+          },
+        });
+        await prisma.proposalOpinionFinding.createMany({
+          data: convertidos.map((c) => ({
+            id: randomId("pof"),
+            tenantId,
+            opinionId,
+            ordinal: c.ordinal,
+            title: c.title,
+            detail: c.detail,
+            severity: c.severity,
+            targetKind: c.targetKind,
+            targetKey: c.targetKey,
+            status: "aberto",
+            origem: ORIGEM_APROVADOR,
+            approvalDecisionItemId: c.approvalDecisionItemId,
+          })),
+        });
+        apontamentosDoAprovadorCriados = convertidos.length;
+      }
+    } catch (itensErr: any) {
+      logDebugMessage({
+        operation: "Proposal Reopen Approver Findings Failure",
+        message: `Reopened ${reopened.id} but could not create the approver findings: ${itensErr?.message}`,
+        status: "ERROR",
+        durationMs: Date.now() - startTime,
+        correlationId,
+        projectId: rejected.project_id,
+        error: itensErr,
+      });
+    }
+
     logDebugMessage({
       operation: "Proposal Reopen",
       message: `Reopened rejected proposal ${rejected.id} (v${rejected.version}) as ${reopened.id} (v${reopened.version})`,
@@ -1580,7 +2005,9 @@ router.post("/proposals/:id/reopen", requirePermission("proposal:generate"), asy
         // F8b (item 2): fica no registro QUAL seção da análise foi regenerada por IA nesta
         // reabertura (e com qual provedor/modelo), ou `null` quando o tipo apenas clonou a v1.
         // Sem isso, as duas reaberturas seriam indistinguíveis no log de auditoria.
-        regenerated_analysis: regeneration
+        regenerated_analysis: regeneration,
+        // F8: quantos itens do aprovador viraram apontamento nesta v2.
+        approver_findings: apontamentosDoAprovadorCriados
       })
     });
 
@@ -1597,7 +2024,8 @@ router.post("/proposals/:id/reopen", requirePermission("proposal:generate"), asy
       version: reopened.version,
       previous_version_id: rejected.id,
       proposal_group_id: reopened.proposal_group_id,
-      regenerated_analysis: regeneration
+      regenerated_analysis: regeneration,
+      approver_findings: apontamentosDoAprovadorCriados
     });
   } catch (err) {
     // F6: mesma razao do catch das rotas de geracao/edicao - a reabertura tambem regenera
@@ -1617,6 +2045,57 @@ router.post("/proposals/:id/reopen", requirePermission("proposal:generate"), asy
  * inclusive as geradas antes desta fase, e porque quem revisa quer poder repetir a conferencia
  * depois de editar campos.
  */
+/*
+ * F8: a montagem da revisão determinística, extraída da rota para poder ser reusada pelo DOSSIÊ do
+ * aprovador. Uma segunda implementação da mesma conferência divergiria da primeira, e a aba
+ * "verificações" do dossiê passaria a dizer algo diferente da aba "revisão" do Estúdio sobre o
+ * mesmo documento - que é o pior defeito possível numa tela cujo propósito é conferir.
+ *
+ * Devolve `null` quando a proposta ainda não tem documento gerado: a rota transforma isso num 409
+ * (não há o que revisar), e o dossiê apenas informa a ausência sem quebrar as outras três abas.
+ */
+async function montarAchadosDeRevisao(
+  proposal: Proposal,
+  project: Project,
+  tenantId: string
+): Promise<AchadoDeRevisao[] | null> {
+  if (!proposal.docx_file_path) return null;
+
+  const platformSettings = await dbStore.getSettings();
+  const templates = await dbStore.getProposalTemplates();
+  const template = templates.find((t) => t.id === proposal.template_id);
+
+  const adapter = createStorageAdapter({ ...platformSettings, storage_mode: proposal.storage_provider });
+  const docxBuffer = await adapter.readFile(proposal.docx_file_path);
+
+  const analysis = await dbStore.getAnalysisResult(proposal.project_id);
+  const { pricingLines } = await resolvePricingLines(tenantId, proposal.project_id);
+  const owner = await dbStore.getUserById(project.owner_user_id);
+  const templateData = buildProposalTemplateData(
+    template ?? { id: "", name: "", version: "", template_type: proposal.proposal_type, file_path: "" },
+    false,
+    project,
+    owner ? owner.name : undefined,
+    analysis,
+    {
+      manual_pricing_table: proposal.manual_pricing_table as any,
+      payment_terms: proposal.payment_terms ?? undefined,
+      delivery_terms: proposal.delivery_terms ?? undefined,
+      proposal_validity: proposal.proposal_validity ?? undefined,
+      commercial_assumptions: proposal.commercial_assumptions ?? undefined,
+      exclusions: proposal.exclusions ?? undefined,
+    },
+    pricingLines
+  );
+
+  const placeholdersDoTemplate = await lerPlaceholdersDoTemplateDaProposta(template, platformSettings);
+  return revisarDocumentoGerado({
+    docxBuffer,
+    placeholdersDoTemplate,
+    variaveisResolvidas: buildTemplateVariables(templateData) as Record<string, unknown>,
+  });
+}
+
 router.get("/proposals/:id/revisao", requirePermission("proposal:edit"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const proposal = await dbStore.getProposal(req.params.id);
@@ -1629,45 +2108,15 @@ router.get("/proposals/:id/revisao", requirePermission("proposal:edit"), async (
     }
 
     const platformSettings = await dbStore.getSettings();
-    const templates = await dbStore.getProposalTemplates();
-    const template = templates.find((t) => t.id === proposal.template_id);
+    void platformSettings;
+    const achados = await montarAchadosDeRevisao(proposal, project, req.headers["x-tenant-id"] as string);
 
-    if (!proposal.docx_file_path) {
+    if (achados === null) {
       return res.status(409).json({
         success: false,
         message: "Esta proposta ainda não tem documento gerado para revisar.",
       });
     }
-
-    const adapter = createStorageAdapter({ ...platformSettings, storage_mode: proposal.storage_provider });
-    const docxBuffer = await adapter.readFile(proposal.docx_file_path);
-
-    const analysis = await dbStore.getAnalysisResult(proposal.project_id);
-    const { pricingLines } = await resolvePricingLines(req.headers["x-tenant-id"] as string, proposal.project_id);
-    const owner = await dbStore.getUserById(project.owner_user_id);
-    const templateData = buildProposalTemplateData(
-      template ?? { id: "", name: "", version: "", template_type: proposal.proposal_type, file_path: "" },
-      false,
-      project,
-      owner ? owner.name : undefined,
-      analysis,
-      {
-        manual_pricing_table: proposal.manual_pricing_table as any,
-        payment_terms: proposal.payment_terms ?? undefined,
-        delivery_terms: proposal.delivery_terms ?? undefined,
-        proposal_validity: proposal.proposal_validity ?? undefined,
-        commercial_assumptions: proposal.commercial_assumptions ?? undefined,
-        exclusions: proposal.exclusions ?? undefined,
-      },
-      pricingLines
-    );
-
-    const placeholdersDoTemplate = await lerPlaceholdersDoTemplateDaProposta(template, platformSettings);
-    const achados: AchadoDeRevisao[] = revisarDocumentoGerado({
-      docxBuffer,
-      placeholdersDoTemplate,
-      variaveisResolvidas: buildTemplateVariables(templateData) as Record<string, unknown>,
-    });
 
     res.json({
       success: true,
@@ -2854,11 +3303,20 @@ router.get("/proposals/:id/comparacao-de-rodadas", requirePermission("proposal:e
       return res.status(404).json({ success: false, message: "Proposal not found." });
     }
 
+    /*
+     * F8: `origem: "ia"` é o que impede a rodada do aprovador de entrar nesta conta.
+     *
+     * Os três números daqui (sanados / parciais / novos) respondem "a IA está apontando as mesmas
+     * coisas de novo?". A rodada do aprovador é criada na reabertura, portanto seria a PRIMEIRA no
+     * `orderBy desc` e passaria a ser lida como "a rodada atual" - a comparação diria que 100% dos
+     * apontamentos são novos e que nada foi sanado. Os números têm dono e significado; este filtro
+     * é o que os mantém.
+     */
     const rodadas = await prisma.proposalOpinionRun.findMany({
-      where: { proposalId: proposal.id },
+      where: { proposalId: proposal.id, origem: ORIGEM_IA },
       orderBy: { createdAt: "desc" },
       take: 2,
-      include: { opinions: { include: { findings: true } } },
+      include: { opinions: { include: { findings: { where: { origem: ORIGEM_IA } } } } },
     });
 
     if (rodadas.length < 2) {

@@ -252,6 +252,7 @@ model Tenant {
   approvalWorkflows       ApprovalWorkflow[]
   approvalStages          ApprovalStage[]
   approvalDecisions       ApprovalDecision[]
+  approvalDecisionItems   ApprovalDecisionItem[]
   proposalOpinionRuns     ProposalOpinionRun[]
   proposalAiOpinionItems  ProposalAiOpinionItem[]
   proposalOpinionFindings ProposalOpinionFinding[]
@@ -1376,6 +1377,13 @@ model ProposalOpinionRun {
   proposal          Proposal                @relation(fields: [proposalId], references: [id], onDelete: Cascade)
   backgroundTaskId  String?                 @map("background_task_id")
   status            String // "pending" | "running" | "completed" | "partial" | "failed"
+  // F8: de ONDE veio esta rodada. "ia" (padrao) = as 4 perspectivas geradas pelo painel de
+  // pareceres. "aprovador" = a rodada SINTETICA criada na reabertura, com os itens que o aprovador
+  // apontou ao rejeitar a versao anterior. Ela existe para que o item humano entre no ciclo da F6
+  // sem duplicar rota nenhuma - e este campo e o que impede que ele seja CONTADO como apontamento
+  // de IA: `latest_opinion_run_id` da proposta so aponta para rodada "ia", e a comparacao entre
+  // rodadas da F7 filtra por ele. Ver server/utils/approverFindings.ts.
+  origem            String                  @default("ia")
   requestedByUserId String                  @map("requested_by_user_id")
   // Same staleness-versioning pattern as AnalysisResult.logicVersions (src/aiLogicVersions.ts) -
   // this run's prompts are hardcoded logic too, so a saved run can go stale the same way.
@@ -1440,32 +1448,42 @@ model ProposalAiOpinionItem {
 // ("template_field") - e pode trazer o texto de substituição sugerido. A trava não muda: a IA
 // nunca escreve; quem aplica é um clique humano pela rota normal.
 model ProposalOpinionFinding {
-  id                   String                   @id
-  tenantId             String                   @map("tenant_id")
-  tenant               Tenant                   @relation(fields: [tenantId], references: [id])
-  opinionId            String                   @map("opinion_id")
-  opinion              ProposalAiOpinionItem    @relation(fields: [opinionId], references: [id], onDelete: Cascade)
+  id                     String                   @id
+  tenantId               String                   @map("tenant_id")
+  tenant                 Tenant                   @relation(fields: [tenantId], references: [id])
+  opinionId              String                   @map("opinion_id")
+  opinion                ProposalAiOpinionItem    @relation(fields: [opinionId], references: [id], onDelete: Cascade)
   // Ordem em que a IA devolveu o apontamento dentro do parecer - só para exibir na mesma ordem.
-  ordinal              Int
-  title                String                   @db.Text
-  detail               String                   @db.Text
-  severity             String // "info" | "warning" | "critical"
+  ordinal                Int
+  title                  String                   @db.Text
+  detail                 String                   @db.Text
+  severity               String // "info" | "warning" | "critical"
   // Seção que o apontamento afeta. "proposal_field": um campo de PROPOSAL_TYPE_EDITABLE_FIELDS.
   // "template_field": uma variável de texto do template (server/utils/templateVariableCatalog.ts).
   // "geral": o apontamento não se prende a uma seção (a IA não soube dizer qual, ou é transversal).
-  targetKind           String                   @map("target_kind")
-  targetKey            String?                  @map("target_key")
+  targetKind             String                   @map("target_kind")
+  targetKey              String?                  @map("target_key")
   // Texto de substituição que a IA propõe para a seção-alvo, quando ela tem um. Nunca aplicado
   // sozinho: é o valor que o botão "Aplicar" manda pela rota normal, com o mesmo gate de rascunho
   // e permissão de qualquer edição manual.
-  suggestedValue       String?                  @map("suggested_value") @db.Text
+  suggestedValue         String?                  @map("suggested_value") @db.Text
   // Ciclo: "aberto" | "em_tratativa" | "resolvido" | "aceito_com_risco" | "descartado".
   // Os dois últimos EXIGEM `resolutionNote` - regra de servidor (a rota recusa com 400), não
   // validação de formulário, porque é ela que sustenta o gate de envio da F7.
-  status               String                   @default("aberto")
-  resolutionNote       String?                  @map("resolution_note") @db.Text
-  resolvedByUserId     String?                  @map("resolved_by_user_id")
-  resolvedAt           DateTime?                @map("resolved_at")
+  status                 String                   @default("aberto")
+  // F8: "ia" (padrao) ou "aprovador". Redundante com `opinion.run.origem` de proposito - o filtro
+  // que protege os numeros da F7 e feito sobre listas de findings ja carregadas, e obrigar um join
+  // ate a run para saber a origem de cada linha faria o filtro ser esquecido na primeira consulta
+  // que nao incluisse `opinion.run`.
+  origem                 String                   @default("ia")
+  // F8: o item da rejeicao estruturada que deu origem a este apontamento. `@unique` porque um item
+  // vira UM apontamento, na v2 que nasceu daquela rejeicao: sem isso, uma segunda reabertura (ou
+  // um retry) duplicaria os itens do aprovador na mesma proposta.
+  approvalDecisionItemId String?                  @unique @map("approval_decision_item_id")
+  approvalDecisionItem   ApprovalDecisionItem?    @relation(fields: [approvalDecisionItemId], references: [id], onDelete: SetNull)
+  resolutionNote         String?                  @map("resolution_note") @db.Text
+  resolvedByUserId       String?                  @map("resolved_by_user_id")
+  resolvedAt             DateTime?                @map("resolved_at")
   // F7: o VINCULO ENTRE RODADAS. Aponta para o apontamento da rodada ANTERIOR que este continua.
   // null = apontamento novo nesta rodada. É o que sustenta os tres numeros da tela (sanados /
   // parciais / novos): sem um vinculo gravado, cada rodada seria uma lista solta e "estou
@@ -1476,20 +1494,20 @@ model ProposalOpinionFinding {
   // da rodada anterior no proprio prompt), o SERVIDOR revalida o id contra essa lista, e onde o
   // modelo se calou entra um desempate deterministico que exige mesma secao-alvo E similaridade
   // de titulo. Um id que o modelo invente e descartado: o apontamento simplesmente conta como novo.
-  previousFindingId    String?                  @map("previous_finding_id")
-  previousFinding      ProposalOpinionFinding?  @relation("SucessaoDeApontamento", fields: [previousFindingId], references: [id], onDelete: SetNull)
-  successors           ProposalOpinionFinding[] @relation("SucessaoDeApontamento")
+  previousFindingId      String?                  @map("previous_finding_id")
+  previousFinding        ProposalOpinionFinding?  @relation("SucessaoDeApontamento", fields: [previousFindingId], references: [id], onDelete: SetNull)
+  successors             ProposalOpinionFinding[] @relation("SucessaoDeApontamento")
   // F7: o VEREDITO DE SANACAO, consultivo. Preenchido pela rota que le o par
   // previousValue/newValue de ProposalSectionEdit e pergunta a IA se a edicao enderecou o
   // apontamento: "sanado" | "parcial" | "nao_sanado". NAO muda `status`: a IA nunca fecha um
   // apontamento, ela sugere ao humano que o marque como resolvido. Manter os dois campos
   // separados e o que impede que uma opiniao de modelo vire decisao registrada.
-  remediationVerdict   String?                  @map("remediation_verdict")
-  remediationNote      String?                  @map("remediation_note") @db.Text
-  remediationCheckedAt DateTime?                @map("remediation_checked_at")
-  createdAt            DateTime                 @default(now()) @map("created_at")
-  updatedAt            DateTime                 @updatedAt @map("updated_at")
-  sectionEdits         ProposalSectionEdit[]
+  remediationVerdict     String?                  @map("remediation_verdict")
+  remediationNote        String?                  @map("remediation_note") @db.Text
+  remediationCheckedAt   DateTime?                @map("remediation_checked_at")
+  createdAt              DateTime                 @default(now()) @map("created_at")
+  updatedAt              DateTime                 @updatedAt @map("updated_at")
+  sectionEdits           ProposalSectionEdit[]
 
   @@index([tenantId])
   @@index([opinionId])
@@ -1579,11 +1597,53 @@ model ApprovalDecision {
   stage          ApprovalStage        @relation(fields: [stageId], references: [id])
   approverUserId String               @map("approver_user_id")
   decision       ApprovalDecisionType
+  // Continua sendo o RESUMO da decisao, NOT NULL, e continua obrigatorio na rejeicao
+  // (server/utils/approvalDecision.ts). A F8 acrescentou os itens por secao ao lado dele; ela NAO
+  // os transformou no motivo. Uma rejeicao sem resumo continua 400.
   comments       String               @db.Text
   createdAt      DateTime             @default(now()) @map("created_at")
 
+  // F8: a rejeicao ESTRUTURADA - zero ou mais secoes apontadas nesta mesma decisao.
+  items ApprovalDecisionItem[]
+
   @@index([tenantId])
   @@map("approval_decisions")
+}
+
+/**
+ * F8: UM item da rejeicao estruturada - "nesta secao, isto aqui".
+ * Fica pendurado na DECISAO, e nao na proposta, porque e parte do registro do que o aprovador
+ * decidiu: a decisao e imutavel depois de gravada (a rota recusa a segunda com 409), e os itens
+ * dela tambem. O caminho ate o ciclo de tratativa e outro: na reabertura, cada item vira um
+ * ProposalOpinionFinding na v2 (server/utils/approverFindings.ts), e e LA que ele ganha status,
+ * justificativa e sugestao. Guardar os dois no mesmo lugar faria a decisao registrada mudar
+ * depois de tomada.
+ */
+model ApprovalDecisionItem {
+  id              String           @id
+  tenantId        String           @map("tenant_id")
+  tenant          Tenant           @relation(fields: [tenantId], references: [id])
+  decisionId      String           @map("decision_id")
+  decision        ApprovalDecision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  // Ordem em que o aprovador escreveu os itens na tela.
+  ordinal         Int
+  // Mesmo vocabulario de alvo do apontamento (ProposalOpinionFinding.targetKind):
+  // "proposal_field" | "template_field" | "geral". Reusar o vocabulario e o que permite que o item
+  // vire apontamento sem traducao no meio.
+  targetKind      String           @map("target_kind")
+  targetKey       String?          @map("target_key")
+  comment         String           @db.Text
+  // O texto que a secao tinha NO MOMENTO da rejeicao. Guardado porque a v2 vai editar essa secao:
+  // sem o retrato, quem le o apontamento na v2 nao consegue saber a que texto o aprovador se
+  // referia. null quando a secao estava vazia ou o alvo e "geral".
+  sectionSnapshot String?          @map("section_snapshot") @db.Text
+  createdAt       DateTime         @default(now()) @map("created_at")
+
+  finding ProposalOpinionFinding?
+
+  @@index([tenantId])
+  @@index([decisionId])
+  @@map("approval_decision_items")
 }
 
 model IntegrationConnector {
