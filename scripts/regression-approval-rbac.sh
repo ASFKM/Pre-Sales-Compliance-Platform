@@ -154,11 +154,39 @@ GENERATED_PDF_PATH="$(echo "$PROJECT_PROPOSALS" | PROPOSAL_ID="$PROPOSAL_ID" nod
 echo "Created proposal: $PROPOSAL_ID"
 echo "Generated files: $GENERATED_DOCX_PATH $GENERATED_PDF_PATH"
 
+
+# Um .docx e um ZIP com `word/document.xml` dentro — e e ISSO que se verifica aqui, em vez de
+# perguntar ao `file` como se chama o que ele viu.
+#
+# A checagem anterior era `file ... | grep -q "Microsoft Word 2007+"`, e ela quebrou quando a F5
+# desta rodada tornou o template .docx obrigatorio: o documento passou a ser o template REAL
+# preenchido (antes vinha do gerador generico), o zip resultante e outro, e a base de assinaturas
+# do `file` do runner deixou de rotula-lo assim. O export devolvia 200 com um .docx integro e o
+# script reprovava mesmo assim.
+#
+# A verificacao nova e mais forte, nao mais fraca: assinatura PK do zip e a parte que faz de um zip
+# um documento do Word. E ela diz o que viu quando falha — uma reprovacao que nao mostra o motivo
+# custou um ciclo inteiro de CI para ser diagnosticada.
+verificar_docx() {
+  local arquivo="$1"
+  local rotulo="$2"
+  if [ "$(head -c 2 "$arquivo")" != "PK" ]; then
+    echo "FALHA: $rotulo nao e um zip. file diz: $(file -b "$arquivo"); primeiros bytes:" >&2
+    head -c 200 "$arquivo" >&2
+    return 1
+  fi
+  if ! unzip -l "$arquivo" 2>/dev/null | grep -q "word/document.xml"; then
+    echo "FALHA: $rotulo e um zip mas nao tem word/document.xml. Partes:" >&2
+    unzip -l "$arquivo" >&2
+    return 1
+  fi
+}
+
 curl -s -o /tmp/regression_approval_export.docx -w "HTTP:%{http_code}\n" \
   -H "Authorization: Bearer $ENGINEER_TOKEN" \
   "$REG_BASE/api/proposals/$PROPOSAL_ID/export/docx" | grep -q "HTTP:200"
 
-file /tmp/regression_approval_export.docx | grep -q "Microsoft Word 2007+"
+verificar_docx /tmp/regression_approval_export.docx "o .docx exportado da proposta"
 
 curl -s -w "\nHTTP:%{http_code}\n" -X POST "$REG_BASE/api/proposals/$PROPOSAL_ID/approval/submit" \
   -H "Authorization: Bearer $ENGINEER_TOKEN" \
@@ -210,7 +238,7 @@ curl -s -o /tmp/regression_approval_final.pdf -w "HTTP:%{http_code}\n" \
   -H "Authorization: Bearer $ENGINEER_TOKEN" \
   "$REG_BASE/api/proposals/$PROPOSAL_ID/export/pdf" | grep -q "HTTP:200"
 
-file /tmp/regression_approval_final.docx | grep -q "Microsoft Word 2007+"
+verificar_docx /tmp/regression_approval_final.docx "o .docx da proposta liberada"
 file /tmp/regression_approval_final.pdf | grep -q "PDF document"
 
 curl -s -H "Authorization: Bearer $ADMIN_TOKEN" "$REG_BASE/api/projects/$PROJECT_ID/proposals" > /tmp/regression_approval_proposals_final.json
