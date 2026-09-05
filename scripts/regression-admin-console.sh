@@ -164,7 +164,7 @@ expect 200 "admin deletes role" \
   -X DELETE "$REG_BASE/api/roles/$ROLE_ID" \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 
-echo "Settings/AI/Prompts/Branding/Storage"
+echo "Settings/AI/Prompts/Storage"
 expect 403 "engineer cannot update settings" \
   -X PUT $REG_BASE/api/settings \
   -H "Authorization: Bearer $ENGINEER_TOKEN" \
@@ -261,41 +261,19 @@ expect 400 "invalid prompt boolean is blocked" \
   -H "Content-Type: application/json" \
   -d "{\"is_active\":\"yes\"}"
 
-expect 403 "manager cannot update branding" \
-  -X PUT $REG_BASE/api/branding \
-  -H "Authorization: Bearer $MANAGER_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"company_name":"Blocked"}'
-
-expect 200 "admin updates branding" \
-  -X PUT $REG_BASE/api/branding \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"company_name":"Assistant AI Regression"}'
-
-expect 400 "empty company name is blocked" \
-  -X PUT $REG_BASE/api/branding \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "{\"company_name\":\"\"}"
-
-expect 400 "invalid branding color is blocked" \
-  -X PUT $REG_BASE/api/branding \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "{\"primary_color\":\"green\"}"
-
-expect 400 "invalid branding theme is blocked" \
-  -X PUT $REG_BASE/api/branding \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "{\"default_theme\":\"auto\"}"
-
-expect 400 "unsafe branding logo path is blocked" \
-  -X PUT $REG_BASE/api/branding \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "{\"company_logo_path\":\"https://example.com/logo.png\"}"
+# F5 desta rodada (commit def23e7) removeu a identidade visual configuravel por inteiro: as
+# tabelas branding_settings/brand_styles, a permissao `branding:manage` e a rota PUT
+# /api/branding. Os seis casos que existiam aqui pediam por essa rota e passaram a receber 404
+# ('API route not found') no lugar do 403/200/400 esperado.
+#
+# Foram REMOVIDOS, e nao adaptados para esperar 404: um caso de regressao que so confirma a
+# ausencia de uma rota nao guarda comportamento nenhum - ele passaria igual se a rota voltasse
+# com outro nome, e falharia no dia em que alguem legitimamente registrasse /api/branding para
+# outra coisa. O que precisava ser guardado (que a capacidade sumiu do catalogo de permissoes e
+# do banco) ja esta coberto pela migration da F5 e pelos testes de unidade dela.
+#
+# Esta falha so apareceu na F9 porque nenhuma fase da rodada abriu PR ate aqui - o CI nunca
+# tinha visto a F5. E o argumento a favor de abrir PR por fase, nao por rodada.
 
 expect 403 "manager cannot test storage" \
   -H "Authorization: Bearer $MANAGER_TOKEN" \
@@ -494,7 +472,6 @@ const required = [
   "Create Role",
   "Delete Role",
   "Update AI Platform Settings",
-  "Update Branding Settings",
   "Create Proposal Template",
   "Delete Proposal Template",
   "Create Approval Workflow",
