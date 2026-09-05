@@ -19,7 +19,36 @@ jobs:
         run: |
           semgrep scan --config auto --json --output=.semgrep.json . || true
           python3 scripts/ci/semgrep_summary.py >> "$FORGEJO_STEP_SUMMARY"
-          semgrep scan --config auto --error .
+      - name: Gerando relatório de achados (painel Infra Ops)
+        run: python3 scripts/ci/infraops_findings.py semgrep .semgrep.json || true
+      - name: semgrep (gate)
+        # O gate le o JSON que o passo de relatorio ja gerou, em vez de rodar o semgrep de novo em
+        # modo texto. Dois motivos, os dois medidos por revisao de seguranca:
+        #   1. o modo texto imprime as LINHAS DE CODIGO casadas — e uma regra de credencial casa
+        #      exatamente na linha que contem a credencial. O log de CI e legivel por qualquer um
+        #      com acesso ao repositorio, e e a fonte que o painel Infra Ops le;
+        #   2. esse mesmo eco permitia FORJAR a linha `::infraops-findings::` a partir de um
+        #      arquivo do repositorio, publicando achado falso no painel.
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          try:
+              d = json.load(open(".semgrep.json"))
+          except Exception as e:
+              print(f"nao foi possivel ler .semgrep.json: {e}")
+              sys.exit(1)
+          erros = [r for r in (d.get("errors") or []) if r.get("level") == "error"]
+          achados = d.get("results") or []
+          for a in achados[:50]:
+              print(f"{a.get('check_id')}  {a.get('path')}:{(a.get('start') or {}).get('line')}")
+          if erros:
+              print(f"semgrep reportou {len(erros)} erro(s) de execucao")
+              sys.exit(1)
+          if achados:
+              print(f"{len(achados)} achado(s) de semgrep — gate reprovado")
+              sys.exit(1)
+          print("semgrep sem achados")
+          PY
 
   trivy:
     runs-on: trivy
@@ -29,6 +58,12 @@ jobs:
       - name: trivy fs
         run: |
           apk add --no-cache python3 >/dev/null
-          trivy fs --scanners vuln --severity HIGH,CRITICAL --format json --output .trivy.json . || true
+          # MEDIUM entra no RELATÓRIO (a política do gate trata MEDIUM como aviso), mas NÃO no
+          # gate abaixo, que continua bloqueando só em HIGH/CRITICAL. O que muda é o que o painel
+          # enxerga, não o que reprova o merge.
+          trivy fs --scanners vuln --severity CRITICAL,HIGH,MEDIUM --format json --output .trivy.json . || true
           python3 scripts/ci/trivy_summary.py >> "$FORGEJO_STEP_SUMMARY"
-          trivy fs --scanners vuln --severity HIGH,CRITICAL --exit-code 1 .
+      - name: Gerando relatório de achados (painel Infra Ops)
+        run: python3 scripts/ci/infraops_findings.py trivy .trivy.json || true
+      - name: trivy (gate)
+        run: trivy fs --scanners vuln --severity HIGH,CRITICAL --exit-code 1 .
