@@ -571,6 +571,12 @@ export async function runHeartbeatForTenant(tenantId: string): Promise<void> {
         // e o que faz o seed do CMSaaS deixar de defasar, e o heartbeat adota o catalogo antes
         // de recortar ai_task_config contra ele, entao ela vale ja neste mesmo heartbeat.
         { key: "proposal_section_rewrite", label: "Reescrita de Secao (Propostas)", capability: "text" },
+        // F7 (rodada 09/2026): as tres da revisao assistida, da treze a quinze. Declarar aqui e o
+        // que faz o seed do CMSaaS deixar de defasar, e o heartbeat adota o catalogo antes de
+        // recortar ai_task_config contra ele - entao valem ja neste mesmo heartbeat.
+        { key: "proposal_finding_remediation", label: "Sanacao de Apontamento (Propostas)", capability: "text" },
+        { key: "proposal_grammar_check", label: "Revisao Gramatical (Propostas)", capability: "text" },
+        { key: "proposal_section_coherence", label: "Coerencia entre Secoes (Propostas)", capability: "text" },
       ] as const;
       const aiTaskCatalog = AI_TASK_CATALOG.map((t) => ({
         key: t.key,

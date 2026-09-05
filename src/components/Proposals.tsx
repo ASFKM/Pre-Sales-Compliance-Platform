@@ -3,6 +3,11 @@ import { TriangleAlert, Download, PenLine, ShieldAlert, Sparkles, X, Wrench, Han
 import * as mammoth from "mammoth";
 import DOMPurify from "dompurify";
 import { Proposal, SlaRiskFlag, PricingRow } from "../types";
+// F7: as mesmas funcoes que o servidor usa para localizar e aplicar uma correcao pontual. Modulo
+// puro, sem dependencia de node - importado em vez de espelhado porque a regra de "aceitar UMA
+// correcao muda so aquele trecho" tem de ser literalmente a mesma dos dois lados; um espelho
+// divergiria na primeira mudanca e o bug apareceria como texto salvo errado.
+import { aplicarCorrecao, reposicionarAposAplicar, type CorrecaoLocalizada } from "../../server/utils/proposalGrammar";
 import { useProposals } from "../hooks/useProposals";
 import { BackgroundTask } from "../hooks/useBackgroundTasks";
 import {
@@ -62,6 +67,31 @@ interface FindingItem {
   suggested_value?: string | null;
   status: FindingStatus;
   resolution_note?: string | null;
+  // F7: o apontamento da rodada ANTERIOR que este continua (null = novo nesta rodada).
+  previous_finding_id?: string | null;
+  // F7: o veredito CONSULTIVO de sanacao. Fica ao lado do status, nunca no lugar dele - a IA
+  // sugere que o apontamento foi endereçado, quem fecha e uma pessoa.
+  remediation_verdict?: "sanado" | "parcial" | "nao_sanado" | null;
+  remediation_note?: string | null;
+  remediation_checked_at?: string | null;
+}
+
+// F7: o veredito de sanacao, com a cor dizendo o quanto ele ainda pede atencao.
+const REMEDIATION_LABEL: Record<string, { pt: string; en: string; classe: string }> = {
+  sanado: { pt: "IA: sanado", en: "AI: remediated", classe: "bg-success-50 text-success-700 border-success-200" },
+  parcial: { pt: "IA: parcial", en: "AI: partial", classe: "bg-warning-50 text-warning-700 border-warning-200" },
+  nao_sanado: { pt: "IA: não sanado", en: "AI: not remediated", classe: "bg-danger-50 text-danger-700 border-danger-200" },
+};
+
+// F7: os tres numeros que distinguem progresso de "a IA inventa apontamento toda vez".
+interface ComparacaoDeRodadas {
+  rodada_atual: { id: string; created_at: string; logic_version: number };
+  rodada_anterior: { id: string; created_at: string; logic_version: number };
+  comparavel: boolean;
+  totais: { sanados: number; parciais: number; novos: number; abertos_na_rodada_anterior: number; total_nesta_rodada: number };
+  sanados: Array<{ id: string; title: string; severity: string; status: string }>;
+  parciais: Array<{ id: string; title: string; severity: string; status: string }>;
+  novos: Array<{ id: string; title: string; severity: string; status: string }>;
 }
 
 const FINDING_STATUS_LABEL: Record<FindingStatus, { pt: string; en: string }> = {
@@ -148,11 +178,22 @@ export default function Proposals({
   // Roadmap item (official): "Pareceres de IA Multi-Perspectiva em Propostas" - keyed by
   // proposal.id, undefined = not yet fetched, null = fetched but no run exists yet.
   const [opinionRuns, setOpinionRuns] = useState<Record<string, OpinionRun | null | undefined>>({});
+  // F7: a comparacao entre a rodada atual e a anterior, por proposta. `null` = ha rodada mas nao ha
+  // com que comparar (primeira rodada) - que e informacao diferente de "tres zeros".
+  const [comparacoes, setComparacoes] = useState<Record<string, ComparacaoDeRodadas | null | undefined>>({});
+  const [verificandoSanacao, setVerificandoSanacao] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     for (const prop of proposals) {
       if (opinionRuns[prop.id] !== undefined) continue;
+      // F7: a comparacao vem junto do painel, na mesma varredura - ela e a primeira coisa que
+      // alguem olha ao reabrir uma proposta ja revisada ("melhorou?"), entao esperar um segundo
+      // clique para busca-la esconderia justamente o numero que da sentido ao ciclo.
+      fetch(`/api/proposals/${prop.id}/comparacao-de-rodadas`)
+        .then((r) => r.json())
+        .then((data) => { if (data.success) setComparacoes((atual) => ({ ...atual, [prop.id]: data.comparacao })); })
+        .catch(() => {});
       fetch(`/api/proposals/${prop.id}/opinion-panel`)
         .then((r) => r.json())
         .then((data) => {
@@ -180,6 +221,8 @@ export default function Proposals({
       if (finished.status === "failed") {
         throw new Error(finished.error_message || (locale === "pt" ? "Falha ao gerar os pareceres de IA." : "Failed to generate the AI opinion panel."));
       }
+      const cmp = await fetch(`/api/proposals/${proposalId}/comparacao-de-rodadas`).then((r) => r.json()).catch(() => ({}));
+      if (cmp.success) setComparacoes((atual) => ({ ...atual, [proposalId]: cmp.comparacao }));
       const res2 = await fetch(`/api/proposals/${proposalId}/opinion-panel`);
       const data2 = await res2.json().catch(() => ({}));
       if (data2.success) setOpinionRuns((prev) => ({ ...prev, [proposalId]: data2.run }));
@@ -217,6 +260,76 @@ export default function Proposals({
   const [salvandoSecao, setSalvandoSecao] = useState<string | null>(null);
   const [linhasDePreco, setLinhasDePreco] = useState<PricingRow[]>([]);
   const [historicoDeSecoes, setHistoricoDeSecoes] = useState<Array<any>>([]);
+  /*
+   * F7: a GRAMÁTICA, por seção. `texto_base` é o texto contra o qual os offsets foram calculados -
+   * guardá-lo é o que permite aceitar uma correção sem reconsultar o servidor, e recusar sem mexer
+   * em nada. Cada aceite reescreve o texto_base e reposiciona as correções que sobraram.
+   */
+  const [correcoesDaSecao, setCorrecoesDaSecao] = useState<Record<string, { texto_base: string; correcoes: CorrecaoLocalizada[]; descartadas: number }>>({});
+  const [revisandoGramatica, setRevisandoGramatica] = useState<string | null>(null);
+  // F7: a coerência entre seções, do modal inteiro (não de uma seção só - contradição é relação).
+  const [coerencia, setCoerencia] = useState<{ achados: Array<any>; secoes: string[] } | null>(null);
+  const [verificandoCoerencia, setVerificandoCoerencia] = useState(false);
+
+  const revisarGramaticaDaSecao = async (propId: string, secao: string) => {
+    setRevisandoGramatica(secao);
+    try {
+      const res = await fetch(`/api/proposals/${propId}/secoes/${secao}/revisar-gramatica`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível revisar a gramática." : "Could not check grammar."));
+        return;
+      }
+      setCorrecoesDaSecao((atual) => ({
+        ...atual,
+        [secao]: { texto_base: data.texto_atual, correcoes: data.correcoes, descartadas: data.descartadas_por_trecho_inexato ?? 0 },
+      }));
+      // O textarea passa a mostrar o mesmo texto que a revisão enxergou, senão os trechos
+      // destacados abaixo não corresponderiam ao que se está prestes a salvar.
+      setTextoDaSecao((atual) => ({ ...atual, [secao]: data.texto_atual }));
+    } finally {
+      setRevisandoGramatica(null);
+    }
+  };
+
+  /*
+   * Aceitar UMA correção: aplica só aquele trecho, no offset dele, e reposiciona as demais. Recusar
+   * apenas remove o item da lista - o texto não é tocado, que é o ponto todo de ter aceitar e
+   * recusar por item em vez de um "usar este texto" de tudo ou nada.
+   */
+  const decidirCorrecao = (secao: string, correcao: CorrecaoLocalizada, aceitar: boolean) => {
+    setCorrecoesDaSecao((atual) => {
+      const estado = atual[secao];
+      if (!estado) return atual;
+      if (!aceitar) {
+        return { ...atual, [secao]: { ...estado, correcoes: estado.correcoes.filter((c) => c.id !== correcao.id) } };
+      }
+      const novoTexto = aplicarCorrecao(estado.texto_base, correcao);
+      if (novoTexto === null) {
+        alert(locale === "pt"
+          ? "O texto mudou desde a revisão: peça a revisão gramatical de novo."
+          : "The text changed since the review: run the grammar check again.");
+        return atual;
+      }
+      setTextoDaSecao((t) => ({ ...t, [secao]: novoTexto }));
+      return { ...atual, [secao]: { ...estado, texto_base: novoTexto, correcoes: reposicionarAposAplicar(estado.correcoes, correcao) } };
+    });
+  };
+
+  const verificarCoerencia = async (propId: string) => {
+    setVerificandoCoerencia(true);
+    try {
+      const res = await fetch(`/api/proposals/${propId}/coerencia-entre-secoes`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível verificar a coerência." : "Could not check coherence."));
+        return;
+      }
+      setCoerencia({ achados: data.achados, secoes: data.secoes_avaliadas });
+    } finally {
+      setVerificandoCoerencia(false);
+    }
+  };
 
   const openEditor = (prop: Proposal) => {
     const allowed = PROPOSAL_TYPE_EDITABLE_FIELDS[prop.proposal_type];
@@ -230,6 +343,8 @@ export default function Proposals({
     setAbaDoEditor("texto");
     setLinhasDePreco((prop.manual_pricing_table as PricingRow[] | undefined) ?? []);
     setSugestaoDaSecao({});
+    setCorrecoesDaSecao({});
+    setCoerencia(null);
 
     void fetch(`/api/proposals/${prop.id}/secoes-de-texto`)
       .then((r) => r.json())
@@ -419,6 +534,31 @@ export default function Proposals({
   };
 
   /*
+   * F7: pedir o veredito de SANAÇÃO de um apontamento.
+   *
+   * O botão nunca muda o status - ele preenche um campo ao lado dele. Depois de ver "IA: sanado",
+   * quem revisa continua tendo de clicar em "Resolvido", que é o ato que carimba autor e instante.
+   * Essa separação é o que impede que uma opinião de modelo destranque o gate de envio desta mesma
+   * fase, que só olha o status.
+   */
+  const verificarSanacao = async (propId: string, findingId: string) => {
+    setVerificandoSanacao(findingId);
+    try {
+      const res = await fetch(`/api/proposals/${propId}/apontamentos/${findingId}/verificar-sanacao`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível verificar a sanação." : "Could not check remediation."));
+        return;
+      }
+      const res2 = await fetch(`/api/proposals/${propId}/opinion-panel`);
+      const painel = await res2.json().catch(() => ({}));
+      if (painel.success) setOpinionRuns((atual) => ({ ...atual, [propId]: painel.run }));
+    } finally {
+      setVerificandoSanacao(null);
+    }
+  };
+
+  /*
    * F6: aplicar o texto de um apontamento na seção que ele aponta.
    *
    * Dois destinos diferentes com a mesma cara para quem clica: um campo da própria proposta vai
@@ -431,7 +571,10 @@ export default function Proposals({
     setAplicandoApontamento(finding.id);
     try {
       if (finding.target_kind === "proposal_field" && finding.target_key) {
-        await handleUpdateProposalFields(propId, { [finding.target_key]: texto });
+        // F7: leva a ORIGEM e o apontamento também neste caminho. Antes só o caminho de
+        // template_field registrava histórico, e sem ele a verificação de sanação não tem o par
+        // texto anterior/texto novo para ler - justamente nos campos que a IA mais aponta.
+        await handleUpdateProposalFields(propId, { [finding.target_key]: texto, origem, apontamento_id: finding.id });
       } else if (finding.target_kind === "template_field" && finding.target_key) {
         const res = await fetch(`/api/proposals/${propId}/campos-do-template`, {
           method: "PUT",
@@ -1099,6 +1242,80 @@ export default function Proposals({
                               </span>
                             )}
                           </h4>
+
+                          {/*
+                            * F7: a COMPARAÇÃO CONTRA A RODADA ANTERIOR.
+                            *
+                            * Sem estes três números, revisar de novo é um ato de fé: "sanados 4,
+                            * parciais 1, novos 0" e "sanados 0, parciais 1, novos 6" são duas
+                            * situações opostas que a lista de apontamentos sozinha não distingue.
+                            * A primeira rodada de uma proposta aparece dizendo que não há com que
+                            * comparar, em vez de três zeros - que se leriam como "nada mudou".
+                            */}
+                          {comparacoes[prop.id] !== undefined && (
+                            comparacoes[prop.id] === null ? (
+                              <p className="text-[10px] text-slate-400 italic">
+                                {locale === "pt"
+                                  ? "Primeira rodada desta proposta — não há revisão anterior com que comparar."
+                                  : "First run for this proposal — no previous review to compare against."}
+                              </p>
+                            ) : (
+                              <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-2.5">
+                                <p className="text-[9px] uppercase font-bold text-slate-500 tracking-wider font-mono mb-1.5 flex items-center gap-1">
+                                  <ListChecks size={10} />
+                                  {locale === "pt" ? "Contra a revisão anterior" : "Against the previous review"}
+                                  <span className="normal-case tracking-normal font-normal text-slate-400">
+                                    {" "}({new Date(comparacoes[prop.id]!.rodada_anterior.created_at).toLocaleString(locale === "pt" ? "pt-BR" : "en-US")})
+                                  </span>
+                                </p>
+                                {!comparacoes[prop.id]!.comparavel ? (
+                                  <p className="text-[10px] text-slate-500 italic">
+                                    {locale === "pt"
+                                      ? "A revisão anterior é de antes dos apontamentos estruturados: todo apontamento apareceria como novo, o que é verdade e ao mesmo tempo inútil. Gere outra revisão para ter comparação."
+                                      : "The previous run predates structured findings: every finding would show as new, which is true and useless at once. Generate another review to get a comparison."}
+                                  </p>
+                                ) : (
+                                  <>
+                                    <div className="flex flex-wrap gap-3">
+                                      <span className="text-[11px] font-mono">
+                                        <span className="font-bold text-success-700 text-sm">{comparacoes[prop.id]!.totais.sanados}</span>
+                                        <span className="text-slate-500"> {locale === "pt" ? "sanados" : "remediated"}</span>
+                                      </span>
+                                      <span className="text-[11px] font-mono">
+                                        <span className="font-bold text-warning-700 text-sm">{comparacoes[prop.id]!.totais.parciais}</span>
+                                        <span className="text-slate-500"> {locale === "pt" ? "parciais" : "partial"}</span>
+                                      </span>
+                                      <span className="text-[11px] font-mono">
+                                        <span className="font-bold text-danger-700 text-sm">{comparacoes[prop.id]!.totais.novos}</span>
+                                        <span className="text-slate-500"> {locale === "pt" ? "novos" : "new"}</span>
+                                      </span>
+                                      <span className="text-[10px] text-slate-400 font-mono self-center">
+                                        {locale === "pt" ? "de" : "of"} {comparacoes[prop.id]!.totais.abertos_na_rodada_anterior} {locale === "pt" ? "abertos antes" : "open before"}
+                                      </span>
+                                    </div>
+                                    {comparacoes[prop.id]!.sanados.length > 0 && (
+                                      <p className="mt-1.5 text-[10px] text-slate-500">
+                                        <span className="font-bold text-success-700">{locale === "pt" ? "Sanados:" : "Remediated:"}</span>{" "}
+                                        {comparacoes[prop.id]!.sanados.map((f) => f.title).join(" · ")}
+                                      </p>
+                                    )}
+                                    {comparacoes[prop.id]!.parciais.length > 0 && (
+                                      <p className="mt-0.5 text-[10px] text-slate-500">
+                                        <span className="font-bold text-warning-700">{locale === "pt" ? "Continuam:" : "Still standing:"}</span>{" "}
+                                        {comparacoes[prop.id]!.parciais.map((f) => f.title).join(" · ")}
+                                      </p>
+                                    )}
+                                    <p className="mt-1.5 text-[9px] text-slate-400 italic">
+                                      {locale === "pt"
+                                        ? "Um apontamento é reconhecido como o mesmo quando a IA declara o vínculo com o da revisão anterior (id revalidado pelo servidor) ou, na falta dele, quando aponta a mesma seção com título semelhante."
+                                        : "A finding is matched when the AI declares the link to the previous run's finding (id revalidated server-side) or, failing that, when it targets the same section with a similar title."}
+                                    </p>
+                                  </>
+                                )}
+                              </div>
+                            )
+                          )}
+
                           <div className="grid grid-cols-2 gap-2">
                             {OPINION_PERSPECTIVES.map((perspective) => {
                               const item = opinionRuns[prop.id]!.opinions.find((o) => o.perspective === perspective);
@@ -1180,6 +1397,28 @@ export default function Proposals({
                                             </p>
                                           )}
 
+                                          {/*
+                                            * F7: o veredito de SANAÇÃO, ao lado do status e nunca
+                                            * no lugar dele. Ele diz o que a IA achou da edição que
+                                            * a pessoa fez; fechar o apontamento continua sendo o
+                                            * clique em "Resolvido", que carimba autor e instante.
+                                            */}
+                                          {finding.remediation_verdict && (
+                                            <div className="mt-1.5 flex items-start gap-1.5">
+                                              <span className={`shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${REMEDIATION_LABEL[finding.remediation_verdict]?.classe ?? ""}`}>
+                                                {REMEDIATION_LABEL[finding.remediation_verdict]?.[locale] ?? finding.remediation_verdict}
+                                              </span>
+                                              {finding.remediation_note && (
+                                                <span className="text-[10px] text-slate-500 italic">{finding.remediation_note}</span>
+                                              )}
+                                            </div>
+                                          )}
+                                          {finding.previous_finding_id && (
+                                            <p className="mt-1 text-[9px] text-slate-400 font-mono uppercase tracking-wider">
+                                              {locale === "pt" ? "continua um apontamento da revisão anterior" : "continues a finding from the previous review"}
+                                            </p>
+                                          )}
+
                                           {finding.suggested_value && finding.target_key && prop.status === "draft" && hasPermission("proposal:edit") && (
                                             <div className="mt-2 p-2 rounded border border-brand-200 bg-brand-50/50">
                                               <p className="text-[9px] uppercase font-bold text-brand-700 tracking-wider font-mono mb-1">
@@ -1231,6 +1470,27 @@ export default function Proposals({
                                               </div>
                                             ) : (
                                               <div className="flex flex-wrap gap-1.5 mt-2">
+                                                {/*
+                                                  * F7: só faz sentido para apontamento com seção -
+                                                  * o veredito lê o par texto anterior/novo do
+                                                  * histórico daquela seção, e um apontamento
+                                                  * transversal ("geral") não tem esse par.
+                                                  */}
+                                                {finding.target_key && (
+                                                  <button
+                                                    onClick={(e) => { e.preventDefault(); void verificarSanacao(prop.id, finding.id); }}
+                                                    disabled={verificandoSanacao === finding.id}
+                                                    title={locale === "pt"
+                                                      ? "A IA lê o texto anterior e o novo desta seção e diz se a edição endereçou este apontamento. O veredito é consultivo: fechar o apontamento continua sendo seu."
+                                                      : "The AI reads this section's previous and new text and says whether the edit addressed this finding. The verdict is advisory: closing the finding is still yours."}
+                                                    className="text-[9px] font-mono font-bold px-2 py-0.5 rounded border border-brand-200 bg-brand-50 text-brand-700 hover:brightness-95 transition-colors disabled:opacity-50 cursor-pointer flex items-center gap-1"
+                                                  >
+                                                    <Sparkles size={9} />
+                                                    {verificandoSanacao === finding.id
+                                                      ? (locale === "pt" ? "Verificando..." : "Checking...")
+                                                      : (locale === "pt" ? "Verificar sanação" : "Check remediation")}
+                                                  </button>
+                                                )}
                                                 {(["em_tratativa", "resolvido", "aceito_com_risco", "descartado", "aberto"] as FindingStatus[])
                                                   .filter((alvo) => alvo !== finding.status)
                                                   .map((alvo) => (
@@ -1488,6 +1748,23 @@ export default function Proposals({
                                               ? (locale === "pt" ? "Pedindo..." : "Asking...")
                                               : (locale === "pt" ? "Pedir sugestão à IA" : "Ask AI")}
                                           </button>
+                                          {/*
+                                            * F7: a GRAMÁTICA. Botão separado do "pedir sugestão" de
+                                            * propósito - são coisas diferentes: aquele reescreve a
+                                            * seção inteira e é tudo ou nada; este devolve correções
+                                            * pontuais, cada uma com aceitar e recusar próprios.
+                                            */}
+                                          <button
+                                            onClick={() => void revisarGramaticaDaSecao(editingProposal.id, secao.nome)}
+                                            disabled={revisandoGramatica === secao.nome}
+                                            title={locale === "pt" ? "A IA devolve correções pontuais de gramática e ortografia. Você aceita ou recusa uma a uma - aceitar muda só aquele trecho." : "The AI returns pointwise grammar and spelling corrections. You accept or reject each one - accepting changes only that snippet."}
+                                            className="shrink-0 flex items-center gap-1 text-[10px] font-mono font-bold uppercase text-slate-600 hover:bg-slate-50 border border-slate-200 px-2 py-1 rounded cursor-pointer disabled:opacity-50"
+                                          >
+                                            <PenLine size={11} />
+                                            {revisandoGramatica === secao.nome
+                                              ? (locale === "pt" ? "Revisando..." : "Checking...")
+                                              : (locale === "pt" ? "Gramática" : "Grammar")}
+                                          </button>
                                         </div>
 
                                         {sugestao && (
@@ -1510,6 +1787,89 @@ export default function Proposals({
                                           </div>
                                         )}
 
+                                        {/*
+                                          * F7: as correções pontuais, destacadas EM COR dentro do
+                                          * próprio texto, com aceitar e recusar por item.
+                                          *
+                                          * O texto é fatiado pelos offsets que o servidor devolveu
+                                          * - por isso ele fica ao lado do textarea e não dentro
+                                          * dele: um textarea não colore trecho. Aceitar aplica só
+                                          * aquele trecho e reposiciona os demais; recusar remove o
+                                          * item e não toca no texto.
+                                          */}
+                                        {correcoesDaSecao[secao.nome] && (
+                                          <div className="mb-2 p-2 rounded border border-slate-200 bg-slate-50/70">
+                                            <p className="text-[9px] uppercase font-bold text-slate-600 tracking-wider font-mono mb-1.5">
+                                              {locale === "pt" ? "Revisão gramatical" : "Grammar review"}
+                                              <span className="normal-case tracking-normal font-normal text-slate-500">
+                                                {" "}— {correcoesDaSecao[secao.nome]!.correcoes.length}{" "}
+                                                {locale === "pt" ? "correção(ões) pendente(s)" : "pending correction(s)"}
+                                                {correcoesDaSecao[secao.nome]!.descartadas > 0 && (
+                                                  <span className="text-slate-400">
+                                                    {" "}({correcoesDaSecao[secao.nome]!.descartadas}{" "}
+                                                    {locale === "pt" ? "descartada(s): trecho não localizado no texto" : "discarded: snippet not found in the text"})
+                                                  </span>
+                                                )}
+                                              </span>
+                                            </p>
+                                            {correcoesDaSecao[secao.nome]!.correcoes.length === 0 ? (
+                                              <p className="text-[10px] text-slate-500 italic">
+                                                {locale === "pt" ? "Nada pendente nesta seção." : "Nothing pending in this section."}
+                                              </p>
+                                            ) : (
+                                              <>
+                                                <p className="text-[11px] leading-relaxed text-slate-700 whitespace-pre-wrap mb-2 p-2 bg-white rounded border border-slate-200 max-h-40 overflow-y-auto">
+                                                  {(() => {
+                                                    const { texto_base, correcoes } = correcoesDaSecao[secao.nome]!;
+                                                    const pedacos: React.ReactNode[] = [];
+                                                    let cursor = 0;
+                                                    for (const c of correcoes) {
+                                                      if (c.offset > cursor) pedacos.push(<span key={`t${c.id}`}>{texto_base.slice(cursor, c.offset)}</span>);
+                                                      pedacos.push(
+                                                        <mark key={c.id} className="bg-warning-100 text-warning-900 border-b-2 border-warning-400 rounded-sm px-0.5">
+                                                          {c.trecho_original}
+                                                        </mark>
+                                                      );
+                                                      cursor = c.offset + c.trecho_original.length;
+                                                    }
+                                                    pedacos.push(<span key="fim">{texto_base.slice(cursor)}</span>);
+                                                    return pedacos;
+                                                  })()}
+                                                </p>
+                                                <ul className="space-y-1.5">
+                                                  {correcoesDaSecao[secao.nome]!.correcoes.map((c) => (
+                                                    <li key={c.id} className="flex items-start gap-2 text-[10px]">
+                                                      <span className="flex-1">
+                                                        <span className="bg-danger-50 text-danger-700 line-through px-1 rounded">{c.trecho_original}</span>
+                                                        {" → "}
+                                                        <span className="bg-success-50 text-success-700 px-1 rounded font-medium">{c.trecho_corrigido}</span>
+                                                        {c.motivo && <span className="text-slate-400 italic"> — {c.motivo}</span>}
+                                                      </span>
+                                                      <button
+                                                        onClick={() => decidirCorrecao(secao.nome, c, true)}
+                                                        className="shrink-0 text-[9px] font-mono font-bold uppercase bg-success-600 hover:bg-success-700 text-white px-2 py-0.5 rounded cursor-pointer"
+                                                      >
+                                                        {locale === "pt" ? "Aceitar" : "Accept"}
+                                                      </button>
+                                                      <button
+                                                        onClick={() => decidirCorrecao(secao.nome, c, false)}
+                                                        className="shrink-0 text-[9px] font-mono font-bold uppercase text-slate-500 hover:bg-slate-100 border border-slate-200 px-2 py-0.5 rounded cursor-pointer"
+                                                      >
+                                                        {locale === "pt" ? "Recusar" : "Reject"}
+                                                      </button>
+                                                    </li>
+                                                  ))}
+                                                </ul>
+                                                <p className="mt-1.5 text-[9px] text-slate-400 italic">
+                                                  {locale === "pt"
+                                                    ? "Aceitar muda o texto abaixo; salvar a seção é que grava."
+                                                    : "Accepting edits the text below; saving the section is what persists it."}
+                                                </p>
+                                              </>
+                                            )}
+                                          </div>
+                                        )}
+
                                         <textarea
                                           value={textoDaSecao[secao.nome] ?? ""}
                                           onChange={(e) => setTextoDaSecao((atual) => ({ ...atual, [secao.nome]: e.target.value }))}
@@ -1529,6 +1889,64 @@ export default function Proposals({
                                       </div>
                                     );
                                   })}
+                                </div>
+                              )}
+
+                              {/*
+                                * F7: a COERÊNCIA ENTRE SEÇÕES, por IA - contradição entre o que uma
+                                * seção afirma e outra nega.
+                                *
+                                * A coerência NUMÉRICA não está aqui e não deve estar: soma de itens
+                                * contra total, item do BOM ausente e placeholder esquecido são
+                                * conferidos exatamente, sem IA, em "Revisão do documento"
+                                * (GET /proposals/:id/revisao). O aviso abaixo diz isso na tela para
+                                * que ninguém leia esta lista como conferência de conta.
+                                */}
+                              {secoesDeTexto.length > 1 && (
+                                <div className="pt-2 border-t border-slate-100">
+                                  <div className="flex items-center justify-between gap-2 pt-2 mb-2">
+                                    <h4 className="text-[10px] uppercase font-bold text-slate-500 tracking-wider font-mono flex items-center gap-1.5">
+                                      <ListChecks size={11} />
+                                      {locale === "pt" ? "Coerência entre seções" : "Cross-section coherence"}
+                                    </h4>
+                                    <button
+                                      onClick={() => void verificarCoerencia(editingProposal.id)}
+                                      disabled={verificandoCoerencia}
+                                      title={locale === "pt" ? "A IA procura contradição entre o que uma seção afirma e outra nega. Número, total e prazo NÃO passam por aqui - são conferidos exatamente na Revisão do documento." : "The AI looks for contradictions between what one section states and another denies. Numbers, totals and deadlines do NOT go through here - they are checked exactly in the document review."}
+                                      className="flex items-center gap-1 text-[10px] font-mono font-bold uppercase text-brand-700 hover:bg-brand-50 border border-brand-200 px-2 py-1 rounded cursor-pointer disabled:opacity-50"
+                                    >
+                                      <Sparkles size={11} />
+                                      {verificandoCoerencia
+                                        ? (locale === "pt" ? "Verificando..." : "Checking...")
+                                        : (locale === "pt" ? "Verificar coerência" : "Check coherence")}
+                                    </button>
+                                  </div>
+                                  {coerencia && (
+                                    coerencia.achados.length === 0 ? (
+                                      <p className="text-[10px] text-success-700">
+                                        {locale === "pt"
+                                          ? `Nenhuma contradição encontrada entre as ${coerencia.secoes.length} seções avaliadas.`
+                                          : `No contradiction found across the ${coerencia.secoes.length} sections reviewed.`}
+                                      </p>
+                                    ) : (
+                                      <ul className="space-y-1.5">
+                                        {coerencia.achados.map((a, i) => (
+                                          <li key={i} className={`rounded border p-2 text-[10px] ${a.severidade === "critical" ? "border-danger-200 bg-danger-50/40" : a.severidade === "warning" ? "border-warning-200 bg-warning-50/40" : "border-slate-200 bg-slate-50/60"}`}>
+                                            <p className="font-bold text-[11px] text-slate-700">{a.contradicao}</p>
+                                            <p className="mt-0.5 text-slate-600">{a.detalhe}</p>
+                                            <p className="mt-1 font-mono uppercase tracking-wider text-[9px] text-slate-400">
+                                              {a.secao_a} ↔ {a.secao_b}
+                                            </p>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    )
+                                  )}
+                                  <p className="mt-1.5 text-[9px] text-slate-400 italic">
+                                    {locale === "pt"
+                                      ? "Só texto. Soma de itens, total e item de material são conferidos exatamente, sem IA, na Revisão do documento."
+                                      : "Text only. Line totals, grand total and BOM items are checked exactly, without AI, in the document review."}
+                                  </p>
                                 </div>
                               )}
 

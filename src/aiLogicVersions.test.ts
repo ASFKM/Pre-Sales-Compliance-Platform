@@ -79,4 +79,32 @@ describe("AI logic version golden-hash guard", () => {
       "async function buildOpinionPrompt("
     );
   });
+
+  // F7 da rodada 09/2026: as tres da revisao assistida. Entram sob guarda no mesmo commit que as
+  // cria - ver o comentario de cada uma em aiLogicVersions.ts para o que exatamente cada hash
+  // protege (o formato do veredito gravado, o contrato byte a byte do trecho, e a proibicao de
+  // mandar numero para modelo conferir).
+  it("proposal_finding_remediation version matches the fixture hash of buildRemediationPrompt's source", () => {
+    checkLogicVersion(
+      "proposal_finding_remediation",
+      path.join(__dirname, "..", "server", "routes", "proposals.ts"),
+      "function buildRemediationPrompt("
+    );
+  });
+
+  it("proposal_grammar_check version matches the fixture hash of buildGrammarPrompt's source", () => {
+    checkLogicVersion(
+      "proposal_grammar_check",
+      path.join(__dirname, "..", "server", "routes", "proposals.ts"),
+      "function buildGrammarPrompt("
+    );
+  });
+
+  it("proposal_section_coherence version matches the fixture hash of buildCoherencePrompt's source", () => {
+    checkLogicVersion(
+      "proposal_section_coherence",
+      path.join(__dirname, "..", "server", "routes", "proposals.ts"),
+      "function buildCoherencePrompt("
+    );
+  });
 });

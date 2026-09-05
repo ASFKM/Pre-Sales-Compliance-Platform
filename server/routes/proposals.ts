@@ -28,6 +28,8 @@ import { consolidarSugestoes, identificarVariaveisParaSugerir, montarPromptDeSug
 import { TEMPLATE_VARIABLE_CATALOG } from "../utils/templateVariableCatalog";
 import { STATUS_DE_APONTAMENTO, exigeJustificativa, ehStatusFechado, recortarApontamento } from "../utils/proposalFindings";
 import { revisarDocumentoGerado, AchadoDeRevisao } from "../utils/proposalQa";
+import { casarApontamentos, compararRodadas, type ApontamentoParaCasar } from "../utils/proposalRoundMatching";
+import { localizarCorrecoes, type CorrecaoBruta } from "../utils/proposalGrammar";
 
 const router = express.Router();
 // F5: o template .docx passou a ser OBRIGATORIO para gerar proposta.
@@ -673,7 +675,11 @@ async function buildOpinionPrompt(
   platformSettings: PlatformSettings,
   userId: string,
   suggestibleFields: readonly ProposalEditableField[],
-  secoesDeTexto: readonly { nome: string; descricao: string }[]
+  secoesDeTexto: readonly { nome: string; descricao: string }[],
+  // F7: os apontamentos que ficaram ABERTOS na rodada anterior, com id. E o que permite ao modelo
+  // declarar qual deles cada apontamento novo continua - e so isso ele faz com a lista: o servidor
+  // revalida o id antes de gravar, e um id inventado vira "sem antecessor".
+  apontamentosDaRodadaAnterior: readonly { id: string; title: string; targetKey: string | null }[] = []
 ): Promise<string> {
   const header = `PROJECT: ${project.name} | Customer: ${project.customer_name} | Vertical: ${project.vertical}\n`;
   // The AI never edits the proposal itself - suggested_field/suggested_value is only ever a
@@ -708,7 +714,27 @@ async function buildOpinionPrompt(
 Set "suggested_value" ONLY when target_kind is not "geral" AND you can write the full exact replacement text for that section, in ${proposal.language}. Otherwise leave it null - a suggestion that just restates the problem is worse than none.
 Never propose changing a price, a quantity, a BOM item or the customer's name: those are facts the system owns and the server will reject them.`;
 
-  const responseShape = `\n\nRespond with ONLY a JSON object (no markdown, no extra text), in this exact shape:\n{ "severity": "info"|"warning"|"critical", "summary": "one sentence in ${proposal.language}", "content": "2-4 short paragraphs in ${proposal.language}", "suggested_field": string|null, "suggested_value": string|null, "findings": [{ "title": "short title in ${proposal.language}", "detail": "1-2 sentences in ${proposal.language}", "severity": "info"|"warning"|"critical", "target_kind": "proposal_field"|"template_field"|"geral", "target_key": string|null, "suggested_value": string|null }] }.${suggestionInstruction}${findingsInstruction}`;
+  /*
+   * F7: o VINCULO com a rodada anterior.
+   *
+   * Sem ele, cada rodada e uma lista solta e nao ha como distinguir "o time esta corrigindo a
+   * proposta" de "a IA inventa um apontamento diferente toda vez". Quem sabe se o ponto de agora e
+   * o mesmo de antes e quem acabou de ler as duas coisas - o modelo - entao e a ele que se pergunta.
+   *
+   * O que o servidor NAO faz e confiar na resposta: o id volta para
+   * server/utils/proposalRoundMatching.ts, que o revalida contra esta mesma lista e descarta o que
+   * nao estiver nela. Onde o modelo se cala, um desempate deterministico (mesma secao-alvo E
+   * similaridade de titulo) tenta o casamento - as duas regras, e o porque de cada alternativa
+   * descartada, estao documentadas naquele modulo.
+   */
+  const listaAnterior = apontamentosDaRodadaAnterior
+    .map((a) => `- id "${a.id}"${a.targetKey ? ` [secao ${a.targetKey}]` : ""}: ${a.title}`)
+    .join("\n");
+  const blocoDeVinculo = apontamentosDaRodadaAnterior.length > 0
+    ? `\n\nAPONTAMENTOS QUE FICARAM ABERTOS NA REVISAO ANTERIOR DESTA MESMA PROPOSTA:\n${listaAnterior}\nFor EACH finding you return now, set "previous_finding_id" to the id above that it CONTINUES - the same problem, still standing, even if the wording of the section changed in between. Use null when the finding is genuinely new. Do not force the link: claiming a new point continues an old one hides a new problem, and claiming an old point is new hides that it was never resolved. If the problem behind one of the ids above no longer exists in the current text, simply DO NOT return it - that is how you say it was remediated.`
+    : "";
+
+  const responseShape = `\n\nRespond with ONLY a JSON object (no markdown, no extra text), in this exact shape:\n{ "severity": "info"|"warning"|"critical", "summary": "one sentence in ${proposal.language}", "content": "2-4 short paragraphs in ${proposal.language}", "suggested_field": string|null, "suggested_value": string|null, "findings": [{ "title": "short title in ${proposal.language}", "detail": "1-2 sentences in ${proposal.language}", "severity": "info"|"warning"|"critical", "target_kind": "proposal_field"|"template_field"|"geral", "target_key": string|null, "suggested_value": string|null, "previous_finding_id": string|null }] }.${suggestionInstruction}${findingsInstruction}${blocoDeVinculo}`;
 
   if (perspective === "technical") {
     const bom = (analysisResult?.bom || []) as any[];
@@ -807,6 +833,10 @@ router.post("/proposals/:id/opinion-panel", requirePermission("proposal:edit"), 
     }
 
     const userId = requireUserId(req);
+    // F7: a rodada que ESTA valendo agora vira a "anterior" desta que comeca. Capturada aqui, no
+    // handler, e nao dentro do worker: quando o worker termina ele mesmo reescreve
+    // latestOpinionRunId, e ler o campo la dentro devolveria a rodada nova comparada consigo mesma.
+    const rodadaAnteriorId = proposal.latest_opinion_run_id ?? null;
     const providerResolution = await resolveProvider("proposal_opinion_panel", platformSettings);
     if (providerResolution.isFallback) {
       await recordProviderFallback({ tenantId, taskType: "proposal_opinion_panel", intendedProvider: providerResolution.intendedProvider, userId });
@@ -835,6 +865,26 @@ router.post("/proposals/:id/opinion-panel", requirePermission("proposal:edit"), 
       let anyFailed = false;
       try {
         const analysisResult = await dbStore.getAnalysisResult(proposal.project_id);
+
+        /*
+         * F7: os apontamentos ABERTOS da rodada anterior - o universo da comparacao.
+         *
+         * Um apontamento ja FECHADO (resolvido / aceito com risco / descartado) fica de fora da
+         * conta inteira, e nao por economia de prompt: ele saiu de pauta por decisao humana, e
+         * conta-lo como "sanado" nesta rodada atribuiria a IA um merito que foi de quem decidiu -
+         * e, pior, produziria um numero de sanados que cresce sozinho a cada apontamento
+         * descartado. O mesmo criterio da rota sugerir-texto da F6, pela mesma razao.
+         */
+        const apontamentosAnteriores = rodadaAnteriorId
+          ? await prisma.proposalOpinionFinding.findMany({
+              where: { opinion: { runId: rodadaAnteriorId }, status: { in: ["aberto", "em_tratativa"] } },
+              select: { id: true, title: true, targetKind: true, targetKey: true },
+              orderBy: { createdAt: "asc" },
+            })
+          : [];
+        const resumoAnterior = apontamentosAnteriores.map((a) => ({ id: a.id, title: a.title, targetKey: a.targetKey }));
+        const novosParaCasar: ApontamentoParaCasar[] = [];
+
         const suggestibleFields = PROPOSAL_TYPE_EDITABLE_FIELDS[proposal.proposal_type]
           .filter((f): f is (typeof TEXT_SUGGESTIBLE_FIELDS)[number] => (TEXT_SUGGESTIBLE_FIELDS as readonly string[]).includes(f));
 
@@ -858,7 +908,7 @@ router.post("/proposals/:id/opinion-panel", requirePermission("proposal:edit"), 
           }
 
           try {
-            const prompt = await buildOpinionPrompt(perspective, proposal, project, analysisResult, tenantId, platformSettings, userId, suggestibleFields, SECOES_DE_TEXTO_DO_TEMPLATE);
+            const prompt = await buildOpinionPrompt(perspective, proposal, project, analysisResult, tenantId, platformSettings, userId, suggestibleFields, SECOES_DE_TEXTO_DO_TEMPLATE, resumoAnterior);
             let rawText = "", inputTokens = 0, outputTokens = 0, billedCostUsd: number | undefined;
             for (let attempt = 0; attempt < 2; attempt++) {
               try {
@@ -889,6 +939,9 @@ router.post("/proposals/:id/opinion-panel", requirePermission("proposal:edit"), 
                 target_kind: z.string(),
                 target_key: z.string().nullish(),
                 suggested_value: z.string().nullish(),
+                // F7: o antecessor DECLARADO. Nullish porque um modelo que ignore a instrucao nao
+                // pode derrubar o parecer - a ausencia cai no desempate deterministico depois.
+                previous_finding_id: z.string().nullish(),
               })).catch([]),
             }).parse(parsed);
 
@@ -941,6 +994,21 @@ router.post("/proposals/:id/opinion-panel", requirePermission("proposal:edit"), 
             }));
             if (apontamentos.length > 0) {
               await prisma.proposalOpinionFinding.createMany({ data: apontamentos });
+              /*
+               * O casamento e adiado para o FIM da rodada, e nao feito aqui por perspectiva, por
+               * uma razao concreta: um apontamento anterior so pode ser reivindicado uma vez, e
+               * duas perspectivas diferentes podem apontar para o mesmo antecessor (o Comercial e
+               * o Financeiro veem o mesmo problema em `payment_terms` com frequencia). Casando
+               * perspectiva a perspectiva, quem rodasse primeiro ficaria com o antecessor por
+               * acaso da ordem do laco; casando no fim, a regra e uma so para a rodada inteira.
+               */
+              apontamentos.forEach((a, i) => novosParaCasar.push({
+                id: a.id,
+                title: a.title,
+                targetKind: a.targetKind,
+                targetKey: a.targetKey,
+                previousFindingId: opinion.findings[i]?.previous_finding_id ?? null,
+              }));
             }
             await recordAiUsage({
               tenantId,
@@ -967,6 +1035,33 @@ router.post("/proposals/:id/opinion-panel", requirePermission("proposal:edit"), 
               },
             });
           }
+        }
+
+        /*
+         * F7: grava o VINCULO entre as duas rodadas, uma vez, com a rodada inteira em maos.
+         *
+         * `casarApontamentos` revalida cada id declarado pelo modelo contra a lista que ESTE
+         * servidor montou e, para quem ficou sem vinculo, aplica o desempate deterministico. O
+         * resultado e persistido em previousFindingId: a comparacao que a tela le depois nao
+         * refaz nada, so conta linhas - o que garante que o numero mostrado hoje continue o mesmo
+         * amanha, mesmo que a heuristica mude.
+         */
+        if (novosParaCasar.length > 0 && apontamentosAnteriores.length > 0) {
+          const casamentos = casarApontamentos(
+            apontamentosAnteriores.map((a) => ({ id: a.id, title: a.title, targetKind: a.targetKind, targetKey: a.targetKey })),
+            novosParaCasar
+          );
+          for (const casamento of casamentos) {
+            if (!casamento.anteriorId) continue;
+            await prisma.proposalOpinionFinding.update({
+              where: { id: casamento.novoId },
+              data: { previousFindingId: casamento.anteriorId },
+            });
+          }
+          logger.info(
+            { runId, rodadaAnteriorId, vinculados: casamentos.filter((c) => c.anteriorId).length, porModelo: casamentos.filter((c) => c.origem === "modelo").length, porHeuristica: casamentos.filter((c) => c.origem === "heuristica").length },
+            "Opinion panel: vinculo entre rodadas gravado"
+          );
         }
 
         const finalStatus = completedCount === 0 ? "failed" : (anyFailed || completedCount < OPINION_PERSPECTIVES.length ? "partial" : "completed");
@@ -1049,6 +1144,11 @@ router.get("/proposals/:id/opinion-panel", requirePermission("proposal:edit"), a
             resolution_note: f.resolutionNote,
             resolved_by_user_id: f.resolvedByUserId,
             resolved_at: f.resolvedAt,
+            // F7, mesma convencao snake_case: o antecessor e o veredito consultivo de sanacao.
+            previous_finding_id: f.previousFindingId,
+            remediation_verdict: f.remediationVerdict,
+            remediation_note: f.remediationNote,
+            remediation_checked_at: f.remediationCheckedAt,
           })),
         })),
       },
@@ -1091,6 +1191,51 @@ router.put("/proposals/:id", requirePermission("proposal:edit"), async (req: Req
     }
 
     let proposal = await dbStore.updateProposal(req.params.id, validated);
+
+    /*
+     * F7: o histórico por seção passa a cobrir também os CAMPOS DE TEXTO DA PROPOSTA.
+     *
+     * A F6 criou ProposalSectionEdit e o alimentou só pelo PUT campos-do-template, ou seja, só
+     * para `template_field`. Isso deixou metade dos apontamentos de fora sem que aparecesse:
+     * `payment_terms`, `delivery_terms`, `proposal_validity`, `commercial_assumptions` e
+     * `exclusions` são "proposal_field", editados por ESTA rota - e são justamente os alvos que a
+     * IA mais aponta (na rodada real medida nesta fase, TODOS os apontamentos com seção eram
+     * proposal_field).
+     *
+     * Sem esta gravação a verificação de sanação da F7 não teria par anterior/novo para ler
+     * nesses campos, e o botão existiria devolvendo 409 para o caso mais comum - um recurso que
+     * funciona só na metade menos usada é pior que nenhum, porque parece pronto.
+     *
+     * Só campos de TEXTO (TEXT_SUGGESTIBLE_FIELDS): a tabela de precificação é estrutura, não
+     * prosa, e um "texto anterior" dela seria um JSON que ninguém compara lendo. Só quando o valor
+     * MUDA de verdade: salvar o formulário inteiro sem tocar num campo não é edição dele, e
+     * inventariar isso encheria o histórico de linhas em que nada aconteceu.
+     */
+    const camposDeTextoAlterados = submittedFields.filter(
+      (campo): campo is (typeof TEXT_SUGGESTIBLE_FIELDS)[number] =>
+        (TEXT_SUGGESTIBLE_FIELDS as readonly string[]).includes(campo)
+        && typeof (validated as Record<string, unknown>)[campo] === "string"
+        && ((validated as Record<string, string>)[campo] ?? "") !== ((existingProposal as unknown as Record<string, string>)[campo] ?? "")
+    );
+    if (camposDeTextoAlterados.length > 0) {
+      const origemDaEdicao = typeof req.body?.origem === "string" && ["humano", "ia", "ia_editada"].includes(req.body.origem)
+        ? req.body.origem
+        : "humano";
+      await prisma.proposalSectionEdit.createMany({
+        data: camposDeTextoAlterados.map((campo) => ({
+          id: randomId("pse"),
+          tenantId: req.headers["x-tenant-id"] as string,
+          proposalId: existingProposal.id,
+          targetKind: "proposal_field",
+          targetKey: campo,
+          previousValue: (existingProposal as unknown as Record<string, string | null>)[campo] ?? null,
+          newValue: (validated as Record<string, string>)[campo],
+          origin: origemDaEdicao,
+          findingId: typeof req.body?.apontamento_id === "string" ? req.body.apontamento_id : null,
+          authorUserId: requireUserId(req),
+        })),
+      });
+    }
 
     // Regenerate the exported DOCX/PDF whenever a structured commercial field actually changed, so
     // the exported files always match what's on screen - through the SAME template-merge path
@@ -2128,6 +2273,663 @@ router.get("/proposals/:id/historico-de-secoes", requirePermission("proposal:edi
         author_name: nomePorAutor[h.authorUserId],
         finding: h.finding ? { id: h.finding.id, title: h.finding.title, severity: h.finding.severity } : null,
       })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════
+ * F7 (rodada 09/2026): A REVISÃO ASSISTIDA.
+ *
+ * Três tarefas de IA novas, e o que as separa é a pergunta que cada uma responde:
+ *   - SANAÇÃO: "a edição que a pessoa fez endereçou este apontamento?" - lê o par
+ *     previousValue/newValue que o histórico da F6 já grava, e devolve um veredito CONSULTIVO.
+ *   - GRAMÁTICA: "o que está gramaticalmente errado neste texto?" - devolve correções PONTUAIS,
+ *     cada uma com aceitar e recusar próprios, nunca a seção reescrita (isso é a F6).
+ *   - COERÊNCIA: "uma seção afirma o que outra nega?" - só TEXTO.
+ *
+ * O que NÃO passa por modelo nenhum: número. A coerência numérica (soma dos itens x total
+ * apresentado, item do BOM ausente, placeholder não substituído) continua determinística em
+ * server/utils/proposalQa.ts, que já existe e a esta fase só cabia não estragar. O comentário de
+ * abertura daquele módulo explica por quê, e vale igual aqui: uma pergunta com resposta exata
+ * respondida por um modelo troca uma prova por uma opinião - e por uma opinião mais cara.
+ * ══════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * As variáveis do template já resolvidas para esta proposta - de onde sai o texto ATUAL de uma
+ * seção. Mesma montagem que a rota sugerir-texto da F6 faz inline; extraída aqui porque as três
+ * rotas desta fase precisam da mesma coisa, e três cópias divergiriam na primeira mudança.
+ */
+async function resolverVariaveisDaProposta(proposal: Proposal, project: Project, tenantId: string, platformSettings: PlatformSettings): Promise<Record<string, unknown>> {
+  const analysis = await dbStore.getAnalysisResult(proposal.project_id);
+  const { pricingLines } = await resolvePricingLines(tenantId, proposal.project_id);
+  const templates = await dbStore.getProposalTemplates();
+  const template = templates.find((t) => t.id === proposal.template_id);
+  const owner = await dbStore.getUserById(project.owner_user_id);
+  const templateData = buildProposalTemplateData(
+    template ?? { id: "", name: "", version: "", template_type: proposal.proposal_type, file_path: "" },
+    false,
+    project,
+    owner ? owner.name : undefined,
+    analysis,
+    {
+      manual_pricing_table: proposal.manual_pricing_table as any,
+      payment_terms: proposal.payment_terms ?? undefined,
+      delivery_terms: proposal.delivery_terms ?? undefined,
+      proposal_validity: proposal.proposal_validity ?? undefined,
+      commercial_assumptions: proposal.commercial_assumptions ?? undefined,
+      exclusions: proposal.exclusions ?? undefined,
+    },
+    pricingLines
+  );
+  return buildTemplateVariables(templateData) as Record<string, unknown>;
+}
+
+/**
+ * F7: o prompt da SANAÇÃO. Função nomeada e isolada de propósito - é ela que o golden-hash guard
+ * (src/aiLogicVersions.test.ts) hasheia sob a chave `proposal_finding_remediation`.
+ *
+ * O veredito que ela pede é consultivo, e o prompt diz isso ao modelo em vez de esconder: um
+ * modelo que se saiba decisor tende a fechar o caso ("sanado") por cooperação. O que se pede aqui
+ * é o contrário - que ele prefira "parcial" quando a edição andou mas não fechou, porque é o
+ * veredito que devolve a decisão a quem revisa em vez de dar por encerrado.
+ */
+function buildRemediationPrompt(
+  apontamento: { title: string; detail: string; severity: string; targetKey: string | null },
+  textoAnterior: string | null,
+  textoNovo: string,
+  idioma: string
+): string {
+  return `Você avalia se UMA edição de texto endereçou UM apontamento de revisão de uma proposta comercial.
+
+APONTAMENTO (severidade ${apontamento.severity}${apontamento.targetKey ? `, seção "${apontamento.targetKey}"` : ""}):
+Título: ${apontamento.title}
+Detalhe: ${apontamento.detail}
+
+TEXTO ANTERIOR DA SEÇÃO:
+${textoAnterior && textoAnterior.trim().length > 0 ? textoAnterior : "(a seção estava vazia)"}
+
+TEXTO NOVO DA SEÇÃO:
+${textoNovo}
+
+Responda qual destes três descreve a mudança:
+- "sanado": o texto novo endereça o apontamento por completo; não sobra nada do problema descrito.
+- "parcial": o texto novo anda na direção certa mas deixa parte do problema de pé.
+- "nao_sanado": o texto novo não endereça o apontamento (mudou outra coisa, ou não mudou nada relevante).
+
+Regras:
+- Julgue APENAS o apontamento acima. Outros defeitos do texto não entram neste veredito.
+- Na dúvida entre "sanado" e "parcial", responda "parcial": este veredito é CONSULTIVO e quem
+  fecha o apontamento é uma pessoa - um "sanado" errado faz alguém deixar de olhar.
+- Não invente que um dado foi acrescentado se ele não está no texto novo.
+
+Responda com ONLY um objeto JSON, sem markdown:
+{ "veredito": "sanado"|"parcial"|"nao_sanado", "justificativa": "1-2 frases em ${idioma} dizendo o que no texto novo sustenta este veredito" }`;
+}
+
+/**
+ * F7: o prompt da GRAMÁTICA. Hasheado sob `proposal_grammar_check`.
+ *
+ * A instrução central é a que o servidor não consegue impor sozinho: devolver o trecho original
+ * BYTE A BYTE como ele aparece no texto. Um trecho normalizado pelo modelo (aspa curva virando
+ * reta, espaço duplo virando simples) é inaplicável, e server/utils/proposalGrammar.ts o descarta
+ * - mas o descarte é perda: a correção era legítima e some. Daí o prompt insistir.
+ */
+function buildGrammarPrompt(secao: string, texto: string, idioma: string): string {
+  return `Você revisa a GRAMÁTICA e a ORTOGRAFIA de UMA seção de uma proposta comercial, em ${idioma}.
+
+SEÇÃO: "${secao}"
+
+TEXTO:
+${texto}
+
+Devolva uma lista de CORREÇÕES PONTUAIS. Cada correção troca um trecho curto por outro.
+
+Regras, e a primeira é a que mais importa:
+- "trecho_original" tem de ser uma cópia EXATA, caractere por caractere, de um pedaço do texto
+  acima - mesmas aspas, mesmos espaços, mesma acentuação (ou falta dela). Não normalize nada. Um
+  trecho que não exista literalmente no texto é descartado pelo servidor e a correção se perde.
+- Mantenha cada trecho o mais CURTO possível: o suficiente para ser inequívoco no texto e para
+  quem revisa entender a troca de relance. Não devolva o parágrafo inteiro.
+- Corrija apenas gramática, ortografia, concordância, regência, pontuação e acentuação. NÃO
+  reescreva por estilo, NÃO mude o sentido, NÃO acrescente nem remova informação, NÃO mexa em
+  número, preço, prazo, nome de fabricante ou nome de cliente.
+- Zero correções é uma resposta válida e honesta quando o texto está correto. Não invente erro
+  para parecer útil.
+
+Responda com ONLY um objeto JSON, sem markdown:
+{ "correcoes": [{ "trecho_original": "...", "trecho_corrigido": "...", "motivo": "poucas palavras em ${idioma}, ex: 'concordância verbal'" }] }`;
+}
+
+/**
+ * F7: o prompt da COERÊNCIA ENTRE SEÇÕES. Hasheado sob `proposal_section_coherence`.
+ *
+ * A restrição explícita contra número não é decoração: sem ela o modelo naturalmente compara
+ * totais e prazos, que é justamente a pergunta com resposta exata que proposalQa.ts responde de
+ * graça e sem errar. Mandar o mesmo trabalho ao modelo trocaria uma prova por uma opinião.
+ */
+function buildCoherencePrompt(secoes: readonly { nome: string; texto: string }[], idioma: string): string {
+  const corpo = secoes.map((s) => `### ${s.nome}\n${s.texto}`).join("\n\n");
+  return `Você procura CONTRADIÇÕES entre as seções de texto de uma proposta comercial, em ${idioma}.
+
+${corpo}
+
+Uma contradição é uma seção afirmar algo que outra nega ou torna impossível. Exemplos do que conta:
+uma seção incluir no escopo o que outra lista como exclusão; uma prometer suporte contínuo enquanto
+outra encerra a responsabilidade na entrega; uma citar um responsável pela operação e outra dizer
+que a operação é do cliente.
+
+Regras:
+- NÃO confira número, preço, quantidade, total, prazo em dias nem item de material. Esses são
+  conferidos exatamente por outra parte do sistema, e um palpite seu sobre eles seria pior que o
+  silêncio.
+- Cada achado tem de citar as DUAS seções e o que exatamente se contradiz. Um achado que não
+  consiga nomear as duas pontas não é uma contradição, é uma impressão - não o devolva.
+- Zero achados é a resposta esperada numa proposta coerente. Não force.
+
+Responda com ONLY um objeto JSON, sem markdown:
+{ "achados": [{ "secao_a": "nome exato de uma seção acima", "secao_b": "nome exato de outra seção acima", "contradicao": "uma frase em ${idioma}", "detalhe": "1-2 frases em ${idioma} citando o que cada seção afirma", "severidade": "info"|"warning"|"critical" }] }`;
+}
+
+/*
+ * F7, ENTREGA 1: a SANAÇÃO POR APONTAMENTO.
+ *
+ * Lê o par texto anterior / texto novo de ProposalSectionEdit - o par que a F6 já grava, e que
+ * esta rota deliberadamente NÃO reinventa nem pede ao usuário - e devolve sanado | parcial |
+ * nao_sanado com justificativa.
+ *
+ * O veredito é CONSULTIVO e a rota faz questão de não confundir as duas coisas: ele vai para
+ * `remediationVerdict`, um campo separado, e o `status` do apontamento não é tocado. A IA nunca
+ * fecha um apontamento - ela sugere a quem revisa que o marque como resolvido, e o marcar continua
+ * sendo um PATCH humano com autor e instante. Se o veredito virasse status, o gate de envio desta
+ * mesma fase passaria a ser atravessável por uma opinião de modelo.
+ */
+router.post("/proposals/:id/apontamentos/:findingId/verificar-sanacao", requirePermission("proposal:edit"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const proposal = await dbStore.getProposal(req.params.id);
+    if (!proposal) {
+      return res.status(404).json({ success: false, message: "Proposal not found." });
+    }
+
+    const apontamento = await prisma.proposalOpinionFinding.findUnique({
+      where: { id: req.params.findingId },
+      include: { opinion: { include: { run: true } } },
+    });
+    if (!apontamento || apontamento.opinion.run.proposalId !== proposal.id) {
+      return res.status(404).json({ success: false, message: "Apontamento não encontrado nesta proposta." });
+    }
+
+    /*
+     * De onde sai o par anterior/novo, em duas tentativas e nesta ordem:
+     *
+     * 1. A edição que declarou ESTE apontamento (`findingId`) - é a mais precisa, porque quem
+     *    editou disse a que apontamento estava respondendo.
+     * 2. Na falta dela, a edição mais recente da SEÇÃO que o apontamento aponta, desde que
+     *    posterior ao apontamento. A segunda existe porque a pessoa pode ter corrigido a seção
+     *    pelo caminho normal, sem passar pelo botão do apontamento - o que é uso legítimo, e
+     *    recusar avaliar nesse caso empurraria todo mundo de volta ao "marque como resolvido e
+     *    confie".
+     *
+     * O corte por data importa: uma edição ANTERIOR ao apontamento não pode tê-lo sanado, e
+     * avaliá-la produziria um "não sanado" garantido sobre um texto que a IA acabou de criticar.
+     */
+    const edicaoDoApontamento = await prisma.proposalSectionEdit.findFirst({
+      where: { proposalId: proposal.id, findingId: apontamento.id },
+      orderBy: { createdAt: "desc" },
+    });
+    const edicao = edicaoDoApontamento ?? (apontamento.targetKey
+      ? await prisma.proposalSectionEdit.findFirst({
+          where: {
+            proposalId: proposal.id,
+            targetKind: apontamento.targetKind,
+            targetKey: apontamento.targetKey,
+            createdAt: { gt: apontamento.createdAt },
+          },
+          orderBy: { createdAt: "desc" },
+        })
+      : null);
+
+    if (!edicao) {
+      return res.status(409).json({
+        success: false,
+        message: apontamento.targetKey
+          ? `Ainda não há edição da seção "${apontamento.targetKey}" posterior a este apontamento para avaliar. Edite a seção e verifique de novo.`
+          : "Este apontamento é transversal (sem seção-alvo) e não tem edição de seção para avaliar.",
+      });
+    }
+
+    const tenantId = req.headers["x-tenant-id"] as string;
+    const platformSettings = await dbStore.getSettings();
+    const costCap = await checkCostCap(tenantId, platformSettings.monthly_cost_cap_usd ?? null);
+    if (costCap.blocked) {
+      return res.status(402).json({
+        success: false,
+        message: `Monthly AI cost cap reached ($${costCap.currentSpendUsd.toFixed(2)} of $${costCap.capUsd?.toFixed(2)}). Verificação de sanação bloqueada até o próximo mês ou até o teto ser elevado em Admin > IA, Prompts e Custos.`,
+      });
+    }
+
+    const userId = requireUserId(req);
+    const providerResolution = await resolveProvider("proposal_finding_remediation", platformSettings);
+    if (providerResolution.isFallback) {
+      await recordProviderFallback({ tenantId, taskType: "proposal_finding_remediation", intendedProvider: providerResolution.intendedProvider, userId });
+    }
+
+    const prompt = buildRemediationPrompt(
+      { title: apontamento.title, detail: apontamento.detail, severity: apontamento.severity, targetKey: apontamento.targetKey },
+      edicao.previousValue,
+      edicao.newValue,
+      proposal.language
+    );
+
+    const { text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(
+      providerResolution.provider as ConnectedProvider,
+      providerResolution.model,
+      prompt,
+      { taskKey: "proposal_finding_remediation", actorRef: buildActorRef("user", userId), triggerType: "user_action" }
+    );
+
+    const parecer = z.object({
+      veredito: z.enum(["sanado", "parcial", "nao_sanado"]),
+      justificativa: z.string(),
+    }).parse(parseAiJson(text));
+
+    await recordAiUsage({
+      tenantId,
+      taskType: "proposal_finding_remediation",
+      provider: providerResolution.provider,
+      model: providerResolution.model,
+      estimatedCostUsd: billedCostUsd ?? estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
+      userId,
+    });
+
+    // Grava no campo CONSULTIVO. `status` fica exatamente como estava - ver o comentário da rota.
+    const atualizado = await prisma.proposalOpinionFinding.update({
+      where: { id: apontamento.id },
+      data: {
+        remediationVerdict: parecer.veredito,
+        remediationNote: parecer.justificativa,
+        remediationCheckedAt: new Date(),
+      },
+    });
+
+    await dbStore.addAuditLog({
+      user_id: userId,
+      action: "Check Proposal Finding Remediation",
+      entity_type: "Proposal",
+      entity_id: proposal.id,
+      ip_address: req.ip || "127.0.0.1",
+      user_agent: req.headers["user-agent"] || "unknown",
+      metadata: JSON.stringify({ apontamento_id: apontamento.id, veredito: parecer.veredito, section_edit_id: edicao.id }),
+    });
+
+    res.json({
+      success: true,
+      apontamento_id: atualizado.id,
+      veredito: parecer.veredito,
+      justificativa: parecer.justificativa,
+      status_atual: atualizado.status,
+      // Dito na resposta, e não só no comentário: quem consome esta rota precisa saber que o
+      // veredito não mexeu no ciclo e que fechar o apontamento continua sendo ato humano.
+      veredito_e_consultivo: true,
+      baseado_em: {
+        section_edit_id: edicao.id,
+        target_key: edicao.targetKey,
+        origem_da_edicao: edicao.origin,
+        editado_em: edicao.createdAt,
+      },
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(502).json({ success: false, message: "A resposta do provedor de IA não veio no formato esperado." });
+    }
+    next(err);
+  }
+});
+
+/*
+ * F7, ENTREGA 2: a GRAMÁTICA COM ACEITAR/RECUSAR POR CORREÇÃO.
+ *
+ * Devolve correções PONTUAIS com o offset de cada uma no texto atual - nunca a seção reescrita.
+ * A diferença em relação ao sugerir-texto da F6 é de controle, não de forma: lá, aceitar é tudo ou
+ * nada; aqui, quem revisa fica com a vírgula certa e recusa a troca que mudaria o sentido.
+ *
+ * O servidor descarta aqui, antes de a tela ver, toda correção cujo trecho não exista literalmente
+ * no texto (server/utils/proposalGrammar.ts explica por quê). Aplicar continua sendo o PUT
+ * campos-do-template com clique humano, como todo o resto desta família de rotas.
+ */
+router.post("/proposals/:id/secoes/:targetKey/revisar-gramatica", requirePermission("proposal:edit"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const proposal = await dbStore.getProposal(req.params.id);
+    if (!proposal) {
+      return res.status(404).json({ success: false, message: "Proposal not found." });
+    }
+    if (proposal.status !== "draft") {
+      return res.status(409).json({ success: false, message: "Só uma proposta em rascunho pode ter seções revisadas." });
+    }
+
+    const secao = req.params.targetKey;
+    if (!podeSerSubstituidaPorTextoAprovado(secao)) {
+      return res.status(400).json({
+        success: false,
+        message: `"${secao}" tem fonte de dado própria no sistema e não pode ser corrigida por texto.`,
+      });
+    }
+
+    const project = await dbStore.getProject(proposal.project_id);
+    if (!project) {
+      return res.status(404).json({ success: false, message: "Project not found." });
+    }
+
+    const tenantId = req.headers["x-tenant-id"] as string;
+    const platformSettings = await dbStore.getSettings();
+    const costCap = await checkCostCap(tenantId, platformSettings.monthly_cost_cap_usd ?? null);
+    if (costCap.blocked) {
+      return res.status(402).json({
+        success: false,
+        message: `Monthly AI cost cap reached ($${costCap.currentSpendUsd.toFixed(2)} of $${costCap.capUsd?.toFixed(2)}). Revisão gramatical bloqueada até o próximo mês ou até o teto ser elevado em Admin > IA, Prompts e Custos.`,
+      });
+    }
+
+    /*
+     * O texto que se corrige e o que a pessoa esta prestes a salvar, e nao o que a analise deixou.
+     * Um texto ja APROVADO para esta secao (template_field_values) cobre o resolvido - e e ele que
+     * aparece no textarea da tela. Corrigir o resolvido enquanto a tela mostra o aprovado
+     * produziria offsets que nao existem no texto que a pessoa esta vendo, e o aceitar por item
+     * escreveria no lugar errado ou seria recusado em silencio.
+     */
+    const variaveis = await resolverVariaveisDaProposta(proposal, project, tenantId, platformSettings);
+    const aprovado = (proposal.template_field_values as Record<string, string> | null | undefined)?.[secao];
+    const textoAtual = typeof aprovado === "string" && aprovado.trim().length > 0
+      ? aprovado
+      : (typeof variaveis[secao] === "string" ? (variaveis[secao] as string) : "");
+    if (textoAtual.trim().length === 0) {
+      return res.status(409).json({ success: false, message: `A seção "${secao}" está vazia - não há texto para corrigir.` });
+    }
+
+    const userId = requireUserId(req);
+    const providerResolution = await resolveProvider("proposal_grammar_check", platformSettings);
+    if (providerResolution.isFallback) {
+      await recordProviderFallback({ tenantId, taskType: "proposal_grammar_check", intendedProvider: providerResolution.intendedProvider, userId });
+    }
+
+    const { text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(
+      providerResolution.provider as ConnectedProvider,
+      providerResolution.model,
+      buildGrammarPrompt(secao, textoAtual, proposal.language),
+      { taskKey: "proposal_grammar_check", actorRef: buildActorRef("user", userId), triggerType: "user_action" }
+    );
+
+    const resposta = z.object({
+      correcoes: z.array(z.object({
+        trecho_original: z.string(),
+        trecho_corrigido: z.string(),
+        motivo: z.string().optional().default(""),
+      })).catch([]),
+    }).parse(parseAiJson(text));
+
+    await recordAiUsage({
+      tenantId,
+      taskType: "proposal_grammar_check",
+      provider: providerResolution.provider,
+      model: providerResolution.model,
+      estimatedCostUsd: billedCostUsd ?? estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
+      userId,
+    });
+
+    const localizadas = localizarCorrecoes(textoAtual, resposta.correcoes as CorrecaoBruta[]);
+
+    await dbStore.addAuditLog({
+      user_id: userId,
+      action: "Check Proposal Section Grammar",
+      entity_type: "Proposal",
+      entity_id: proposal.id,
+      ip_address: req.ip || "127.0.0.1",
+      user_agent: req.headers["user-agent"] || "unknown",
+      metadata: JSON.stringify({ secao, devolvidas: resposta.correcoes.length, aplicaveis: localizadas.length }),
+    });
+
+    res.json({
+      success: true,
+      secao,
+      texto_atual: textoAtual,
+      correcoes: localizadas,
+      // A diferença entre as duas contagens é informação, não ruído: quando o modelo devolve 6 e
+      // só 3 são aplicáveis, quem lê a tela precisa saber que 3 se perderam por trecho inexato,
+      // em vez de achar que o texto tinha só 3 problemas.
+      devolvidas_pelo_modelo: resposta.correcoes.length,
+      descartadas_por_trecho_inexato: resposta.correcoes.length - localizadas.length,
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(502).json({ success: false, message: "A resposta do provedor de IA não veio no formato esperado." });
+    }
+    next(err);
+  }
+});
+
+/*
+ * F7, ENTREGA 3: a COERÊNCIA ENTRE SEÇÕES, por IA.
+ *
+ * A pergunta é "uma seção afirma o que outra nega" - que não tem resposta exata e por isso é
+ * trabalho de modelo. A coerência NUMÉRICA continua onde estava, em GET /proposals/:id/revisao,
+ * determinística e sem uma única chamada de IA: o prompt manda explicitamente NÃO conferir número,
+ * total, prazo nem item de material.
+ *
+ * Síncrona e sem persistência, de propósito: o achado é sobre o texto de AGORA e envelhece na
+ * primeira edição. Guardá-lo criaria uma segunda lista de pendências, concorrente com os
+ * apontamentos, cujo ciclo ninguém dirime - exatamente o oposto do que a F6 construiu.
+ */
+router.post("/proposals/:id/coerencia-entre-secoes", requirePermission("proposal:edit"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const proposal = await dbStore.getProposal(req.params.id);
+    if (!proposal) {
+      return res.status(404).json({ success: false, message: "Proposal not found." });
+    }
+    const project = await dbStore.getProject(proposal.project_id);
+    if (!project) {
+      return res.status(404).json({ success: false, message: "Project not found." });
+    }
+
+    const tenantId = req.headers["x-tenant-id"] as string;
+    const platformSettings = await dbStore.getSettings();
+    const costCap = await checkCostCap(tenantId, platformSettings.monthly_cost_cap_usd ?? null);
+    if (costCap.blocked) {
+      return res.status(402).json({
+        success: false,
+        message: `Monthly AI cost cap reached ($${costCap.currentSpendUsd.toFixed(2)} of $${costCap.capUsd?.toFixed(2)}). Verificação de coerência bloqueada até o próximo mês ou até o teto ser elevado em Admin > IA, Prompts e Custos.`,
+      });
+    }
+
+    /*
+     * Mesma regra da revisao gramatical: o texto APROVADO cobre o resolvido. Sem isto, a coerencia
+     * leria o que a analise deixou e ignoraria justamente o texto que a pessoa acabou de escrever
+     * - que e o que ela quer conferir. Medido na prova desta fase: uma secao recem-salva nao era
+     * contada, e a rota recusava por "menos de duas secoes preenchidas" com duas na tela.
+     */
+    const variaveis = await resolverVariaveisDaProposta(proposal, project, tenantId, platformSettings);
+    const aprovados = (proposal.template_field_values as Record<string, string> | null | undefined) ?? {};
+    const secoes = SECOES_DE_TEXTO_DO_TEMPLATE
+      .map((v) => {
+        const aprovado = typeof aprovados[v.nome] === "string" ? aprovados[v.nome].trim() : "";
+        const resolvido = typeof variaveis[v.nome] === "string" ? (variaveis[v.nome] as string).trim() : "";
+        return { nome: v.nome, texto: aprovado.length > 0 ? aprovado : resolvido };
+      })
+      .filter((s) => s.texto.length > 0);
+
+    // Contradição é relação entre DUAS seções: com uma só, não há o que comparar, e chamar a IA
+    // devolveria achado inventado ou lista vazia - custando dinheiro nos dois casos.
+    if (secoes.length < 2) {
+      return res.status(409).json({
+        success: false,
+        message: "É preciso ter ao menos duas seções de texto preenchidas para procurar contradição entre elas.",
+      });
+    }
+
+    const userId = requireUserId(req);
+    const providerResolution = await resolveProvider("proposal_section_coherence", platformSettings);
+    if (providerResolution.isFallback) {
+      await recordProviderFallback({ tenantId, taskType: "proposal_section_coherence", intendedProvider: providerResolution.intendedProvider, userId });
+    }
+
+    const { text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(
+      providerResolution.provider as ConnectedProvider,
+      providerResolution.model,
+      buildCoherencePrompt(secoes, proposal.language),
+      { taskKey: "proposal_section_coherence", actorRef: buildActorRef("user", userId), triggerType: "user_action" }
+    );
+
+    const resposta = z.object({
+      achados: z.array(z.object({
+        secao_a: z.string(),
+        secao_b: z.string(),
+        contradicao: z.string(),
+        detalhe: z.string().optional().default(""),
+        severidade: z.enum(["info", "warning", "critical"]).catch("warning"),
+      })).catch([]),
+    }).parse(parseAiJson(text));
+
+    await recordAiUsage({
+      tenantId,
+      taskType: "proposal_section_coherence",
+      provider: providerResolution.provider,
+      model: providerResolution.model,
+      estimatedCostUsd: billedCostUsd ?? estimateCostUsd(providerResolution.model, inputTokens, outputTokens),
+      userId,
+    });
+
+    // Mesma disciplina de `recortarApontamento` (F6): um achado que cite uma seção que não foi
+    // mandada ao modelo não é comparação entre seções, é alucinação - e sai fora.
+    const nomesEnviados = new Set(secoes.map((s) => s.nome));
+    const achados = resposta.achados.filter((a) => nomesEnviados.has(a.secao_a) && nomesEnviados.has(a.secao_b) && a.secao_a !== a.secao_b);
+
+    await dbStore.addAuditLog({
+      user_id: userId,
+      action: "Check Proposal Section Coherence",
+      entity_type: "Proposal",
+      entity_id: proposal.id,
+      ip_address: req.ip || "127.0.0.1",
+      user_agent: req.headers["user-agent"] || "unknown",
+      metadata: JSON.stringify({ secoes: secoes.map((s) => s.nome), achados: achados.length }),
+    });
+
+    res.json({
+      success: true,
+      secoes_avaliadas: secoes.map((s) => s.nome),
+      achados,
+      descartados_por_secao_inexistente: resposta.achados.length - achados.length,
+      // Dito na resposta para que nenhuma tela futura apresente isto como conferência de conta.
+      coerencia_numerica_e_deterministica: "GET /api/proposals/:id/revisao",
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(502).json({ success: false, message: "A resposta do provedor de IA não veio no formato esperado." });
+    }
+    next(err);
+  }
+});
+
+/*
+ * F7, ENTREGA 4: a COMPARAÇÃO ENTRE RODADAS.
+ *
+ * Sem estes três números o ciclo não tem critério de parada: revisar de novo seria um ato de fé.
+ * Com eles, "sanados 4, parciais 1, novos 0" e "sanados 0, parciais 1, novos 6" são duas
+ * situações que se distinguem de relance - a segunda dizendo que a IA está inventando pauta nova
+ * em vez de fechar a antiga.
+ *
+ * A conta NÃO é refeita aqui: ela só lê o `previousFindingId` que o worker gravou quando a rodada
+ * nasceu. Isso é o que garante que o número mostrado hoje continue o mesmo amanhã, mesmo que a
+ * heurística de casamento mude de versão - o oposto de recalcular a cada abertura da tela.
+ *
+ * O único ponto que exige cuidado é o universo dos ANTERIORES. "Sanado" deve significar
+ * "estava aberto quando esta rodada começou e não voltou", e o status de hoje não responde isso:
+ * alguém pode ter marcado o apontamento como resolvido DEPOIS. `resolvedAt` resolve sem snapshot
+ * nenhum - um apontamento fechado depois do início da rodada estava aberto no início dela.
+ */
+router.get("/proposals/:id/comparacao-de-rodadas", requirePermission("proposal:edit"), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const proposal = await dbStore.getProposal(req.params.id);
+    if (!proposal) {
+      return res.status(404).json({ success: false, message: "Proposal not found." });
+    }
+
+    const rodadas = await prisma.proposalOpinionRun.findMany({
+      where: { proposalId: proposal.id },
+      orderBy: { createdAt: "desc" },
+      take: 2,
+      include: { opinions: { include: { findings: true } } },
+    });
+
+    if (rodadas.length < 2) {
+      return res.json({
+        success: true,
+        comparacao: null,
+        // Não é erro: a primeira rodada de uma proposta não tem contra o que comparar, e a tela
+        // precisa dizer isso em vez de mostrar três zeros, que se leem como "nada mudou".
+        motivo: rodadas.length === 0 ? "sem_rodadas" : "primeira_rodada",
+      });
+    }
+
+    const [atual, anterior] = rodadas;
+    const findingsDe = (r: typeof atual) => r.opinions.flatMap((o) => o.findings);
+    const novosDaRodada = findingsDe(atual);
+    const anterioresAbertosNoInicio = findingsDe(anterior).filter(
+      (f) => f.status === "aberto" || f.status === "em_tratativa" || (f.resolvedAt !== null && f.resolvedAt > atual.createdAt)
+    );
+
+    const porId = new Map(findingsDe(anterior).map((f) => [f.id, f]));
+    const abertosNoInicio = new Set(anterioresAbertosNoInicio.map((f) => f.id));
+    const casamentos = novosDaRodada.map((f) => ({
+      novoId: f.id,
+      // Um vínculo que aponte para apontamento JÁ FECHADO no início desta rodada não conta: ele
+      // não estava na conta dos anteriores, e deixá-lo entrar produziria um "parcial" sobre algo
+      // que ninguém tinha em aberto.
+      anteriorId: f.previousFindingId && abertosNoInicio.has(f.previousFindingId) ? f.previousFindingId : null,
+      origem: null,
+      similaridade: null,
+    }));
+
+    const comparacao = compararRodadas(
+      anterioresAbertosNoInicio.map((f) => ({ id: f.id, title: f.title, targetKind: f.targetKind, targetKey: f.targetKey })),
+      novosDaRodada.map((f) => ({ id: f.id, title: f.title, targetKind: f.targetKind, targetKey: f.targetKey })),
+      casamentos
+    );
+
+    const detalhar = (ids: string[], fonte: "atual" | "anterior") => ids.map((id) => {
+      const f = fonte === "atual" ? novosDaRodada.find((x) => x.id === id)! : porId.get(id)!;
+      return {
+        id: f.id,
+        title: f.title,
+        severity: f.severity,
+        status: f.status,
+        target_kind: f.targetKind,
+        target_key: f.targetKey,
+        previous_finding_id: fonte === "atual" ? f.previousFindingId : null,
+        remediation_verdict: f.remediationVerdict,
+      };
+    });
+
+    res.json({
+      success: true,
+      comparacao: {
+        rodada_atual: { id: atual.id, created_at: atual.createdAt, logic_version: atual.logicVersion },
+        rodada_anterior: { id: anterior.id, created_at: anterior.createdAt, logic_version: anterior.logicVersion },
+        // Uma rodada v1 (anterior à F6) não tem apontamento nenhum: comparar com ela diria que
+        // 100% dos apontamentos são novos - o que é verdade e ao mesmo tempo inútil, então a tela
+        // recebe o aviso em vez de um número que engana.
+        comparavel: anterior.logicVersion >= 2,
+        totais: {
+          sanados: comparacao.sanados.length,
+          parciais: comparacao.parciais.length,
+          novos: comparacao.novos.length,
+          abertos_na_rodada_anterior: anterioresAbertosNoInicio.length,
+          total_nesta_rodada: novosDaRodada.length,
+        },
+        sanados: detalhar(comparacao.sanados, "anterior"),
+        parciais: detalhar(comparacao.parciais, "atual"),
+        novos: detalhar(comparacao.novos, "atual"),
+      },
     });
   } catch (err) {
     next(err);

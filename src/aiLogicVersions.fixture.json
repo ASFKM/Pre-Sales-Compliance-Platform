@@ -4,7 +4,19 @@
     "hash": "ae14d277687b11826ddb2905a03254ef267880566e0d9082ba070b1b4d415629"
   },
   "proposal_opinion_panel": {
-    "version": 2,
-    "hash": "8b6c2f1f21628c65a85b350951ac047dc448bc5bd3e34234eb6b26030f9e4c59"
+    "version": 3,
+    "hash": "03a7a15305b7b030d88b404c8abaaa8e0ee9bc4c1ef69dc14e96682613b7537f"
+  },
+  "proposal_finding_remediation": {
+    "version": 1,
+    "hash": "61e13a6de375c757b92dee68c365aa5918afc061da6c372e1cce453c2b119090"
+  },
+  "proposal_grammar_check": {
+    "version": 1,
+    "hash": "1c6724af50f948dd1f58e1efa3fdf5f585ed5ad3de1cf5da7788550fdaa19721"
+  },
+  "proposal_section_coherence": {
+    "version": 1,
+    "hash": "1a3444e5f5214cb764642f9f252ed2a004ebda423fd6f8e8914824b30f34d95f"
   }
 }

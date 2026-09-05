@@ -34,9 +34,28 @@ const opinionPromptSource = extractFunctionSource(
   "async function buildOpinionPrompt("
 );
 
+// F7 da rodada 09/2026: as tres funcoes de prompt da revisao assistida entram no fixture junto com
+// o codigo que as criou, e nao numa fase seguinte. Foi assim que `proposal_opinion_panel` ficou 8
+// rodadas fora do guard que dizia cobri-lo.
+const remediationPromptSource = extractFunctionSource(
+  fs.readFileSync(proposalRoutesPath, "utf8"),
+  "function buildRemediationPrompt("
+);
+const grammarPromptSource = extractFunctionSource(
+  fs.readFileSync(proposalRoutesPath, "utf8"),
+  "function buildGrammarPrompt("
+);
+const coherencePromptSource = extractFunctionSource(
+  fs.readFileSync(proposalRoutesPath, "utf8"),
+  "function buildCoherencePrompt("
+);
+
 const fixture = {
   bom_enrichment: { version: LOGIC_VERSIONS.bom_enrichment, hash: hashOf(bomEnrichmentSource) },
   proposal_opinion_panel: { version: LOGIC_VERSIONS.proposal_opinion_panel, hash: hashOf(opinionPromptSource) },
+  proposal_finding_remediation: { version: LOGIC_VERSIONS.proposal_finding_remediation, hash: hashOf(remediationPromptSource) },
+  proposal_grammar_check: { version: LOGIC_VERSIONS.proposal_grammar_check, hash: hashOf(grammarPromptSource) },
+  proposal_section_coherence: { version: LOGIC_VERSIONS.proposal_section_coherence, hash: hashOf(coherencePromptSource) },
 };
 
 const fixturePath = path.join(__dirname, "..", "src", "aiLogicVersions.fixture.json");

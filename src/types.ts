@@ -542,6 +542,15 @@ export interface PlatformSettings {
   // prisma/schema.prisma para por que ela nao reusa proposal_generation.
   proposal_section_rewrite_model: string;
   proposal_section_rewrite_provider: string;
+  // F7 (rodada 09/2026): sanacao por apontamento, gramatica por correcao pontual e coerencia de
+  // TEXTO entre secoes. A coerencia NUMERICA continua deterministica (server/utils/proposalQa.ts)
+  // e nao tem slot de IA nenhum, de proposito.
+  proposal_finding_remediation_model: string;
+  proposal_finding_remediation_provider: string;
+  proposal_grammar_check_model: string;
+  proposal_grammar_check_provider: string;
+  proposal_section_coherence_model: string;
+  proposal_section_coherence_provider: string;
   monthly_cost_cap_usd?: number | null;
   // Phase 7 (fleet/license management): this tenant's registration with the vendor's fleet
   // manager (a separate server). See src/fleetLicense.ts.

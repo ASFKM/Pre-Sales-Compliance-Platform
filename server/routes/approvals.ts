@@ -6,6 +6,8 @@ import { requireAuth, requirePermission } from "./auth";
 import { requireUserId } from "../middleware/security";
 import { empurrarProposta, empurrarEventoDaProposta } from "../utils/crmOutbox";
 import { validateApprovalDecisionComments } from "../utils/approvalDecision";
+import { prisma } from "../../src/prisma";
+import { apontamentosQueBarramEnvio, mensagemDoGateDeEnvio } from "../utils/proposalSubmissionGate";
 
 const router = express.Router();
 
@@ -191,6 +193,42 @@ router.post("/proposals/:proposalId/approval/submit", requirePermission("approva
 
     if (!workflow || !workflow.active) {
       return res.status(400).json({ success: false, message: "Active approval workflow not found for this proposal." });
+    }
+
+    /*
+     * F7 (rodada 09/2026): o GATE RIGIDO DE ENVIO.
+     *
+     * Nenhum apontamento CRITICO da ultima rodada de pareceres pode estar "aberto" ou "em
+     * tratativa". Seguir mesmo assim continua possivel - e essa e a diferenca entre um gate e uma
+     * proibicao - mas exige marcar cada critico como "aceito com risco" COM justificativa, pelo
+     * PATCH /proposals/:id/apontamentos/:findingId, que carimba autor e instante.
+     *
+     * A regra mora AQUI, no servidor e antes do updateProposalStatus, e nao no botao da tela: um
+     * gate cuja unica trava e validacao de formulario nao e um gate, basta uma chamada direta a
+     * rota para atravessa-lo. Foi exatamente por isto que a F6 pos a exigencia de justificativa no
+     * servidor - ela e a peca que sustenta esta.
+     *
+     * Escopo: so a ULTIMA rodada. Uma proposta revisada tres vezes nao deve ser barrada por um
+     * critico da primeira rodada que ja nao aparece na terceira - a rodada nova E a resposta sobre
+     * o que continua de pe, e e o vinculo entre rodadas desta mesma fase que torna isso legivel.
+     */
+    if (currentProposal.latest_opinion_run_id) {
+      const apontamentosDaRodada = await prisma.proposalOpinionFinding.findMany({
+        where: { opinion: { runId: currentProposal.latest_opinion_run_id } },
+        select: { id: true, title: true, severity: true, status: true, resolutionNote: true, targetKey: true },
+      });
+      const barrando = apontamentosQueBarramEnvio(apontamentosDaRodada);
+      if (barrando.length > 0) {
+        return res.status(409).json({
+          success: false,
+          // A mensagem NOMEIA cada apontamento que esta barrando. Ela chega ao usuario por um
+          // alert que o front ja exibe (handleSubmitProposalApproval, src/hooks/useProposals.ts),
+          // e a F8 vai exibi-la ao aprovador - entao ela precisa ser legivel por quem nao abriu o
+          // painel de pareceres.
+          message: mensagemDoGateDeEnvio(barrando),
+          apontamentos_bloqueantes: barrando.map((a) => ({ id: a.id, title: a.title, status: a.status, target_key: a.targetKey })),
+        });
+      }
     }
 
     const proposal = await dbStore.updateProposalStatus(req.params.proposalId, "submitted");

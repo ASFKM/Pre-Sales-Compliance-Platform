@@ -976,56 +976,56 @@ model IaKbTaskConfig {
 }
 
 model PlatformSettings {
-  id                                String          @id
-  tenantId                          String          @map("tenant_id")
-  tenant                            Tenant          @relation(fields: [tenantId], references: [id])
-  aiProvider                        String          @map("ai_provider")
-  defaultModel                      String          @map("default_model")
-  documentAnalysisModel             String          @map("document_analysis_model")
-  proposalGenerationModel           String          @map("proposal_generation_model")
-  aiApiKeyEncrypted                 String?         @map("ai_api_key_encrypted") @db.Text
-  openaiApiKeyEncrypted             String?         @map("openai_api_key_encrypted") @db.Text
-  anthropicApiKeyEncrypted          String?         @map("anthropic_api_key_encrypted") @db.Text
+  id                                 String          @id
+  tenantId                           String          @map("tenant_id")
+  tenant                             Tenant          @relation(fields: [tenantId], references: [id])
+  aiProvider                         String          @map("ai_provider")
+  defaultModel                       String          @map("default_model")
+  documentAnalysisModel              String          @map("document_analysis_model")
+  proposalGenerationModel            String          @map("proposal_generation_model")
+  aiApiKeyEncrypted                  String?         @map("ai_api_key_encrypted") @db.Text
+  openaiApiKeyEncrypted              String?         @map("openai_api_key_encrypted") @db.Text
+  anthropicApiKeyEncrypted           String?         @map("anthropic_api_key_encrypted") @db.Text
   // Phase 5 (AI orchestrator): which provider is the intended target for each task type,
   // researched per-task (docs/roadmap/REDESIGN_ROADMAP_2026-07.md). gemini/openai/anthropic are
   // all really connected (see resolveProvider in src/aiOrchestrator.ts) - a task still falls back
   // to gemini, logged as such, only if its intended provider's key isn't actually configured.
-  documentAnalysisProvider          String          @default("gemini") @map("document_analysis_provider")
-  criticalExtractionModel           String          @default("gemini-3.5-flash") @map("critical_extraction_model")
-  criticalExtractionProvider        String          @default("anthropic") @map("critical_extraction_provider")
-  webGroundingModel                 String          @default("gemini-3.5-flash") @map("web_grounding_model")
-  webGroundingProvider              String          @default("gemini") @map("web_grounding_provider")
-  proposalGenerationProvider        String          @default("anthropic") @map("proposal_generation_provider")
-  specCopilotModel                  String          @default("gemini-3.5-flash") @map("spec_copilot_model")
-  specCopilotProvider               String          @default("gemini") @map("spec_copilot_provider")
+  documentAnalysisProvider           String          @default("gemini") @map("document_analysis_provider")
+  criticalExtractionModel            String          @default("gemini-3.5-flash") @map("critical_extraction_model")
+  criticalExtractionProvider         String          @default("anthropic") @map("critical_extraction_provider")
+  webGroundingModel                  String          @default("gemini-3.5-flash") @map("web_grounding_model")
+  webGroundingProvider               String          @default("gemini") @map("web_grounding_provider")
+  proposalGenerationProvider         String          @default("anthropic") @map("proposal_generation_provider")
+  specCopilotModel                   String          @default("gemini-3.5-flash") @map("spec_copilot_model")
+  specCopilotProvider                String          @default("gemini") @map("spec_copilot_provider")
   // AI Orchestrator UI redesign (2026-07): document_classification was previously hardcoded to
   // Gemini in server/utils/documentClassification.ts, bypassing the orchestrator entirely - now
   // routed through resolveProvider() like the other real task types.
-  documentClassificationModel       String          @default("gemini-3.5-flash") @map("document_classification_model")
-  documentClassificationProvider    String          @default("gemini") @map("document_classification_provider")
+  documentClassificationModel        String          @default("gemini-3.5-flash") @map("document_classification_model")
+  documentClassificationProvider     String          @default("gemini") @map("document_classification_provider")
   // Fase 6 (add-on), Fase E: test scripts generated from a POC's objective/success criteria -
   // pure text-in/text-out, same orchestrator pattern as the 4 task types above.
-  pocTestGenerationModel            String          @default("gemini-3.5-flash") @map("poc_test_generation_model")
-  pocTestGenerationProvider         String          @default("gemini") @map("poc_test_generation_provider")
+  pocTestGenerationModel             String          @default("gemini-3.5-flash") @map("poc_test_generation_model")
+  pocTestGenerationProvider          String          @default("gemini") @map("poc_test_generation_provider")
   // Fase H (add-on): schedule suggestion from a POC's objective + linked equipment's Knowledge
   // Base grounding - same orchestrator pattern as poc_test_generation above.
-  pocScheduleGenerationModel        String          @default("gemini-3.5-flash") @map("poc_schedule_generation_model")
-  pocScheduleGenerationProvider     String          @default("gemini") @map("poc_schedule_generation_provider")
+  pocScheduleGenerationModel         String          @default("gemini-3.5-flash") @map("poc_schedule_generation_model")
+  pocScheduleGenerationProvider      String          @default("gemini") @map("poc_schedule_generation_provider")
   // Fase M (add-on): mandatory final-report questionnaire generation - same orchestrator pattern.
-  pocFinalReportGenerationModel     String          @default("gemini-3.5-flash") @map("poc_final_report_generation_model")
-  pocFinalReportGenerationProvider  String          @default("gemini") @map("poc_final_report_generation_provider")
+  pocFinalReportGenerationModel      String          @default("gemini-3.5-flash") @map("poc_final_report_generation_model")
+  pocFinalReportGenerationProvider   String          @default("gemini") @map("poc_final_report_generation_provider")
   // Item 3 roadmap (official): "Pareceres de IA Multi-Perspectiva em Propostas" - one shared
   // provider/model slot for all 4 opinion perspectives (not 4 separate slots) - see the roadmap
   // decision already confirmed: 1 task type, not 4, to minimize sync points.
-  proposalOpinionPanelModel         String          @default("gemini-3.5-flash") @map("proposal_opinion_panel_model")
-  proposalOpinionPanelProvider      String          @default("gemini") @map("proposal_opinion_panel_provider")
-  pricingBudgetOptimizationModel    String          @default("gemini-3.5-flash") @map("pricing_budget_optimization_model")
-  pricingBudgetOptimizationProvider String          @default("gemini") @map("pricing_budget_optimization_provider")
+  proposalOpinionPanelModel          String          @default("gemini-3.5-flash") @map("proposal_opinion_panel_model")
+  proposalOpinionPanelProvider       String          @default("gemini") @map("proposal_opinion_panel_provider")
+  pricingBudgetOptimizationModel     String          @default("gemini-3.5-flash") @map("pricing_budget_optimization_model")
+  pricingBudgetOptimizationProvider  String          @default("gemini") @map("pricing_budget_optimization_provider")
   // "Enviar Arquivos" (upload multi-arquivo do catálogo de preços): extrai linhas de preço de
   // cotações de fornecedor em PDF/imagem/planilha fora do template - precisa de capacidade de
   // visão (mesma categoria de document_analysis/spec_copilot), não só texto.
-  pricingCatalogExtractionModel     String          @default("gemini-3.5-flash") @map("pricing_catalog_extraction_model")
-  pricingCatalogExtractionProvider  String          @default("gemini") @map("pricing_catalog_extraction_provider")
+  pricingCatalogExtractionModel      String          @default("gemini-3.5-flash") @map("pricing_catalog_extraction_model")
+  pricingCatalogExtractionProvider   String          @default("gemini") @map("pricing_catalog_extraction_provider")
   // F6 (rodada 09/2026): reescrita de UMA seção de texto da proposta a partir dos apontamentos
   // abertos daquela seção. Slot próprio, e não reuso de proposal_generation, porque as duas fazem
   // coisas diferentes com risco diferente: proposal_generation preenche o que saiu EM BRANCO;
@@ -1033,31 +1033,48 @@ model PlatformSettings {
   // introduziu - é a única tarefa de IA do produto cujo texto pode cobrir conteúdo existente, e
   // separar o slot é o que permite ao operador dar a ela um modelo diferente (ou desligá-la
   // apontando para outro provedor) sem mexer na outra.
-  proposalSectionRewriteModel       String          @default("gemini-3.5-flash") @map("proposal_section_rewrite_model")
-  proposalSectionRewriteProvider    String          @default("gemini") @map("proposal_section_rewrite_provider")
+  proposalSectionRewriteModel        String          @default("gemini-3.5-flash") @map("proposal_section_rewrite_model")
+  proposalSectionRewriteProvider     String          @default("gemini") @map("proposal_section_rewrite_provider")
+  // F7 (rodada 09/2026): as tres tarefas de IA da revisao. Slots proprios pelo mesmo motivo da
+  // F6 - cada uma tem risco e formato de saida diferentes, e o operador precisa poder dar modelo
+  // diferente (ou desligar) uma sem mexer nas outras.
+  //
+  // proposal_finding_remediation: le o par texto anterior/texto novo de ProposalSectionEdit e diz
+  // se o apontamento foi sanado. Veredito CONSULTIVO - nunca fecha apontamento sozinho.
+  proposalFindingRemediationModel    String          @default("gemini-3.5-flash") @map("proposal_finding_remediation_model")
+  proposalFindingRemediationProvider String          @default("gemini") @map("proposal_finding_remediation_provider")
+  // proposal_grammar_check: devolve CORRECOES PONTUAIS (trecho original, trecho corrigido,
+  // motivo), nunca a secao reescrita - aceitar e recusar sao por item.
+  proposalGrammarCheckModel          String          @default("gemini-3.5-flash") @map("proposal_grammar_check_model")
+  proposalGrammarCheckProvider       String          @default("gemini") @map("proposal_grammar_check_provider")
+  // proposal_section_coherence: contradicao entre o que uma secao afirma e outra nega. So TEXTO -
+  // a coerencia NUMERICA continua deterministica em server/utils/proposalQa.ts e nao passa por
+  // modelo nenhum.
+  proposalSectionCoherenceModel      String          @default("gemini-3.5-flash") @map("proposal_section_coherence_model")
+  proposalSectionCoherenceProvider   String          @default("gemini") @map("proposal_section_coherence_provider")
   // Per-tenant monthly AI spend cap - null means uncapped. Enforced (hard block once reached,
   // not just tracked), with an 80%-of-cap warning logged before that point.
-  monthlyCostCapUsd                 Float?          @map("monthly_cost_cap_usd")
+  monthlyCostCapUsd                  Float?          @map("monthly_cost_cap_usd")
   // Phase 7 (fleet/license management): this installation's connection to the vendor's fleet
   // manager (a separate server - see docs/roadmap). Empty/disabled means no heartbeat runs and
   // the installation is always treated as active (fail-open) - matches the on-prem reality of
   // not every install necessarily being registered yet.
-  fleetManagerUrl                   String?         @map("fleet_manager_url")
-  fleetManagerApiKeyEncrypted       String?         @map("fleet_manager_api_key_encrypted") @db.Text
-  fleetManagerEnabled               Boolean         @default(false) @map("fleet_manager_enabled")
-  storageMode                       StorageProvider @default(local) @map("storage_mode")
-  localStoragePath                  String          @map("local_storage_path")
-  s3Bucket                          String          @map("s3_bucket")
-  s3Region                          String?         @map("s3_region")
-  s3AccessKeyId                     String?         @map("s3_access_key_id")
-  s3SecretAccessKeyEncrypted        String?         @map("s3_secret_access_key_encrypted") @db.Text
-  gcsBucket                         String          @map("gcs_bucket")
-  gcsProjectId                      String?         @map("gcs_project_id")
-  gcsServiceAccountKeyEncrypted     String?         @map("gcs_service_account_key_encrypted") @db.Text
-  defaultLanguage                   Language        @map("default_language")
-  defaultLogLevel                   LogLevel        @map("default_log_level")
-  createdAt                         DateTime        @default(now()) @map("created_at")
-  updatedAt                         DateTime        @updatedAt @map("updated_at")
+  fleetManagerUrl                    String?         @map("fleet_manager_url")
+  fleetManagerApiKeyEncrypted        String?         @map("fleet_manager_api_key_encrypted") @db.Text
+  fleetManagerEnabled                Boolean         @default(false) @map("fleet_manager_enabled")
+  storageMode                        StorageProvider @default(local) @map("storage_mode")
+  localStoragePath                   String          @map("local_storage_path")
+  s3Bucket                           String          @map("s3_bucket")
+  s3Region                           String?         @map("s3_region")
+  s3AccessKeyId                      String?         @map("s3_access_key_id")
+  s3SecretAccessKeyEncrypted         String?         @map("s3_secret_access_key_encrypted") @db.Text
+  gcsBucket                          String          @map("gcs_bucket")
+  gcsProjectId                       String?         @map("gcs_project_id")
+  gcsServiceAccountKeyEncrypted      String?         @map("gcs_service_account_key_encrypted") @db.Text
+  defaultLanguage                    Language        @map("default_language")
+  defaultLogLevel                    LogLevel        @map("default_log_level")
+  createdAt                          DateTime        @default(now()) @map("created_at")
+  updatedAt                          DateTime        @updatedAt @map("updated_at")
 
   @@unique([tenantId])
   @@map("platform_settings")
@@ -1423,38 +1440,60 @@ model ProposalAiOpinionItem {
 // ("template_field") - e pode trazer o texto de substituição sugerido. A trava não muda: a IA
 // nunca escreve; quem aplica é um clique humano pela rota normal.
 model ProposalOpinionFinding {
-  id               String                @id
-  tenantId         String                @map("tenant_id")
-  tenant           Tenant                @relation(fields: [tenantId], references: [id])
-  opinionId        String                @map("opinion_id")
-  opinion          ProposalAiOpinionItem @relation(fields: [opinionId], references: [id], onDelete: Cascade)
+  id                   String                   @id
+  tenantId             String                   @map("tenant_id")
+  tenant               Tenant                   @relation(fields: [tenantId], references: [id])
+  opinionId            String                   @map("opinion_id")
+  opinion              ProposalAiOpinionItem    @relation(fields: [opinionId], references: [id], onDelete: Cascade)
   // Ordem em que a IA devolveu o apontamento dentro do parecer - só para exibir na mesma ordem.
-  ordinal          Int
-  title            String                @db.Text
-  detail           String                @db.Text
-  severity         String // "info" | "warning" | "critical"
+  ordinal              Int
+  title                String                   @db.Text
+  detail               String                   @db.Text
+  severity             String // "info" | "warning" | "critical"
   // Seção que o apontamento afeta. "proposal_field": um campo de PROPOSAL_TYPE_EDITABLE_FIELDS.
   // "template_field": uma variável de texto do template (server/utils/templateVariableCatalog.ts).
   // "geral": o apontamento não se prende a uma seção (a IA não soube dizer qual, ou é transversal).
-  targetKind       String                @map("target_kind")
-  targetKey        String?               @map("target_key")
+  targetKind           String                   @map("target_kind")
+  targetKey            String?                  @map("target_key")
   // Texto de substituição que a IA propõe para a seção-alvo, quando ela tem um. Nunca aplicado
   // sozinho: é o valor que o botão "Aplicar" manda pela rota normal, com o mesmo gate de rascunho
   // e permissão de qualquer edição manual.
-  suggestedValue   String?               @map("suggested_value") @db.Text
+  suggestedValue       String?                  @map("suggested_value") @db.Text
   // Ciclo: "aberto" | "em_tratativa" | "resolvido" | "aceito_com_risco" | "descartado".
   // Os dois últimos EXIGEM `resolutionNote` - regra de servidor (a rota recusa com 400), não
   // validação de formulário, porque é ela que sustenta o gate de envio da F7.
-  status           String                @default("aberto")
-  resolutionNote   String?               @map("resolution_note") @db.Text
-  resolvedByUserId String?               @map("resolved_by_user_id")
-  resolvedAt       DateTime?             @map("resolved_at")
-  createdAt        DateTime              @default(now()) @map("created_at")
-  updatedAt        DateTime              @updatedAt @map("updated_at")
-  sectionEdits     ProposalSectionEdit[]
+  status               String                   @default("aberto")
+  resolutionNote       String?                  @map("resolution_note") @db.Text
+  resolvedByUserId     String?                  @map("resolved_by_user_id")
+  resolvedAt           DateTime?                @map("resolved_at")
+  // F7: o VINCULO ENTRE RODADAS. Aponta para o apontamento da rodada ANTERIOR que este continua.
+  // null = apontamento novo nesta rodada. É o que sustenta os tres numeros da tela (sanados /
+  // parciais / novos): sem um vinculo gravado, cada rodada seria uma lista solta e "estou
+  // progredindo" seria indistinguivel de "a IA inventa apontamento toda vez".
+  //
+  // Como o vinculo e decidido esta em server/utils/proposalRoundMatching.ts, com o porque de cada
+  // alternativa descartada. Em resumo: o modelo declara o antecessor (recebe a lista dos abertos
+  // da rodada anterior no proprio prompt), o SERVIDOR revalida o id contra essa lista, e onde o
+  // modelo se calou entra um desempate deterministico que exige mesma secao-alvo E similaridade
+  // de titulo. Um id que o modelo invente e descartado: o apontamento simplesmente conta como novo.
+  previousFindingId    String?                  @map("previous_finding_id")
+  previousFinding      ProposalOpinionFinding?  @relation("SucessaoDeApontamento", fields: [previousFindingId], references: [id], onDelete: SetNull)
+  successors           ProposalOpinionFinding[] @relation("SucessaoDeApontamento")
+  // F7: o VEREDITO DE SANACAO, consultivo. Preenchido pela rota que le o par
+  // previousValue/newValue de ProposalSectionEdit e pergunta a IA se a edicao enderecou o
+  // apontamento: "sanado" | "parcial" | "nao_sanado". NAO muda `status`: a IA nunca fecha um
+  // apontamento, ela sugere ao humano que o marque como resolvido. Manter os dois campos
+  // separados e o que impede que uma opiniao de modelo vire decisao registrada.
+  remediationVerdict   String?                  @map("remediation_verdict")
+  remediationNote      String?                  @map("remediation_note") @db.Text
+  remediationCheckedAt DateTime?                @map("remediation_checked_at")
+  createdAt            DateTime                 @default(now()) @map("created_at")
+  updatedAt            DateTime                 @updatedAt @map("updated_at")
+  sectionEdits         ProposalSectionEdit[]
 
   @@index([tenantId])
   @@index([opinionId])
+  @@index([previousFindingId])
   @@map("proposal_opinion_findings")
 }
 

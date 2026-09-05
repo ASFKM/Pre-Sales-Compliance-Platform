@@ -10,7 +10,7 @@ import { redis } from "./redis";
 // document_analysis call, not separate steps. document_classification was hardcoded to Gemini in
 // server/utils/documentClassification.ts before this - now routed through here like the other
 // real task types.
-export type AiTaskType = "document_analysis" | "web_grounding" | "spec_copilot" | "document_classification" | "poc_test_generation" | "poc_schedule_generation" | "poc_final_report_generation" | "proposal_opinion_panel" | "pricing_budget_optimization" | "pricing_catalog_extraction" | "proposal_generation" | "proposal_section_rewrite";
+export type AiTaskType = "document_analysis" | "web_grounding" | "spec_copilot" | "document_classification" | "poc_test_generation" | "poc_schedule_generation" | "poc_final_report_generation" | "proposal_opinion_panel" | "pricing_budget_optimization" | "pricing_catalog_extraction" | "proposal_generation" | "proposal_section_rewrite" | "proposal_finding_remediation" | "proposal_grammar_check" | "proposal_section_coherence";
 
 export interface ProviderResolution {
   provider: string;
@@ -43,6 +43,12 @@ interface TaskProviderSettings {
   pricing_catalog_extraction_provider: string;
   proposal_section_rewrite_model: string;
   proposal_section_rewrite_provider: string;
+  proposal_finding_remediation_model: string;
+  proposal_finding_remediation_provider: string;
+  proposal_grammar_check_model: string;
+  proposal_grammar_check_provider: string;
+  proposal_section_coherence_model: string;
+  proposal_section_coherence_provider: string;
   openai_api_key_encrypted?: string;
   anthropic_api_key_encrypted?: string;
 }
@@ -128,6 +134,14 @@ export const AI_SPENDING_TASK_TYPES = [
   // fora seria dinheiro gasto sem aparecer no rateio nem contar contra o cap, exatamente o buraco
   // que o comentario acima descreve.
   "proposal_section_rewrite",
+  // F7 (rodada 09/2026): as tres tarefas da revisao assistida. Entram aqui pelo mesmo motivo que a
+  // reescrita da F6 - gastam token de verdade, e ficar de fora desta lista seria dinheiro gasto
+  // sem aparecer no rateio nem contar contra o teto mensal. A de sanacao roda uma vez por
+  // apontamento tratado e a de gramatica uma vez por secao revisada, entao sao as duas que mais
+  // multiplicam chamada por proposta de toda a fase: exatamente as que o teto precisa enxergar.
+  "proposal_finding_remediation",
+  "proposal_grammar_check",
+  "proposal_section_coherence",
 ] as const;
 export type AiSpendingTaskType = (typeof AI_SPENDING_TASK_TYPES)[number];
 

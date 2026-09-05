@@ -41,7 +41,31 @@ export const LOGIC_VERSIONS = {
   // logicVersion 1 e legitimamente diferente de uma com 2 - a de antes nao tem apontamento nenhum,
   // e a tela precisa saber disso para nao apresentar "zero apontamentos" como se fosse um parecer
   // limpo. E exatamente para isso que este numero existe.
-  proposal_opinion_panel: 2,
+  // v3 (F7 da rodada 09/2026): os quatro prompts passaram a receber os apontamentos que ficaram
+  // ABERTOS na rodada anterior e a pedir, para cada apontamento novo, qual deles ele CONTINUA
+  // ("previous_finding_id"). Como o bump da v2, este nao e atribuicao de chamada: muda o que a IA
+  // e solicitada a produzir e o que fica gravado - uma rodada v3 tem vinculo entre rodadas, uma v2
+  // nao tem, e a comparacao "sanados / parciais / novos" so existe a partir da v3. A tela precisa
+  // saber a diferenca para nao apresentar "100% novos" como se fosse a IA inventando pauta, quando
+  // a verdade e que a rodada de tras nao tinha com que se comparar.
+  proposal_opinion_panel: 3,
+  // F7: a SANACAO por apontamento (server/routes/proposals.ts, buildRemediationPrompt). Le o par
+  // texto anterior / texto novo de ProposalSectionEdit e devolve sanado | parcial | nao_sanado.
+  // Entra no guard desde o nascimento - a licao da v2 do painel, que existiu por 8 rodadas sem
+  // nunca ter sido hasheada, foi que a hora de por uma funcao de prompt sob guarda e quando ela e
+  // escrita. O veredito e consultivo, mas fica GRAVADO na linha do apontamento: um prompt que mude
+  // sem bump deixaria vereditos de formatos diferentes indistinguiveis no banco.
+  proposal_finding_remediation: 1,
+  // F7: a GRAMATICA por correcao pontual (buildGrammarPrompt). O contrato que este prompt sustenta
+  // e byte a byte - o "trecho_original" tem de existir literalmente no texto, ou a correcao e
+  // descartada por server/utils/proposalGrammar.ts. E exatamente o tipo de instrucao que se afrouxa
+  // em silencio numa edicao futura, entao ela fica sob hash.
+  proposal_grammar_check: 1,
+  // F7: a COERENCIA DE TEXTO entre secoes (buildCoherencePrompt). O que este prompt guarda e uma
+  // fronteira de projeto, nao so uma formatacao: a proibicao explicita de conferir numero, total,
+  // prazo e item de material. A coerencia numerica e deterministica (server/utils/proposalQa.ts), e
+  // relaxar essa frase levaria o produto de volta a mandar conta para modelo conferir.
+  proposal_section_coherence: 1,
 } as const;
 
 export type LogicVersionKey = keyof typeof LOGIC_VERSIONS;
