@@ -1495,7 +1495,7 @@ export default function Proposals({
                                                       key={alvo}
                                                       onClick={(e) => { e.preventDefault(); pedirMudanca(prop.id, finding, alvo); }}
                                                       disabled={salvandoFinding === finding.id}
-                                                      className={`text-[9px] font-mono font-bold px-2 py-1 rounded border transition-colors disabled:opacity-50 cursor-pointer hover:opacity-80 focus:outline-none focus:ring-1 focus:ring-brand-500 ${FINDING_STATUS_STYLE[alvo]}`}
+                                                      className={`text-[9px] font-mono font-bold px-2 py-1 rounded border transition-colors disabled:opacity-50 cursor-pointer hover:border-current focus:outline-none focus:ring-1 focus:ring-brand-500 ${FINDING_STATUS_STYLE[alvo]}`}
                                                     >
                                                       {FINDING_STATUS_LABEL[alvo][locale]}
                                                     </button>
@@ -2025,7 +2025,7 @@ export default function Proposals({
                           {locale === "pt" ? "Pré-visualização do Documento" : "Document Preview"}
                         </h3>
                         <div className="ml-2">
-                          <DocumentFormatSwitch format={previewFormat} onChange={(fmt) => openPreview(previewingProposalId, fmt)} />
+                          <DocumentFormatSwitch locale={locale} format={previewFormat} onChange={(fmt) => openPreview(previewingProposalId, fmt)} />
                         </div>
                       </div>
                       <button onClick={closePreview} aria-label={locale === "pt" ? "Fechar a pré-visualização" : "Close the preview"} title={locale === "pt" ? "Fechar" : "Close"} className="-m-1.5 p-1.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer focus:outline-none focus:ring-1 focus:ring-brand-500">

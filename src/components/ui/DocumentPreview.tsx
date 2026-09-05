@@ -80,19 +80,22 @@ export function useDocumentPreview(locale: "en" | "pt") {
 }
 
 interface DocumentFormatSwitchProps {
+  locale: "en" | "pt";
   format: PreviewFormat;
   onChange: (format: PreviewFormat) => void;
 }
 
-export function DocumentFormatSwitch({ format, onChange }: DocumentFormatSwitchProps) {
+export function DocumentFormatSwitch({ locale, format, onChange }: DocumentFormatSwitchProps) {
   return (
-    <div role="group" aria-label="Formato do documento" className="flex rounded border border-slate-200 overflow-hidden">
+    // O rotulo era fixo em portugues num componente que nao recebia `locale` — o unico
+    // do diff desta fase que ficou assim.
+    <div role="group" aria-label={locale === "pt" ? "Formato do documento" : "Document format"} className="flex rounded border border-slate-200 overflow-hidden">
       {(["docx", "pdf"] as const).map((fmt) => (
         <button
           key={fmt}
           onClick={() => onChange(fmt)}
           aria-pressed={format === fmt}
-          className={`px-2.5 py-1 text-[10px] font-bold uppercase font-mono cursor-pointer focus:outline-none focus:ring-1 focus:ring-inset focus:ring-brand-500 ${format === fmt ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}
+          className={`px-2.5 py-1 text-[10px] font-bold uppercase font-mono cursor-pointer focus:outline-none focus:ring-1 focus:ring-inset ${format === fmt ? "bg-brand-600 text-white focus:ring-white" : "bg-white text-slate-500 hover:bg-slate-50 focus:ring-brand-500"}`}
         >
           {fmt}
         </button>

@@ -235,7 +235,12 @@ export default function ApprovalDossierModal({ locale, dossie, onClose }: Approv
                   id={`aba-do-dossie-${a.id}`}
                   role="tab"
                   aria-selected={selecionada}
-                  aria-controls={`painel-do-dossie-${a.id}`}
+                  aria-controls={
+                    // So existe UM painel montado, e o id dele e o da aba aberta. Nas quatro
+                    // inativas o `aria-controls` apontaria para um id INEXISTENTE — o axe acusa
+                    // em `aria-valid-attr-value` e leitor de tela anuncia relacao quebrada.
+                    selecionada ? `painel-do-dossie-${a.id}` : undefined
+                  }
                   tabIndex={selecionada ? 0 : -1}
                   onClick={() => setAba(a.id)}
                   onKeyDown={(e) => {
@@ -279,8 +284,10 @@ export default function ApprovalDossierModal({ locale, dossie, onClose }: Approv
           /* F10: o painel e focavel (tabIndex 0) porque rola; sem anel proprio o foco ficava
              INVISIVEL - medido depois da primeira correcao desta fase: `outlineStyle: "none"`
              e `boxShadow: "none"` no elemento focado. O anel por dentro (`ring-inset`) porque
-             o painel encosta na borda do modal e um anel por fora seria cortado. */
-          className="flex-1 overflow-y-auto bg-slate-50 min-h-[55vh] focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-500"
+             o painel encosta na borda do modal e um anel por fora seria cortado.
+             `focus:` e nao `focus-visible:` porque esta base tem 269 `focus:ring` e ZERO
+             `focus-visible` — numa fase sobre coerencia, uma excecao solitaria e o desvio. */
+          className="flex-1 overflow-y-auto bg-slate-50 min-h-[55vh] focus:outline-none focus:ring-1 focus:ring-inset focus:ring-brand-500"
         >
           {/* ─────────── ABA DOCUMENTO ─────────── */}
           {aba === "documento" && (
@@ -289,7 +296,7 @@ export default function ApprovalDossierModal({ locale, dossie, onClose }: Approv
                 <span className="text-[10px] font-mono uppercase text-slate-400">
                   {locale === "pt" ? "Documento real exportado" : "Real exported document"}
                 </span>
-                <DocumentFormatSwitch format={preview.previewFormat} onChange={(fmt) => preview.openPreview(dossie.proposal.id, fmt)} />
+                <DocumentFormatSwitch locale={locale} format={preview.previewFormat} onChange={(fmt) => preview.openPreview(dossie.proposal.id, fmt)} />
               </div>
               <div className="flex-1">
                 <DocumentPreviewBody

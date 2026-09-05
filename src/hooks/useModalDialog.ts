@@ -23,8 +23,13 @@
  */
 import { useEffect, useRef } from "react";
 
+// `:not([tabindex="-1"])` em TODOS, nao so no `[tabindex]` generico: as quatro abas nao
+// selecionadas do dossie sao <button> com tabIndex -1 (o padrao de abas rotativas) e
+// entravam nesta lista. Hoje e inofensivo, mas basta que o primeiro ou o ultimo no do
+// modal seja um focavel com tabindex -1 para o calculo de `primeiro`/`ultimo` apontar
+// para um elemento que o Tab natural nao visita — e a armadilha deixar escapar.
 const FOCAVEIS =
-  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  'a[href]:not([tabindex="-1"]), button:not([disabled]):not([tabindex="-1"]), input:not([disabled]):not([tabindex="-1"]), select:not([disabled]):not([tabindex="-1"]), textarea:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])';
 
 export interface OpcoesDoModal {
   /**

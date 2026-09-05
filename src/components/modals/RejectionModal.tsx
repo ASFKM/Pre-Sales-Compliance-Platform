@@ -44,7 +44,18 @@ export default function RejectionModal({
   locale, proposalLabel, stageName, secoes, comments, onCommentsChange, submitting, onCancel, onConfirm,
 }: RejectionModalProps) {
   const [itens, setItens] = useState<ItemDeRejeicaoNaTela[]>([]);
-  const refModal = useModalDialog<HTMLDivElement>(onCancel);
+  /*
+   * F10 (correcao da revisao): `fecharNoEscape: false`, pela MESMA razao do editor de
+   * secoes. `itens` acima e estado LOCAL — some no desmonte. O aprovador compoe N itens
+   * de rejeicao, cada um com secao e texto proprios, e um Escape apagaria todos sem
+   * confirmacao. (`comments` sobrevive porque e prop do pai; os itens, nao.)
+   *
+   * Ha um agravante concreto: o item tem um <select> NATIVO, e Escape para fechar a
+   * lista suspensa dele e gesto padrao do sistema. Como o listener do hook esta em
+   * `document` na fase de CAPTURA, ele dispararia antes — fechar o dropdown fecharia
+   * o modal inteiro.
+   */
+  const refModal = useModalDialog<HTMLDivElement>(onCancel, { fecharNoEscape: false });
 
   const chaveDaSecao = (s: DossieSecao) => `${s.target_kind}:${s.target_key}`;
   const secaoPorChave = (chave: string) => secoes.find((s) => chaveDaSecao(s) === chave) ?? null;
