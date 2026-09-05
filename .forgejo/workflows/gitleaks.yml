@@ -21,8 +21,33 @@ jobs:
         with:
           fetch-depth: 0
       - name: gitleaks
+        # `-v` SEM `--redact` imprime o segredo encontrado no log do job — e o log de CI é
+        # legível por qualquer um com acesso ao repositório. Era assim até este commit: o
+        # scanner que existe para achar segredo vazava o segredo achado.
+        #
+        # O scan roda UMA vez e guarda o exit code; o gate fica no último passo. Sem isso o
+        # relatório não rodaria justamente quando há achado, que é quando ele importa.
         run: |
           wget -qO /tmp/gitleaks.tar.gz \
             https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz
           tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
-          /tmp/gitleaks detect --source . --no-git -v --exit-code 1
+          mkdir -p reports
+          set +e
+          /tmp/gitleaks detect --source . --no-git --redact -v \
+            --report-format sarif --report-path reports/gitleaks.sarif
+          echo $? > /tmp/gitleaks.exit
+          set -e
+      - name: Gerando relatório de achados (painel Infra Ops)
+        # Publica os achados no log — único canal que sai do job (os artifacts deste Forgejo
+        # respondem 500). O script descarta Secret/Match/Snippet: o achado é "há um segredo em
+        # arquivo:linha, regra X" e nada mais.
+        run: |
+          apk add --no-cache python3 >/dev/null 2>&1 || true
+          python3 scripts/ci/infraops_findings.py gitleaks reports/gitleaks.sarif || true
+      - name: gitleaks (gate)
+        run: |
+          code=$(cat /tmp/gitleaks.exit 2>/dev/null || echo 1)
+          [ "$code" = "0" ] || { echo "gitleaks terminou com $code — há segredo commitado"; exit "$code"; }
+        # PENDÊNCIA DECLARADA: `--no-git` escaneia o working tree, não o histórico. Passar a
+        # escanear o histórico é outra decisão (pode reprovar por segredo antigo já rotacionado)
+        # e entra numa janela própria — não neste PR, que existe para parar o vazamento.
