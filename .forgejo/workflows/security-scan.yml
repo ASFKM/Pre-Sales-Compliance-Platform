@@ -19,7 +19,10 @@ jobs:
         run: |
           semgrep scan --config auto --json --output=.semgrep.json . || true
           python3 scripts/ci/semgrep_summary.py >> "$FORGEJO_STEP_SUMMARY"
-          semgrep scan --config auto --error .
+      - name: Gerando relatório de achados (painel Infra Ops)
+        run: python3 scripts/ci/infraops_findings.py semgrep .semgrep.json || true
+      - name: semgrep (gate)
+        run: semgrep scan --config auto --error .
 
   trivy:
     runs-on: trivy
@@ -29,6 +32,12 @@ jobs:
       - name: trivy fs
         run: |
           apk add --no-cache python3 >/dev/null
-          trivy fs --scanners vuln --severity HIGH,CRITICAL --format json --output .trivy.json . || true
+          # MEDIUM entra no RELATÓRIO (a política do gate trata MEDIUM como aviso), mas NÃO no
+          # gate abaixo, que continua bloqueando só em HIGH/CRITICAL. O que muda é o que o painel
+          # enxerga, não o que reprova o merge.
+          trivy fs --scanners vuln --severity CRITICAL,HIGH,MEDIUM --format json --output .trivy.json . || true
           python3 scripts/ci/trivy_summary.py >> "$FORGEJO_STEP_SUMMARY"
-          trivy fs --scanners vuln --severity HIGH,CRITICAL --exit-code 1 .
+      - name: Gerando relatório de achados (painel Infra Ops)
+        run: python3 scripts/ci/infraops_findings.py trivy .trivy.json || true
+      - name: trivy (gate)
+        run: trivy fs --scanners vuln --severity HIGH,CRITICAL --exit-code 1 .
