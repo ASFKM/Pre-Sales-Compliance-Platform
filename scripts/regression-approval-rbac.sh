@@ -167,6 +167,11 @@ echo "Generated files: $GENERATED_DOCX_PATH $GENERATED_PDF_PATH"
 # A verificacao nova e mais forte, nao mais fraca: assinatura PK do zip e a parte que faz de um zip
 # um documento do Word. E ela diz o que viu quando falha — uma reprovacao que nao mostra o motivo
 # custou um ciclo inteiro de CI para ser diagnosticada.
+# O QUE O DIAGNOSTICO DESTA FUNCAO REVELOU, e que vale registrar: o .docx da proposta LIBERADA
+# sai com o zip fora da convencao do OOXML - `[Content_Types].xml` como ULTIMO membro (a convencao
+# pede que seja o primeiro) e uma entrada de diretorio `word/` solta. O Word abre normalmente e o
+# conteudo esta integro, mas e por isso que o `file` deixou de rotula-lo. Nao corrigido aqui:
+# mexer na ordem de escrita do zip e mudanca de comportamento, e este script e de CI.
 verificar_docx() {
   local arquivo="$1"
   local rotulo="$2"
@@ -175,9 +180,16 @@ verificar_docx() {
     head -c 200 "$arquivo" >&2
     return 1
   fi
-  if ! unzip -l "$arquivo" 2>/dev/null | grep -q "word/document.xml"; then
+  # `unzip -l` sai com codigo != 0 quando tem qualquer reparo a relatar, e com `set -o pipefail`
+  # isso derruba o pipeline INTEIRO mesmo com o grep casando. Foi o que aconteceu na primeira
+  # versao desta funcao: a mensagem dizia "nao tem word/document.xml" e a listagem logo abaixo
+  # MOSTRAVA word/document.xml. Por isso a listagem e capturada primeiro, com o codigo de saida
+  # deliberadamente ignorado, e so depois procurada.
+  local partes
+  partes="$(unzip -l "$arquivo" 2>/dev/null || true)"
+  if ! printf '%s' "$partes" | grep -q "word/document.xml"; then
     echo "FALHA: $rotulo e um zip mas nao tem word/document.xml. Partes:" >&2
-    unzip -l "$arquivo" >&2
+    printf '%s\n' "$partes" >&2
     return 1
   fi
 }
