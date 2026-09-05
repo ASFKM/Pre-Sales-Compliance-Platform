@@ -42,7 +42,7 @@ def chave(*partes):
     -- justamente a metrica que o painel mostra.
     """
     bruto = "|".join("" if p is None else str(p) for p in partes)
-    return hashlib.sha1(bruto.encode("utf-8", "replace")).hexdigest()[:16]
+    return hashlib.sha256(bruto.encode("utf-8", "replace")).hexdigest()[:16]
 
 
 def corta(v, n):
