@@ -8,7 +8,7 @@ import { logger } from "../utils/logger";
 import { empurrarMarcoDaDemanda } from "../utils/crmOutbox";
 import { AnalysisResult, KnowledgeBaseEntry, Project, PlatformSettings } from "../../src/types";
 import { createTask, updateTaskProgress, completeTask, failTask } from "../../src/backgroundTasks";
-import { generateJsonWithProvider, generateTextWithProvider, searchWebWithProvider, ConnectedProvider, ProviderFileInput } from "../utils/aiProviders";
+import { generateJsonWithProvider, generateTextWithProvider, searchWebWithProvider, buildActorRef, ConnectedProvider, ProviderFileInput } from "../utils/aiProviders";
 import { createStorageAdapter } from "../utils/storage";
 import { estimateCostUsd } from "../utils/aiPricing";
 import { resolveProvider, checkCostCap, recordProviderFallback, recordAiUsage, ProviderResolution } from "../../src/aiOrchestrator";
@@ -738,7 +738,7 @@ Respond with ONLY a JSON ${sectionConfig.responseKind === "object" ? "object" : 
 ${sectionConfig.shapeHint}`;
 
   let rawText: string, inputTokens: number, outputTokens: number, billedCostUsd: number | undefined;
-  ({ text: rawText, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt, documentFiles));
+  ({ text: rawText, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt, { taskKey: "document_analysis", actorRef: buildActorRef("user", userId), triggerType: "background_task" }, documentFiles));
   const realEstimatedCostUsd = billedCostUsd ?? estimateCostUsd(providerResolution.model, inputTokens, outputTokens);
 
   const parsedJson = parseAiJson(rawText);
@@ -1320,7 +1320,7 @@ Respond with ONLY a JSON array (no markdown, no extra text), one object per item
       const MAX_ATTEMPTS = 4;
       for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         try {
-          const { text, inputTokens, outputTokens, billedCostUsd } = await searchWebWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, promptFor(chunk));
+          const { text, inputTokens, outputTokens, billedCostUsd } = await searchWebWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, promptFor(chunk), { taskKey: "web_grounding", actorRef: buildActorRef("user", userId), triggerType: "background_task" });
           await recordAiUsage({
             tenantId,
             taskType: "bom_web_search",
@@ -1849,7 +1849,7 @@ Write all generated content fields strictly in ${project.proposal_language}. Mai
 
     let rawText: string, inputTokens: number, outputTokens: number, billedCostUsd: number | undefined;
     try {
-      ({ text: rawText, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt, documentFiles));
+      ({ text: rawText, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt, { taskKey: "document_analysis", actorRef: buildActorRef("user", task.user_id), triggerType: "background_task" }, documentFiles));
     } finally {
       clearInterval(progressTicker);
     }
@@ -2057,9 +2057,9 @@ Answer concisely and specifically, citing the source document/section when the a
 extracted text or analysis above. If the answer isn't covered by the material provided, say so plainly
 instead of inventing information.`;
 
-    const { text: answer, inputTokens, outputTokens, billedCostUsd } = await generateTextWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt, documentFiles);
-
     const userId = requireUserId(req);
+
+    const { text: answer, inputTokens, outputTokens, billedCostUsd } = await generateTextWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt, { taskKey: "spec_copilot", actorRef: buildActorRef("user", userId), triggerType: "user_action" }, documentFiles);
 
     await dbStore.addConversationMessage({
       project_id: projectId,

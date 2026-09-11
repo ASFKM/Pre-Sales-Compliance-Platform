@@ -22,9 +22,8 @@ import { getTenantContext, TenantContext } from "./tenantContext";
 // being added to this set - the exact gap that let 5 models (including this file's own upsert()
 // bug) go unscoped for most of this project's history.
 export const TENANT_SCOPED_MODELS = new Set([
-  "aIAnalysisJob", "aiProviderConfig", "aiUsageLog", "analysisResult", "approvalDecision",
-  "approvalWorkflow", "approvalStage", "auditLog", "backgroundTask", "brandingSettings", "brandStyle",
-  "budgetOptimizationRun",
+  "aIAnalysisJob", "aiProviderConfig", "aiUsageLog", "analysisResult", "approvalDecision", "approvalDecisionItem",
+  "approvalWorkflow", "approvalStage", "auditLog", "backgroundTask",   "budgetOptimizationRun",
   "conversationMessage", "crmPairKey", "debugLog", "demand", "demandDocument",
   // CDC 16 F3: a fila de saída para o CRM. Recortada por tenant como tudo o mais — o drenador
   // varre por tenant de propósito, e uma consulta sem `where` explícito nunca deve enxergar a
@@ -54,7 +53,13 @@ export const TENANT_SCOPED_MODELS = new Set([
   "priceCatalogExtractionDraft", "priceCatalogItem", "priceHistoryEntry", "priceListUpload",
   "project", "projectPricingLine", "projectPricingSheet",
   "promptTemplate", "proposal", "proposalTemplate", "proposalOpinionRun",
-  "proposalAiOpinionItem", "role", "systemMessage", "systemUpdateState", "systemUpdateHistory",
+  "proposalAiOpinionItem", "proposalOpinionFinding", "proposalSectionEdit",
+  // F9 (rodada 09/2026): o resultado guardado do assistente do aprovador. Carrega tenant_id e
+  // por isso entra aqui - a linha guarda a leitura do conjunto de uma proposta (perguntas que
+  // citam secao e apontamento pelo nome), e le-la de outro tenant seria ler o dossie alheio pela
+  // porta dos fundos.
+  "proposalApproverBriefing",
+  "role", "systemMessage", "systemUpdateState", "systemUpdateHistory",
   "tenantPricingSettings", "tenantTaxProfile", "user", "teamMembership", "vertical",
 ]);
 
@@ -148,6 +153,26 @@ function buildVisibilityFilter(model: string, context: TenantContext): Record<st
         { run: { proposal: { project: { owner: { teamMemberships: { some: { managerId: userId } } } } } } },
         { run: { proposal: { decisions: { some: { approverUserId: userId } } } } },
         { run: { proposal: { approvalWorkflow: { stages: { some: approverOr } } } } },
+      ],
+    };
+  }
+
+  // F9 (rodada 09/2026): o resultado guardado do assistente do aprovador, pela MESMA regra
+  // herdada - ProposalApproverBriefing -> Proposal -> Project. Ele nao tem posse propria, e o
+  // conteudo dele e a leitura preparada de quem julga aquela proposta: quem nao pode ver a
+  // proposta nao pode ver a preparacao sobre ela.
+  //
+  // Hoje as duas unicas consultas ao modelo rodam DEPOIS do gate da rota, entao isto e defesa em
+  // profundidade e nao correcao de falha. Existe pelo proximo call site: uma consulta futura por
+  // `proposalId` cru devolveria briefing de proposta invisivel dentro do mesmo tenant - que e
+  // exatamente a classe AUD-002 ja fechada para os quatro modelos acima.
+  if (model === "ProposalApproverBriefing") {
+    return {
+      OR: [
+        { proposal: { project: { ownerUserId: userId } } },
+        { proposal: { project: { owner: { teamMemberships: { some: { managerId: userId } } } } } },
+        { proposal: { decisions: { some: { approverUserId: userId } } } },
+        { proposal: { approvalWorkflow: { stages: { some: approverOr } } } },
       ],
     };
   }

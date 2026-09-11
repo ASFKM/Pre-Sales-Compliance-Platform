@@ -44,13 +44,77 @@ const VALORES_QUE_A_IA_NAO_SUGERE = new Set([
   "termos_entrega",
   "data_validade_projeto",
   "prazo_projeto",
+  /*
+   * F6 (rodada 09/2026): os dois abaixo pertenciam a esta lista desde sempre pela mesma razão dos
+   * três termos acima - `premissas_comerciais` e `exclusoes` são campos da própria Proposal
+   * (commercial_assumptions/exclusions em PROPOSAL_EDITABLE_FIELDS), com tela e rota estruturada
+   * próprias. Ficaram de fora por acidente: a regra do vazio os protegia sem que ninguém
+   * precisasse notar, porque o resolvedor sempre lhes dá um valor (o da proposta ou um default).
+   * Com a substituição explícita esse acidente viraria um segundo caminho de escrita para o mesmo
+   * campo, gravado sob outro nome e em outra coluna - a forma clássica de as duas versões
+   * divergirem. Um apontamento sobre eles aponta para o campo da proposta (targetKind
+   * "proposal_field"), nunca para a variável do template.
+   */
+  "premissas_comerciais",
+  "exclusoes",
 ]);
 
-export function podeSerSugeridaPelaIa(nomeDaVariavel: string): boolean {
+/*
+ * F6 (rodada 09/2026): identidade e cadastro. NASCEU nesta fase, e nasceu por uma razão precisa.
+ *
+ * Até aqui `cliente` não precisava estar em lista nenhuma: ele era protegido pela REGRA DO VAZIO
+ * no motor do template (docxTemplateEngine.ts), que só deixava um texto aprovado ocupar variável
+ * em branco - e `cliente` nunca está em branco, porque vem do cadastro do projeto. A F6 troca essa
+ * regra por substituição explícita e auditada, que é o que permite corrigir uma seção redigida
+ * pela análise. No mesmo movimento, `cliente` PERDERIA a única proteção que tinha: bastaria gravar
+ * um valor sob esse nome para o documento sair com outro cliente.
+ *
+ * Então a proteção MUDA DE MECANISMO em vez de desaparecer: sai da regra do vazio e entra aqui,
+ * na allowlist, que é reaplicada nos dois pontos (a rota que grava e o motor que mescla). O corte
+ * é "fato de cadastro, não redação": nome do cliente, nome e código do projeto, vertical, escopo,
+ * status, responsável e modalidade têm uma tela própria onde se corrigem - a proposta não é o
+ * lugar de reescrevê-los, e um texto que os contradiga é erro, não edição. O que a fase LIBEROU
+ * para substituição é a outra metade: as seções redigidas (resumo executivo, contexto, riscos,
+ * estratégia, premissas, próximos passos), que existem justamente para serem revisadas.
+ */
+const FATOS_DE_CADASTRO_QUE_NINGUEM_SOBRESCREVE = new Set([
+  "cliente",
+  "projeto",
+  "codigo_oportunidade",
+  "vertical",
+  "escopo",
+  "status_projeto",
+  "responsavel_projeto",
+  "modalidade_contratacao",
+]);
+
+/**
+ * A barreira, em UM lugar só.
+ *
+ * Vale para os dois caminhos de escrita de um valor de template aprovado por uma pessoa: a rota
+ * PUT /proposals/:id/campos-do-template (que recusa com 400 o que cair aqui) e o merge final em
+ * buildTemplateVariables (que ignora silenciosamente, porque é a última barreira contra um valor
+ * que tenha entrado por outro caminho). Ter as duas consultando esta mesma função é o que impede
+ * que uma proteção exista só num dos lados.
+ */
+export function podeSerSubstituidaPorTextoAprovado(nomeDaVariavel: string): boolean {
   if (NOMES_DE_LACO.has(nomeDaVariavel)) return false;
   if (NOMES_DE_CAMPO_INTERNO_DE_LACO.has(nomeDaVariavel)) return false;
   if (VALORES_QUE_A_IA_NAO_SUGERE.has(nomeDaVariavel)) return false;
+  if (FATOS_DE_CADASTRO_QUE_NINGUEM_SOBRESCREVE.has(nomeDaVariavel)) return false;
   return true;
+}
+
+/**
+ * O que a IA pode SUGERIR. Hoje é exatamente o que uma pessoa pode gravar, e de propósito: uma
+ * sugestão que ninguém pode aplicar não serviria para nada, e um campo que a pessoa pode gravar
+ * mas a IA não pode nem propor seria uma assimetria sem dono. Os dois nomes existem porque as
+ * duas perguntas são diferentes ("a IA pode escrever isto?" e "este valor aprovado pode cobrir o
+ * que o sistema calculou?") e podem divergir amanhã sem que ninguém precise reencontrar todos os
+ * chamadores.
+ */
+export function podeSerSugeridaPelaIa(nomeDaVariavel: string): boolean {
+  return podeSerSubstituidaPorTextoAprovado(nomeDaVariavel);
 }
 
 export type OrigemDaVariavel = "secao_de_texto" | "variavel_livre";

@@ -273,113 +273,26 @@ function createZip(entries: Array<{ name: string; data: Buffer }>): Buffer {
   return Buffer.concat([...localParts, centralDirectory, end]);
 }
 
-// Roadmap item (customer_request): "Mecanismo Personalizado de Estilo de Marca DOCX" - the generic
-// (no-uploaded-template) DOCX generator produced a completely unbranded document, no logo/color at
-// all, while a real uploaded template already carries its own letterhead. This is the fallback path
-// that actually needed it. Kept as a header PREPENDED to the existing flat-text body rather than
-// weaving color into the body text itself - editable_content (what the user edits on screen, see
-// Proposals.tsx) is one flat string with no structural markup, so styling individual lines within
-// it isn't something this format can express without a much bigger rework of that contract.
-export interface BrandingHeader {
-  companyName?: string;
-  primaryColorHex?: string; // validated as #RGB or #RRGGBB by settings.ts before it ever reaches here
-  logoDataUrl?: string; // "data:image/png;base64,..." - branding_settings stores logos inline as data URLs, not via the storage adapter (see useAdminConsole.ts's upload handler)
-}
+// F5: o cabecalho de marca do gerador generico foi removido junto com a identidade visual
+// configuravel por tenant. Ele so alcancava o documento gerado SEM template - e desde a F5 o
+// template .docx e obrigatorio para gerar proposta, entao esse caminho deixou de existir. Um
+// template real ja carrega o proprio timbre, que era justamente o achado que motivou a fase: a
+// tela de branding pintava um documento que quase ninguem gerava.
 
-function decodeImageDataUrl(dataUrl: string): { buffer: Buffer; extension: "png" | "jpeg" } | null {
-  const match = /^data:image\/(png|jpe?g);base64,([a-zA-Z0-9+/=]+)$/.exec(dataUrl.trim());
-  if (!match) return null;
-  const extension = match[1] === "png" ? "png" : "jpeg";
-  try {
-    return { buffer: Buffer.from(match[2], "base64"), extension };
-  } catch {
-    return null;
-  }
-}
-
-function parsePngDimensions(buf: Buffer): { width: number; height: number } | null {
-  const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-  if (buf.length < 24 || !buf.subarray(0, 8).equals(PNG_SIGNATURE)) return null;
-  return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
-}
-
-// Minimal SOF-marker scan - enough to read intrinsic pixel dimensions, not a full JPEG parser.
-function parseJpegDimensions(buf: Buffer): { width: number; height: number } | null {
-  if (buf.length < 4 || buf[0] !== 0xff || buf[1] !== 0xd8) return null;
-  let offset = 2;
-  while (offset + 4 <= buf.length) {
-    if (buf[offset] !== 0xff) { offset++; continue; }
-    const marker = buf[offset + 1];
-    if (marker === 0xd8 || marker === 0xd9) { offset += 2; continue; }
-    if (marker >= 0xd0 && marker <= 0xd7) { offset += 2; continue; }
-    const segmentLength = buf.readUInt16BE(offset + 2);
-    const isStartOfFrame = marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
-    if (isStartOfFrame) {
-      if (offset + 9 > buf.length) return null;
-      return { height: buf.readUInt16BE(offset + 5), width: buf.readUInt16BE(offset + 7) };
-    }
-    offset += 2 + segmentLength;
-  }
-  return null;
-}
-
-// EMU (English Metric Units, what OOXML sizes everything in) at a 96dpi on-screen reference,
-// capped so an oversized uploaded logo can't dominate the page header.
-const EMU_PER_PIXEL = 9525;
-const MAX_LOGO_WIDTH_PX = 160;
-
-function buildLogoDrawingXml(pixelWidth: number, pixelHeight: number, relationshipId: string): string {
-  const scale = pixelWidth > MAX_LOGO_WIDTH_PX ? MAX_LOGO_WIDTH_PX / pixelWidth : 1;
-  const widthEmu = Math.round(pixelWidth * scale * EMU_PER_PIXEL);
-  const heightEmu = Math.round(pixelHeight * scale * EMU_PER_PIXEL);
-  return `<w:p><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="${widthEmu}" cy="${heightEmu}"/><wp:docPr id="1" name="Logo"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="0" name="Logo"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${relationshipId}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${widthEmu}" cy="${heightEmu}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`;
-}
-
-export function buildDocxBuffer(text: string, branding?: BrandingHeader): Buffer {
+export function buildDocxBuffer(text: string): Buffer {
   const paragraphs = text.split(/\r?\n/).map(line =>
     `<w:p><w:r><w:t xml:space="preserve">${escapeXml(line || " ")}</w:t></w:r></w:p>`
   ).join("");
 
-  const colorHex = (branding?.primaryColorHex || "").replace("#", "");
-  const decodedLogo = branding?.logoDataUrl ? decodeImageDataUrl(branding.logoDataUrl) : null;
-  const logoDimensions = decodedLogo
-    ? (decodedLogo.extension === "png" ? parsePngDimensions(decodedLogo.buffer) : parseJpegDimensions(decodedLogo.buffer))
-    : null;
-
-  let headerXml = "";
-  const zipExtras: Array<{ name: string; data: Buffer }> = [];
-  let contentTypesExtra = "";
-  let documentRelsExtra = "";
-
-  if (decodedLogo && logoDimensions) {
-    const relationshipId = "rIdLogo1";
-    headerXml += buildLogoDrawingXml(logoDimensions.width, logoDimensions.height, relationshipId);
-    zipExtras.push({ name: `word/media/logo.${decodedLogo.extension}`, data: decodedLogo.buffer });
-    contentTypesExtra += `<Default Extension="${decodedLogo.extension}" ContentType="image/${decodedLogo.extension === "jpeg" ? "jpeg" : "png"}"/>`;
-    documentRelsExtra += `<Relationship Id="${relationshipId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/logo.${decodedLogo.extension}"/>`;
-  }
-  if (branding?.companyName) {
-    const colorAttr = /^[0-9a-fA-F]{6}$/.test(colorHex) ? `<w:color w:val="${colorHex}"/>` : "";
-    headerXml += `<w:p><w:pPr><w:spacing w:after="240"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="32"/>${colorAttr}</w:rPr><w:t xml:space="preserve">${escapeXml(branding.companyName)}</w:t></w:r></w:p>`;
-  }
-  if (headerXml) {
-    // Bottom border under the header block, in the brand color when available, separating it
-    // visually from the flat-text body that follows.
-    const borderColorAttr = /^[0-9a-fA-F]{6}$/.test(colorHex) ? colorHex : "999999";
-    headerXml += `<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="12" w:space="1" w:color="${borderColorAttr}"/></w:pBdr><w:spacing w:after="240"/></w:pPr></w:p>`;
-  }
-
   const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${headerXml}${paragraphs}<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>`;
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${paragraphs}<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>`;
 
   return createZip([
-    { name: "[Content_Types].xml", data: Buffer.from(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>${contentTypesExtra}<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>`, "utf8") },
+    { name: "[Content_Types].xml", data: Buffer.from(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>`, "utf8") },
     { name: "_rels/.rels", data: Buffer.from(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/></Relationships>`, "utf8") },
-    ...(documentRelsExtra ? [{ name: "word/_rels/document.xml.rels", data: Buffer.from(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${documentRelsExtra}</Relationships>`, "utf8") }] : []),
     { name: "word/document.xml", data: Buffer.from(documentXml, "utf8") },
     { name: "docProps/core.xml", data: Buffer.from(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>Commercial Assistant AI Proposal</dc:title><dc:creator>Commercial Assistant AI</dc:creator><cp:lastModifiedBy>Commercial Assistant AI</cp:lastModifiedBy><dcterms:created xsi:type="dcterms:W3CDTF">${new Date().toISOString()}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${new Date().toISOString()}</dcterms:modified></cp:coreProperties>`, "utf8") },
     { name: "docProps/app.xml", data: Buffer.from(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>Commercial Assistant AI</Application></Properties>`, "utf8") },
-    ...zipExtras
   ]);
 }
 
@@ -439,22 +352,22 @@ export function buildPdfBuffer(text: string): Buffer {
 // match what's on screen rather than the original unedited analysis data. Returns the storage
 // paths the caller should persist on the Proposal row.
 //
-// docxBufferOverride lets the caller supply a DOCX already merged from a real uploaded template
-// (server/utils/docxTemplateEngine.ts) - when absent, falls back to the generic buildDocxBuffer
-// (the no-template case, unchanged). The PDF always comes from the plain text either way (see
-// Fase 3b's design note: styling the PDF after the template would need a DOCX->PDF conversion
-// service, a heavier new dependency not taken on here).
+// F5: `docxBuffer` deixou de ser um override OPCIONAL e passou a ser obrigatorio. Ele e sempre o
+// DOCX ja mesclado a partir do template real (server/utils/docxTemplateEngine.ts) - desde a F5 uma
+// proposta so e gerada com um template .docx cujo arquivo fisico existe, entao nao ha mais o caso
+// "sem template" para o gerador generico cobrir. O parametro `branding` saiu junto: o cabecalho de
+// marca so alcancava esse caminho generico. O PDF continua vindo do texto plano (ver nota de
+// projeto da Fase 3b: estilizar o PDF conforme o template exigiria um conversor DOCX->PDF).
 export async function writeProposalFiles(
   storageAdapter: StorageAdapter,
   projectId: string,
   proposalType: string,
   text: string,
-  docxBufferOverride?: Buffer,
-  branding?: BrandingHeader
+  docxBuffer: Buffer
 ): Promise<{ docx_file_path: string; pdf_file_path: string }> {
   const docxPath = await storageAdapter.uploadFile(
     projectId,
-    docxBufferOverride ?? buildDocxBuffer(text, branding),
+    docxBuffer,
     `${proposalType}_proposal.docx`,
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
   );

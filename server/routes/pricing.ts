@@ -11,7 +11,7 @@ import { prisma } from "../../src/prisma";
 import { randomId } from "../../src/idGenerator";
 import { dbStore } from "../../src/dbStore";
 import { resolveProvider, checkCostCap, recordProviderFallback, recordAiUsage } from "../../src/aiOrchestrator";
-import { generateJsonWithProvider, ConnectedProvider } from "../utils/aiProviders";
+import { generateJsonWithProvider, buildActorRef, ConnectedProvider } from "../utils/aiProviders";
 import { estimateCostUsd } from "../utils/aiPricing";
 import { parseAiJson } from "./analysis";
 import { requireUserId } from "../middleware/security";
@@ -522,7 +522,9 @@ async function commitAiExtractionFile(
       { buffer: file.buffer, filename: file.originalname, mimeType: file.mimetype },
       exchangeRate,
       provider,
-      model
+      model,
+      userId,
+      "background_task"
     );
 
     await recordAiUsage({
@@ -1472,7 +1474,8 @@ Respond with ONLY a JSON object (no markdown, no extra text), in this exact shap
       const { text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(
         providerResolution.provider as ConnectedProvider,
         providerResolution.model,
-        prompt
+        prompt,
+        { taskKey: "pricing_budget_optimization", actorRef: buildActorRef("user", userId), triggerType: "user_action" }
       );
       const parsed = parseAiJson(text);
       const { strategy, rationale } = StrategyChoiceSchema.parse(parsed);

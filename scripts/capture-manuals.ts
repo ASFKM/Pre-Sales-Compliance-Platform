@@ -271,7 +271,6 @@ const TELAS: Tela[] = [
     o_que: "Configurações — Atualizações do Sistema (exige a permissão admin:system_updates, que o papel do tenant de demonstração NÃO tem — é por isso que esta imagem, citada no manual, nunca existiu)",
     async abrir(p) { await secaoAdmin(p, "Atualizações do Sistema"); },
   },
-  { arquivo: "34-admin-branding", o_que: "Configurações — Identidade Visual", async abrir(p) { await secaoAdmin(p, "Identidade Visual"); } },
   { arquivo: "35-admin-integracoes", o_que: "Configurações — Integrações e APIs", async abrir(p) { await secaoAdmin(p, "Integrações e APIs"); } },
   { arquivo: "36-admin-armazenamento", o_que: "Configurações — Armazenamento", async abrir(p) { await secaoAdmin(p, "Armazenamento"); } },
   { arquivo: "37-admin-auditoria", o_que: "Configurações — Auditoria e Diagnóstico", async abrir(p) { await secaoAdmin(p, "Auditoria e Diagnóstico"); } },

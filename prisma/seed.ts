@@ -7,7 +7,6 @@
 import crypto from "crypto";
 import { prisma } from "../src/prisma";
 import { runWithTenant } from "../src/tenantContext";
-import { BRAND_DEFAULT_PRIMARY, BRAND_DEFAULT_ACCENT } from "../src/brandTheme";
 
 function hashPassword(password: string): string {
   const salt = crypto.randomBytes(16).toString("hex");
@@ -43,7 +42,7 @@ async function main() {
         "analysis:run", "analysis:read", "analysis:edit", "analysis:approve",
         "proposal:generate", "proposal:edit", "proposal:approve", "proposal:export",
         "template:manage", "approval:manage", "admin:users", "admin:roles", "admin:settings",
-        "admin:audit", "admin:debug", "admin:diagnostics", "admin:system_updates", "ai:settings", "branding:manage",
+        "admin:audit", "admin:debug", "admin:diagnostics", "admin:system_updates", "ai:settings",
         "storage:manage", "integrations:manage", "knowledge_base:read", "knowledge_base:write",
         "poc:read", "poc:manage",
         "pricing:read", "pricing:manage",
@@ -296,39 +295,6 @@ async function main() {
         gcsBucket: "",
         defaultLanguage: "English",
         defaultLogLevel: "DEBUG"
-      }
-    });
-  }
-
-  console.log("Seeding branding settings...");
-  if (!(await prisma.brandingSettings.findUnique({ where: { tenantId: tenant.id } }))) {
-    await prisma.brandingSettings.create({
-      data: {
-        id: "branding-global",
-        tenantId: tenant.id,
-        companyName: "Commercial Assistant AI",
-        companyLogoPath: "",
-        loginLogoPath: "",
-        sidebarLogoPath: "",
-        reportLogoPath: "",
-        faviconPath: "",
-        primaryColor: BRAND_DEFAULT_PRIMARY,
-        secondaryColor: "#1e293b",
-        accentColor: BRAND_DEFAULT_ACCENT,
-        // Fase 8: banco novo não tem histórico a preservar, então nasce com a cor da marca
-        // JÁ valendo na interface - e como essa cor é exatamente a rampa de src/index.css, ligar
-        // não muda um pixel.
-        applyToUi: true,
-        backgroundColor: "#f8fafc",
-        textColor: "#0f172a",
-        fontFamily: "Inter",
-        borderRadius: "rounded-xl",
-        buttonStyle: "solid",
-        defaultTheme: "light",
-        customCssVariables: "",
-        footerText: "Commercial Assistant AI - Enterprise Pre-Sales Solution © 2026",
-        supportContact: "support@assistantai-corp.com",
-        legalText: "CONFIDENTIALITY NOTICE: This system handles proprietary and sensitive customer bidding documentation. Unauthorized disclosure of technical specification summaries or commercial tables is strictly prohibited."
       }
     });
   }

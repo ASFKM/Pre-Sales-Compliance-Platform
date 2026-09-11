@@ -100,6 +100,25 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   const [erro, setErro] = useState("");
   const [carregando, setCarregando] = useState(false);
 
+  /**
+   * `prefers-reduced-motion` de verdade, lido do sistema — ver o comentário do <video> abaixo.
+   *
+   * O listener de `change` não é enfeite: quem liga a preferência no sistema com esta tela aberta
+   * tem de ver o efeito sem recarregar. Sem ele, a correção só valeria para quem já chegou aqui
+   * com a preferência ligada.
+   */
+  const [movimentoReduzido, setMovimentoReduzido] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+  useEffect(() => {
+    const consulta = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const aoMudar = (evento: MediaQueryListEvent) => setMovimentoReduzido(evento.matches);
+    consulta.addEventListener("change", aoMudar);
+    return () => consulta.removeEventListener("change", aoMudar);
+  }, []);
+
   const CREDENCIAL_INVALIDA = "E-mail ou senha inválidos.";
 
   const entrarComSenha = async (e: React.FormEvent) => {
@@ -224,28 +243,43 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         MEDIA_ERR_SRC_NOT_SUPPORTED e para de desenhar o proprio poster — a tela fica BRANCA, sem
         erro visivel. Foi assim que esta tela apareceu vazia numa captura, com o arquivo integro
         (md5 conferido), servido com `video/mp4` e com Range (206) funcionando.
-        Com o quadro no fundo, o pior caso vira a imagem parada em vez de nada, que e exatamente o
-        que `prefers-reduced-motion` ja entrega de proposito.
+        Com o quadro no fundo, o pior caso vira a imagem parada em vez de nada.
+
+        F2 (04/09/2026) — `prefers-reduced-motion` AGORA EXISTE DE VERDADE AQUI.
+        Ate a F1 este comentario afirmava que a imagem parada era "o que prefers-reduced-motion ja
+        entrega de proposito". Era FALSO, e foi esse comentario confiante que escondeu o bug:
+        a expressao nao aparecia em nenhum .tsx/.ts/.css do projeto, so nele. Medido com Playwright
+        (`newContext({ reducedMotion: "reduce" })`) nas tres larguras: o video continuava tocando,
+        `paused === false`. Navegador nenhum pausa um <video> por causa dessa media query — o
+        Safari respeita a preferencia para <img> animado, nao para <video>.
+
+        A correcao e nao montar o elemento: com a preferencia ligada, o <video> nao vai ao DOM, o
+        fundo do contentor (que ja e o poster) fica sendo a tela, e o visitante ainda economiza os
+        2,87 MB do hero-loop.mp4 que pediu para nao ver. Nao basta `autoPlay={!movimentoReduzido}`:
+        trocar o atributo depois da montagem nao pausa um video que ja comecou, entao a preferencia
+        nao valeria para quem a liga com a tela aberta.
       */}
-      <video
-        aria-hidden="true"
-        autoPlay
-        muted
-        loop
-        playsInline
-        poster="/hero-poster.webp"
-        /*
-         * `src` DIRETO no <video>, e nao um <source> filho.
-         *
-         * Medido: com `<source>`, o React monta o <video> primeiro e anexa o filho depois — a
-         * essa altura o navegador ja rodou o algoritmo de selecao de recurso e desistiu.
-         * Resultado: `networkState === 3` (NETWORK_NO_SOURCE), `readyState === 0`, o arquivo
-         * nunca chega a ser pedido na rede, e a tela fica branca sem nenhum erro. O poster
-         * carrega (200) e mesmo assim nao pinta, porque o elemento esta em estado de "sem fonte".
-         */
-        src="/hero-loop.mp4"
-        className="absolute inset-0 h-full w-full object-cover"
-      />
+      {!movimentoReduzido && (
+        <video
+          aria-hidden="true"
+          autoPlay
+          muted
+          loop
+          playsInline
+          poster="/hero-poster.webp"
+          /*
+           * `src` DIRETO no <video>, e nao um <source> filho.
+           *
+           * Medido: com `<source>`, o React monta o <video> primeiro e anexa o filho depois — a
+           * essa altura o navegador ja rodou o algoritmo de selecao de recurso e desistiu.
+           * Resultado: `networkState === 3` (NETWORK_NO_SOURCE), `readyState === 0`, o arquivo
+           * nunca chega a ser pedido na rede, e a tela fica branca sem nenhum erro. O poster
+           * carrega (200) e mesmo assim nao pinta, porque o elemento esta em estado de "sem fonte".
+           */
+          src="/hero-loop.mp4"
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      )}
       <div aria-hidden="true" className="absolute inset-0 bg-white/45" />
 
       {/* Cartao, e nao conteudo solto sobre a montanha: e a anatomia que a F14b padronizou entre

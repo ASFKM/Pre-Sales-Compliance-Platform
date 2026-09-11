@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { buildDocxBuffer } from "./docx";
-import { BRAND_DEFAULT_PRIMARY } from "../../src/brandTheme";
 
 // O DOCX é um zip; para conferir a cor basta procurar o XML do documento dentro dos bytes, que
 // `createZip` grava sem compressão (ver a implementação em docx.ts). Nada de dependência nova.
@@ -15,42 +14,22 @@ function documentXml(buffer: Buffer): string {
   return buffer.subarray(start, end).toString("utf8");
 }
 
-describe("buildDocxBuffer — cabeçalho de marca", () => {
-  it("imprime a cor da marca no nome da empresa e na régua abaixo dele", () => {
-    const xml = documentXml(buildDocxBuffer("Corpo da proposta.", {
-      companyName: "Empresa Exemplo",
-      primaryColorHex: BRAND_DEFAULT_PRIMARY,
-    }));
-    // O OOXML quer o hex sem "#".
-    expect(xml).toContain('<w:color w:val="236cc7"/>');
-    expect(xml).toContain('w:color="236cc7"');
-    expect(xml).toContain("Empresa Exemplo");
-  });
-
-  it("respeita a cor customizada de um tenant, mesmo uma que a INTERFACE recusaria", () => {
-    // A guarda de contraste da Fase 8 vale para a interface, onde a cor vira fundo de rótulo
-    // branco. No documento ela pinta texto e uma régua sobre papel branco, então continua
-    // valendo como sempre valeu - e este teste existe para que ninguém "unifique" as duas
-    // regras mais tarde e apague a cor que o cliente escolheu para as propostas dele.
-    const xml = documentXml(buildDocxBuffer("Corpo.", {
-      companyName: "Cliente com cor própria",
-      primaryColorHex: "#0f172b",
-    }));
-    expect(xml).toContain('<w:color w:val="0f172b"/>');
-  });
-
-  it("não inventa cor quando o valor não presta — cai na régua cinza neutra", () => {
-    const xml = documentXml(buildDocxBuffer("Corpo.", {
-      companyName: "Sem cor",
-      primaryColorHex: "not-a-color",
-    }));
-    expect(xml).not.toContain("<w:color");
-    expect(xml).toContain('w:color="999999"');
-  });
-
-  it("sem branding nenhum, gera o documento sem cabeçalho", () => {
+describe("buildDocxBuffer", () => {
+  // F5: o cabeçalho de marca (nome da empresa, cor primária, logo, régua) saiu junto com a
+  // identidade visual configurável por tenant. Ele só existia no gerador GENÉRICO — o caminho
+  // sem template — e desde a F5 uma proposta só é gerada a partir de um template .docx com
+  // arquivo físico, cujo timbre vem do próprio arquivo. O que resta desta função é o documento
+  // de texto plano que server/routes/analysis.ts usa para exportar as perguntas de esclarecimento.
+  it("gera o documento sem cabeçalho nenhum, só o corpo", () => {
     const xml = documentXml(buildDocxBuffer("Só o corpo."));
     expect(xml).not.toContain("<w:pBdr>");
+    expect(xml).not.toContain("<w:color");
+    expect(xml).not.toContain("<w:drawing>");
     expect(xml).toContain("Só o corpo.");
+  });
+
+  it("preserva acentuação e escapa XML no corpo", () => {
+    const xml = documentXml(buildDocxBuffer("Alocação & manutenção <urgente>"));
+    expect(xml).toContain("Alocação &amp; manutenção &lt;urgente&gt;");
   });
 });

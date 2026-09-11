@@ -1,7 +1,6 @@
 import { prisma } from "./prisma";
 import { dbStore } from "./dbStore";
 import { randomId } from "./idGenerator";
-import { isIaKbActive } from "../server/utils/aiProviders";
 import { redis } from "./redis";
 
 // critical_extraction and proposal_generation were removed (2026-07 AI Orchestrator redesign) -
@@ -11,7 +10,7 @@ import { redis } from "./redis";
 // document_analysis call, not separate steps. document_classification was hardcoded to Gemini in
 // server/utils/documentClassification.ts before this - now routed through here like the other
 // real task types.
-export type AiTaskType = "document_analysis" | "web_grounding" | "spec_copilot" | "document_classification" | "poc_test_generation" | "poc_schedule_generation" | "poc_final_report_generation" | "proposal_opinion_panel" | "pricing_budget_optimization" | "pricing_catalog_extraction" | "proposal_generation";
+export type AiTaskType = "document_analysis" | "web_grounding" | "spec_copilot" | "document_classification" | "poc_test_generation" | "poc_schedule_generation" | "poc_final_report_generation" | "proposal_opinion_panel" | "pricing_budget_optimization" | "pricing_catalog_extraction" | "proposal_generation" | "proposal_section_rewrite" | "proposal_finding_remediation" | "proposal_grammar_check" | "proposal_section_coherence" | "proposal_approver_briefing";
 
 export interface ProviderResolution {
   provider: string;
@@ -42,6 +41,16 @@ interface TaskProviderSettings {
   pricing_budget_optimization_provider: string;
   pricing_catalog_extraction_model: string;
   pricing_catalog_extraction_provider: string;
+  proposal_section_rewrite_model: string;
+  proposal_section_rewrite_provider: string;
+  proposal_finding_remediation_model: string;
+  proposal_finding_remediation_provider: string;
+  proposal_grammar_check_model: string;
+  proposal_grammar_check_provider: string;
+  proposal_section_coherence_model: string;
+  proposal_section_coherence_provider: string;
+  proposal_approver_briefing_model: string;
+  proposal_approver_briefing_provider: string;
   openai_api_key_encrypted?: string;
   anthropic_api_key_encrypted?: string;
 }
@@ -64,13 +73,14 @@ export async function resolveProvider(taskType: AiTaskType, settings: TaskProvid
   // ia_kb add-on: once active, the CMSaaS admin - not the tenant - chooses provider/model per
   // task (synced down on every heartbeat, see server/utils/fleetLicense.ts). Overrides the
   // tenant's own (now read-only, possibly stale) platform_settings fields above.
-  if (await isIaKbActive()) {
-    const taskConfig = await dbStore.getAllIaKbTaskConfig();
-    const override = taskConfig.find((c) => c.task_type === taskType);
-    if (override) {
-      intendedProvider = override.provider;
-      intendedModel = override.model;
-    }
+  // F4 (rodada 09/2026): o `if (await isIaKbActive())` que envolvia este bloco saiu junto com a
+  // funcao, que era `return true` fixo desde a F11 - o override do CMSaaS ja era incondicional na
+  // pratica, e a condicao so escondia isso de quem lesse.
+  const taskConfig = await dbStore.getAllIaKbTaskConfig();
+  const override = taskConfig.find((c) => c.task_type === taskType);
+  if (override) {
+    intendedProvider = override.provider;
+    intendedModel = override.model;
   }
 
   if (await isProviderConnected(intendedProvider, settings)) {
@@ -121,6 +131,27 @@ export const AI_SPENDING_TASK_TYPES = [
   // de texto corrido). platform_settings ja tinha proposal_generation_provider/_model, e a tela de
   // Admin ja mostrava "LLM Propostas" - so nao havia chamada de IA nenhuma nesse fluxo para usar.
   "proposal_generation",
+  // F6 (rodada 09/2026): reescrita de UMA secao de texto a partir dos apontamentos abertos dela.
+  // Gasta token de verdade e por isso entra aqui - e a lista que o teto mensal enxerga; ficar de
+  // fora seria dinheiro gasto sem aparecer no rateio nem contar contra o cap, exatamente o buraco
+  // que o comentario acima descreve.
+  "proposal_section_rewrite",
+  // F7 (rodada 09/2026): as tres tarefas da revisao assistida. Entram aqui pelo mesmo motivo que a
+  // reescrita da F6 - gastam token de verdade, e ficar de fora desta lista seria dinheiro gasto
+  // sem aparecer no rateio nem contar contra o teto mensal. A de sanacao roda uma vez por
+  // apontamento tratado e a de gramatica uma vez por secao revisada, entao sao as duas que mais
+  // multiplicam chamada por proposta de toda a fase: exatamente as que o teto precisa enxergar.
+  "proposal_finding_remediation",
+  "proposal_grammar_check",
+  "proposal_section_coherence",
+  // F9 (rodada 09/2026): o assistente do aprovador. Ele le o CONJUNTO numa chamada so - o
+  // documento, os apontamentos com tratativa, a cadeia de versoes e as decisoes -, entao e a
+  // tarefa com o maior prompt do produto e a que mais pesa por execucao. E justamente por isso
+  // que ficar de fora desta lista seria o pior caso do buraco descrito no topo: a chamada mais
+  // cara sendo a unica invisivel ao teto mensal. O resultado guardado por versao
+  // (ProposalApproverBriefing) limita a frequencia, nao o custo unitario - reabrir o dossie nao
+  // chama o modelo de novo, mas a primeira chamada de cada versao chama, e conta aqui.
+  "proposal_approver_briefing",
 ] as const;
 export type AiSpendingTaskType = (typeof AI_SPENDING_TASK_TYPES)[number];
 

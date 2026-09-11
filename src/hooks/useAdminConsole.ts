@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { BrandingSettings, PlatformSettings, ProposalTemplate, Role } from "../types";
+import { PlatformSettings, ProposalTemplate, Role } from "../types";
 import type { TemplateVariableEntry } from "../../server/utils/templateVariableCatalog";
 
 interface UseAdminConsoleParams {
@@ -10,13 +10,7 @@ interface UseAdminConsoleParams {
   approvalWorkflows: any[];
   fetchGlobalConfigs: () => Promise<void> | void;
   setPlatformSettings: (settings: PlatformSettings) => void;
-  setBrandingSettings: (settings: BrandingSettings) => void;
   setStorageValidateResult: (result: any) => void;
-  setBrandLogoDataUrl: (url: string) => void;
-  brandPrimaryColor: string;
-  brandAccentColor: string;
-  setBrandPrimaryColor: (color: string) => void;
-  setBrandAccentColor: (color: string) => void;
   // New Approval Workflow form (owned locally by AdminConsole)
   newApprovalWorkflowName: string;
   newApprovalWorkflowDescription: string;
@@ -64,12 +58,11 @@ interface UseAdminConsoleParams {
 }
 
 // All handlers exclusive to the Admin Console (users, roles, AI/prompts, templates,
-// approval workflow definitions, branding, integrations, storage/platform settings).
+// approval workflow definitions, integrations, storage/platform settings).
 export function useAdminConsole(params: UseAdminConsoleParams) {
   const {
     locale, currentUserName, roles, users, approvalWorkflows, fetchGlobalConfigs,
-    setPlatformSettings, setBrandingSettings, setStorageValidateResult,
-    setBrandLogoDataUrl, brandPrimaryColor, brandAccentColor, setBrandPrimaryColor, setBrandAccentColor,
+    setPlatformSettings, setStorageValidateResult,
     newApprovalWorkflowName, newApprovalWorkflowDescription, newApprovalWorkflowAppliesTo,
     setShowNewApprovalWorkflowForm, setNewApprovalWorkflowName, setNewApprovalWorkflowDescription, setNewApprovalWorkflowAppliesTo,
     newUserName, newUserEmail, newUserRoleId, newUserPassword,
@@ -394,78 +387,6 @@ export function useAdminConsole(params: UseAdminConsoleParams) {
       console.error(e);
       alert(locale === "pt" ? "Erro ao excluir integração." : "Error deleting connector.");
     }
-  };
-
-  const handleSaveBrandingSettings = async (updates: Partial<BrandingSettings>) => {
-    try {
-      const res = await fetch("/api/branding", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates)
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        alert(data.message || (locale === "pt" ? "Não foi possível salvar a identidade visual." : "Could not save branding settings."));
-        return null;
-      }
-
-      setBrandingSettings(data);
-      setBrandLogoDataUrl(data.company_logo_path || "");
-      setBrandPrimaryColor(data.primary_color || brandPrimaryColor);
-      setBrandAccentColor(data.accent_color || brandAccentColor);
-      return data;
-    } catch (err) {
-      console.error(err);
-      alert(locale === "pt" ? "Erro ao salvar identidade visual." : "Error saving branding settings.");
-      return null;
-    }
-  };
-
-  const handleRemoveBrandLogo = async (brandLogoDataUrl: string) => {
-    if (!brandLogoDataUrl) return;
-
-    const confirmed = confirm(locale === "pt" ? "Remover a logo personalizada da interface?" : "Remove the custom logo from the interface?");
-    if (!confirmed) return;
-
-    await handleSaveBrandingSettings({
-      company_logo_path: "",
-      login_logo_path: "",
-      sidebar_logo_path: "",
-      report_logo_path: ""
-    });
-
-    localStorage.removeItem("ca_brand_logo");
-  };
-
-  const handleBrandLogoUpload = (file?: File) => {
-    if (!file) return;
-
-    const allowed = ["image/png", "image/jpeg", "image/svg+xml", "image/webp"];
-    if (!allowed.includes(file.type)) {
-      alert(locale === "pt" ? "Formato inválido. Use PNG, JPG, SVG ou WebP." : "Invalid format. Use PNG, JPG, SVG or WebP.");
-      return;
-    }
-
-    if (file.size > 1024 * 1024) {
-      alert(locale === "pt" ? "A logo deve ter no máximo 1 MB." : "Logo must be at most 1 MB.");
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const dataUrl = String(reader.result || "");
-      setBrandLogoDataUrl(dataUrl);
-
-      await handleSaveBrandingSettings({
-        company_logo_path: dataUrl,
-        login_logo_path: dataUrl,
-        sidebar_logo_path: dataUrl,
-        report_logo_path: dataUrl
-      });
-    };
-    reader.readAsDataURL(file);
   };
 
   const handleCreateProposalTemplate = async () => {
@@ -854,9 +775,6 @@ export function useAdminConsole(params: UseAdminConsoleParams) {
     handleDeleteUser,
     handleCreateConnector,
     handleDeleteConnector,
-    handleSaveBrandingSettings,
-    handleRemoveBrandLogo,
-    handleBrandLogoUpload,
     handleCreateProposalTemplate,
     handleValidateProposalTemplate,
     handleSetDefaultProposalTemplate,

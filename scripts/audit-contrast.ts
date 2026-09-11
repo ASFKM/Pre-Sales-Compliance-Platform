@@ -9,7 +9,7 @@
 // 2. Compõe o alfa subindo pelos ancestrais até encontrar opacidade 1. Medir texto claro sobre um
 //    `/10` renderizado contra branco foi o que produziu, na Fase 5, dois achados falsos de 2,46:1
 //    e 1,61:1 que a Fase 7 teve de desmentir.
-// 3. A conta de contraste é `contrastRatio` de src/brandTheme.ts - a MESMA função que o servidor
+// 3. A conta de contraste é `contrastRatio` de src/colorContrast.ts - a MESMA função que o servidor
 //    usa para aceitar ou recusar a cor de um tenant. Reimplementar a fórmula aqui criaria duas
 //    verdades sobre o que é 4,5:1.
 //
@@ -20,7 +20,7 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { chromium } from "@playwright/test";
 import type { Browser, Page } from "@playwright/test";
-import { contrastRatio } from "../src/brandTheme";
+import { contrastRatio } from "../src/colorContrast";
 import {
   AUTH_STATE_PATH,
   DEFAULT_BASE_URL,
@@ -368,7 +368,7 @@ async function main(): Promise<void> {
     await browser.close();
   }
 
-  // ---- veredito, com a conta vindo de brandTheme -----------------------------------------
+  // ---- veredito, com a conta vindo de colorContrast --------------------------------------
   interface Par {
     fg: string;
     bg: string;

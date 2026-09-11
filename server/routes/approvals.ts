@@ -6,6 +6,12 @@ import { requireAuth, requirePermission } from "./auth";
 import { requireUserId } from "../middleware/security";
 import { empurrarProposta, empurrarEventoDaProposta } from "../utils/crmOutbox";
 import { validateApprovalDecisionComments } from "../utils/approvalDecision";
+import { prisma } from "../../src/prisma";
+import { apontamentosQueBarramEnvio, mensagemDoGateDeEnvio } from "../utils/proposalSubmissionGate";
+import { estagiosDesignadosPara, ehAprovadorDesignado } from "../utils/approvalScope";
+import { validateRejectionItems } from "../utils/approvalRejectionItems";
+import { ORIGEM_APROVADOR } from "../utils/approverFindings";
+import { randomId } from "../../src/idGenerator";
 
 const router = express.Router();
 
@@ -90,6 +96,48 @@ async function auditApprovalChange(req: Request, action: string, entityType: str
     metadata: JSON.stringify(metadata || {})
   });
 }
+
+/*
+ * F8: "SOU APROVADOR DESIGNADO?" - a pergunta do menu e a dos botões, respondidas de uma vez.
+ *
+ * Até esta fase o botão "Centro de Aprovação" (src/App.tsx) era um `setActiveTab("approval")` puro,
+ * sem condição nenhuma: aparecia para todo usuário logado, inclusive para quem não é aprovador de
+ * estágio nenhum em fluxo nenhum. Esta rota é a fonte do gate.
+ *
+ * Ela responde AS DUAS perguntas da fase, e não uma:
+ *   - `is_approver` (booleano) é o que o MENU consulta - "sou aprovador de alguma coisa";
+ *   - `stages[]` é o que os BOTÕES consultam - "sou aprovador DESTE estágio".
+ *
+ * Uma resposta só, e não duas rotas, porque as duas perguntas têm a mesma resposta subjacente: o
+ * conjunto de estágios designados. Perguntar estágio a estágio faria o menu custar N requisições;
+ * duas rotas duplicariam a regra e deixariam as cópias livres para divergir - que é exatamente o
+ * defeito que esta fase veio consertar (a regra vivia SÓ no cliente).
+ *
+ * E o gate não para aqui: esconder o menu é conveniência de tela, não autorização. Quem chamar
+ * direto continua encontrando o 403 da rota de decisão, na mesma posição de sempre, e o dossiê
+ * (GET /proposals/:id/dossie-de-aprovacao) tem gate próprio pela MESMA função.
+ */
+router.get("/me/approval-scope", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req.headers["x-user-id"] as string) || "";
+    const roleId = (req.headers["x-role-id"] as string) || "";
+    const workflows = await dbStore.getApprovalWorkflows();
+    const stages = estagiosDesignadosPara(workflows as any, { userId, roleId });
+
+    res.json({
+      success: true,
+      is_approver: stages.length > 0,
+      user_id: userId,
+      role_id: roleId,
+      stages,
+      // Os ids soltos poupam o cliente de reduzir a lista para habilitar cada botão.
+      stage_ids: stages.map((s) => s.stage_id),
+      workflow_ids: [...new Set(stages.map((s) => s.workflow_id))],
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.get("/approval-workflows", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -193,6 +241,64 @@ router.post("/proposals/:proposalId/approval/submit", requirePermission("approva
       return res.status(400).json({ success: false, message: "Active approval workflow not found for this proposal." });
     }
 
+    /*
+     * F7 (rodada 09/2026): o GATE RIGIDO DE ENVIO.
+     *
+     * Nenhum apontamento CRITICO da ultima rodada de pareceres pode estar "aberto" ou "em
+     * tratativa". Seguir mesmo assim continua possivel - e essa e a diferenca entre um gate e uma
+     * proibicao - mas exige marcar cada critico como "aceito com risco" COM justificativa, pelo
+     * PATCH /proposals/:id/apontamentos/:findingId, que carimba autor e instante.
+     *
+     * A regra mora AQUI, no servidor e antes do updateProposalStatus, e nao no botao da tela: um
+     * gate cuja unica trava e validacao de formulario nao e um gate, basta uma chamada direta a
+     * rota para atravessa-lo. Foi exatamente por isto que a F6 pos a exigencia de justificativa no
+     * servidor - ela e a peca que sustenta esta.
+     *
+     * Escopo: so a ULTIMA rodada. Uma proposta revisada tres vezes nao deve ser barrada por um
+     * critico da primeira rodada que ja nao aparece na terceira - a rodada nova E a resposta sobre
+     * o que continua de pe, e e o vinculo entre rodadas desta mesma fase que torna isso legivel.
+     */
+    /*
+     * F8: o gate passa a enxergar TAMBÉM os itens do aprovador.
+     *
+     * Eles vivem numa rodada de `origem: "aprovador"` (ver server/utils/approverFindings.ts) e
+     * nascem `critical`, porque quem os escreveu tem autoridade formal para barrar a proposta e
+     * acabou de usá-la. Deixá-los de fora produziria o absurdo de reenviar para aprovação, sem
+     * tratativa nenhuma, exatamente a versão que o aprovador devolveu apontando o que corrigir.
+     *
+     * Isto FORTALECE o gate da F7; nada aqui o afrouxa. A saída continua a mesma e continua sendo a
+     * da F6: "aceito com risco" COM justificativa, que a rota de status recusa sem ela.
+     *
+     * O escopo da parte de IA continua sendo só a ÚLTIMA rodada, pelo motivo já registrado. O do
+     * aprovador não tem "última": são os itens daquela rejeição, e enquanto um deles estiver aberto
+     * ele está aberto.
+     */
+    const apontamentosDoAprovadorAbertos = await prisma.proposalOpinionFinding.findMany({
+      where: { origem: ORIGEM_APROVADOR, opinion: { run: { proposalId: currentProposal.id } } },
+      select: { id: true, title: true, severity: true, status: true, resolutionNote: true, targetKey: true },
+    });
+
+    if (currentProposal.latest_opinion_run_id || apontamentosDoAprovadorAbertos.length > 0) {
+      const apontamentosDaRodada = currentProposal.latest_opinion_run_id
+        ? await prisma.proposalOpinionFinding.findMany({
+            where: { opinion: { runId: currentProposal.latest_opinion_run_id } },
+            select: { id: true, title: true, severity: true, status: true, resolutionNote: true, targetKey: true },
+          })
+        : [];
+      const barrando = apontamentosQueBarramEnvio([...apontamentosDaRodada, ...apontamentosDoAprovadorAbertos]);
+      if (barrando.length > 0) {
+        return res.status(409).json({
+          success: false,
+          // A mensagem NOMEIA cada apontamento que esta barrando. Ela chega ao usuario por um
+          // alert que o front ja exibe (handleSubmitProposalApproval, src/hooks/useProposals.ts),
+          // e a F8 vai exibi-la ao aprovador - entao ela precisa ser legivel por quem nao abriu o
+          // painel de pareceres.
+          message: mensagemDoGateDeEnvio(barrando),
+          apontamentos_bloqueantes: barrando.map((a) => ({ id: a.id, title: a.title, status: a.status, target_key: a.targetKey })),
+        });
+      }
+    }
+
     const proposal = await dbStore.updateProposalStatus(req.params.proposalId, "submitted");
 
     // CDC 16 F4: `submitted` daqui é `in_approval` no contrato. O CRM registra a versão e NÃO
@@ -218,7 +324,7 @@ router.post("/proposals/:proposalId/approval/submit", requirePermission("approva
 
 router.post("/proposals/:proposalId/approval/decision", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { decision, comments, stage_id } = req.body;
+    const { decision, comments, stage_id, items } = req.body;
     const proposal = await dbStore.getProposal(req.params.proposalId);
 
     if (!proposal) {
@@ -251,6 +357,26 @@ router.post("/proposals/:proposalId/approval/decision", requireAuth, async (req:
       return res.status(400).json({ success: false, message: commentsValidation.message });
     }
     const normalizedComments = commentsValidation.comments;
+
+    /*
+     * F8: a REJEIÇÃO ESTRUTURADA POR SEÇÃO.
+     *
+     * A validação entra AQUI, logo depois da de `comments` e antes da checagem de aprovador, de
+     * propósito: a ordem de respostas desta rota (404 -> 400 status -> 400 decisão -> 400 motivo ->
+     * 403 aprovador -> 409 duplicada) é contrato exercitado por
+     * scripts/regression-approval-rbac.sh, e este 400 novo cai num ponto que nenhum caso do script
+     * atravessa - nenhuma posição existente se move.
+     *
+     * `comments` continua obrigatório na rejeição, com itens ou sem eles: os itens são o "onde", o
+     * resumo é o "o quê". A decisão da rodada foi "itens por seção OU texto livre - pelo menos um
+     * dos dois", e como o resumo já é exigido em toda rejeição, essa condição está satisfeita pelo
+     * contrato antigo. Torná-lo opcional na presença de itens quebraria duas provas existentes.
+     */
+    const itemsValidation = validateRejectionItems(decision, items);
+    if (!itemsValidation.valid) {
+      return res.status(400).json({ success: false, message: itemsValidation.message });
+    }
+    const rejectionItems = itemsValidation.items;
 
     const workflows = await dbStore.getApprovalWorkflows();
     const workflow = workflows.find(w => w.id === proposal.approval_workflow_id);
@@ -322,6 +448,42 @@ router.post("/proposals/:proposalId/approval/decision", requireAuth, async (req:
       comments: normalizedComments
     });
 
+    /*
+     * F8: os itens da rejeição, gravados com o RETRATO do texto de cada seção apontada.
+     *
+     * O retrato é lido do que o cliente mandou (`section_snapshot`), e não relido do documento,
+     * porque é o texto que o aprovador tinha na frente quando escreveu o comentário - a proposta
+     * em julgamento está congelada em `submitted`, mas o que interessa registrar é o que ele viu.
+     * Ele reaparece dentro do apontamento na v2 (approverFindings.ts): sem ele, quem lê o
+     * apontamento depois da primeira edição não sabe mais a que texto o aprovador se referia.
+     *
+     * Falhar aqui NÃO desfaz a decisão: ela já está gravada e é o registro que importa. Por isso os
+     * itens vêm depois, e não antes - uma decisão perdida por causa de um item mal formado seria
+     * pior do que uma decisão sem os itens, que o `comments` obrigatório ainda descreve.
+     */
+    if (rejectionItems.length > 0) {
+      const tenantId = req.headers["x-tenant-id"] as string;
+      const snapshotsRecebidos: Record<number, string | null> = {};
+      if (Array.isArray(items)) {
+        items.forEach((raw: any, i: number) => {
+          const snap = raw?.section_snapshot;
+          snapshotsRecebidos[i] = typeof snap === "string" && snap.trim().length > 0 ? snap : null;
+        });
+      }
+      await prisma.approvalDecisionItem.createMany({
+        data: rejectionItems.map((item, i) => ({
+          id: randomId("adi"),
+          tenantId,
+          decisionId: savedDecision.id,
+          ordinal: item.ordinal,
+          targetKind: item.targetKind,
+          targetKey: item.targetKey,
+          comment: item.comment,
+          sectionSnapshot: snapshotsRecebidos[i] ?? null,
+        })),
+      });
+    }
+
     let nextStatus: "submitted" | "approved" | "rejected";
 
     if (decision === "rejected") {
@@ -377,12 +539,19 @@ router.post("/proposals/:proposalId/approval/decision", requireAuth, async (req:
         approver_role_name: currentRole.name,
         stage_approver_type: targetStage.approver_type,
         stage_approver_user_id: targetStage.approver_user_id,
-        stage_approver_role_id: targetStage.approver_role_id
+        stage_approver_role_id: targetStage.approver_role_id,
+        // F8: quantas seções esta rejeição apontou. Zero é legítimo (rejeição só com texto livre).
+        rejection_items: rejectionItems.length
       },
       proposal.project_id
     );
 
-    res.json({ success: true, proposal: updatedProposal, decision: savedDecision });
+    res.json({
+      success: true,
+      proposal: updatedProposal,
+      decision: savedDecision,
+      rejection_items: rejectionItems.map((i) => ({ ordinal: i.ordinal, target_kind: i.targetKind, target_key: i.targetKey, comment: i.comment })),
+    });
   } catch (err) {
     next(err);
   }

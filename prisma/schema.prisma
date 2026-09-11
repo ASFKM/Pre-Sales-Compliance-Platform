@@ -252,10 +252,12 @@ model Tenant {
   approvalWorkflows       ApprovalWorkflow[]
   approvalStages          ApprovalStage[]
   approvalDecisions       ApprovalDecision[]
+  approvalDecisionItems   ApprovalDecisionItem[]
   proposalOpinionRuns     ProposalOpinionRun[]
   proposalAiOpinionItems  ProposalAiOpinionItem[]
-  brandingSettings        BrandingSettings?
-  brandStyles             BrandStyle[]
+  proposalOpinionFindings ProposalOpinionFinding[]
+  proposalSectionEdits    ProposalSectionEdit[]
+  approverBriefings       ProposalApproverBriefing[]
   teamMemberships         TeamMembership[]
   integrationConnectors   IntegrationConnector[]
   knowledgeBaseDocuments  KnowledgeBaseDocument[]
@@ -335,16 +337,16 @@ model User {
   passwordChangedAt  DateTime?  @map("password_changed_at")
 
   passwordHistory      PasswordHistory[]
-  ownedProjects        Project[]        @relation("ProjectOwner")
-  managedEngineers     TeamMembership[] @relation("TeamManager")
-  teamMemberships      TeamMembership[] @relation("TeamEngineer")
-  ownedPocs            Poc[]            @relation("PocOwner")
-  assignedDemands      Demand[]         @relation("DemandAssignee")
-  directedDemands      Demand[]         @relation("DemandDirectedBy")
-  returnRequests       Demand[]         @relation("DemandReturnRequester")
-  returnDecisions      Demand[]         @relation("DemandReturnDecider")
-  closedCancellations  Demand[]         @relation("DemandCancellationCloser")
-  decidedDemandUpdates DemandUpdate[]   @relation("DemandUpdateDecider")
+  ownedProjects        Project[]         @relation("ProjectOwner")
+  managedEngineers     TeamMembership[]  @relation("TeamManager")
+  teamMemberships      TeamMembership[]  @relation("TeamEngineer")
+  ownedPocs            Poc[]             @relation("PocOwner")
+  assignedDemands      Demand[]          @relation("DemandAssignee")
+  directedDemands      Demand[]          @relation("DemandDirectedBy")
+  returnRequests       Demand[]          @relation("DemandReturnRequester")
+  returnDecisions      Demand[]          @relation("DemandReturnDecider")
+  closedCancellations  Demand[]          @relation("DemandCancellationCloser")
+  decidedDemandUpdates DemandUpdate[]    @relation("DemandUpdateDecider")
 
   // Módulo de Precificação (add-on)
   priceListUploads       PriceListUpload[]
@@ -404,10 +406,6 @@ model Project {
   aiOrientationMode          String        @map("ai_orientation_mode")
   aiOrientationText          String        @map("ai_orientation_text") @db.Text
   selectedApprovalWorkflowId String?       @map("selected_approval_workflow_id")
-  // Roadmap item (customer_request): "Identidade Visual em DOCX" Fase 4b - a project/client can
-  // override the tenant-wide BrandingSettings (logo + primary color) with a reusable named
-  // BrandStyle for co-branded proposals. Null = use the tenant default, unchanged from before.
-  brandStyleId               String?       @map("brand_style_id")
   procurementModality        String?       @map("procurement_modality")
   procurementSubtype         String?       @map("procurement_subtype")
   customModality             String?       @map("custom_modality")
@@ -980,79 +978,117 @@ model IaKbTaskConfig {
 }
 
 model PlatformSettings {
-  id                                String          @id
-  tenantId                          String          @map("tenant_id")
-  tenant                            Tenant          @relation(fields: [tenantId], references: [id])
-  aiProvider                        String          @map("ai_provider")
-  defaultModel                      String          @map("default_model")
-  documentAnalysisModel             String          @map("document_analysis_model")
-  proposalGenerationModel           String          @map("proposal_generation_model")
-  aiApiKeyEncrypted                 String?         @map("ai_api_key_encrypted") @db.Text
-  openaiApiKeyEncrypted             String?         @map("openai_api_key_encrypted") @db.Text
-  anthropicApiKeyEncrypted          String?         @map("anthropic_api_key_encrypted") @db.Text
+  id                                 String          @id
+  tenantId                           String          @map("tenant_id")
+  tenant                             Tenant          @relation(fields: [tenantId], references: [id])
+  aiProvider                         String          @map("ai_provider")
+  defaultModel                       String          @map("default_model")
+  documentAnalysisModel              String          @map("document_analysis_model")
+  proposalGenerationModel            String          @map("proposal_generation_model")
+  aiApiKeyEncrypted                  String?         @map("ai_api_key_encrypted") @db.Text
+  openaiApiKeyEncrypted              String?         @map("openai_api_key_encrypted") @db.Text
+  anthropicApiKeyEncrypted           String?         @map("anthropic_api_key_encrypted") @db.Text
   // Phase 5 (AI orchestrator): which provider is the intended target for each task type,
   // researched per-task (docs/roadmap/REDESIGN_ROADMAP_2026-07.md). gemini/openai/anthropic are
   // all really connected (see resolveProvider in src/aiOrchestrator.ts) - a task still falls back
   // to gemini, logged as such, only if its intended provider's key isn't actually configured.
-  documentAnalysisProvider          String          @default("gemini") @map("document_analysis_provider")
-  criticalExtractionModel           String          @default("gemini-3.5-flash") @map("critical_extraction_model")
-  criticalExtractionProvider        String          @default("anthropic") @map("critical_extraction_provider")
-  webGroundingModel                 String          @default("gemini-3.5-flash") @map("web_grounding_model")
-  webGroundingProvider              String          @default("gemini") @map("web_grounding_provider")
-  proposalGenerationProvider        String          @default("anthropic") @map("proposal_generation_provider")
-  specCopilotModel                  String          @default("gemini-3.5-flash") @map("spec_copilot_model")
-  specCopilotProvider               String          @default("gemini") @map("spec_copilot_provider")
+  documentAnalysisProvider           String          @default("gemini") @map("document_analysis_provider")
+  criticalExtractionModel            String          @default("gemini-3.5-flash") @map("critical_extraction_model")
+  criticalExtractionProvider         String          @default("anthropic") @map("critical_extraction_provider")
+  webGroundingModel                  String          @default("gemini-3.5-flash") @map("web_grounding_model")
+  webGroundingProvider               String          @default("gemini") @map("web_grounding_provider")
+  proposalGenerationProvider         String          @default("anthropic") @map("proposal_generation_provider")
+  specCopilotModel                   String          @default("gemini-3.5-flash") @map("spec_copilot_model")
+  specCopilotProvider                String          @default("gemini") @map("spec_copilot_provider")
   // AI Orchestrator UI redesign (2026-07): document_classification was previously hardcoded to
   // Gemini in server/utils/documentClassification.ts, bypassing the orchestrator entirely - now
   // routed through resolveProvider() like the other real task types.
-  documentClassificationModel       String          @default("gemini-3.5-flash") @map("document_classification_model")
-  documentClassificationProvider    String          @default("gemini") @map("document_classification_provider")
+  documentClassificationModel        String          @default("gemini-3.5-flash") @map("document_classification_model")
+  documentClassificationProvider     String          @default("gemini") @map("document_classification_provider")
   // Fase 6 (add-on), Fase E: test scripts generated from a POC's objective/success criteria -
   // pure text-in/text-out, same orchestrator pattern as the 4 task types above.
-  pocTestGenerationModel            String          @default("gemini-3.5-flash") @map("poc_test_generation_model")
-  pocTestGenerationProvider         String          @default("gemini") @map("poc_test_generation_provider")
+  pocTestGenerationModel             String          @default("gemini-3.5-flash") @map("poc_test_generation_model")
+  pocTestGenerationProvider          String          @default("gemini") @map("poc_test_generation_provider")
   // Fase H (add-on): schedule suggestion from a POC's objective + linked equipment's Knowledge
   // Base grounding - same orchestrator pattern as poc_test_generation above.
-  pocScheduleGenerationModel        String          @default("gemini-3.5-flash") @map("poc_schedule_generation_model")
-  pocScheduleGenerationProvider     String          @default("gemini") @map("poc_schedule_generation_provider")
+  pocScheduleGenerationModel         String          @default("gemini-3.5-flash") @map("poc_schedule_generation_model")
+  pocScheduleGenerationProvider      String          @default("gemini") @map("poc_schedule_generation_provider")
   // Fase M (add-on): mandatory final-report questionnaire generation - same orchestrator pattern.
-  pocFinalReportGenerationModel     String          @default("gemini-3.5-flash") @map("poc_final_report_generation_model")
-  pocFinalReportGenerationProvider  String          @default("gemini") @map("poc_final_report_generation_provider")
+  pocFinalReportGenerationModel      String          @default("gemini-3.5-flash") @map("poc_final_report_generation_model")
+  pocFinalReportGenerationProvider   String          @default("gemini") @map("poc_final_report_generation_provider")
   // Item 3 roadmap (official): "Pareceres de IA Multi-Perspectiva em Propostas" - one shared
   // provider/model slot for all 4 opinion perspectives (not 4 separate slots) - see the roadmap
   // decision already confirmed: 1 task type, not 4, to minimize sync points.
-  proposalOpinionPanelModel         String          @default("gemini-3.5-flash") @map("proposal_opinion_panel_model")
-  proposalOpinionPanelProvider      String          @default("gemini") @map("proposal_opinion_panel_provider")
-  pricingBudgetOptimizationModel    String          @default("gemini-3.5-flash") @map("pricing_budget_optimization_model")
-  pricingBudgetOptimizationProvider String          @default("gemini") @map("pricing_budget_optimization_provider")
+  proposalOpinionPanelModel          String          @default("gemini-3.5-flash") @map("proposal_opinion_panel_model")
+  proposalOpinionPanelProvider       String          @default("gemini") @map("proposal_opinion_panel_provider")
+  pricingBudgetOptimizationModel     String          @default("gemini-3.5-flash") @map("pricing_budget_optimization_model")
+  pricingBudgetOptimizationProvider  String          @default("gemini") @map("pricing_budget_optimization_provider")
   // "Enviar Arquivos" (upload multi-arquivo do catálogo de preços): extrai linhas de preço de
   // cotações de fornecedor em PDF/imagem/planilha fora do template - precisa de capacidade de
   // visão (mesma categoria de document_analysis/spec_copilot), não só texto.
-  pricingCatalogExtractionModel     String          @default("gemini-3.5-flash") @map("pricing_catalog_extraction_model")
-  pricingCatalogExtractionProvider  String          @default("gemini") @map("pricing_catalog_extraction_provider")
+  pricingCatalogExtractionModel      String          @default("gemini-3.5-flash") @map("pricing_catalog_extraction_model")
+  pricingCatalogExtractionProvider   String          @default("gemini") @map("pricing_catalog_extraction_provider")
+  // F6 (rodada 09/2026): reescrita de UMA seção de texto da proposta a partir dos apontamentos
+  // abertos daquela seção. Slot próprio, e não reuso de proposal_generation, porque as duas fazem
+  // coisas diferentes com risco diferente: proposal_generation preenche o que saiu EM BRANCO;
+  // esta reescreve o que já está escrito, sob a regra de substituição explícita que esta fase
+  // introduziu - é a única tarefa de IA do produto cujo texto pode cobrir conteúdo existente, e
+  // separar o slot é o que permite ao operador dar a ela um modelo diferente (ou desligá-la
+  // apontando para outro provedor) sem mexer na outra.
+  proposalSectionRewriteModel        String          @default("gemini-3.5-flash") @map("proposal_section_rewrite_model")
+  proposalSectionRewriteProvider     String          @default("gemini") @map("proposal_section_rewrite_provider")
+  // F7 (rodada 09/2026): as tres tarefas de IA da revisao. Slots proprios pelo mesmo motivo da
+  // F6 - cada uma tem risco e formato de saida diferentes, e o operador precisa poder dar modelo
+  // diferente (ou desligar) uma sem mexer nas outras.
+  //
+  // proposal_finding_remediation: le o par texto anterior/texto novo de ProposalSectionEdit e diz
+  // se o apontamento foi sanado. Veredito CONSULTIVO - nunca fecha apontamento sozinho.
+  proposalFindingRemediationModel    String          @default("gemini-3.5-flash") @map("proposal_finding_remediation_model")
+  proposalFindingRemediationProvider String          @default("gemini") @map("proposal_finding_remediation_provider")
+  // proposal_grammar_check: devolve CORRECOES PONTUAIS (trecho original, trecho corrigido,
+  // motivo), nunca a secao reescrita - aceitar e recusar sao por item.
+  proposalGrammarCheckModel          String          @default("gemini-3.5-flash") @map("proposal_grammar_check_model")
+  proposalGrammarCheckProvider       String          @default("gemini") @map("proposal_grammar_check_provider")
+  // proposal_section_coherence: contradicao entre o que uma secao afirma e outra nega. So TEXTO -
+  // a coerencia NUMERICA continua deterministica em server/utils/proposalQa.ts e nao passa por
+  // modelo nenhum.
+  proposalSectionCoherenceModel      String          @default("gemini-3.5-flash") @map("proposal_section_coherence_model")
+  proposalSectionCoherenceProvider   String          @default("gemini") @map("proposal_section_coherence_provider")
+  // F9 (rodada 09/2026): o ASSISTENTE DO APROVADOR. Slot proprio pela mesma razao das anteriores,
+  // com um agravante desta tarefa: ela le o CONJUNTO (documento, apontamentos com tratativa,
+  // cadeia de versoes e decisoes) numa chamada so, entao e a mais cara do produto por execucao.
+  // Poder dar a ela um modelo diferente - ou apontar para outro provedor - sem tocar nas outras e
+  // exatamente o que evita que o custo dela dite o das quinze restantes.
+  //
+  // Estes dois campos sao FALLBACK, nao configuracao de tela: quem escolhe provedor e modelo por
+  // tarefa e o CMSaaS (installation_ai_task_configs), e a escolha desce a cada heartbeat e
+  // sobrescreve estes valores em resolveProvider(). O Admin do PreSales nao expoe provedor nem
+  // modelo desde a F11 - ver o comentario de AI_TASK_CATALOG em server/utils/fleetLicense.ts.
+  proposalApproverBriefingModel      String          @default("gemini-3.5-flash") @map("proposal_approver_briefing_model")
+  proposalApproverBriefingProvider   String          @default("gemini") @map("proposal_approver_briefing_provider")
   // Per-tenant monthly AI spend cap - null means uncapped. Enforced (hard block once reached,
   // not just tracked), with an 80%-of-cap warning logged before that point.
-  monthlyCostCapUsd                 Float?          @map("monthly_cost_cap_usd")
+  monthlyCostCapUsd                  Float?          @map("monthly_cost_cap_usd")
   // Phase 7 (fleet/license management): this installation's connection to the vendor's fleet
   // manager (a separate server - see docs/roadmap). Empty/disabled means no heartbeat runs and
   // the installation is always treated as active (fail-open) - matches the on-prem reality of
   // not every install necessarily being registered yet.
-  fleetManagerUrl                   String?         @map("fleet_manager_url")
-  fleetManagerApiKeyEncrypted       String?         @map("fleet_manager_api_key_encrypted") @db.Text
-  fleetManagerEnabled               Boolean         @default(false) @map("fleet_manager_enabled")
-  storageMode                       StorageProvider @default(local) @map("storage_mode")
-  localStoragePath                  String          @map("local_storage_path")
-  s3Bucket                          String          @map("s3_bucket")
-  s3Region                          String?         @map("s3_region")
-  s3AccessKeyId                     String?         @map("s3_access_key_id")
-  s3SecretAccessKeyEncrypted        String?         @map("s3_secret_access_key_encrypted") @db.Text
-  gcsBucket                         String          @map("gcs_bucket")
-  gcsProjectId                      String?         @map("gcs_project_id")
-  gcsServiceAccountKeyEncrypted     String?         @map("gcs_service_account_key_encrypted") @db.Text
-  defaultLanguage                   Language        @map("default_language")
-  defaultLogLevel                   LogLevel        @map("default_log_level")
-  createdAt                         DateTime        @default(now()) @map("created_at")
-  updatedAt                         DateTime        @updatedAt @map("updated_at")
+  fleetManagerUrl                    String?         @map("fleet_manager_url")
+  fleetManagerApiKeyEncrypted        String?         @map("fleet_manager_api_key_encrypted") @db.Text
+  fleetManagerEnabled                Boolean         @default(false) @map("fleet_manager_enabled")
+  storageMode                        StorageProvider @default(local) @map("storage_mode")
+  localStoragePath                   String          @map("local_storage_path")
+  s3Bucket                           String          @map("s3_bucket")
+  s3Region                           String?         @map("s3_region")
+  s3AccessKeyId                      String?         @map("s3_access_key_id")
+  s3SecretAccessKeyEncrypted         String?         @map("s3_secret_access_key_encrypted") @db.Text
+  gcsBucket                          String          @map("gcs_bucket")
+  gcsProjectId                       String?         @map("gcs_project_id")
+  gcsServiceAccountKeyEncrypted      String?         @map("gcs_service_account_key_encrypted") @db.Text
+  defaultLanguage                    Language        @map("default_language")
+  defaultLogLevel                    LogLevel        @map("default_log_level")
+  createdAt                          DateTime        @default(now()) @map("created_at")
+  updatedAt                          DateTime        @updatedAt @map("updated_at")
 
   @@unique([tenantId])
   @@map("platform_settings")
@@ -1329,8 +1365,10 @@ model Proposal {
   clientDecisionByUserId String?         @map("client_decision_by_user_id")
   clientDecisionNote     String?         @map("client_decision_note") @db.Text
 
-  decisions   ApprovalDecision[]
-  opinionRuns ProposalOpinionRun[]
+  decisions        ApprovalDecision[]
+  opinionRuns      ProposalOpinionRun[]
+  sectionEdits     ProposalSectionEdit[]
+  approverBriefing ProposalApproverBriefing?
 
   @@index([tenantId])
   @@index([proposalGroupId])
@@ -1353,6 +1391,13 @@ model ProposalOpinionRun {
   proposal          Proposal                @relation(fields: [proposalId], references: [id], onDelete: Cascade)
   backgroundTaskId  String?                 @map("background_task_id")
   status            String // "pending" | "running" | "completed" | "partial" | "failed"
+  // F8: de ONDE veio esta rodada. "ia" (padrao) = as 4 perspectivas geradas pelo painel de
+  // pareceres. "aprovador" = a rodada SINTETICA criada na reabertura, com os itens que o aprovador
+  // apontou ao rejeitar a versao anterior. Ela existe para que o item humano entre no ciclo da F6
+  // sem duplicar rota nenhuma - e este campo e o que impede que ele seja CONTADO como apontamento
+  // de IA: `latest_opinion_run_id` da proposta so aponta para rodada "ia", e a comparacao entre
+  // rodadas da F7 filtra por ele. Ver server/utils/approverFindings.ts.
+  origem            String                  @default("ia")
   requestedByUserId String                  @map("requested_by_user_id")
   // Same staleness-versioning pattern as AnalysisResult.logicVersions (src/aiLogicVersions.ts) -
   // this run's prompts are hardcoded logic too, so a saved run can go stale the same way.
@@ -1391,9 +1436,193 @@ model ProposalAiOpinionItem {
   modelUsed      String?            @map("model_used")
   createdAt      DateTime           @default(now()) @map("created_at")
 
+  findings ProposalOpinionFinding[]
+
   @@unique([runId, perspective])
   @@index([tenantId])
   @@map("proposal_ai_opinion_items")
+}
+
+// F6 (rodada 09/2026): o APONTAMENTO, unidade que se dirime.
+//
+// Por que uma tabela nova em vez de derrubar @@unique([runId, perspective]): o Item continua
+// sendo "o parecer daquela perspectiva naquela rodada" - ele é quem tem status/severity próprios,
+// quem falha isoladamente (status "failed" com o resto da rodada ainda útil) e quem carrega o
+// provedor/modelo que o produziu. Derrubar a unicidade transformaria o Item NO apontamento e
+// apagaria os três: não haveria mais onde registrar "a perspectiva Jurídica falhou", o worker
+// perderia a chave natural com que grava cada perspectiva uma vez, e a F7 perderia o eixo pelo
+// qual vai comparar duas rodadas (quantos apontamentos desta perspectiva foram sanados). O
+// apontamento tem ciclo, justificativa e seção-alvo, que não são atributos do parecer inteiro.
+// Então: Run 1-N Item (um por perspectiva, unicidade preservada) 1-N Finding.
+//
+// `targetKind`/`targetKey` é a generalização da PARTE B do Item (suggestedField/suggestedValue,
+// que continuam lá para as 8 rodadas geradas antes desta fase): em vez de UMA sugestão por
+// parecer, restrita a campo comercial da proposta, cada apontamento aponta para a seção que
+// afeta - um campo da própria Proposal ("proposal_field") ou uma variável de texto do template
+// ("template_field") - e pode trazer o texto de substituição sugerido. A trava não muda: a IA
+// nunca escreve; quem aplica é um clique humano pela rota normal.
+model ProposalOpinionFinding {
+  id                     String                   @id
+  tenantId               String                   @map("tenant_id")
+  tenant                 Tenant                   @relation(fields: [tenantId], references: [id])
+  opinionId              String                   @map("opinion_id")
+  opinion                ProposalAiOpinionItem    @relation(fields: [opinionId], references: [id], onDelete: Cascade)
+  // Ordem em que a IA devolveu o apontamento dentro do parecer - só para exibir na mesma ordem.
+  ordinal                Int
+  title                  String                   @db.Text
+  detail                 String                   @db.Text
+  severity               String // "info" | "warning" | "critical"
+  // Seção que o apontamento afeta. "proposal_field": um campo de PROPOSAL_TYPE_EDITABLE_FIELDS.
+  // "template_field": uma variável de texto do template (server/utils/templateVariableCatalog.ts).
+  // "geral": o apontamento não se prende a uma seção (a IA não soube dizer qual, ou é transversal).
+  targetKind             String                   @map("target_kind")
+  targetKey              String?                  @map("target_key")
+  // Texto de substituição que a IA propõe para a seção-alvo, quando ela tem um. Nunca aplicado
+  // sozinho: é o valor que o botão "Aplicar" manda pela rota normal, com o mesmo gate de rascunho
+  // e permissão de qualquer edição manual.
+  suggestedValue         String?                  @map("suggested_value") @db.Text
+  // Ciclo: "aberto" | "em_tratativa" | "resolvido" | "aceito_com_risco" | "descartado".
+  // Os dois últimos EXIGEM `resolutionNote` - regra de servidor (a rota recusa com 400), não
+  // validação de formulário, porque é ela que sustenta o gate de envio da F7.
+  status                 String                   @default("aberto")
+  // F8: "ia" (padrao) ou "aprovador". Redundante com `opinion.run.origem` de proposito - o filtro
+  // que protege os numeros da F7 e feito sobre listas de findings ja carregadas, e obrigar um join
+  // ate a run para saber a origem de cada linha faria o filtro ser esquecido na primeira consulta
+  // que nao incluisse `opinion.run`.
+  origem                 String                   @default("ia")
+  // F8: o item da rejeicao estruturada que deu origem a este apontamento. `@unique` porque um item
+  // vira UM apontamento, na v2 que nasceu daquela rejeicao: sem isso, uma segunda reabertura (ou
+  // um retry) duplicaria os itens do aprovador na mesma proposta.
+  approvalDecisionItemId String?                  @unique @map("approval_decision_item_id")
+  approvalDecisionItem   ApprovalDecisionItem?    @relation(fields: [approvalDecisionItemId], references: [id], onDelete: SetNull)
+  resolutionNote         String?                  @map("resolution_note") @db.Text
+  resolvedByUserId       String?                  @map("resolved_by_user_id")
+  resolvedAt             DateTime?                @map("resolved_at")
+  // F7: o VINCULO ENTRE RODADAS. Aponta para o apontamento da rodada ANTERIOR que este continua.
+  // null = apontamento novo nesta rodada. É o que sustenta os tres numeros da tela (sanados /
+  // parciais / novos): sem um vinculo gravado, cada rodada seria uma lista solta e "estou
+  // progredindo" seria indistinguivel de "a IA inventa apontamento toda vez".
+  //
+  // Como o vinculo e decidido esta em server/utils/proposalRoundMatching.ts, com o porque de cada
+  // alternativa descartada. Em resumo: o modelo declara o antecessor (recebe a lista dos abertos
+  // da rodada anterior no proprio prompt), o SERVIDOR revalida o id contra essa lista, e onde o
+  // modelo se calou entra um desempate deterministico que exige mesma secao-alvo E similaridade
+  // de titulo. Um id que o modelo invente e descartado: o apontamento simplesmente conta como novo.
+  previousFindingId      String?                  @map("previous_finding_id")
+  previousFinding        ProposalOpinionFinding?  @relation("SucessaoDeApontamento", fields: [previousFindingId], references: [id], onDelete: SetNull)
+  successors             ProposalOpinionFinding[] @relation("SucessaoDeApontamento")
+  // F7: o VEREDITO DE SANACAO, consultivo. Preenchido pela rota que le o par
+  // previousValue/newValue de ProposalSectionEdit e pergunta a IA se a edicao enderecou o
+  // apontamento: "sanado" | "parcial" | "nao_sanado". NAO muda `status`: a IA nunca fecha um
+  // apontamento, ela sugere ao humano que o marque como resolvido. Manter os dois campos
+  // separados e o que impede que uma opiniao de modelo vire decisao registrada.
+  remediationVerdict     String?                  @map("remediation_verdict")
+  remediationNote        String?                  @map("remediation_note") @db.Text
+  remediationCheckedAt   DateTime?                @map("remediation_checked_at")
+  createdAt              DateTime                 @default(now()) @map("created_at")
+  updatedAt              DateTime                 @updatedAt @map("updated_at")
+  sectionEdits           ProposalSectionEdit[]
+
+  @@index([tenantId])
+  @@index([opinionId])
+  @@index([previousFindingId])
+  @@map("proposal_opinion_findings")
+}
+
+// F6: histórico por seção. Uma linha por alteração de uma seção de texto da proposta, com autor,
+// instante, origem e QUAL apontamento a motivou.
+//
+// Existe porque a fase troca "preencher o vazio" por substituição explícita: a partir de agora um
+// texto aprovado PODE cobrir o que a análise havia produzido, e a única forma de isso não virar
+// perda silenciosa é guardar o valor anterior. `previousValue` é o que estava lá (null quando a
+// seção estava vazia); `origin` distingue o que a pessoa escreveu do que a IA sugeriu e do que a
+// pessoa editou por cima da sugestão da IA - distinção que o AuditLog genérico não carrega.
+/**
+ * F9 (rodada 09/2026): O RESULTADO GUARDADO DO ASSISTENTE DO APROVADOR.
+ * ─── POR QUE UMA TABELA PROPRIA, PENDURADA NA PROPOSTA ──────────────────────────────────────
+ * A chave deste resultado e a VERSAO DO DOCUMENTO, nao a rodada de pareceres. O assistente le o
+ * conjunto - o texto das secoes AGORA, os apontamentos de TODAS as origens (IA e aprovador) com a
+ * tratativa de cada um, a cadeia de versoes e as decisoes - e uma rodada de IA (`ProposalOpinionRun`)
+ * responde por apenas um desses pedacos. Pendurar o resultado numa rodada faria a chave mentir
+ * sobre o que ele cobre, e deixaria sem lugar o caso em que nao ha rodada de IA nenhuma (uma v2
+ * reaberta cujos apontamentos sao todos do aprovador, que e justamente o cenario mais interessante
+ * para o assistente).
+ * `@unique` em `proposalId`: uma versao, um resultado. Como cada versao e uma linha propria de
+ * `Proposal` (a v2 nasce em POST /proposals/:id/reopen com id novo), "guardado por versao do
+ * documento" cai exatamente sobre esta unicidade - sem coluna de versao, sem consulta por
+ * `orderBy desc`, sem duas linhas concorrentes para a mesma versao. Reabrir a proposta NAO herda o
+ * resultado: a v2 e outra linha, sem briefing, e portanto oferece rodada nova.
+ * ─── O QUE INVALIDA O RESULTADO GUARDADO, E POR QUE NAO E APAGA-LO ──────────────────────────
+ * `inputFingerprint` e o SHA-256 do que o assistente REALMENTE LEU: o texto de cada secao, o
+ * status/justificativa/veredito de cada apontamento e as decisoes da cadeia. Se qualquer um desses
+ * mudar, o hash muda e o resultado passa a ser servido com `desatualizado: true`.
+ * DESATUALIZADO NAO E INVALIDO, e a diferenca e deliberada: o resultado velho continua sendo
+ * mostrado, marcado, e uma nova chamada de IA so acontece se alguem pedir explicitamente
+ * (`regenerar: true`). O motivo e o custo: mudar o status de um apontamento e o ato mais comum de
+ * toda a tratativa, e invalidar de verdade faria o assistente ser re-executado a cada visita ao
+ * dossie durante a revisao - a conta subiria sozinha, sem que ninguem tivesse pedido analise nova.
+ * As duas alternativas, e o que custariam:
+ * (a) NAO guardar impressao nenhuma. Custaria apresentar como atual uma analise feita sobre um
+ * texto que ja mudou - pior que gastar, porque o aprovador nao teria como saber.
+ * (b) Invalidar de verdade (apagar e re-executar). Custaria dinheiro a cada PATCH de status de
+ * apontamento, que e o evento mais frequente do ciclo da F6, e transformaria o cache num
+ * contador de visitas ao dossie.
+ * ─── O QUE ESTA LINHA NUNCA CONTEM ──────────────────────────────────────────────────────────
+ * Veredito. O assistente devolve PERGUNTAS a verificar e nao recomenda aprovar nem rejeitar - a
+ * proibicao esta escrita dentro do proprio prompt (buildApproverBriefingPrompt, hasheada sob
+ * `proposal_approver_briefing`) pela mesma razao que a sanacao da F7 e "consultiva": um assistente
+ * que soe como recomendacao transforma o aprovador em carimbo, e a governanca das oito fases
+ * anteriores se perde no ultimo metro.
+ */
+model ProposalApproverBriefing {
+  id                String   @id
+  tenantId          String   @map("tenant_id")
+  tenant            Tenant   @relation(fields: [tenantId], references: [id])
+  proposalId        String   @unique @map("proposal_id")
+  proposal          Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  // A versao da proposta no instante da geracao. Redundante com `proposal.version` de proposito:
+  // e o que permite ler a linha e saber sobre que versao ela fala sem uma segunda consulta.
+  proposalVersion   Int      @map("proposal_version")
+  // Perguntas a verificar, no formato { pergunta, por_que, secao?, apontamento_id?, categoria }.
+  // JSON e nao tabela filha: nada consulta ponto a ponto - a lista inteira e lida junto, sempre.
+  pontos            Json
+  // A leitura de conjunto, em uma frase. Nunca uma recomendacao.
+  panorama          String   @db.Text
+  // SHA-256 do estado lido - ver o bloco sobre invalidacao acima.
+  inputFingerprint  String   @map("input_fingerprint")
+  logicVersion      Int      @map("logic_version")
+  providerUsed      String   @map("provider_used")
+  modelUsed         String   @map("model_used")
+  generatedByUserId String   @map("generated_by_user_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@map("proposal_approver_briefings")
+}
+
+model ProposalSectionEdit {
+  id            String                  @id
+  tenantId      String                  @map("tenant_id")
+  tenant        Tenant                  @relation(fields: [tenantId], references: [id])
+  proposalId    String                  @map("proposal_id")
+  proposal      Proposal                @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  // Mesma dupla do apontamento: "proposal_field" | "template_field".
+  targetKind    String                  @map("target_kind")
+  targetKey     String                  @map("target_key")
+  previousValue String?                 @map("previous_value") @db.Text
+  newValue      String                  @map("new_value") @db.Text
+  // "humano" | "ia" | "ia_editada" - "ia" só quando o texto salvo é byte a byte o que a IA
+  // devolveu; qualquer toque humano por cima vira "ia_editada".
+  origin        String
+  findingId     String?                 @map("finding_id")
+  finding       ProposalOpinionFinding? @relation(fields: [findingId], references: [id], onDelete: SetNull)
+  authorUserId  String                  @map("author_user_id")
+  createdAt     DateTime                @default(now()) @map("created_at")
+
+  @@index([tenantId])
+  @@index([proposalId])
+  @@map("proposal_section_edits")
 }
 
 model ApprovalWorkflow {
@@ -1446,74 +1675,53 @@ model ApprovalDecision {
   stage          ApprovalStage        @relation(fields: [stageId], references: [id])
   approverUserId String               @map("approver_user_id")
   decision       ApprovalDecisionType
+  // Continua sendo o RESUMO da decisao, NOT NULL, e continua obrigatorio na rejeicao
+  // (server/utils/approvalDecision.ts). A F8 acrescentou os itens por secao ao lado dele; ela NAO
+  // os transformou no motivo. Uma rejeicao sem resumo continua 400.
   comments       String               @db.Text
   createdAt      DateTime             @default(now()) @map("created_at")
+
+  // F8: a rejeicao ESTRUTURADA - zero ou mais secoes apontadas nesta mesma decisao.
+  items ApprovalDecisionItem[]
 
   @@index([tenantId])
   @@map("approval_decisions")
 }
 
-// Roadmap item (customer_request): "Identidade Visual em DOCX" Fase 4b - a reusable, named brand
-// style (logo + primary color) a project can opt into instead of the tenant-wide BrandingSettings
-// default, so the same client's branding can be set up once and reused across every one of their
-// projects rather than re-entered per project. Deliberately a small subset of BrandingSettings'
-// fields (only what buildDocxBuffer's branding header actually consumes today - see
-// server/utils/docx.ts's BrandingHeader) - not a full theme/UI branding system, just DOCX output.
-model BrandStyle {
-  id           String   @id
-  tenantId     String   @map("tenant_id")
-  tenant       Tenant   @relation(fields: [tenantId], references: [id])
-  name         String
-  companyName  String?  @map("company_name")
-  // Inline base64 data URL, same convention as BrandingSettings' own logo fields (see
-  // useAdminConsole.ts's upload handler) - not a storage-adapter path.
-  logoDataUrl  String?  @map("logo_data_url") @db.Text
-  primaryColor String?  @map("primary_color")
-  createdBy    String   @map("created_by")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+/**
+ * F8: UM item da rejeicao estruturada - "nesta secao, isto aqui".
+ * Fica pendurado na DECISAO, e nao na proposta, porque e parte do registro do que o aprovador
+ * decidiu: a decisao e imutavel depois de gravada (a rota recusa a segunda com 409), e os itens
+ * dela tambem. O caminho ate o ciclo de tratativa e outro: na reabertura, cada item vira um
+ * ProposalOpinionFinding na v2 (server/utils/approverFindings.ts), e e LA que ele ganha status,
+ * justificativa e sugestao. Guardar os dois no mesmo lugar faria a decisao registrada mudar
+ * depois de tomada.
+ */
+model ApprovalDecisionItem {
+  id              String           @id
+  tenantId        String           @map("tenant_id")
+  tenant          Tenant           @relation(fields: [tenantId], references: [id])
+  decisionId      String           @map("decision_id")
+  decision        ApprovalDecision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  // Ordem em que o aprovador escreveu os itens na tela.
+  ordinal         Int
+  // Mesmo vocabulario de alvo do apontamento (ProposalOpinionFinding.targetKind):
+  // "proposal_field" | "template_field" | "geral". Reusar o vocabulario e o que permite que o item
+  // vire apontamento sem traducao no meio.
+  targetKind      String           @map("target_kind")
+  targetKey       String?          @map("target_key")
+  comment         String           @db.Text
+  // O texto que a secao tinha NO MOMENTO da rejeicao. Guardado porque a v2 vai editar essa secao:
+  // sem o retrato, quem le o apontamento na v2 nao consegue saber a que texto o aprovador se
+  // referia. null quando a secao estava vazia ou o alvo e "geral".
+  sectionSnapshot String?          @map("section_snapshot") @db.Text
+  createdAt       DateTime         @default(now()) @map("created_at")
 
-  @@unique([tenantId, name])
+  finding ProposalOpinionFinding?
+
   @@index([tenantId])
-  @@map("brand_styles")
-}
-
-model BrandingSettings {
-  id                 String   @id
-  tenantId           String   @map("tenant_id")
-  tenant             Tenant   @relation(fields: [tenantId], references: [id])
-  companyName        String   @map("company_name")
-  companyLogoPath    String   @map("company_logo_path")
-  loginLogoPath      String   @map("login_logo_path")
-  sidebarLogoPath    String   @map("sidebar_logo_path")
-  reportLogoPath     String   @map("report_logo_path")
-  faviconPath        String   @map("favicon_path")
-  primaryColor       String   @map("primary_color")
-  secondaryColor     String   @map("secondary_color")
-  accentColor        String   @map("accent_color")
-  backgroundColor    String   @map("background_color")
-  textColor          String   @map("text_color")
-  fontFamily         String   @map("font_family")
-  borderRadius       String   @map("border_radius")
-  buttonStyle        String   @map("button_style")
-  defaultTheme       Theme    @default(light) @map("default_theme")
-  // Fase 8 do programa de identidade visual (docs/roadmap/IDENTIDADE_VISUAL_2026-08.md):
-  // quando ligado, `primary_color` deixa de valer só para o cabeçalho do DOCX gerado e passa a
-  // pintar a INTERFACE, sobrescrevendo em runtime os 11 tokens `--color-brand-*` que
-  // `@theme static` publica em `:root` (a rampa é derivada da cor por src/brandTheme.ts).
-  // Nasce DESLIGADO em toda linha que já existia: elas gravaram a cor sob a semântica antiga
-  // ("essa cor sai no documento"), e ligar em massa mudaria a aparência do produto para quem
-  // nunca pediu isso - ver a migration 20260825030000_brand_color_official_palette.
-  applyToUi          Boolean  @default(false) @map("apply_to_ui")
-  customCssVariables String   @map("custom_css_variables") @db.Text
-  footerText         String   @map("footer_text")
-  supportContact     String   @map("support_contact")
-  legalText          String   @map("legal_text") @db.Text
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
-
-  @@unique([tenantId])
-  @@map("branding_settings")
+  @@index([decisionId])
+  @@map("approval_decision_items")
 }
 
 model IntegrationConnector {
@@ -2616,21 +2824,21 @@ model CrmPurgeExecution {
 /// validade). Os defaults abaixo repetem esse padrao para que uma gravacao parcial nao invente
 /// outro.
 model PasswordPolicy {
-  id                   String   @id
-  tenantId             String   @unique @map("tenant_id")
-  tenant               Tenant   @relation(fields: [tenantId], references: [id])
-  comprimentoMinimo    Int      @default(12) @map("comprimento_minimo")
-  exigirMaiuscula      Boolean  @default(false) @map("exigir_maiuscula")
-  exigirMinuscula      Boolean  @default(false) @map("exigir_minuscula")
-  exigirNumero         Boolean  @default(true) @map("exigir_numero")
-  exigirEspecial       Boolean  @default(true) @map("exigir_especial")
+  id                String   @id
+  tenantId          String   @unique @map("tenant_id")
+  tenant            Tenant   @relation(fields: [tenantId], references: [id])
+  comprimentoMinimo Int      @default(12) @map("comprimento_minimo")
+  exigirMaiuscula   Boolean  @default(false) @map("exigir_maiuscula")
+  exigirMinuscula   Boolean  @default(false) @map("exigir_minuscula")
+  exigirNumero      Boolean  @default(true) @map("exigir_numero")
+  exigirEspecial    Boolean  @default(true) @map("exigir_especial")
   /// Quantas senhas anteriores nao podem ser reusadas. 0 desliga a verificacao E apaga o
   /// historico guardado.
-  historicoDeReuso     Int      @default(5) @map("historico_de_reuso")
+  historicoDeReuso  Int      @default(5) @map("historico_de_reuso")
   /// Dias ate a senha vencer. 0 = sem validade.
-  validadeEmDias       Int      @default(0) @map("validade_em_dias")
-  updatedAt            DateTime @updatedAt @map("updated_at")
-  updatedByUserId      String?  @map("updated_by_user_id")
+  validadeEmDias    Int      @default(0) @map("validade_em_dias")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  updatedByUserId   String?  @map("updated_by_user_id")
 
   @@map("password_policies")
 }
@@ -2659,7 +2867,6 @@ model PasswordHistory {
   @@index([tenantId])
   @@map("password_history")
 }
-
 
 /// F11 (01/09/2026) - historico persistente de hardware/servicos DESTA instalacao, para o popup
 /// de periodo/granularidade na Visao Geral. Sem tenant_id de proposito: CPU/memoria/disco/status

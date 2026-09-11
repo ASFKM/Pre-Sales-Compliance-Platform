@@ -9,7 +9,7 @@ import { createTask, updateTaskProgress, completeTask, failTask } from "../../sr
 import * as staging from "../../src/projectIntakeStaging";
 import { ProjectSchema } from "./projects";
 import { resolveProvider, checkCostCap, recordProviderFallback, recordAiUsage } from "../../src/aiOrchestrator";
-import { generateJsonWithProvider, ConnectedProvider } from "../utils/aiProviders";
+import { generateJsonWithProvider, buildActorRef, ConnectedProvider } from "../utils/aiProviders";
 import { estimateCostUsd } from "../utils/aiPricing";
 import { classifyDocument } from "../utils/documentClassification";
 import { acharCnpjNoTexto } from "../utils/cnpj";
@@ -213,7 +213,7 @@ Respond with ONLY a strictly parsable JSON object, no markdown, matching this sh
   "procurement_subtype": "A subtype consistent with the chosen modality, in Portuguese"
 }`;
 
-        const { text: rawText, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt);
+        const { text: rawText, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt, { taskKey: "document_analysis", actorRef: buildActorRef("user", task.user_id), triggerType: "background_task" });
         const realEstimatedCostUsd = billedCostUsd ?? estimateCostUsd(providerResolution.model, inputTokens, outputTokens);
 
         const parsed = JSON.parse(rawText.trim());
@@ -305,7 +305,7 @@ router.post("/project-intake/:sessionId/confirm", requirePermission("project:cre
       if (!buffer) continue;
 
       const storagePath = await storageAdapter.uploadFile(project.id, buffer, f.filename, f.mimeType);
-      const classification = await classifyDocument(f.filename, f.extractedText, tenantId, userId);
+      const classification = await classifyDocument(f.filename, f.extractedText, tenantId, userId, "background_task");
 
       await runWithTenant(tenantContext, async () => {
         const docRecord = await dbStore.addDocument({

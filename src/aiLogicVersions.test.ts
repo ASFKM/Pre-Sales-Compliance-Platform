@@ -15,11 +15,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // staleness signal under-report - the exact class of gap that let ~5 real bom_enrichment bugs ship
 // this session with no way for already-saved AnalysisResult rows to know they were outdated.
 //
-// Only "bom_enrichment" is covered here (not "document_analysis") - enrichBomWithWebSearch is a
-// standalone named function, cleanly extractable; the main document-analysis logic lives inline
-// in a large Express route handler, not isolated as its own function, so it isn't a good fit for
-// this same source-hash technique yet. It still has a LOGIC_VERSIONS entry and relies on PR-review
-// discipline for now.
+// "document_analysis" segue de fora: a logica principal dela vive inline num route handler grande
+// do Express, nao isolada como funcao propria, entao nao serve para a tecnica de hash de fonte.
+// Ela ainda tem entrada em LOGIC_VERSIONS e depende de disciplina de revisao por enquanto.
+//
+// F6 da rodada 09/2026: "proposal_opinion_panel" ENTROU aqui. Ele tinha entrada em LOGIC_VERSIONS
+// desde que o painel de pareceres existe, mas nunca esteve no fixture nem neste teste - o guard
+// declarava cobri-lo e nao cobria. `buildOpinionPrompt` e funcao nomeada e extraivel, igual a
+// enrichBomWithWebSearch; era so lacuna, nao impedimento. Fechar isso importa mais nesta fase do
+// que nas anteriores: o formato do parecer agora tem consequencia de dado (uma rodada v1 nao tem
+// apontamentos, uma v2 tem), entao um prompt que mude sem bump deixaria rodadas indistinguiveis.
 const FIXTURE_PATH = path.join(__dirname, "aiLogicVersions.fixture.json");
 
 function hashOf(source: string): string {
@@ -64,6 +69,52 @@ describe("AI logic version golden-hash guard", () => {
       "bom_enrichment",
       path.join(__dirname, "..", "server", "routes", "analysis.ts"),
       "async function enrichBomWithWebSearch("
+    );
+  });
+
+  it("proposal_opinion_panel version matches the fixture hash of buildOpinionPrompt's source", () => {
+    checkLogicVersion(
+      "proposal_opinion_panel",
+      path.join(__dirname, "..", "server", "routes", "proposals.ts"),
+      "async function buildOpinionPrompt("
+    );
+  });
+
+  // F7 da rodada 09/2026: as tres da revisao assistida. Entram sob guarda no mesmo commit que as
+  // cria - ver o comentario de cada uma em aiLogicVersions.ts para o que exatamente cada hash
+  // protege (o formato do veredito gravado, o contrato byte a byte do trecho, e a proibicao de
+  // mandar numero para modelo conferir).
+  it("proposal_finding_remediation version matches the fixture hash of buildRemediationPrompt's source", () => {
+    checkLogicVersion(
+      "proposal_finding_remediation",
+      path.join(__dirname, "..", "server", "routes", "proposals.ts"),
+      "function buildRemediationPrompt("
+    );
+  });
+
+  it("proposal_grammar_check version matches the fixture hash of buildGrammarPrompt's source", () => {
+    checkLogicVersion(
+      "proposal_grammar_check",
+      path.join(__dirname, "..", "server", "routes", "proposals.ts"),
+      "function buildGrammarPrompt("
+    );
+  });
+
+  it("proposal_section_coherence version matches the fixture hash of buildCoherencePrompt's source", () => {
+    checkLogicVersion(
+      "proposal_section_coherence",
+      path.join(__dirname, "..", "server", "routes", "proposals.ts"),
+      "function buildCoherencePrompt("
+    );
+  });
+
+  // F9 da rodada 09/2026: o assistente do aprovador. O hash guarda a proibicao de veredito -
+  // ver o comentario da chave em aiLogicVersions.ts para por que ela e o requisito da fase.
+  it("proposal_approver_briefing version matches the fixture hash of buildApproverBriefingPrompt's source", () => {
+    checkLogicVersion(
+      "proposal_approver_briefing",
+      path.join(__dirname, "..", "server", "routes", "proposals.ts"),
+      "function buildApproverBriefingPrompt("
     );
   });
 });

@@ -2,6 +2,7 @@ import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
 import InspectModule from "docxtemplater/js/inspect-module";
 import { DocxTemplateData } from "./docx";
+import { podeSerSubstituidaPorTextoAprovado } from "./proposalAiAssist";
 
 // Every placeholder a real uploaded template can use is documented in ./templateVariableCatalog
 // (name + human-readable description, in Portuguese, shown in the Admin Console's variable
@@ -162,21 +163,35 @@ export function buildTemplateVariables(data: DocxTemplateData) {
   };
 
   /*
-   * F6: valores aprovados para variaveis livres/secoes vazias entram por ULTIMO, e so onde nao ha
-   * dado do sistema.
+   * F6 (rodada 09/2026): SUBSTITUICAO EXPLICITA no lugar de "preencher o vazio".
    *
-   * A regra e "preencher o vazio", nunca "substituir o conhecido": se `cliente` ja veio do
-   * cadastro do projeto, nenhum texto aprovado pode troca-lo; se `resumo_executivo` saiu vazio
-   * porque a analise nao produziu a secao, o texto aprovado ocupa o lugar. Um laco (bom,
-   * precificacao) nunca e alcancado aqui - o filtro exige que o valor atual seja string, e laco e
-   * array. Isso e a ultima barreira: a rota que grava ja aplica a mesma allowlist, e este ponto
-   * garante que nem um valor gravado por outro caminho conseguiria sobrescrever fato do sistema.
+   * A regra anterior era "preenche o vazio, nunca substitui o conhecido": um texto aprovado so
+   * ocupava variavel em branco. Ela protegia `cliente` de graca - `cliente` nunca esta vazio - mas
+   * ao preco de tornar impossivel corrigir uma secao que a analise redigiu mal. Como o parecer
+   * agora produz apontamentos ligados a uma secao, e o ciclo do apontamento so fecha quando a
+   * secao muda, a regra do vazio inviabilizaria a propria fase: o apontamento apontaria um texto
+   * que ninguem consegue trocar.
+   *
+   * Entao a regra passa a ser: um valor aprovado por uma pessoa SUBSTITUI o que estava ali, desde
+   * que a variavel possa ser substituida (podeSerSubstituidaPorTextoAprovado). E a mesma allowlist
+   * que a rota PUT /proposals/:id/campos-do-template aplica na entrada - aqui ela e a ULTIMA
+   * barreira, para o caso de um valor ter sido gravado por outro caminho. `cliente`, `projeto`,
+   * `vertical`, `escopo` e os demais fatos de cadastro seguem intocaveis; o que mudou e por onde:
+   * antes pela regra do vazio, agora pela lista explicita (ver o comentario grande em
+   * server/utils/proposalAiAssist.ts, que registra essa troca de mecanismo).
+   *
+   * O filtro `typeof valor === "string"` continua barrando laco (bom, precificacao) antes de
+   * qualquer coisa, e a allowlist os barra de novo pelo nome - as duas travas seguem de pe.
+   *
+   * O que ficou de FORA daqui, de proposito: guardar o valor anterior. Historico e responsabilidade
+   * de quem GRAVA (ProposalSectionEdit, escrito pela rota), nao de quem renderiza - este ponto e
+   * chamado tambem em pre-visualizacao e em regeracao, e registrar historico aqui inventaria
+   * "edicoes" que ninguem fez.
    */
   for (const [nome, valor] of Object.entries(data.templateFieldValues || {})) {
     if (typeof valor !== "string" || valor.trim().length === 0) continue;
-    const atual = resolvidas[nome];
-    const estaVazia = atual === undefined || (typeof atual === "string" && atual.trim().length === 0);
-    if (estaVazia) resolvidas[nome] = valor;
+    if (!podeSerSubstituidaPorTextoAprovado(nome)) continue;
+    resolvidas[nome] = valor;
   }
 
   return resolvidas;

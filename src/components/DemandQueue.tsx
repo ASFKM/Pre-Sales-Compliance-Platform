@@ -174,7 +174,7 @@ export default function DemandQueue({ hasPermission, currentUserId, onDemandAssu
                   tem no topo (`adminConsole` em App.tsx). Apontar para um menu com
                   outro nome é o mesmo que não apontar — a pessoa procura o que não
                   existe. Encontrado pela captura, que não achou o botão. */}
-              Prazos, desempenho e expurgos agora ficam em <span className="font-semibold text-slate-500">Configurações › Demandas</span>.
+              Prazos, desempenho e expurgos agora ficam em <span className="font-semibold text-slate-500">Configurações › SLA e Prazos</span>.
             </p>
           )}
         </div>

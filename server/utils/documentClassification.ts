@@ -3,7 +3,8 @@ import { dbStore } from "../../src/dbStore";
 import { FACTORY_DEFAULT_CLASSIFICATION_PROMPT } from "./promptDefaults";
 import { estimateCostUsd } from "./aiPricing";
 import { recordAiUsage, resolveProvider, recordProviderFallback } from "../../src/aiOrchestrator";
-import { generateJsonWithProvider, ConnectedProvider } from "./aiProviders";
+import { generateJsonWithProvider, buildActorRef, AiTriggerType } from "./aiProviders";
+import type { ConnectedProvider } from "./aiProviders";
 import { UNTRUSTED_DOCUMENT_WARNING } from "./promptSafety";
 
 export interface DocumentClassification {
@@ -18,7 +19,12 @@ const FALLBACK: DocumentClassification = { document_type: "Other", confidence: 0
 // confidence. Previously hardcoded to always call Gemini directly, bypassing the task->provider
 // orchestrator entirely (2026-07 AI Orchestrator redesign fixed this - now routed through
 // resolveProvider() like the other real task types, admin-configurable same as the rest).
-export async function classifyDocument(filename: string, extractedText: string, tenantId: string, userId?: string): Promise<DocumentClassification> {
+// F4 (rodada 09/2026): `triggerType` e obrigatorio e vem de fora porque esta funcao tem dois
+// chamadores com gatilhos genuinamente diferentes - o upload de documento (server/routes/
+// documents.ts) roda com o usuario esperando a resposta, e a confirmacao da intake
+// (server/routes/projectIntake.ts) roda no trabalho de fundo que ja respondeu 202. Um valor fixo
+// aqui faria metade das linhas de consumo do CMSaaS mentirem sobre a origem.
+export async function classifyDocument(filename: string, extractedText: string, tenantId: string, userId: string | undefined, triggerType: AiTriggerType): Promise<DocumentClassification> {
   try {
     const promptRow = await prisma.promptTemplate.findFirst({ where: { type: "classification", isActive: true } });
     const instructions = promptRow?.content?.trim() || FACTORY_DEFAULT_CLASSIFICATION_PROMPT;
@@ -44,7 +50,7 @@ Respond in Brazilian Portuguese. Respond with ONLY a JSON object matching this s
       await recordProviderFallback({ tenantId, taskType: "document_classification", intendedProvider: resolution.intendedProvider, userId: "system" });
     }
 
-    const { text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(resolution.provider as ConnectedProvider, resolution.model, prompt);
+    const { text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(resolution.provider as ConnectedProvider, resolution.model, prompt, { taskKey: "document_classification", actorRef: buildActorRef("user", userId), triggerType });
 
     await recordAiUsage({
       tenantId,

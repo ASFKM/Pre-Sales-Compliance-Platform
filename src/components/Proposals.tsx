@@ -1,9 +1,14 @@
 import { useEffect, useState } from "react";
-import { TriangleAlert, Download, PenLine, ShieldAlert, Sparkles, X, Wrench, Handshake, CircleDollarSign, Eye, CheckCircle2, RotateCcw, type LucideIcon } from "lucide-react";
-import * as mammoth from "mammoth";
-import DOMPurify from "dompurify";
-import { Proposal, SlaRiskFlag } from "../types";
+import { TriangleAlert, Download, PenLine, ShieldAlert, Sparkles, X, Wrench, Handshake, CircleDollarSign, Eye, CheckCircle2, RotateCcw, ListChecks, History, Table2, FileText, type LucideIcon } from "lucide-react";
+import { useDocumentPreview, DocumentFormatSwitch, DocumentPreviewBody } from "./ui/DocumentPreview";
+import { Proposal, SlaRiskFlag, PricingRow } from "../types";
+// F7: as mesmas funcoes que o servidor usa para localizar e aplicar uma correcao pontual. Modulo
+// puro, sem dependencia de node - importado em vez de espelhado porque a regra de "aceitar UMA
+// correcao muda so aquele trecho" tem de ser literalmente a mesma dos dois lados; um espelho
+// divergiria na primeira mudanca e o bug apareceria como texto salvo errado.
+import { aplicarCorrecao, reposicionarAposAplicar, type CorrecaoLocalizada } from "../../server/utils/proposalGrammar";
 import { useProposals } from "../hooks/useProposals";
+import { useModalDialog } from "../hooks/useModalDialog";
 import { BackgroundTask } from "../hooks/useBackgroundTasks";
 import {
   ProposalEditableField,
@@ -39,12 +44,85 @@ const OPINION_SEVERITY_BORDER: Record<"critical" | "warning" | "none", string> =
   warning: "border-l-4 border-l-warning-500",
   none: "border-l-4 border-l-transparent",
 };
+/*
+ * F6 (rodada 09/2026): o APONTAMENTO, unidade que se dirime.
+ *
+ * O parecer deixou de ser um bloco em modo leitura porque não se dirime um parágrafo. Cada
+ * apontamento tem identidade, severidade, a seção que afeta e um ciclo próprio - e é o ciclo que
+ * a tela precisa oferecer: "resolvido" depois de mudar a seção, "aceito com risco" quando se
+ * decide seguir assim mesmo, "descartado" quando o apontamento não procedia. Os dois últimos o
+ * SERVIDOR recusa sem justificativa (server/utils/proposalFindings.ts), então o formulário abaixo
+ * pede o texto antes de chamar - mas quem garante não é ele.
+ */
+type FindingStatus = "aberto" | "em_tratativa" | "resolvido" | "aceito_com_risco" | "descartado";
+
+interface FindingItem {
+  id: string;
+  ordinal: number;
+  title: string;
+  detail: string;
+  severity: "info" | "warning" | "critical";
+  target_kind: "proposal_field" | "template_field" | "geral";
+  target_key?: string | null;
+  suggested_value?: string | null;
+  status: FindingStatus;
+  resolution_note?: string | null;
+  // F7: o apontamento da rodada ANTERIOR que este continua (null = novo nesta rodada).
+  previous_finding_id?: string | null;
+  // F7: o veredito CONSULTIVO de sanacao. Fica ao lado do status, nunca no lugar dele - a IA
+  // sugere que o apontamento foi endereçado, quem fecha e uma pessoa.
+  remediation_verdict?: "sanado" | "parcial" | "nao_sanado" | null;
+  remediation_note?: string | null;
+  remediation_checked_at?: string | null;
+}
+
+// F7: o veredito de sanacao, com a cor dizendo o quanto ele ainda pede atencao.
+const REMEDIATION_LABEL: Record<string, { pt: string; en: string; classe: string }> = {
+  sanado: { pt: "IA: sanado", en: "AI: remediated", classe: "bg-success-50 text-success-700 border-success-200" },
+  parcial: { pt: "IA: parcial", en: "AI: partial", classe: "bg-warning-50 text-warning-700 border-warning-200" },
+  nao_sanado: { pt: "IA: não sanado", en: "AI: not remediated", classe: "bg-danger-50 text-danger-700 border-danger-200" },
+};
+
+// F7: os tres numeros que distinguem progresso de "a IA inventa apontamento toda vez".
+interface ComparacaoDeRodadas {
+  rodada_atual: { id: string; created_at: string; logic_version: number };
+  rodada_anterior: { id: string; created_at: string; logic_version: number };
+  comparavel: boolean;
+  totais: { sanados: number; parciais: number; novos: number; abertos_na_rodada_anterior: number; total_nesta_rodada: number };
+  sanados: Array<{ id: string; title: string; severity: string; status: string }>;
+  parciais: Array<{ id: string; title: string; severity: string; status: string }>;
+  novos: Array<{ id: string; title: string; severity: string; status: string }>;
+}
+
+const FINDING_STATUS_LABEL: Record<FindingStatus, { pt: string; en: string }> = {
+  aberto: { pt: "Aberto", en: "Open" },
+  em_tratativa: { pt: "Em tratativa", en: "In progress" },
+  resolvido: { pt: "Resolvido", en: "Resolved" },
+  aceito_com_risco: { pt: "Aceito com risco", en: "Accepted with risk" },
+  descartado: { pt: "Descartado", en: "Dismissed" },
+};
+
+const FINDING_STATUS_STYLE: Record<FindingStatus, string> = {
+  aberto: "bg-slate-100 text-slate-600 border-slate-200",
+  em_tratativa: "bg-brand-50 text-brand-700 border-brand-200",
+  resolvido: "bg-success-50 text-success-700 border-success-200",
+  aceito_com_risco: "bg-warning-50 text-warning-700 border-warning-200",
+  descartado: "bg-slate-100 text-slate-400 border-slate-200",
+};
+
+// Os dois que o servidor recusa sem justificativa. Espelhado aqui só para o formulário pedir o
+// texto ANTES de chamar - a garantia é de lá, não daqui.
+const FINDING_STATUS_COM_JUSTIFICATIVA: FindingStatus[] = ["aceito_com_risco", "descartado"];
+
 interface OpinionItem {
   perspective: OpinionPerspective;
   status: "completed" | "failed";
   severity?: "info" | "warning" | "critical" | null;
   summary: string;
   content: string;
+  // Vazio nas 8 rodadas geradas antes da F6 (logicVersion 1): elas não têm apontamento nenhum, e
+  // isso não é "parecer limpo" - a tela diz a diferença.
+  findings?: FindingItem[];
   // PARTE B (parecer acionável): presente só quando a IA tinha UMA mudança concreta a sugerir a um
   // campo que este tipo de proposta realmente possui (ver server/routes/proposals.ts's
   // TEXT_SUGGESTIBLE_FIELDS) - nunca aplicado sozinho, só via o botão "Aplicar" abaixo.
@@ -54,6 +132,8 @@ interface OpinionItem {
 interface OpinionRun {
   id: string;
   status: "pending" | "running" | "completed" | "partial" | "failed";
+  // F6: 1 = rodada sem apontamentos (anterior a esta fase); 2 = com apontamentos.
+  logic_version?: number;
   opinions: OpinionItem[];
 }
 
@@ -67,6 +147,33 @@ interface ProposalsProps {
   fetchGlobalConfigs: () => Promise<void> | void;
   fetchProjectDetails: (projectId: string) => Promise<void> | void;
   handleReleaseProposal: (propId: string) => void;
+}
+
+/**
+ * F10: a CASCA DE DIALOGO dos dois modais deste arquivo.
+ *
+ * Medido antes: nenhum dos dois tinha `role="dialog"`, `aria-modal`, foco inicial
+ * nem armadilha de Tab — com o modal aberto o Tab caminhava para a tela de fundo.
+ * O hook nao podia ser chamado onde os modais moram (o do editor esta dentro de
+ * uma IIFE, e hook nao roda ali), entao a casca e um componente de verdade.
+ *
+ * Nao muda o que os modais fazem: nao grava, nao valida, nao decide.
+ */
+function CascaDeDialogo({
+  onClose, fecharNoEscape, rotuladoPor, className, children,
+}: {
+  onClose: () => void;
+  fecharNoEscape?: boolean;
+  rotuladoPor: string;
+  className: string;
+  children: React.ReactNode;
+}) {
+  const ref = useModalDialog<HTMLDivElement>(onClose, { fecharNoEscape });
+  return (
+    <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={rotuladoPor} tabIndex={-1} className={`${className} focus:outline-none`}>
+      {children}
+    </div>
+  );
 }
 
 export default function Proposals({
@@ -98,11 +205,22 @@ export default function Proposals({
   // Roadmap item (official): "Pareceres de IA Multi-Perspectiva em Propostas" - keyed by
   // proposal.id, undefined = not yet fetched, null = fetched but no run exists yet.
   const [opinionRuns, setOpinionRuns] = useState<Record<string, OpinionRun | null | undefined>>({});
+  // F7: a comparacao entre a rodada atual e a anterior, por proposta. `null` = ha rodada mas nao ha
+  // com que comparar (primeira rodada) - que e informacao diferente de "tres zeros".
+  const [comparacoes, setComparacoes] = useState<Record<string, ComparacaoDeRodadas | null | undefined>>({});
+  const [verificandoSanacao, setVerificandoSanacao] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     for (const prop of proposals) {
       if (opinionRuns[prop.id] !== undefined) continue;
+      // F7: a comparacao vem junto do painel, na mesma varredura - ela e a primeira coisa que
+      // alguem olha ao reabrir uma proposta ja revisada ("melhorou?"), entao esperar um segundo
+      // clique para busca-la esconderia justamente o numero que da sentido ao ciclo.
+      fetch(`/api/proposals/${prop.id}/comparacao-de-rodadas`)
+        .then((r) => r.json())
+        .then((data) => { if (data.success) setComparacoes((atual) => ({ ...atual, [prop.id]: data.comparacao })); })
+        .catch(() => {});
       fetch(`/api/proposals/${prop.id}/opinion-panel`)
         .then((r) => r.json())
         .then((data) => {
@@ -130,6 +248,8 @@ export default function Proposals({
       if (finished.status === "failed") {
         throw new Error(finished.error_message || (locale === "pt" ? "Falha ao gerar os pareceres de IA." : "Failed to generate the AI opinion panel."));
       }
+      const cmp = await fetch(`/api/proposals/${proposalId}/comparacao-de-rodadas`).then((r) => r.json()).catch(() => ({}));
+      if (cmp.success) setComparacoes((atual) => ({ ...atual, [proposalId]: cmp.comparacao }));
       const res2 = await fetch(`/api/proposals/${proposalId}/opinion-panel`);
       const data2 = await res2.json().catch(() => ({}));
       if (data2.success) setOpinionRuns((prev) => ({ ...prev, [proposalId]: data2.run }));
@@ -146,6 +266,98 @@ export default function Proposals({
   const [editedFields, setEditedFields] = useState<Partial<Record<Exclude<ProposalEditableField, "manual_pricing_table">, string>>>({});
   const [savingEdit, setSavingEdit] = useState(false);
 
+  /*
+   * F6: o modal ganhou DUAS ABAS, e a separação não é cosmética.
+   *
+   * TEXTO edita prosa - campos comerciais de texto e seções do template - e é a única aba com IA:
+   * "pedir sugestão" recebe os apontamentos abertos daquela seção como contexto e devolve texto
+   * para a pessoa revisar antes de salvar.
+   *
+   * TABELAS edita a tabela de precificação, à mão, SEM IA - e sem ela de propósito. Uma tabela é
+   * item, quantidade e preço: número que vira compromisso. É a mesma linha que
+   * TEXT_SUGGESTIBLE_FIELDS já traça no servidor ao excluir manual_pricing_table do que um parecer
+   * pode sugerir, e que a allowlist traça ao barrar laço e preço. A aba existe porque a tabela
+   * precisava de edição estruturada; a ausência de IA nela é a regra do produto, não uma pendência.
+   */
+  const [abaDoEditor, setAbaDoEditor] = useState<"texto" | "tabelas">("texto");
+  const [secoesDeTexto, setSecoesDeTexto] = useState<Array<{ nome: string; descricao: string; origem: string; valor_aprovado: string | null }>>([]);
+  const [textoDaSecao, setTextoDaSecao] = useState<Record<string, string>>({});
+  const [sugerindoSecao, setSugerindoSecao] = useState<string | null>(null);
+  const [sugestaoDaSecao, setSugestaoDaSecao] = useState<Record<string, { texto_sugerido: string; o_que_mudou: string | null; apontamentos: Array<{ id: string; title: string }> }>>({});
+  const [salvandoSecao, setSalvandoSecao] = useState<string | null>(null);
+  const [linhasDePreco, setLinhasDePreco] = useState<PricingRow[]>([]);
+  const [historicoDeSecoes, setHistoricoDeSecoes] = useState<Array<any>>([]);
+  /*
+   * F7: a GRAMÁTICA, por seção. `texto_base` é o texto contra o qual os offsets foram calculados -
+   * guardá-lo é o que permite aceitar uma correção sem reconsultar o servidor, e recusar sem mexer
+   * em nada. Cada aceite reescreve o texto_base e reposiciona as correções que sobraram.
+   */
+  const [correcoesDaSecao, setCorrecoesDaSecao] = useState<Record<string, { texto_base: string; correcoes: CorrecaoLocalizada[]; descartadas: number }>>({});
+  const [revisandoGramatica, setRevisandoGramatica] = useState<string | null>(null);
+  // F7: a coerência entre seções, do modal inteiro (não de uma seção só - contradição é relação).
+  const [coerencia, setCoerencia] = useState<{ achados: Array<any>; secoes: string[] } | null>(null);
+  const [verificandoCoerencia, setVerificandoCoerencia] = useState(false);
+
+  const revisarGramaticaDaSecao = async (propId: string, secao: string) => {
+    setRevisandoGramatica(secao);
+    try {
+      const res = await fetch(`/api/proposals/${propId}/secoes/${secao}/revisar-gramatica`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível revisar a gramática." : "Could not check grammar."));
+        return;
+      }
+      setCorrecoesDaSecao((atual) => ({
+        ...atual,
+        [secao]: { texto_base: data.texto_atual, correcoes: data.correcoes, descartadas: data.descartadas_por_trecho_inexato ?? 0 },
+      }));
+      // O textarea passa a mostrar o mesmo texto que a revisão enxergou, senão os trechos
+      // destacados abaixo não corresponderiam ao que se está prestes a salvar.
+      setTextoDaSecao((atual) => ({ ...atual, [secao]: data.texto_atual }));
+    } finally {
+      setRevisandoGramatica(null);
+    }
+  };
+
+  /*
+   * Aceitar UMA correção: aplica só aquele trecho, no offset dele, e reposiciona as demais. Recusar
+   * apenas remove o item da lista - o texto não é tocado, que é o ponto todo de ter aceitar e
+   * recusar por item em vez de um "usar este texto" de tudo ou nada.
+   */
+  const decidirCorrecao = (secao: string, correcao: CorrecaoLocalizada, aceitar: boolean) => {
+    setCorrecoesDaSecao((atual) => {
+      const estado = atual[secao];
+      if (!estado) return atual;
+      if (!aceitar) {
+        return { ...atual, [secao]: { ...estado, correcoes: estado.correcoes.filter((c) => c.id !== correcao.id) } };
+      }
+      const novoTexto = aplicarCorrecao(estado.texto_base, correcao);
+      if (novoTexto === null) {
+        alert(locale === "pt"
+          ? "O texto mudou desde a revisão: peça a revisão gramatical de novo."
+          : "The text changed since the review: run the grammar check again.");
+        return atual;
+      }
+      setTextoDaSecao((t) => ({ ...t, [secao]: novoTexto }));
+      return { ...atual, [secao]: { ...estado, texto_base: novoTexto, correcoes: reposicionarAposAplicar(estado.correcoes, correcao) } };
+    });
+  };
+
+  const verificarCoerencia = async (propId: string) => {
+    setVerificandoCoerencia(true);
+    try {
+      const res = await fetch(`/api/proposals/${propId}/coerencia-entre-secoes`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível verificar a coerência." : "Could not check coherence."));
+        return;
+      }
+      setCoerencia({ achados: data.achados, secoes: data.secoes_avaliadas });
+    } finally {
+      setVerificandoCoerencia(false);
+    }
+  };
+
   const openEditor = (prop: Proposal) => {
     const allowed = PROPOSAL_TYPE_EDITABLE_FIELDS[prop.proposal_type];
     const initial: typeof editedFields = {};
@@ -155,6 +367,80 @@ export default function Proposals({
     }
     setEditingProposal(prop);
     setEditedFields(initial);
+    setAbaDoEditor("texto");
+    setLinhasDePreco((prop.manual_pricing_table as PricingRow[] | undefined) ?? []);
+    setSugestaoDaSecao({});
+    setCorrecoesDaSecao({});
+    setCoerencia(null);
+
+    void fetch(`/api/proposals/${prop.id}/secoes-de-texto`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!data.success) return;
+        setSecoesDeTexto(data.secoes);
+        // O textarea nasce com o que JÁ foi aprovado para aquela seção; vazio significa "a seção
+        // sai como a análise a deixou", que é diferente de "está em branco no documento".
+        setTextoDaSecao(Object.fromEntries(data.secoes.map((sc: any) => [sc.nome, sc.valor_aprovado ?? ""])));
+      })
+      .catch(() => {});
+
+    void fetch(`/api/proposals/${prop.id}/historico-de-secoes`)
+      .then((r) => r.json())
+      .then((data) => { if (data.success) setHistoricoDeSecoes(data.historico); })
+      .catch(() => {});
+  };
+
+  const recarregarHistorico = async (propId: string) => {
+    const res = await fetch(`/api/proposals/${propId}/historico-de-secoes`);
+    const data = await res.json().catch(() => ({}));
+    if (data.success) setHistoricoDeSecoes(data.historico);
+  };
+
+  const pedirSugestaoDaSecao = async (propId: string, secao: string) => {
+    setSugerindoSecao(secao);
+    try {
+      const res = await fetch(`/api/proposals/${propId}/secoes/${secao}/sugerir-texto`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível pedir a sugestão." : "Could not request the suggestion."));
+        return;
+      }
+      setSugestaoDaSecao((atual) => ({
+        ...atual,
+        [secao]: { texto_sugerido: data.texto_sugerido, o_que_mudou: data.o_que_mudou, apontamentos: data.apontamentos_considerados },
+      }));
+    } finally {
+      setSugerindoSecao(null);
+    }
+  };
+
+  /*
+   * Salvar uma seção. `origem` é a distinção que o histórico precisa: "ia" só quando o texto salvo
+   * é byte a byte o que a IA devolveu; qualquer toque humano por cima vira "ia_editada"; sem
+   * sugestão em tela, "humano". Deduzir isso aqui, comparando com a sugestão que ainda está na
+   * memória da tela, é o único ponto onde essa informação existe.
+   */
+  const salvarSecao = async (propId: string, secao: string) => {
+    setSalvandoSecao(secao);
+    try {
+      const texto = textoDaSecao[secao] ?? "";
+      const sugerido = sugestaoDaSecao[secao]?.texto_sugerido;
+      const origem = !sugerido ? "humano" : (texto.trim() === sugerido.trim() ? "ia" : "ia_editada");
+      const res = await fetch(`/api/proposals/${propId}/campos-do-template`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ campos: { [secao]: texto }, origem }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível salvar a seção." : "Could not save the section."));
+        return;
+      }
+      await recarregarHistorico(propId);
+      await fetchProjectDetails(selectedProjectId);
+    } finally {
+      setSalvandoSecao(null);
+    }
   };
 
   /*
@@ -201,11 +487,63 @@ export default function Proposals({
     if (!editingProposal) return;
     setSavingEdit(true);
     try {
-      const ok = await handleUpdateProposalFields(editingProposal.id, editedFields);
+      // A tabela só entra no patch quando este tipo de proposta a possui - mandá-la para um tipo
+      // que não a tem faria o servidor recusar o PUT inteiro (getRejectedEditableFields), levando
+      // junto os campos de texto que estavam certos.
+      const temTabela = (PROPOSAL_TYPE_EDITABLE_FIELDS[editingProposal.proposal_type] as readonly string[]).includes("manual_pricing_table");
+      const patch: Record<string, any> = { ...editedFields };
+      if (temTabela) patch.manual_pricing_table = linhasDePreco;
+      const ok = await handleUpdateProposalFields(editingProposal.id, patch);
       if (ok) setEditingProposal(null);
     } finally {
       setSavingEdit(false);
     }
+  };
+
+  /*
+   * F6: o ciclo do apontamento, e o modal de duas abas.
+   *
+   * `findingEmJustificativa` é o id do apontamento cujo formulário de justificativa está aberto,
+   * junto do status que ele vai receber. O servidor recusa "aceito com risco" e "descartado" sem
+   * justificativa, então a tela pede o texto antes - mas se alguém chamar a rota direto, a recusa
+   * vem de lá, com mensagem própria, que é o que esta tela exibe.
+   */
+  const [findingEmJustificativa, setFindingEmJustificativa] = useState<{ id: string; status: FindingStatus } | null>(null);
+  const [justificativa, setJustificativa] = useState("");
+  const [salvandoFinding, setSalvandoFinding] = useState<string | null>(null);
+
+  const mudarStatusDoApontamento = async (propId: string, findingId: string, status: FindingStatus, texto?: string) => {
+    setSalvandoFinding(findingId);
+    try {
+      const res = await fetch(`/api/proposals/${propId}/apontamentos/${findingId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status, justificativa: texto }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível mudar o apontamento." : "Could not update the finding."));
+        return;
+      }
+      // Recarrega a rodada inteira: o estado do apontamento é a coisa que a tela precisa mostrar
+      // certa, e reconciliar à mão abriria a porta para a tela discordar do banco.
+      const res2 = await fetch(`/api/proposals/${propId}/opinion-panel`);
+      const data2 = await res2.json().catch(() => ({}));
+      if (data2.success) setOpinionRuns((prev) => ({ ...prev, [propId]: data2.run }));
+      setFindingEmJustificativa(null);
+      setJustificativa("");
+    } finally {
+      setSalvandoFinding(null);
+    }
+  };
+
+  const pedirMudanca = (propId: string, finding: FindingItem, status: FindingStatus) => {
+    if (FINDING_STATUS_COM_JUSTIFICATIVA.includes(status)) {
+      setFindingEmJustificativa({ id: finding.id, status });
+      setJustificativa("");
+      return;
+    }
+    void mudarStatusDoApontamento(propId, finding.id, status);
   };
 
   // PARTE B (parecer acionável): aplica UMA sugestão estruturada de um parecer de IA - o usuário
@@ -219,6 +557,66 @@ export default function Proposals({
       await handleUpdateProposalFields(propId, { [field]: value });
     } finally {
       setApplyingSuggestionKey(null);
+    }
+  };
+
+  /*
+   * F7: pedir o veredito de SANAÇÃO de um apontamento.
+   *
+   * O botão nunca muda o status - ele preenche um campo ao lado dele. Depois de ver "IA: sanado",
+   * quem revisa continua tendo de clicar em "Resolvido", que é o ato que carimba autor e instante.
+   * Essa separação é o que impede que uma opinião de modelo destranque o gate de envio desta mesma
+   * fase, que só olha o status.
+   */
+  const verificarSanacao = async (propId: string, findingId: string) => {
+    setVerificandoSanacao(findingId);
+    try {
+      const res = await fetch(`/api/proposals/${propId}/apontamentos/${findingId}/verificar-sanacao`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || (locale === "pt" ? "Não foi possível verificar a sanação." : "Could not check remediation."));
+        return;
+      }
+      const res2 = await fetch(`/api/proposals/${propId}/opinion-panel`);
+      const painel = await res2.json().catch(() => ({}));
+      if (painel.success) setOpinionRuns((atual) => ({ ...atual, [propId]: painel.run }));
+    } finally {
+      setVerificandoSanacao(null);
+    }
+  };
+
+  /*
+   * F6: aplicar o texto de um apontamento na seção que ele aponta.
+   *
+   * Dois destinos diferentes com a mesma cara para quem clica: um campo da própria proposta vai
+   * pelo PUT /proposals/:id (que regenera o documento); uma seção de texto do template vai pelo
+   * PUT campos-do-template, levando junto a ORIGEM e o apontamento que motivou - é isso que faz o
+   * histórico saber que aquele texto veio da IA e por quê.
+   */
+  const [aplicandoApontamento, setAplicandoApontamento] = useState<string | null>(null);
+  const aplicarTextoDoApontamento = async (propId: string, finding: FindingItem, texto: string, origem: "ia" | "ia_editada") => {
+    setAplicandoApontamento(finding.id);
+    try {
+      if (finding.target_kind === "proposal_field" && finding.target_key) {
+        // F7: leva a ORIGEM e o apontamento também neste caminho. Antes só o caminho de
+        // template_field registrava histórico, e sem ele a verificação de sanação não tem o par
+        // texto anterior/texto novo para ler - justamente nos campos que a IA mais aponta.
+        await handleUpdateProposalFields(propId, { [finding.target_key]: texto, origem, apontamento_id: finding.id });
+      } else if (finding.target_kind === "template_field" && finding.target_key) {
+        const res = await fetch(`/api/proposals/${propId}/campos-do-template`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ campos: { [finding.target_key]: texto }, origem, apontamento_id: finding.id }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          alert(data.message || (locale === "pt" ? "Não foi possível aplicar o texto." : "Could not apply the text."));
+          return;
+        }
+      }
+      await fetchProjectDetails(selectedProjectId);
+    } finally {
+      setAplicandoApontamento(null);
     }
   };
 
@@ -295,55 +693,22 @@ export default function Proposals({
     }
   };
 
-  // PARTE A (preview do documento real): busca o DOCX/PDF já exportado (as mesmas rotas de
-  // download, /export/docx e /export/pdf) e renderiza inline - DOCX via mammoth (já é dependência
-  // do produto, usada no server para extração de upload; o mesmo pacote roda no browser),
-  // PDF nativamente pelo próprio navegador via <iframe> numa blob URL. Nada de reimplementar
-  // renderização de documento no client - é sempre o binário real, não uma reconstrução do texto.
-  const [previewingProposalId, setPreviewingProposalId] = useState<string | null>(null);
-  const [previewFormat, setPreviewFormat] = useState<"docx" | "pdf">("docx");
-  const [previewDocxHtml, setPreviewDocxHtml] = useState<string | null>(null);
-  const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewError, setPreviewError] = useState<string | null>(null);
-
-  const openPreview = async (proposalId: string, format: "docx" | "pdf") => {
-    setPreviewingProposalId(proposalId);
-    setPreviewFormat(format);
-    setPreviewError(null);
-    setPreviewLoading(true);
-    try {
-      const res = await fetch(`/api/proposals/${proposalId}/export/${format}`);
-      if (!res.ok) {
-        throw new Error(locale === "pt" ? "Não foi possível carregar o documento." : "Could not load the document.");
-      }
-      if (format === "docx") {
-        const arrayBuffer = await res.arrayBuffer();
-        const result = await mammoth.convertToHtml({ arrayBuffer });
-        // mammoth passes through whatever href/src the source .docx's XML declares (e.g. a
-        // hyperlink relationship) - sanitize before ever injecting into the DOM, same as any other
-        // HTML string built from data that isn't 100% attacker-proof (an uploaded proposal
-        // template is admin-controlled, not attacker-controlled, but this is the actual document
-        // that gets shown, so it gets the same treatment as untrusted HTML would).
-        setPreviewDocxHtml(DOMPurify.sanitize(result.value));
-      } else {
-        const blob = await res.blob();
-        setPreviewPdfUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(blob); });
-      }
-    } catch (err) {
-      console.error(err);
-      setPreviewError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setPreviewLoading(false);
-    }
-  };
-
-  const closePreview = () => {
-    setPreviewingProposalId(null);
-    setPreviewDocxHtml(null);
-    setPreviewPdfUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
-    setPreviewError(null);
-  };
+  /*
+   * F8: a pré-visualização inline saiu daqui para src/components/ui/DocumentPreview.tsx, sem mudar
+   * de comportamento - ela passou a ser usada TAMBÉM pelo dossiê do aprovador (Centro de
+   * Aprovação), e duas implementações da mesma tela acabariam mostrando coisas diferentes sobre o
+   * mesmo documento. O que era estado local virou o hook; o que era JSX virou <DocumentPreviewBody>.
+   */
+  const {
+    previewingProposalId,
+    previewFormat,
+    previewDocxHtml,
+    previewPdfUrl,
+    previewLoading,
+    previewError,
+    openPreview,
+    closePreview,
+  } = useDocumentPreview(locale);
 
   // Roadmap item (customer_request): "Alerta de Risco de SLA via Base de Conhecimento" - flags
   // proposed commercial/SLA/penalty terms against the approved Knowledge Base's own recorded
@@ -467,7 +832,9 @@ export default function Proposals({
                         </div>
 
                         {/* Export Action Buttons */}
-                        <div className="flex gap-2">
+                        {/* F10: `flex-wrap` porque em 390px a linha sangrava para fora da
+                            viewport — o ultimo botao aparecia cortado no limite direito. */}
+                        <div className="flex flex-wrap gap-2">
                           {prop.status === "draft" && hasPermission("proposal:edit") && (
                             <button
                               onClick={() => openEditor(prop)}
@@ -630,7 +997,7 @@ export default function Proposals({
                                 onChange={(e) => setMotivoRecusa(e.target.value)}
                                 rows={2}
                                 placeholder={locale === "pt" ? "O que o cliente disse?" : "What did the client say?"}
-                                className="w-full max-w-lg border border-slate-300 rounded px-2 py-1.5 text-[12px] font-sans"
+                                className="w-full max-w-lg border border-slate-300 rounded px-2 py-1.5 text-xs"
                               />
                               <div className="flex gap-2">
                                 <button
@@ -681,7 +1048,7 @@ export default function Proposals({
                       {PROPOSAL_TYPE_EDITABLE_FIELDS[prop.proposal_type].includes("manual_pricing_table") && prop.manual_pricing_table && (
                         <div className="space-y-2">
                           <h4 className="text-xs uppercase font-bold text-slate-500 tracking-wider font-mono">{locale === "pt" ? "Grade de Planilha de Preço de Licitação" : "Commercial Bid Pricing Sheet Grid"}</h4>
-                          <div className="border border-slate-200 rounded-lg overflow-hidden bg-slate-50/50">
+                          <div className="border border-slate-200 rounded-lg overflow-x-auto bg-slate-50/50">
                             <table className="w-full text-left text-xs border-collapse">
                               <thead className="bg-slate-100 border-b border-slate-200 font-mono text-[10px] uppercase text-slate-500">
                                 <tr>
@@ -756,7 +1123,7 @@ export default function Proposals({
                         );
                         if (allowedTextFields.length === 0) return null;
                         return (
-                          <div className="grid grid-cols-2 gap-6 text-xs text-slate-600 bg-slate-50/50 p-4 rounded-lg border border-slate-200">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs text-slate-600 bg-slate-50/50 p-4 rounded-lg border border-slate-200">
                             {allowedTextFields.map((field) => (
                               <div key={field}>
                                 <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider font-mono block">{PROPOSAL_FIELD_LABEL[field][locale]}</span>
@@ -800,7 +1167,7 @@ export default function Proposals({
                             {locale === "pt" ? "Revisão do documento" : "Document review"}
                           </p>
                           {revisao[prop.id]!.total === 0 ? (
-                            <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded p-2">
+                            <p className="text-xs text-success-800 bg-success-50 border border-success-200 rounded p-2">
                               {locale === "pt"
                                 ? "Documento conferido: nenhum marcador de variável sobrou, a soma da precificação bate com o total e os itens do BOM estão no documento."
                                 : "Document checked: no placeholder left behind, pricing adds up to the stated total, and BOM items are present."}
@@ -810,7 +1177,7 @@ export default function Proposals({
                               {revisao[prop.id]!.achados.map((achado, i) => (
                                 <li
                                   key={i}
-                                  className={`text-xs rounded p-2 border ${achado.severidade === "alta" ? "bg-red-50 border-red-200 text-red-800" : "bg-amber-50 border-amber-200 text-amber-800"}`}
+                                  className={`text-xs rounded p-2 border ${achado.severidade === "alta" ? "bg-danger-50 border-danger-200 text-danger-800" : "bg-warning-50 border-warning-200 text-warning-800"}`}
                                 >
                                   {achado.descricao}
                                 </li>
@@ -871,7 +1238,81 @@ export default function Proposals({
                               </span>
                             )}
                           </h4>
-                          <div className="grid grid-cols-2 gap-2">
+
+                          {/*
+                            * F7: a COMPARAÇÃO CONTRA A RODADA ANTERIOR.
+                            *
+                            * Sem estes três números, revisar de novo é um ato de fé: "sanados 4,
+                            * parciais 1, novos 0" e "sanados 0, parciais 1, novos 6" são duas
+                            * situações opostas que a lista de apontamentos sozinha não distingue.
+                            * A primeira rodada de uma proposta aparece dizendo que não há com que
+                            * comparar, em vez de três zeros - que se leriam como "nada mudou".
+                            */}
+                          {comparacoes[prop.id] !== undefined && (
+                            comparacoes[prop.id] === null ? (
+                              <p className="text-[10px] text-slate-400 italic">
+                                {locale === "pt"
+                                  ? "Primeira rodada desta proposta — não há revisão anterior com que comparar."
+                                  : "First run for this proposal — no previous review to compare against."}
+                              </p>
+                            ) : (
+                              <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-2.5">
+                                <p className="text-[9px] uppercase font-bold text-slate-500 tracking-wider font-mono mb-1.5 flex items-center gap-1">
+                                  <ListChecks size={10} />
+                                  {locale === "pt" ? "Contra a revisão anterior" : "Against the previous review"}
+                                  <span className="normal-case tracking-normal font-normal text-slate-400">
+                                    {" "}({new Date(comparacoes[prop.id]!.rodada_anterior.created_at).toLocaleString(locale === "pt" ? "pt-BR" : "en-US")})
+                                  </span>
+                                </p>
+                                {!comparacoes[prop.id]!.comparavel ? (
+                                  <p className="text-[10px] text-slate-500 italic">
+                                    {locale === "pt"
+                                      ? "A revisão anterior é de antes dos apontamentos estruturados: todo apontamento apareceria como novo, o que é verdade e ao mesmo tempo inútil. Gere outra revisão para ter comparação."
+                                      : "The previous run predates structured findings: every finding would show as new, which is true and useless at once. Generate another review to get a comparison."}
+                                  </p>
+                                ) : (
+                                  <>
+                                    <div className="flex flex-wrap gap-3">
+                                      <span className="text-[11px] font-mono">
+                                        <span className="font-bold text-success-700 text-sm">{comparacoes[prop.id]!.totais.sanados}</span>
+                                        <span className="text-slate-500"> {locale === "pt" ? "sanados" : "remediated"}</span>
+                                      </span>
+                                      <span className="text-[11px] font-mono">
+                                        <span className="font-bold text-warning-700 text-sm">{comparacoes[prop.id]!.totais.parciais}</span>
+                                        <span className="text-slate-500"> {locale === "pt" ? "parciais" : "partial"}</span>
+                                      </span>
+                                      <span className="text-[11px] font-mono">
+                                        <span className="font-bold text-danger-700 text-sm">{comparacoes[prop.id]!.totais.novos}</span>
+                                        <span className="text-slate-500"> {locale === "pt" ? "novos" : "new"}</span>
+                                      </span>
+                                      <span className="text-[10px] text-slate-400 font-mono self-center">
+                                        {locale === "pt" ? "de" : "of"} {comparacoes[prop.id]!.totais.abertos_na_rodada_anterior} {locale === "pt" ? "abertos antes" : "open before"}
+                                      </span>
+                                    </div>
+                                    {comparacoes[prop.id]!.sanados.length > 0 && (
+                                      <p className="mt-1.5 text-[10px] text-slate-500">
+                                        <span className="font-bold text-success-700">{locale === "pt" ? "Sanados:" : "Remediated:"}</span>{" "}
+                                        {comparacoes[prop.id]!.sanados.map((f) => f.title).join(" · ")}
+                                      </p>
+                                    )}
+                                    {comparacoes[prop.id]!.parciais.length > 0 && (
+                                      <p className="mt-0.5 text-[10px] text-slate-500">
+                                        <span className="font-bold text-warning-700">{locale === "pt" ? "Continuam:" : "Still standing:"}</span>{" "}
+                                        {comparacoes[prop.id]!.parciais.map((f) => f.title).join(" · ")}
+                                      </p>
+                                    )}
+                                    <p className="mt-1.5 text-[9px] text-slate-400 italic">
+                                      {locale === "pt"
+                                        ? "Um apontamento é reconhecido como o mesmo quando a IA declara o vínculo com o da revisão anterior (id revalidado pelo servidor) ou, na falta dele, quando aponta a mesma seção com título semelhante."
+                                        : "A finding is matched when the AI declares the link to the previous run's finding (id revalidated server-side) or, failing that, when it targets the same section with a similar title."}
+                                    </p>
+                                  </>
+                                )}
+                              </div>
+                            )
+                          )}
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                             {OPINION_PERSPECTIVES.map((perspective) => {
                               const item = opinionRuns[prop.id]!.opinions.find((o) => o.perspective === perspective);
                               const label = OPINION_PERSPECTIVE_LABEL[perspective][locale];
@@ -914,6 +1355,158 @@ export default function Proposals({
                                     </span>
                                   </summary>
                                   <p className="mt-2 whitespace-pre-wrap pl-8">{item.content}</p>
+
+                                  {/*
+                                    * F6: os apontamentos deste parecer. Cada um se dirime sozinho.
+                                    *
+                                    * Uma rodada gerada antes desta fase (logicVersion 1) chega com
+                                    * a lista vazia, e a tela diz isso com todas as letras: "esta
+                                    * rodada é anterior aos apontamentos" não é a mesma informação
+                                    * que "este parecer não achou nada", e confundir as duas faria
+                                    * um parecer velho parecer aprovado.
+                                    */}
+                                  {(item.findings || []).length === 0 ? (
+                                    <p className="mt-2 pl-8 text-[10px] text-slate-400 italic">
+                                      {(opinionRuns[prop.id]!.logic_version ?? 1) < 2
+                                        ? (locale === "pt" ? "Rodada anterior aos apontamentos estruturados — gere os pareceres de novo para obtê-los." : "Run predates structured findings — regenerate the opinions to get them.")
+                                        : (locale === "pt" ? "Nenhum apontamento nesta perspectiva." : "No findings from this perspective.")}
+                                    </p>
+                                  ) : (
+                                    <ul className="mt-2 pl-8 space-y-2">
+                                      {(item.findings || []).map((finding) => (
+                                        <li key={finding.id} className={`rounded border p-2 ${finding.status === "descartado" ? "opacity-60" : ""} ${finding.severity === "critical" ? "border-danger-200 bg-danger-50/40" : finding.severity === "warning" ? "border-warning-200 bg-warning-50/40" : "border-slate-200 bg-slate-50/60"}`}>
+                                          <div className="flex items-start justify-between gap-2">
+                                            <p className="font-bold text-[11px] text-slate-700 flex-1">{finding.title}</p>
+                                            <span className={`shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${FINDING_STATUS_STYLE[finding.status]}`}>
+                                              {FINDING_STATUS_LABEL[finding.status][locale]}
+                                            </span>
+                                          </div>
+                                          <p className="mt-1 text-[11px] text-slate-600">{finding.detail}</p>
+                                          {finding.target_key && (
+                                            <p className="mt-1 text-[9px] font-mono uppercase tracking-wider text-slate-400">
+                                              {locale === "pt" ? "Seção" : "Section"}: {finding.target_key}
+                                            </p>
+                                          )}
+                                          {finding.resolution_note && (
+                                            <p className="mt-1 text-[10px] text-slate-500 italic border-l-2 border-slate-300 pl-2">
+                                              {locale === "pt" ? "Justificativa" : "Rationale"}: {finding.resolution_note}
+                                            </p>
+                                          )}
+
+                                          {/*
+                                            * F7: o veredito de SANAÇÃO, ao lado do status e nunca
+                                            * no lugar dele. Ele diz o que a IA achou da edição que
+                                            * a pessoa fez; fechar o apontamento continua sendo o
+                                            * clique em "Resolvido", que carimba autor e instante.
+                                            */}
+                                          {finding.remediation_verdict && (
+                                            <div className="mt-1.5 flex items-start gap-1.5">
+                                              <span className={`shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${REMEDIATION_LABEL[finding.remediation_verdict]?.classe ?? ""}`}>
+                                                {REMEDIATION_LABEL[finding.remediation_verdict]?.[locale] ?? finding.remediation_verdict}
+                                              </span>
+                                              {finding.remediation_note && (
+                                                <span className="text-[10px] text-slate-500 italic">{finding.remediation_note}</span>
+                                              )}
+                                            </div>
+                                          )}
+                                          {finding.previous_finding_id && (
+                                            <p className="mt-1 text-[10px] text-slate-500 italic">
+                                              {locale === "pt" ? "continua um apontamento da revisão anterior" : "continues a finding from the previous review"}
+                                            </p>
+                                          )}
+
+                                          {finding.suggested_value && finding.target_key && prop.status === "draft" && hasPermission("proposal:edit") && (
+                                            <div className="mt-2 p-2 rounded border border-brand-200 bg-brand-50/50">
+                                              <p className="text-[9px] uppercase font-bold text-brand-700 tracking-wider font-mono mb-1">
+                                                {locale === "pt" ? "Texto sugerido para esta seção" : "Suggested text for this section"}
+                                              </p>
+                                              <p className="italic text-slate-600 mb-2 text-[11px] whitespace-pre-wrap">{finding.suggested_value}</p>
+                                              <button
+                                                onClick={(e) => { e.preventDefault(); void aplicarTextoDoApontamento(prop.id, finding, finding.suggested_value!, "ia"); }}
+                                                disabled={aplicandoApontamento === finding.id}
+                                                className="flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 text-white font-mono text-[10px] font-bold px-2.5 py-1 rounded transition-all disabled:opacity-50 cursor-pointer"
+                                              >
+                                                <CheckCircle2 size={11} />
+                                                {aplicandoApontamento === finding.id
+                                                  ? (locale === "pt" ? "Aplicando..." : "Applying...")
+                                                  : (locale === "pt" ? "Aplicar na seção" : "Apply to section")}
+                                              </button>
+                                            </div>
+                                          )}
+
+                                          {prop.status === "draft" && hasPermission("proposal:edit") && (
+                                            findingEmJustificativa?.id === finding.id ? (
+                                              <div className="mt-2 p-2 rounded border border-warning-200 bg-warning-50/60">
+                                                <label htmlFor={`justificativa-${finding.id}`} className="text-[9px] uppercase font-bold text-warning-800 tracking-wider font-mono block mb-1">
+                                                  {findingEmJustificativa.status === "aceito_com_risco"
+                                                    ? (locale === "pt" ? "Por que seguir assim mesmo? (obrigatório)" : "Why proceed anyway? (required)")
+                                                    : (locale === "pt" ? "Por que este apontamento não procede? (obrigatório)" : "Why doesn't this finding apply? (required)")}
+                                                </label>
+                                                <textarea
+                                                  id={`justificativa-${finding.id}`}
+                                                  value={justificativa}
+                                                  onChange={(e) => setJustificativa(e.target.value)}
+                                                  rows={2}
+                                                  className="w-full p-1.5 rounded border border-warning-200 text-[11px] focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none"
+                                                />
+                                                <div className="flex gap-1.5 mt-1.5">
+                                                  <button
+                                                    onClick={(e) => { e.preventDefault(); void mudarStatusDoApontamento(prop.id, finding.id, findingEmJustificativa.status, justificativa); }}
+                                                    disabled={salvandoFinding === finding.id}
+                                                    className="bg-warning-700 hover:bg-warning-800 text-white font-mono text-[10px] font-bold px-2.5 py-1 rounded disabled:opacity-50 cursor-pointer focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                                  >
+                                                    {salvandoFinding === finding.id ? (locale === "pt" ? "Salvando..." : "Saving...") : (locale === "pt" ? "Confirmar" : "Confirm")}
+                                                  </button>
+                                                  <button
+                                                    onClick={(e) => { e.preventDefault(); setFindingEmJustificativa(null); setJustificativa(""); }}
+                                                    className="text-slate-500 hover:bg-slate-100 font-mono text-[10px] font-bold px-2.5 py-1 rounded cursor-pointer"
+                                                  >
+                                                    {locale === "pt" ? "Cancelar" : "Cancel"}
+                                                  </button>
+                                                </div>
+                                              </div>
+                                            ) : (
+                                              <div className="flex flex-wrap gap-1.5 mt-2">
+                                                {/*
+                                                  * F7: só faz sentido para apontamento com seção -
+                                                  * o veredito lê o par texto anterior/novo do
+                                                  * histórico daquela seção, e um apontamento
+                                                  * transversal ("geral") não tem esse par.
+                                                  */}
+                                                {finding.target_key && (
+                                                  <button
+                                                    onClick={(e) => { e.preventDefault(); void verificarSanacao(prop.id, finding.id); }}
+                                                    disabled={verificandoSanacao === finding.id}
+                                                    title={locale === "pt"
+                                                      ? "A IA lê o texto anterior e o novo desta seção e diz se a edição endereçou este apontamento. O veredito é consultivo: fechar o apontamento continua sendo seu."
+                                                      : "The AI reads this section's previous and new text and says whether the edit addressed this finding. The verdict is advisory: closing the finding is still yours."}
+                                                    className="text-[9px] font-mono font-bold px-2 py-1 rounded border border-brand-200 bg-brand-50 text-brand-700 hover:bg-brand-100 transition-colors disabled:opacity-50 cursor-pointer flex items-center gap-1 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                                  >
+                                                    <Sparkles size={9} />
+                                                    {verificandoSanacao === finding.id
+                                                      ? (locale === "pt" ? "Verificando..." : "Checking...")
+                                                      : (locale === "pt" ? "Verificar sanação" : "Check remediation")}
+                                                  </button>
+                                                )}
+                                                {(["em_tratativa", "resolvido", "aceito_com_risco", "descartado", "aberto"] as FindingStatus[])
+                                                  .filter((alvo) => alvo !== finding.status)
+                                                  .map((alvo) => (
+                                                    <button
+                                                      key={alvo}
+                                                      onClick={(e) => { e.preventDefault(); pedirMudanca(prop.id, finding, alvo); }}
+                                                      disabled={salvandoFinding === finding.id}
+                                                      className={`text-[9px] font-mono font-bold px-2 py-1 rounded border transition-colors disabled:opacity-50 cursor-pointer hover:border-current focus:outline-none focus:ring-1 focus:ring-brand-500 ${FINDING_STATUS_STYLE[alvo]}`}
+                                                    >
+                                                      {FINDING_STATUS_LABEL[alvo][locale]}
+                                                    </button>
+                                                  ))}
+                                              </div>
+                                            )
+                                          )}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  )}
                                   {item.suggested_field && item.suggested_value && prop.status === "draft" && hasPermission("proposal:edit") && (
                                     <div className="mt-2 ml-8 p-2 rounded border border-brand-200 bg-brand-50/50">
                                       <p className="text-[10px] uppercase font-bold text-brand-700 tracking-wider font-mono mb-1">
@@ -950,53 +1543,452 @@ export default function Proposals({
                 );
                 return (
                   <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+                    <CascaDeDialogo
+                      onClose={() => setEditingProposal(null)}
+                      fecharNoEscape={false}
+                      rotuladoPor="editor-de-secoes-titulo"
+                      className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col"
+                    >
                       <div className="flex items-center justify-between p-4 border-b border-slate-100">
-                        <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">
+                        <h3 id="editor-de-secoes-titulo" className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">
                           {locale === "pt" ? "Revisar e Editar Proposta" : "Review & Edit Proposal"}
                         </h3>
-                        <button onClick={() => setEditingProposal(null)} className="text-slate-400 hover:text-slate-700 cursor-pointer">
+                        <button onClick={() => setEditingProposal(null)} aria-label={locale === "pt" ? "Fechar o editor de seções" : "Close the section editor"} title={locale === "pt" ? "Fechar" : "Close"} className="-m-1.5 p-1.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer focus:outline-none focus:ring-1 focus:ring-brand-500">
                           <X size={18} />
                         </button>
                       </div>
-                      {allowed.length === 0 ? (
-                        <p className="p-4 text-xs text-slate-500">
-                          {locale === "pt"
-                            ? `Documentos do tipo "${PROPOSAL_TYPE_LABEL[editingProposal.proposal_type].pt}" não têm campos comerciais editáveis - todo o conteúdo vem da análise de IA do projeto. Use "Pré-visualizar" para conferir o documento gerado.`
-                            : `"${PROPOSAL_TYPE_LABEL[editingProposal.proposal_type].en}" documents have no editable commercial fields - all their content comes from the project's AI analysis. Use "Preview" to check the generated document.`}
-                        </p>
-                      ) : (
-                        <>
-                          <p className="text-xs text-slate-500 px-4 pt-3">
-                            {locale === "pt"
-                              ? "Edite os campos abaixo. Ao salvar, o DOCX e o PDF exportados são regenerados a partir do template real desta proposta."
-                              : "Edit the fields below. Saving regenerates the exported DOCX and PDF from this proposal's real template."}
-                          </p>
-                          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                            {allowed.map((field) => (
-                              <div key={field}>
-                                <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider font-mono block mb-1">
-                                  {PROPOSAL_FIELD_LABEL[field][locale]}
-                                </label>
-                                {field === "proposal_validity" ? (
-                                  <input
-                                    type="text"
-                                    value={editedFields[field] || ""}
-                                    onChange={(e) => setEditedFields((prev) => ({ ...prev, [field]: e.target.value }))}
-                                    className="w-full p-2 rounded border border-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500"
-                                  />
-                                ) : (
-                                  <textarea
-                                    value={editedFields[field] || ""}
-                                    onChange={(e) => setEditedFields((prev) => ({ ...prev, [field]: e.target.value }))}
-                                    rows={3}
-                                    className="w-full p-2 rounded border border-slate-200 text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none"
-                                  />
-                                )}
-                              </div>
-                            ))}
+                      {/*
+                        * F6: as duas abas. TEXTO tem IA, TABELAS não - ver o comentário em
+                        * `abaDoEditor` para por que a ausência ali é regra, não pendência.
+                        */}
+                      {(() => {
+                        const temTabela = (PROPOSAL_TYPE_EDITABLE_FIELDS[editingProposal.proposal_type] as readonly string[]).includes("manual_pricing_table");
+                        return (
+                          <div className="flex border-b border-slate-100 px-4">
+                            {([["texto", FileText], ["tabelas", Table2]] as const)
+                              .filter(([aba]) => aba === "texto" || temTabela)
+                              .map(([aba, Icone]) => (
+                                <button
+                                  key={aba}
+                                  onClick={() => setAbaDoEditor(aba)}
+                                  className={`flex items-center gap-1.5 px-3 py-2 text-[10px] font-bold uppercase font-mono border-b-2 -mb-px transition-colors cursor-pointer ${abaDoEditor === aba ? "border-brand-600 text-brand-700" : "border-transparent text-slate-400 hover:text-slate-600"}`}
+                                >
+                                  <Icone size={12} />
+                                  {aba === "texto" ? (locale === "pt" ? "Texto" : "Text") : (locale === "pt" ? "Tabelas" : "Tables")}
+                                </button>
+                              ))}
                           </div>
-                        </>
+                        );
+                      })()}
+
+                      {abaDoEditor === "tabelas" ? (
+                        <div className="flex-1 overflow-y-auto p-4">
+                          <p className="text-xs text-slate-500 mb-3">
+                            {locale === "pt"
+                              ? "Edição manual da tabela de precificação. Esta aba não tem apoio de IA: item, quantidade e preço são compromisso comercial, e o produto nunca deixa um modelo escrevê-los."
+                              : "Manual pricing-table editing. This tab has no AI support: item, quantity and price are commercial commitments, and the product never lets a model write them."}
+                          </p>
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-[11px]">
+                              <thead>
+                                <tr className="text-left text-slate-400 font-mono uppercase text-[9px] tracking-wider">
+                                  <th className="p-1.5">{locale === "pt" ? "Item" : "Item"}</th>
+                                  <th className="p-1.5 w-20">{locale === "pt" ? "Qtd" : "Qty"}</th>
+                                  <th className="p-1.5 w-28">{locale === "pt" ? "Unitário" : "Unit"}</th>
+                                  <th className="p-1.5 w-20">{locale === "pt" ? "Desc. %" : "Disc. %"}</th>
+                                  <th className="p-1.5 w-28">{locale === "pt" ? "Total" : "Total"}</th>
+                                  <th className="p-1.5 w-8"></th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {linhasDePreco.map((linha, i) => (
+                                  <tr key={linha.item_id || i} className="border-t border-slate-100">
+                                    <td className="p-1.5">
+                                      <input
+                                        value={linha.product_or_service}
+                                        onChange={(e) => setLinhasDePreco((atual) => atual.map((l, j) => j === i ? { ...l, product_or_service: e.target.value } : l))}
+                                        className="w-full p-1 rounded border border-slate-200 text-[11px] focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                      />
+                                    </td>
+                                    <td className="p-1.5">
+                                      <input
+                                        type="number"
+                                        value={linha.quantity}
+                                        onChange={(e) => setLinhasDePreco((atual) => atual.map((l, j) => {
+                                          if (j !== i) return l;
+                                          const quantity = Number(e.target.value);
+                                          // O total é derivado, sempre: deixar a pessoa digitar um
+                                          // total que não bate com qtd x preço criaria duas verdades
+                                          // no mesmo documento.
+                                          return { ...l, quantity, total_price: quantity * l.unit_price * (1 - (l.discount || 0) / 100) };
+                                        }))}
+                                        className="w-full p-1 rounded border border-slate-200 text-[11px] focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                      />
+                                    </td>
+                                    <td className="p-1.5">
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        value={linha.unit_price}
+                                        onChange={(e) => setLinhasDePreco((atual) => atual.map((l, j) => {
+                                          if (j !== i) return l;
+                                          const unit_price = Number(e.target.value);
+                                          return { ...l, unit_price, total_price: l.quantity * unit_price * (1 - (l.discount || 0) / 100) };
+                                        }))}
+                                        className="w-full p-1 rounded border border-slate-200 text-[11px] focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                      />
+                                    </td>
+                                    <td className="p-1.5">
+                                      <input
+                                        type="number"
+                                        value={linha.discount ?? 0}
+                                        onChange={(e) => setLinhasDePreco((atual) => atual.map((l, j) => {
+                                          if (j !== i) return l;
+                                          const discount = Number(e.target.value);
+                                          return { ...l, discount, total_price: l.quantity * l.unit_price * (1 - discount / 100) };
+                                        }))}
+                                        className="w-full p-1 rounded border border-slate-200 text-[11px] focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                      />
+                                    </td>
+                                    <td className="p-1.5 font-mono text-slate-600">{(linha.total_price ?? 0).toFixed(2)}</td>
+                                    <td className="p-1.5">
+                                      <button
+                                        onClick={() => setLinhasDePreco((atual) => atual.filter((_, j) => j !== i))}
+                                        className="-m-1.5 p-1.5 rounded text-slate-500 hover:text-danger-600 hover:bg-slate-100 cursor-pointer focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                        aria-label={locale === "pt" ? `Remover a linha ${i + 1} da tabela de preços` : `Remove price row ${i + 1}`}
+                                        title={locale === "pt" ? "Remover linha" : "Remove row"}
+                                      >
+                                        <X size={13} />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                                {linhasDePreco.length === 0 && (
+                                  <tr><td colSpan={6} className="p-3 text-center text-slate-400 italic text-[11px]">
+                                    {locale === "pt" ? "Nenhuma linha. A tabela sai vazia do documento." : "No rows. The table renders empty in the document."}
+                                  </td></tr>
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                          <button
+                            onClick={() => setLinhasDePreco((atual) => [...atual, {
+                              item_id: `linha-${Date.now()}`, product_or_service: "", specification: "",
+                              quantity: 1, unit: "un", unit_price: 0, total_price: 0, currency: "BRL",
+                              is_optional: false, discount: 0,
+                            }])}
+                            className="mt-3 text-[10px] font-mono font-bold uppercase text-brand-700 hover:bg-brand-50 border border-brand-200 px-2.5 py-1 rounded cursor-pointer"
+                          >
+                            {locale === "pt" ? "+ Adicionar linha" : "+ Add row"}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex-1 overflow-y-auto p-4 space-y-5">
+                          {allowed.length === 0 && secoesDeTexto.length === 0 ? (
+                            <p className="text-xs text-slate-500">
+                              {locale === "pt"
+                                ? `Documentos do tipo "${PROPOSAL_TYPE_LABEL[editingProposal.proposal_type].pt}" não têm campos comerciais editáveis, e o template desta proposta não usa nenhuma seção de texto livre.`
+                                : `"${PROPOSAL_TYPE_LABEL[editingProposal.proposal_type].en}" documents have no editable commercial fields, and this proposal's template uses no free text section.`}
+                            </p>
+                          ) : (
+                            <>
+                              {allowed.length > 0 && (
+                                <div className="space-y-4">
+                                  <p className="text-xs text-slate-500">
+                                    {locale === "pt"
+                                      ? "Campos comerciais desta proposta. Ao salvar, o DOCX e o PDF são regenerados a partir do template real."
+                                      : "This proposal's commercial fields. Saving regenerates the DOCX and PDF from the real template."}
+                                  </p>
+                                  {allowed.map((field) => (
+                                    <div key={field}>
+                                      <label htmlFor={`campo-comercial-${field}`} className="text-[10px] uppercase font-bold text-slate-500 tracking-wider font-mono block mb-1">
+                                        {PROPOSAL_FIELD_LABEL[field][locale]}
+                                      </label>
+                                      {field === "proposal_validity" ? (
+                                        <input
+                                          id={`campo-comercial-${field}`}
+                                          type="text"
+                                          value={editedFields[field] || ""}
+                                          onChange={(e) => setEditedFields((prev) => ({ ...prev, [field]: e.target.value }))}
+                                          className="w-full p-2 rounded border border-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                        />
+                                      ) : (
+                                        <textarea
+                                          id={`campo-comercial-${field}`}
+                                          value={editedFields[field] || ""}
+                                          onChange={(e) => setEditedFields((prev) => ({ ...prev, [field]: e.target.value }))}
+                                          rows={3}
+                                          className="w-full p-2 rounded border border-slate-200 text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none"
+                                        />
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              {secoesDeTexto.length > 0 && (
+                                <div className="space-y-4 pt-2 border-t border-slate-100">
+                                  <p className="text-xs text-slate-500 pt-2">
+                                    {locale === "pt"
+                                      ? "Seções de texto do template. Salvar uma seção grava o texto e registra no histórico quem escreveu, quando e de onde veio."
+                                      : "Template text sections. Saving a section records who wrote it, when, and where it came from."}
+                                  </p>
+                                  {secoesDeTexto.map((secao) => {
+                                    const sugestao = sugestaoDaSecao[secao.nome];
+                                    return (
+                                      <div key={secao.nome} className="rounded-lg border border-slate-200 p-3">
+                                        <div className="flex items-start justify-between gap-2 mb-1">
+                                          <div className="flex-1">
+                                            <p className="text-[10px] uppercase font-bold text-slate-600 tracking-wider font-mono">{secao.nome}</p>
+                                            {secao.descricao && <p className="text-[10px] text-slate-400 mt-0.5">{secao.descricao}</p>}
+                                          </div>
+                                          <button
+                                            onClick={() => void pedirSugestaoDaSecao(editingProposal.id, secao.nome)}
+                                            disabled={sugerindoSecao === secao.nome}
+                                            title={locale === "pt" ? "A IA recebe os apontamentos abertos desta seção como contexto e devolve um texto para você revisar - nada é gravado sem o seu clique." : "The AI receives this section's open findings as context and returns text for you to review - nothing is saved without your click."}
+                                            className="shrink-0 flex items-center gap-1 text-[10px] font-mono font-bold uppercase text-brand-700 hover:bg-brand-50 border border-brand-200 px-2 py-1 rounded cursor-pointer disabled:opacity-50"
+                                          >
+                                            <Sparkles size={11} />
+                                            {sugerindoSecao === secao.nome
+                                              ? (locale === "pt" ? "Pedindo..." : "Asking...")
+                                              : (locale === "pt" ? "Pedir sugestão à IA" : "Ask AI")}
+                                          </button>
+                                          {/*
+                                            * F7: a GRAMÁTICA. Botão separado do "pedir sugestão" de
+                                            * propósito - são coisas diferentes: aquele reescreve a
+                                            * seção inteira e é tudo ou nada; este devolve correções
+                                            * pontuais, cada uma com aceitar e recusar próprios.
+                                            */}
+                                          <button
+                                            onClick={() => void revisarGramaticaDaSecao(editingProposal.id, secao.nome)}
+                                            disabled={revisandoGramatica === secao.nome}
+                                            title={locale === "pt" ? "A IA devolve correções pontuais de gramática e ortografia. Você aceita ou recusa uma a uma - aceitar muda só aquele trecho." : "The AI returns pointwise grammar and spelling corrections. You accept or reject each one - accepting changes only that snippet."}
+                                            className="shrink-0 flex items-center gap-1 text-[10px] font-mono font-bold uppercase text-slate-600 hover:bg-slate-50 border border-slate-200 px-2 py-1 rounded cursor-pointer disabled:opacity-50"
+                                          >
+                                            <PenLine size={11} />
+                                            {revisandoGramatica === secao.nome
+                                              ? (locale === "pt" ? "Revisando..." : "Checking...")
+                                              : (locale === "pt" ? "Gramática" : "Grammar")}
+                                          </button>
+                                        </div>
+
+                                        {sugestao && (
+                                          <div className="mb-2 p-2 rounded border border-brand-200 bg-brand-50/50">
+                                            <p className="text-[9px] uppercase font-bold text-brand-700 tracking-wider font-mono mb-1">
+                                              {locale === "pt" ? "Sugestão da IA" : "AI suggestion"}
+                                              {sugestao.apontamentos.length > 0 && (
+                                                <span className="normal-case tracking-normal font-normal text-slate-500">
+                                                  {" "}({locale === "pt" ? "considerou" : "considered"} {sugestao.apontamentos.length} {locale === "pt" ? "apontamento(s)" : "finding(s)"})
+                                                </span>
+                                              )}
+                                            </p>
+                                            {sugestao.o_que_mudou && <p className="text-[10px] text-slate-600 italic mb-1">{sugestao.o_que_mudou}</p>}
+                                            <button
+                                              onClick={() => setTextoDaSecao((atual) => ({ ...atual, [secao.nome]: sugestao.texto_sugerido }))}
+                                              className="text-[10px] font-mono font-bold uppercase bg-brand-600 hover:bg-brand-700 text-white px-2 py-0.5 rounded cursor-pointer"
+                                            >
+                                              {locale === "pt" ? "Usar este texto" : "Use this text"}
+                                            </button>
+                                          </div>
+                                        )}
+
+                                        {/*
+                                          * F7: as correções pontuais, destacadas EM COR dentro do
+                                          * próprio texto, com aceitar e recusar por item.
+                                          *
+                                          * O texto é fatiado pelos offsets que o servidor devolveu
+                                          * - por isso ele fica ao lado do textarea e não dentro
+                                          * dele: um textarea não colore trecho. Aceitar aplica só
+                                          * aquele trecho e reposiciona os demais; recusar remove o
+                                          * item e não toca no texto.
+                                          */}
+                                        {correcoesDaSecao[secao.nome] && (
+                                          <div className="mb-2 p-2 rounded border border-slate-200 bg-slate-50/70">
+                                            <p className="text-[9px] uppercase font-bold text-slate-600 tracking-wider font-mono mb-1.5">
+                                              {locale === "pt" ? "Revisão gramatical" : "Grammar review"}
+                                              <span className="normal-case tracking-normal font-normal text-slate-500">
+                                                {" "}— {correcoesDaSecao[secao.nome]!.correcoes.length}{" "}
+                                                {locale === "pt" ? "correção(ões) pendente(s)" : "pending correction(s)"}
+                                                {correcoesDaSecao[secao.nome]!.descartadas > 0 && (
+                                                  <span className="text-slate-400">
+                                                    {" "}({correcoesDaSecao[secao.nome]!.descartadas}{" "}
+                                                    {locale === "pt" ? "descartada(s): trecho não localizado no texto" : "discarded: snippet not found in the text"})
+                                                  </span>
+                                                )}
+                                              </span>
+                                            </p>
+                                            {correcoesDaSecao[secao.nome]!.correcoes.length === 0 ? (
+                                              <p className="text-[10px] text-slate-500 italic">
+                                                {locale === "pt" ? "Nada pendente nesta seção." : "Nothing pending in this section."}
+                                              </p>
+                                            ) : (
+                                              <>
+                                                <p className="text-[11px] leading-relaxed text-slate-700 whitespace-pre-wrap mb-2 p-2 bg-white rounded border border-slate-200 max-h-40 overflow-y-auto">
+                                                  {(() => {
+                                                    const { texto_base, correcoes } = correcoesDaSecao[secao.nome]!;
+                                                    const pedacos: React.ReactNode[] = [];
+                                                    let cursor = 0;
+                                                    for (const c of correcoes) {
+                                                      if (c.offset > cursor) pedacos.push(<span key={`t${c.id}`}>{texto_base.slice(cursor, c.offset)}</span>);
+                                                      pedacos.push(
+                                                        <mark key={c.id} className="bg-warning-100 text-warning-900 border-b-2 border-warning-400 rounded-sm px-0.5">
+                                                          {c.trecho_original}
+                                                        </mark>
+                                                      );
+                                                      cursor = c.offset + c.trecho_original.length;
+                                                    }
+                                                    pedacos.push(<span key="fim">{texto_base.slice(cursor)}</span>);
+                                                    return pedacos;
+                                                  })()}
+                                                </p>
+                                                <ul className="space-y-1.5">
+                                                  {correcoesDaSecao[secao.nome]!.correcoes.map((c) => (
+                                                    <li key={c.id} className="flex items-start gap-2 text-[10px]">
+                                                      <span className="flex-1">
+                                                        <span className="bg-danger-50 text-danger-700 line-through px-1 rounded">{c.trecho_original}</span>
+                                                        {" → "}
+                                                        <span className="bg-success-50 text-success-700 px-1 rounded">{c.trecho_corrigido}</span>
+                                                        {c.motivo && <span className="text-slate-400 italic"> — {c.motivo}</span>}
+                                                      </span>
+                                                      <button
+                                                        onClick={() => decidirCorrecao(secao.nome, c, true)}
+                                                        className="shrink-0 text-[9px] font-mono font-bold uppercase bg-success-700 hover:bg-success-800 text-white px-2 py-1 rounded cursor-pointer focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                                      >
+                                                        {locale === "pt" ? "Aceitar" : "Accept"}
+                                                      </button>
+                                                      <button
+                                                        onClick={() => decidirCorrecao(secao.nome, c, false)}
+                                                        className="shrink-0 text-[9px] font-mono font-bold uppercase text-slate-500 hover:bg-slate-100 border border-slate-200 px-2 py-1 rounded cursor-pointer focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                                      >
+                                                        {locale === "pt" ? "Recusar" : "Reject"}
+                                                      </button>
+                                                    </li>
+                                                  ))}
+                                                </ul>
+                                                <p className="mt-1.5 text-[9px] text-slate-400 italic">
+                                                  {locale === "pt"
+                                                    ? "Aceitar muda o texto abaixo; salvar a seção é que grava."
+                                                    : "Accepting edits the text below; saving the section is what persists it."}
+                                                </p>
+                                              </>
+                                            )}
+                                          </div>
+                                        )}
+
+                                        <textarea
+                                          aria-label={locale === "pt" ? `Texto da seção ${secao.nome}` : `Text of section ${secao.nome}`}
+                                          value={textoDaSecao[secao.nome] ?? ""}
+                                          onChange={(e) => setTextoDaSecao((atual) => ({ ...atual, [secao.nome]: e.target.value }))}
+                                          rows={4}
+                                          placeholder={locale === "pt" ? "Vazio: a seção sai como a análise a deixou." : "Empty: the section renders as the analysis left it."}
+                                          className="w-full p-2 rounded border border-slate-200 text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-brand-500 resize-y"
+                                        />
+                                        <button
+                                          onClick={() => void salvarSecao(editingProposal.id, secao.nome)}
+                                          disabled={salvandoSecao === secao.nome}
+                                          className="mt-1.5 text-[10px] font-mono font-bold uppercase bg-slate-700 hover:bg-slate-800 text-white px-2.5 py-1.5 rounded cursor-pointer disabled:opacity-50 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                        >
+                                          {salvandoSecao === secao.nome
+                                            ? (locale === "pt" ? "Salvando..." : "Saving...")
+                                            : (locale === "pt" ? "Salvar seção" : "Save section")}
+                                        </button>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+
+                              {/*
+                                * F7: a COERÊNCIA ENTRE SEÇÕES, por IA - contradição entre o que uma
+                                * seção afirma e outra nega.
+                                *
+                                * A coerência NUMÉRICA não está aqui e não deve estar: soma de itens
+                                * contra total, item do BOM ausente e placeholder esquecido são
+                                * conferidos exatamente, sem IA, em "Revisão do documento"
+                                * (GET /proposals/:id/revisao). O aviso abaixo diz isso na tela para
+                                * que ninguém leia esta lista como conferência de conta.
+                                */}
+                              {secoesDeTexto.length > 1 && (
+                                <div className="pt-2 border-t border-slate-100">
+                                  <div className="flex items-center justify-between gap-2 pt-2 mb-2">
+                                    <h4 className="text-[10px] uppercase font-bold text-slate-500 tracking-wider font-mono flex items-center gap-1.5">
+                                      <ListChecks size={11} />
+                                      {locale === "pt" ? "Coerência entre seções" : "Cross-section coherence"}
+                                    </h4>
+                                    <button
+                                      onClick={() => void verificarCoerencia(editingProposal.id)}
+                                      disabled={verificandoCoerencia}
+                                      title={locale === "pt" ? "A IA procura contradição entre o que uma seção afirma e outra nega. Número, total e prazo NÃO passam por aqui - são conferidos exatamente na Revisão do documento." : "The AI looks for contradictions between what one section states and another denies. Numbers, totals and deadlines do NOT go through here - they are checked exactly in the document review."}
+                                      className="flex items-center gap-1 text-[10px] font-mono font-bold uppercase text-brand-700 hover:bg-brand-50 border border-brand-200 px-2 py-1 rounded cursor-pointer disabled:opacity-50"
+                                    >
+                                      <Sparkles size={11} />
+                                      {verificandoCoerencia
+                                        ? (locale === "pt" ? "Verificando..." : "Checking...")
+                                        : (locale === "pt" ? "Verificar coerência" : "Check coherence")}
+                                    </button>
+                                  </div>
+                                  {coerencia && (
+                                    coerencia.achados.length === 0 ? (
+                                      <p className="text-[10px] text-success-700">
+                                        {locale === "pt"
+                                          ? `Nenhuma contradição encontrada entre as ${coerencia.secoes.length} seções avaliadas.`
+                                          : `No contradiction found across the ${coerencia.secoes.length} sections reviewed.`}
+                                      </p>
+                                    ) : (
+                                      <ul className="space-y-1.5">
+                                        {coerencia.achados.map((a, i) => (
+                                          <li key={i} className={`rounded border p-2 text-[10px] ${a.severidade === "critical" ? "border-danger-200 bg-danger-50/40" : a.severidade === "warning" ? "border-warning-200 bg-warning-50/40" : "border-slate-200 bg-slate-50/60"}`}>
+                                            <p className="font-bold text-[11px] text-slate-700">{a.contradicao}</p>
+                                            <p className="mt-0.5 text-slate-600">{a.detalhe}</p>
+                                            <p className="mt-1 font-mono uppercase tracking-wider text-[9px] text-slate-400">
+                                              {a.secao_a} ↔ {a.secao_b}
+                                            </p>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    )
+                                  )}
+                                  <p className="mt-1.5 text-[9px] text-slate-400 italic">
+                                    {locale === "pt"
+                                      ? "Só texto. Soma de itens, total e item de material são conferidos exatamente, sem IA, na Revisão do documento."
+                                      : "Text only. Line totals, grand total and BOM items are checked exactly, without AI, in the document review."}
+                                  </p>
+                                </div>
+                              )}
+
+                              {/* F6: o histórico por seção - autor, instante, origem e apontamento. */}
+                              {historicoDeSecoes.length > 0 && (
+                                <div className="pt-2 border-t border-slate-100">
+                                  <h4 className="text-[10px] uppercase font-bold text-slate-500 tracking-wider font-mono flex items-center gap-1.5 pt-2 mb-2">
+                                    <History size={11} />
+                                    {locale === "pt" ? "Histórico por seção" : "Section history"}
+                                  </h4>
+                                  <ul className="space-y-1.5">
+                                    {historicoDeSecoes.map((h) => (
+                                      <li key={h.id} className="text-[10px] text-slate-500 border-l-2 border-slate-200 pl-2">
+                                        <span className="font-mono font-bold text-slate-600">{h.target_key}</span>
+                                        {" · "}
+                                        <span className={h.origin === "humano" ? "text-slate-600" : "text-brand-700"}>
+                                          {h.origin === "humano" ? (locale === "pt" ? "humano" : "human") : h.origin === "ia" ? "IA" : (locale === "pt" ? "IA editada" : "AI edited")}
+                                        </span>
+                                        {" · "}
+                                        {h.author_name}
+                                        {" · "}
+                                        {new Date(h.created_at).toLocaleString(locale === "pt" ? "pt-BR" : "en-US")}
+                                        {h.finding && (
+                                          <span className="block text-slate-400 italic">
+                                            <ListChecks size={9} className="inline mr-1" />
+                                            {locale === "pt" ? "motivado por" : "motivated by"}: {h.finding.title}
+                                          </span>
+                                        )}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
                       )}
                       <div className="flex justify-end gap-2 p-4 border-t border-slate-100">
                         <button
@@ -1015,55 +2007,42 @@ export default function Proposals({
                           </button>
                         )}
                       </div>
-                    </div>
+                    </CascaDeDialogo>
                   </div>
                 );
               })()}
 
               {previewingProposalId && (
                 <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
-                  <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+                  <CascaDeDialogo
+                    onClose={closePreview}
+                    rotuladoPor="previa-do-documento-titulo"
+                    className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col"
+                  >
                     <div className="flex items-center justify-between p-4 border-b border-slate-100">
                       <div className="flex items-center gap-2">
-                        <h3 className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">
+                        <h3 id="previa-do-documento-titulo" className="text-sm font-bold uppercase tracking-wider font-mono text-slate-700">
                           {locale === "pt" ? "Pré-visualização do Documento" : "Document Preview"}
                         </h3>
-                        <div className="flex rounded border border-slate-200 overflow-hidden ml-2">
-                          {(["docx", "pdf"] as const).map((fmt) => (
-                            <button
-                              key={fmt}
-                              onClick={() => openPreview(previewingProposalId, fmt)}
-                              className={`px-2.5 py-1 text-[10px] font-bold uppercase font-mono cursor-pointer ${previewFormat === fmt ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}
-                            >
-                              {fmt}
-                            </button>
-                          ))}
+                        <div className="ml-2">
+                          <DocumentFormatSwitch locale={locale} format={previewFormat} onChange={(fmt) => openPreview(previewingProposalId, fmt)} />
                         </div>
                       </div>
-                      <button onClick={closePreview} className="text-slate-400 hover:text-slate-700 cursor-pointer">
+                      <button onClick={closePreview} aria-label={locale === "pt" ? "Fechar a pré-visualização" : "Close the preview"} title={locale === "pt" ? "Fechar" : "Close"} className="-m-1.5 p-1.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer focus:outline-none focus:ring-1 focus:ring-brand-500">
                         <X size={18} />
                       </button>
                     </div>
                     <div className="flex-1 min-h-[60vh] overflow-y-auto bg-slate-100">
-                      {previewLoading && (
-                        <div className="h-full flex items-center justify-center text-xs text-slate-400 font-mono">
-                          {locale === "pt" ? "Carregando documento..." : "Loading document..."}
-                        </div>
-                      )}
-                      {previewError && (
-                        <div className="h-full flex items-center justify-center text-xs text-danger-600 font-mono p-4 text-center">{previewError}</div>
-                      )}
-                      {!previewLoading && !previewError && previewFormat === "docx" && previewDocxHtml && (
-                        <div
-                          className="bg-white max-w-3xl mx-auto my-6 p-10 shadow-sm text-sm leading-relaxed prose prose-sm"
-                          dangerouslySetInnerHTML={{ __html: previewDocxHtml }}
-                        />
-                      )}
-                      {!previewLoading && !previewError && previewFormat === "pdf" && previewPdfUrl && (
-                        <iframe title="pdf-preview" src={previewPdfUrl} className="w-full h-full min-h-[70vh] border-0" />
-                      )}
+                      <DocumentPreviewBody
+                        locale={locale}
+                        format={previewFormat}
+                        docxHtml={previewDocxHtml}
+                        pdfUrl={previewPdfUrl}
+                        loading={previewLoading}
+                        error={previewError}
+                      />
                     </div>
-                  </div>
+                  </CascaDeDialogo>
                 </div>
               )}
             </div>

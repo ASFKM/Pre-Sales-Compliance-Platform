@@ -1,7 +1,8 @@
 import { dbStore } from "../../src/dbStore";
 import { resolveProvider, recordAiUsage } from "../../src/aiOrchestrator";
 import { estimateCostUsd } from "./aiPricing";
-import { generateJsonWithProvider, ConnectedProvider } from "./aiProviders";
+import { generateJsonWithProvider, buildActorRef, AiTriggerType } from "./aiProviders";
+import type { ConnectedProvider } from "./aiProviders";
 import { extractKnowledgeBaseKeywords } from "../routes/analysis";
 import { logger } from "./logger";
 import { PlatformSettings } from "../../src/types";
@@ -34,7 +35,14 @@ export async function reconcileIncomingKnowledgeEntry(
   // F11 (docs/cdc/16, item 31): opcional de propósito - chamado pelo heartbeat (server/utils/
   // fleetLicense.ts) para entradas que chegam do Fleet Manager, sem usuário nenhum por trás; e
   // pelas rotas de sugestão/análise de server/routes/knowledgeBase.ts, com um usuário real.
-  userId?: string
+  userId?: string,
+  // F4 (rodada 09/2026): o gatilho tem de vir de fora pela mesma razao que `userId` e opcional -
+  // esta funcao e chamada dos dois mundos. Do heartbeat ela roda sem usuario NENHUM e sem
+  // requisicao nenhuma (setInterval de 20 minutos em server.ts), e e o unico ponto de IA do
+  // produto nessa condicao: por isso o `actorRef` abaixo cai para `system:` em vez de ficar
+  // ausente, para que esse gasto tenha um dono nomeado no relatorio do CMSaaS em vez de somar
+  // num balde anonimo junto com qualquer outra chamada sem ator.
+  triggerType: AiTriggerType = "scheduled_job"
 ): Promise<ReconciliationOutcome> {
   try {
     const keywords = extractKnowledgeBaseKeywords(`${incoming.trigger} ${incoming.knowledge}`, 15);
@@ -71,7 +79,7 @@ Respond with ONLY a JSON object: { "classification": "duplicate"|"contradiction"
     let text = "", inputTokens = 0, outputTokens = 0, billedCostUsd: number | undefined;
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       try {
-        ({ text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt));
+        ({ text, inputTokens, outputTokens, billedCostUsd } = await generateJsonWithProvider(providerResolution.provider as ConnectedProvider, providerResolution.model, prompt, { taskKey: "spec_copilot", actorRef: userId ? buildActorRef("user", userId) : buildActorRef("system", "reconciliacao-base-conhecimento"), triggerType }));
         break;
       } catch (aiErr: any) {
         const isRateLimit = aiErr?.status === 429 || /rate.?limit|429/i.test(String(aiErr?.message || ""));

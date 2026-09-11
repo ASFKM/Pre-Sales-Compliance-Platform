@@ -42,17 +42,6 @@ export interface TeamMembership {
 
 export type ProjectStatus = "draft" | "analysis_in_progress" | "waiting_customer" | "waiting_internal" | "completed" | "canceled";
 
-export interface BrandStyle {
-  id: string;
-  name: string;
-  company_name?: string;
-  logo_data_url?: string;
-  primary_color?: string;
-  created_by: string;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface Project {
   id: string;
   name: string;
@@ -74,10 +63,6 @@ export interface Project {
   ai_orientation_mode: "Vendor-neutral" | "Preferred manufacturer" | "Mandatory manufacturer" | "Existing customer standard" | "Free AI recommendation" | "Custom instruction";
   ai_orientation_text: string;
   selected_approval_workflow_id: string;
-  // Roadmap item (customer_request): "Identidade Visual em DOCX" Fase 4b - reusable named brand
-  // style this project opts into instead of the tenant-wide BrandingSettings default. Null/undefined
-  // = use the tenant default, unchanged from before.
-  brand_style_id?: string | null;
   procurement_modality?: string;
   procurement_subtype?: string;
   custom_modality?: string;
@@ -553,6 +538,21 @@ export interface PlatformSettings {
   pricing_budget_optimization_provider: string;
   pricing_catalog_extraction_model: string;
   pricing_catalog_extraction_provider: string;
+  // F6 (rodada 09/2026): slot proprio da reescrita de secao - ver o comentario da coluna em
+  // prisma/schema.prisma para por que ela nao reusa proposal_generation.
+  proposal_section_rewrite_model: string;
+  proposal_section_rewrite_provider: string;
+  // F7 (rodada 09/2026): sanacao por apontamento, gramatica por correcao pontual e coerencia de
+  // TEXTO entre secoes. A coerencia NUMERICA continua deterministica (server/utils/proposalQa.ts)
+  // e nao tem slot de IA nenhum, de proposito.
+  proposal_finding_remediation_model: string;
+  proposal_finding_remediation_provider: string;
+  proposal_grammar_check_model: string;
+  proposal_grammar_check_provider: string;
+  proposal_section_coherence_model: string;
+  proposal_section_coherence_provider: string;
+  proposal_approver_briefing_model: string;
+  proposal_approver_briefing_provider: string;
   monthly_cost_cap_usd?: number | null;
   // Phase 7 (fleet/license management): this tenant's registration with the vendor's fleet
   // manager (a separate server). See src/fleetLicense.ts.
@@ -697,34 +697,6 @@ export interface ApprovalDecision {
   decision: "approved" | "rejected";
   comments: string;
   created_at: string;
-}
-
-export interface BrandingSettings {
-  id: string;
-  company_name: string;
-  company_logo_path: string;
-  login_logo_path: string;
-  sidebar_logo_path: string;
-  report_logo_path: string;
-  favicon_path: string;
-  primary_color: string;
-  secondary_color: string;
-  accent_color: string;
-  background_color: string;
-  text_color: string;
-  font_family: string;
-  border_radius: string; // e.g. "rounded-md"
-  button_style: string;
-  default_theme: "light" | "dark";
-  custom_css_variables: string;
-  footer_text: string;
-  support_contact: string;
-  legal_text: string;
-  // Fase 8: quando true, `primary_color` também pinta a interface (rampa derivada em
-  // src/brandTheme.ts), não só o cabeçalho do DOCX gerado.
-  apply_to_ui: boolean;
-  created_at: string;
-  updated_at: string;
 }
 
 export interface IntegrationConnector {

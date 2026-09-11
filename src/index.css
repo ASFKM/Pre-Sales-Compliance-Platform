@@ -175,3 +175,109 @@ input[type="date"]::-webkit-datetime-edit-year-field {
 .animate-poc-start-glow {
   animation: poc-start-glow 2.4s ease-in-out infinite;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   F10 — A TIPOGRAFIA DO DOCUMENTO RENDERIZADO (preview do .docx)
+
+   ACHADO MEDIDO NA AUDITORIA DESTA FASE, e a razão de este bloco existir:
+   `DocumentPreview.tsx` pedia `prose prose-sm`, classes do plugin
+   @tailwindcss/typography. O plugin NÃO está instalado e nada o importa — medido
+   no CSS servido: `grep -c "\.prose" dist/assets/index-*.css` devolveu 0.
+   As duas classes não existiam, e o navegador não avisa.
+
+   O efeito medido no dossiê do aprovador (getComputedStyle, 1440px, antes desta
+   fase): o `<h1>` do documento vinha com font-size 14px, font-weight 400 e
+   margin 0px — EXATAMENTE os mesmos valores do `<p>` ao lado. O Preflight do
+   Tailwind zera margem e peso de h1..h6, p, ul e ol, e sem o plugin nada os
+   devolve. O aprovador via o documento como um bloco corrido: sem título, sem
+   parágrafo, sem lista. A F8 escreveu que o documento "é a primeira coisa que o
+   aprovador quer ver"; ele era a única coisa que a tela não conseguia mostrar.
+
+   Por que uma classe própria e não instalar o plugin: este HTML vem do `mammoth`
+   convertendo o .docx, e o que ele produz é um subconjunto pequeno e conhecido
+   (medido no documento de prova: P, H1, TABLE/THEAD/TBODY/TR/TH/TD, STRONG, IMG).
+   O plugin traz um tema de artigo de blog inteiro para estilizar isso, com
+   `max-width` em ch e escala própria que brigaria com a do produto. Aqui a escala
+   é derivada da base do produto (14px, `text-sm`) e as cores saem dos tokens de
+   `@theme static`, não de literais.
+
+   SELETOR DE ELEMENTO, DE PROPÓSITO E COM ESCOPO: o conteúdo é injetado por
+   `dangerouslySetInnerHTML` depois de passar pelo DOMPurify — não há como pôr
+   classe em cada nó. O escopo é a classe `.documento-renderizado` e nada fora
+   dela é alcançado. (A armadilha conhecida é a inversa: um seletor de elemento
+   SEM escopo anulando uma classe de acento.)
+   ═══════════════════════════════════════════════════════════════════════════════ */
+/* Os tokens sao `neutral-*` e nao `slate-*` DE PROPOSITO: o Tailwind v4 so emite a
+   variavel do tema DEFAULT que alguma utility use — medido, `--color-lime-200` nao
+   existe no bundle. `--color-slate-*` esta la hoje por acidente (ha utilities usando).
+   No dia em que a ultima sumisse, `border: 1px solid var(--color-slate-200)` viraria
+   valor invalido e a tabela do documento perderia a borda EM SILENCIO. `neutral-*`
+   esta em `@theme static` acima, com valores literalmente identicos aos de slate. */
+.documento-renderizado {
+  color: var(--color-neutral-700);
+}
+.documento-renderizado > :first-child { margin-top: 0; }
+.documento-renderizado > :last-child { margin-bottom: 0; }
+
+.documento-renderizado h1,
+.documento-renderizado h2,
+.documento-renderizado h3,
+.documento-renderizado h4,
+.documento-renderizado h5,
+.documento-renderizado h6 {
+  color: var(--color-neutral-900);
+  font-weight: 700;
+  line-height: 1.3;
+  margin-top: 1.6em;
+  margin-bottom: 0.5em;
+  text-wrap: balance;
+}
+.documento-renderizado h1 { font-size: 1.45em; }
+.documento-renderizado h2 { font-size: 1.2em; }
+.documento-renderizado h3 { font-size: 1.05em; }
+.documento-renderizado h4,
+.documento-renderizado h5,
+.documento-renderizado h6 { font-size: 1em; font-weight: 600; }
+
+.documento-renderizado p { margin-bottom: 0.9em; }
+
+.documento-renderizado ul,
+.documento-renderizado ol {
+  margin-bottom: 0.9em;
+  padding-left: 1.5em;
+}
+.documento-renderizado ul { list-style: disc; }
+.documento-renderizado ol { list-style: decimal; }
+.documento-renderizado li { margin-bottom: 0.3em; }
+.documento-renderizado li > ul,
+.documento-renderizado li > ol { margin-top: 0.3em; margin-bottom: 0.3em; }
+
+.documento-renderizado strong { font-weight: 600; color: var(--color-neutral-900); }
+.documento-renderizado em { font-style: italic; }
+
+/* A tabela é o que o .docx de proposta mais carrega (escopo, BOM, preço). Sem regra
+   ela chegava sem borda e sem respiro, com as colunas encostadas umas nas outras. */
+.documento-renderizado table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1.1em;
+  font-size: 0.92em;
+}
+.documento-renderizado th,
+.documento-renderizado td {
+  border: 1px solid var(--color-neutral-200);
+  padding: 0.45em 0.6em;
+  text-align: left;
+  vertical-align: top;
+}
+.documento-renderizado th {
+  background: var(--color-neutral-50);
+  color: var(--color-neutral-800);
+  font-weight: 600;
+}
+
+.documento-renderizado img { max-width: 100%; height: auto; }
+
+/* Documento comercial tem tabela larga. Ela rola dentro do próprio quadro em vez de
+   empurrar a página — o corpo do modal nunca deve rolar na horizontal (390px). */
+.documento-renderizado { overflow-x: auto; }
