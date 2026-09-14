@@ -78,7 +78,7 @@
     "react-dom": "^19.2.8",
     "recharts": "^3.10.1",
     "undici": "^8.10.0",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",
