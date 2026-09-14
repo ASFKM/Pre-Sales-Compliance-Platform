@@ -48,7 +48,7 @@
     "@aws-sdk/client-s3": "^3.1084.0",
     "@google-cloud/storage": "^7.14.0",
     "@google/genai": "^2.4.0",
-    "@prisma/adapter-pg": "^7.9.1",
+    "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.9.1",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^6.0.3",
